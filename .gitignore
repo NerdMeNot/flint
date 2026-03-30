@@ -1,0 +1,49 @@
+# Reference repos (study material, never committed)
+_reference/
+
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+coverage.out
+coverage.html
+
+# Build
+dist/
+build/
+
+# Vendor (committed selectively)
+# vendor/
+
+# Go
+*.test
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (web/)
+web/node_modules/
+web/.next/
+web/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Wire generated (committed, but ignore if regenerating)
+# *_gen.go

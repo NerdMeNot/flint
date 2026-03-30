@@ -1,0 +1,10 @@
+bin/
+.git/
+_reference/
+coverage.out
+coverage.html
+*.md
+!go.md
+.claude/
+.env
+config.yaml

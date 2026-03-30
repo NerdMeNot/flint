@@ -1,0 +1,51 @@
+-- name: InsertWorkflow :one
+INSERT INTO workflows (run_id, parent_id, parent_step, status, input)
+VALUES ($1, $2, $3, 'pending', $4)
+RETURNING id;
+
+-- name: GetExistingWorkflow :one
+SELECT id FROM workflows WHERE run_id = $1 AND parent_id IS NULL;
+
+-- name: LockWorkflow :one
+SELECT status, dag_waves, step_outputs, input
+FROM workflows WHERE id = $1 FOR UPDATE;
+
+-- name: UpdateWorkflowPipeline :exec
+UPDATE workflows SET pipeline_yaml = $2, pipeline_def = $3, dag_waves = $4,
+    status = 'running', started_at = now()
+WHERE id = $1;
+
+-- name: FinishWorkflow :exec
+UPDATE workflows SET status = $2, finished_at = now() WHERE id = $1;
+
+-- name: CancelWorkflow :exec
+UPDATE workflows SET status = 'cancelled', cancelled_at = now(), finished_at = now()
+WHERE id = $1 AND status IN ('pending', 'running');
+
+-- name: CancelChildWorkflows :exec
+UPDATE workflows SET status = 'cancelled', cancelled_at = now(), finished_at = now()
+WHERE parent_id = $1 AND status IN ('pending', 'running');
+
+-- name: UpdateStepOutputs :exec
+UPDATE workflows SET step_outputs = step_outputs || $2::jsonb WHERE id = $1;
+
+-- name: GetWorkflowParent :one
+SELECT parent_id, parent_step FROM workflows WHERE id = $1;
+
+-- name: GetWorkflowStatus :one
+SELECT run_id, status, started_at, finished_at FROM workflows WHERE id = $1;
+
+-- name: GetWorkflowDAGWaves :one
+SELECT dag_waves FROM workflows WHERE id = $1;
+
+-- name: GetWorkflowInput :one
+SELECT input FROM workflows WHERE id = $1;
+
+-- name: SweepStaleWorkflows :exec
+UPDATE workflows SET status = 'failed', finished_at = now()
+WHERE status = 'running'
+AND NOT EXISTS (
+    SELECT 1 FROM steps
+    WHERE workflow_id = workflows.id
+    AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
+);

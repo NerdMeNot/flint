@@ -1,0 +1,6 @@
+pipeline: Minimal
+
+steps:
+  - name: hello
+    image: alpine:3.20
+    run: echo hello

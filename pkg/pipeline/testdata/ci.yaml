@@ -1,0 +1,83 @@
+pipeline: Skills Service CI
+
+secrets:
+  - GITHUB_TOKEN
+  - SLACK_WEBHOOK:
+      optional: true
+      description: Optional Slack notification
+
+triggers:
+  push:
+    branches: [main, "feature/**"]
+    paths: ["src/**", "go.sum"]
+  pr:
+    branches: [main]
+  manual:
+    inputs:
+      skip-tests:
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ git.branch }}
+  mode: cancel
+
+env:
+  GO_VERSION: "1.23"
+
+steps:
+  - name: deps
+    image: golang:1.23
+    run: go mod download
+    runner: standard
+
+  - name: lint
+    image: golangci/golangci-lint:v1.62
+    after: [deps]
+    run: golangci-lint run ./...
+    runner: standard
+    lifecycle:
+      onFailure: continue
+
+  - name: test
+    image: golang:1.23
+    after: [deps]
+    if: ${{ inputs.skip_tests == false }}
+    runner: standard
+    do:
+      - run tests:
+          run: go test -race ./...
+      - report:
+          run: echo "done"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: testdb
+        healthCheck:
+          test: pg_isready
+
+  - name: build
+    image: golang:1.23
+    after: [deps]
+    run: go build -o bin/server ./cmd/server
+    runner:
+      name: standard
+      size: large
+
+  - name: approve-production
+    after: [test, build]
+    gate:
+      message: Deploy to production?
+      approvers: [team:platform]
+      timeout: 4h
+      form:
+        ticket:
+          type: string
+          label: Jira ticket
+          required: true
+
+  - name: deploy
+    after: [approve-production]
+    image: bitnami/kubectl:1.31
+    run: kubectl apply -f deploy.yaml

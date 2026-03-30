@@ -1,0 +1,64 @@
+# Flint configuration
+# Copy to config.yaml and adjust for your environment.
+# All values can be overridden with FLINT_ env vars:
+#   server.port → FLINT_SERVER_PORT
+
+server:
+  port: 8080
+  baseUrl: http://localhost:8080
+
+database:
+  host: localhost
+  port: 5432
+  database: flint
+  user: flint
+  password: flint
+  sslMode: disable
+  maxConns: 10
+  minConns: 2
+
+temporal:
+  hostPort: localhost:7233
+  namespace: default
+  taskQueue: flint-pipeline-tasks
+
+worker:
+  jobNamespace: flint-jobs
+  agentImage: ghcr.io/NerdMeNot/flint-agent:latest
+  defaultRunnerPool: standard
+  sweepInterval: 5m   # observer sweep interval (min: 30s, default: 5m)
+
+controller:
+  enabled: false
+
+auth:
+  adminUsers: []          # emails that always get org_admin (bootstrap)
+  defaultRole: viewer     # fallback role when no Casbin policy matches
+  oidc:
+    issuerUrl: ""
+    clientId: ""
+    clientSecret: ""
+  saml:
+    enabled: false
+    metadataUrl: ""
+    entityId: ""           # defaults to {baseUrl}/auth/saml/metadata
+    certFile: ""           # optional SP signing certificate PEM
+    keyFile: ""            # optional SP signing private key PEM
+  jwt:
+    secret: "change-me-to-a-32-byte-secret!!"
+    sessionDuration: 24h
+
+storage:
+  mode: filesystem
+  filesystem:
+    path: /tmp/flint-logs
+  # s3:
+  #   bucket: flint-logs
+  #   region: us-east-1
+
+# Forge connections (GitHub, GitLab, Bitbucket) are configured per-org
+# via the UI and stored in the database — not in this config file.
+
+encryption:
+  masterKey: ""  # hex-encoded 32-byte key; generate with: openssl rand -hex 32
+  masterKeyVersion: 1
