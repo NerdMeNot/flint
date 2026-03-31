@@ -71,14 +71,14 @@ function DashboardPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
+              <div className="hidden sm:flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <GitBranch size={12} />
                   <span className="font-mono">{run.branch}</span>
                 </span>
-                <span className="font-mono opacity-60">{run.commitSha}</span>
+                <span className="hidden md:inline font-mono opacity-60">{run.commitSha}</span>
                 <span>{run.duration}</span>
-                <span className="opacity-50">{run.startedAt}</span>
+                <span className="hidden lg:inline opacity-50">{run.startedAt}</span>
               </div>
             </Link>
           ))}

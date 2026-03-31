@@ -4,7 +4,7 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
-import { Sidebar } from '#/components/Sidebar'
+import { Sidebar, SidebarProvider, MobileMenuButton, useSidebar } from '#/components/Sidebar'
 import ThemeToggle from '#/components/ThemeToggle'
 import { ThemeSwitcher } from '#/components/ThemeSwitcher'
 import appCss from '../styles.css?url'
@@ -41,17 +41,43 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootLayout() {
   return (
-    <>
+    <SidebarProvider>
       <Sidebar />
-      <div className="ml-[220px] min-h-screen">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-end gap-3 border-b border-border px-6" style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}>
+      <MainContent />
+    </SidebarProvider>
+  )
+}
+
+function MainContent() {
+  const { collapsed } = useSidebar()
+
+  return (
+    <div className={`min-h-screen transition-all duration-200 ease-out ${
+      collapsed ? 'lg:ml-[60px]' : 'lg:ml-[220px]'
+    }`}>
+      <header
+        className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6"
+        style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
+      >
+        <MobileMenuButton />
+        {/* Mobile brand */}
+        <div className="lg:hidden flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded font-bold text-xs"
+            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            F
+          </div>
+          <span className="display-title font-bold text-foreground text-sm tracking-tight">
+            Flint
+          </span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
           <ThemeSwitcher />
           <ThemeToggle />
-        </header>
-        <main className="px-8 py-6">
-          <Outlet />
-        </main>
-      </div>
-    </>
+        </div>
+      </header>
+      <main className="px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+        <Outlet />
+      </main>
+    </div>
   )
 }

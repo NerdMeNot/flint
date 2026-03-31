@@ -30,26 +30,24 @@ function RunDetailPage() {
   return (
     <div className="space-y-6 max-w-7xl rise-in">
       {/* Run Header */}
-      <div className="island-shell p-5">
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <RunStatusBadge status={run.status} />
-              <h1 className="display-title text-xl font-bold text-foreground">
-                {run.projectName}
-              </h1>
-              <span className="text-xs text-muted-foreground font-mono opacity-60">
-                {run.workflowFile}
-              </span>
-            </div>
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
-              <GitCommit size={14} />
-              {run.commitMessage}
-            </p>
+      <div className="island-shell p-4 sm:p-5">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <RunStatusBadge status={run.status} />
+            <h1 className="display-title text-lg sm:text-xl font-bold text-foreground">
+              {run.projectName}
+            </h1>
+            <span className="text-xs text-muted-foreground font-mono opacity-60">
+              {run.workflowFile}
+            </span>
           </div>
+          <p className="text-sm text-muted-foreground flex items-center gap-2">
+            <GitCommit size={14} className="shrink-0" />
+            <span className="truncate">{run.commitMessage}</span>
+          </p>
         </div>
 
-        <div className="flex items-center gap-5 mt-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <GitBranch size={13} />
             <span className="font-mono">{run.branch}</span>
@@ -136,7 +134,7 @@ function RunDetailPage() {
               {selectedStep ? selectedStep : 'Select a step'}
             </h3>
           </div>
-          <div className="bg-[#0d1117] p-4 font-mono text-xs leading-relaxed text-[#c9d1d9] min-h-[300px] max-h-[440px] overflow-auto">
+          <div className="bg-[#0d1117] p-3 sm:p-4 font-mono text-[0.7rem] sm:text-xs leading-relaxed text-[#c9d1d9] min-h-[200px] sm:min-h-[300px] max-h-[340px] sm:max-h-[440px] overflow-auto">
             {selectedStep && mockStepLogs[selectedStep] ? (
               mockStepLogs[selectedStep].split('\n').map((line, i) => (
                 <div key={i} className="flex gap-3 hover:bg-[#161b22] -mx-1 px-1 rounded">

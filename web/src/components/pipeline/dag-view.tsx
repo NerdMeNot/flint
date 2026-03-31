@@ -152,7 +152,7 @@ export function DagView({ steps, onStepClick }: DagViewProps) {
   )
 
   return (
-    <div className="h-[400px] w-full rounded-xl border border-border bg-card">
+    <div className="h-[280px] sm:h-[350px] lg:h-[400px] w-full rounded-xl border border-border bg-card">
       <ReactFlow
         nodes={nodes}
         edges={edges}
