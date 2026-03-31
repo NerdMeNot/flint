@@ -62,7 +62,7 @@ export default function ThemeToggle() {
           onClick={() => setTheme(value)}
           aria-label={`Switch to ${label} theme`}
           title={label}
-          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all duration-150 ${
+          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all duration-150 ${
             mode === value
               ? 'text-white shadow-sm'
               : 'text-muted-foreground hover:text-foreground'

@@ -408,7 +408,7 @@ export function ThemeSwitcher() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
         style={{ background: 'var(--surface)' }}
       >
         <Palette size={14} />
@@ -430,7 +430,7 @@ export function ThemeSwitcher() {
                 key={theme.name}
                 type="button"
                 onClick={() => selectTheme(theme)}
-                className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
                   active === theme.name
                     ? 'text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
