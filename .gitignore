@@ -35,6 +35,13 @@ build/
 .DS_Store
 Thumbs.db
 
+# Playwright
+.playwright-mcp/
+
+# Screenshots
+*.png
+*.jpg
+
 # Node (web/)
 web/node_modules/
 web/.next/
