@@ -8,10 +8,14 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  ChevronRight,
   Terminal,
+  Timer,
+  ArrowLeft,
+  Network,
+  List,
 } from 'lucide-react'
 import { mockRuns, mockPipelineSteps, mockStepLogs } from '#/lib/mock-data'
+import { StepTimeline } from '#/components/pipeline/step-timeline'
 
 const DagView = lazy(() =>
   import('#/components/pipeline/dag-view').then((m) => ({ default: m.DagView }))
@@ -24,16 +28,24 @@ export const Route = createFileRoute('/runs/$id')({
 function RunDetailPage() {
   const { id } = Route.useParams()
   const [selectedStep, setSelectedStep] = useState<string | null>(null)
+  const [view, setView] = useState<'timeline' | 'dag'>('timeline')
 
-  const run = mockRuns.find((r) => r.id === id) ?? mockRuns[2]! // default to running run
+  const run = mockRuns.find((r) => r.id === id) ?? mockRuns[2]!
+  const step = selectedStep
+    ? mockPipelineSteps.find((s) => s.name === selectedStep)
+    : null
+
+  function handleStepClick(name: string) {
+    setSelectedStep(name === selectedStep ? null : name)
+  }
 
   return (
-    <div className="space-y-6 max-w-7xl rise-in">
+    <div className="rise-in max-w-6xl">
       {/* Run Header */}
-      <div className="island-shell p-4 sm:p-5">
+      <div className="island-shell p-4 sm:p-5 mb-5">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <RunStatusBadge status={run.status} />
+            <StatusBadge status={run.status} />
             <h1 className="display-title text-lg sm:text-xl font-bold text-foreground">
               {run.projectName}
             </h1>
@@ -68,166 +80,255 @@ function RunDetailPage() {
         </div>
       </div>
 
-      {/* DAG Visualization */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-sm text-foreground">
-            Pipeline DAG
-          </h2>
-          <span className="island-kicker !text-[0.6rem]">
-            {mockPipelineSteps.length} steps
+      {/* View toggle + summary */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold text-sm text-foreground">Pipeline</h2>
+          <span className="text-xs text-muted-foreground">
+            {mockPipelineSteps.filter((s) => s.status === 'succeeded').length}/{mockPipelineSteps.length} complete
           </span>
         </div>
-
-        <div className="island-shell !p-0 overflow-hidden rounded-2xl">
-          <Suspense fallback={<div className="h-[400px] flex items-center justify-center text-muted-foreground">Loading DAG...</div>}>
-            <DagView
-              steps={mockPipelineSteps}
-              onStepClick={(name) => setSelectedStep(name)}
-            />
-          </Suspense>
+        <div className="flex items-center rounded-lg border border-border p-0.5"
+          style={{ background: 'var(--surface)' }}>
+          <button
+            type="button"
+            onClick={() => setView('timeline')}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+              view === 'timeline'
+                ? 'text-white shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            style={view === 'timeline' ? { background: 'color-mix(in oklab, var(--ring), black 35%)' } : undefined}
+          >
+            <List size={13} />
+            <span className="hidden sm:inline">Timeline</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('dag')}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+              view === 'dag'
+                ? 'text-white shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            style={view === 'dag' ? { background: 'color-mix(in oklab, var(--ring), black 35%)' } : undefined}
+          >
+            <Network size={13} />
+            <span className="hidden sm:inline">DAG</span>
+          </button>
         </div>
       </div>
 
-      {/* Steps List + Log Viewer */}
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-        {/* Steps List */}
-        <div className="island-shell !p-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h3 className="font-semibold text-sm text-foreground">Steps</h3>
-          </div>
-          <div className="divide-y divide-[var(--line)]">
-            {mockPipelineSteps.map((step) => (
+      {/* Content: either steps view OR full-width log viewer */}
+      {selectedStep && step ? (
+        /* ── Full-width log viewer ── */
+        <div className="island-shell !p-0 overflow-hidden flex flex-col">
+          {/* Log header with back + step info + nav */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+            <div className="flex items-center gap-3 min-w-0">
               <button
-                key={step.name}
-                onClick={() => setSelectedStep(step.name)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                  selectedStep === step.name
-                    ? 'bg-primary/10'
-                    : 'hover:bg-accent'
+                type="button"
+                onClick={() => setSelectedStep(null)}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              >
+                <ArrowLeft size={14} />
+                <span className="hidden sm:inline">All steps</span>
+              </button>
+              <span className="text-border opacity-40">|</span>
+              <StatusIcon status={step.status} size={16} />
+              <span className="font-semibold text-sm text-foreground truncate">{step.name}</span>
+              <StatusBadge status={step.status} />
+              {step.finishedAt && step.startedAt && (
+                <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                  <Timer size={11} />
+                  {formatDuration(step.startedAt, step.finishedAt)}
+                </span>
+              )}
+            </div>
+
+            {/* Prev / Next */}
+            <div className="flex items-center gap-1 shrink-0">
+              {(() => {
+                const idx = mockPipelineSteps.findIndex((s) => s.name === selectedStep)
+                const prev = idx > 0 ? mockPipelineSteps[idx - 1] : null
+                const next = idx < mockPipelineSteps.length - 1 ? mockPipelineSteps[idx + 1] : null
+                return (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => prev && setSelectedStep(prev.name)}
+                      disabled={!prev}
+                      className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                    >
+                      ← {prev ? prev.name : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => next && setSelectedStep(next.name)}
+                      disabled={!next}
+                      className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                    >
+                      {next ? next.name : ''} →
+                    </button>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+
+          {/* Step bar — all steps visible, scrollable */}
+          <div className="flex items-center gap-1 px-4 py-2 border-b border-border overflow-x-auto shrink-0">
+            {mockPipelineSteps.map((s) => (
+              <button
+                key={s.name}
+                type="button"
+                onClick={() => setSelectedStep(s.name)}
+                title={`${s.name} — ${s.status}`}
+                className={`flex items-center gap-1.5 shrink-0 rounded-md px-2 py-1 text-[0.7rem] font-medium transition-all ${
+                  s.name === selectedStep
+                    ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
               >
-                <StepStatusDot status={step.status} />
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-foreground block truncate">
-                    {step.name}
-                  </span>
-                  <span className="text-[0.65rem] text-muted-foreground">
-                    {step.execType}{step.finishedAt && step.startedAt
-                      ? ` \u00B7 ${formatDuration(step.startedAt, step.finishedAt)}`
-                      : step.status === 'running'
-                        ? ' \u00B7 running...'
-                        : ''}
-                  </span>
-                </div>
-                <ChevronRight size={14} className="text-muted-foreground opacity-40 shrink-0" />
+                <StepDot status={s.status} />
+                {s.name}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Log Viewer */}
-        <div className="island-shell !p-0 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-            <Terminal size={14} className="text-primary" />
-            <h3 className="font-semibold text-sm text-foreground">
-              {selectedStep ? selectedStep : 'Select a step'}
-            </h3>
+          {/* Output label */}
+          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border shrink-0">
+            <Terminal size={13} className="text-primary" />
+            <span className="text-xs font-semibold text-foreground">Output</span>
           </div>
-          <div className="bg-[#0d1117] p-3 sm:p-4 font-mono text-[0.7rem] sm:text-xs leading-relaxed text-[#c9d1d9] min-h-[200px] sm:min-h-[300px] max-h-[340px] sm:max-h-[440px] overflow-auto">
-            {selectedStep && mockStepLogs[selectedStep] ? (
+
+          {/* Full-width log output */}
+          <div className="bg-[#0d1117] p-4 sm:p-5 font-mono text-xs sm:text-[0.82rem] leading-relaxed text-[#c9d1d9] min-h-[400px] sm:min-h-[500px] max-h-[75vh] overflow-auto">
+            {mockStepLogs[selectedStep] ? (
               mockStepLogs[selectedStep].split('\n').map((line, i) => (
-                <div key={i} className="flex gap-3 hover:bg-[#161b22] -mx-1 px-1 rounded">
-                  <span className="text-[#484f58] select-none shrink-0 w-5 text-right">
+                <div key={i} className="flex gap-4 hover:bg-[#161b22] -mx-2 px-2 py-px rounded">
+                  <span className="text-[#484f58] select-none shrink-0 w-7 text-right">
                     {i + 1}
                   </span>
-                  <span className={
-                    line.includes('PASS') || line.includes('complete') || line.includes('saved')
-                      ? 'text-[#7ee787]'
-                      : line.includes('Error') || line.includes('FAIL')
-                        ? 'text-[#ff7b72]'
-                        : line.includes('Warning') || line.includes('deprecated')
-                          ? 'text-[#d29922]'
-                          : line.startsWith('[')
-                            ? 'text-[#c9d1d9]'
-                            : 'text-[#8b949e]'
-                  }>
+                  <span className={colorizeLine(line)}>
                     {line}
                   </span>
                 </div>
               ))
-            ) : selectedStep ? (
-              <span className="text-[#484f58] italic">
-                {mockPipelineSteps.find((s) => s.name === selectedStep)?.status === 'pending'
-                  ? 'Step has not started yet.'
-                  : 'No logs available.'}
-              </span>
             ) : (
               <span className="text-[#484f58] italic">
-                Click a step to view its logs.
+                {step.status === 'pending'
+                  ? 'Step has not started yet.'
+                  : step.status === 'running'
+                    ? 'Waiting for output...'
+                    : 'No logs available.'}
               </span>
             )}
           </div>
         </div>
-      </div>
+      ) : (
+        /* ── Steps view (timeline or DAG) ── */
+        <div>
+          {view === 'timeline' ? (
+            <StepTimeline
+              steps={mockPipelineSteps}
+              selectedStep={selectedStep}
+              onStepClick={handleStepClick}
+            />
+          ) : (
+            <div className="island-shell !p-0 overflow-hidden h-[400px] sm:h-[500px]">
+              <Suspense fallback={<div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading DAG...</div>}>
+                <DagView
+                  steps={mockPipelineSteps}
+                  onStepClick={handleStepClick}
+                />
+              </Suspense>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-function RunStatusBadge({ status }: { status: string }) {
+function colorizeLine(line: string): string {
+  if (line.includes('PASS') || line.includes('complete') || line.includes('saved'))
+    return 'text-[#7ee787]'
+  if (line.includes('Error') || line.includes('FAIL'))
+    return 'text-[#ff7b72]'
+  if (line.includes('Warning') || line.includes('deprecated'))
+    return 'text-[#d29922]'
+  if (line.startsWith('['))
+    return 'text-[#c9d1d9]'
+  return 'text-[#8b949e]'
+}
+
+function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
     succeeded: {
-      icon: <CheckCircle size={14} />,
-      label: 'Succeeded',
+      icon: <CheckCircle size={12} />,
+      label: 'Passed',
       className: 'bg-success/10 text-success border-success/20',
     },
     failed: {
-      icon: <XCircle size={14} />,
+      icon: <XCircle size={12} />,
       label: 'Failed',
-      className: 'bg-red-500/10 text-red-500 border-red-500/20',
+      className: 'bg-destructive/10 text-destructive border-destructive/20',
     },
     running: {
-      icon: <Loader2 size={14} className="animate-spin" />,
+      icon: <Loader2 size={12} className="animate-spin" />,
       label: 'Running',
       className: 'bg-primary/10 text-primary border-primary/20',
     },
     pending: {
-      icon: <Clock size={14} />,
+      icon: <Clock size={12} />,
       label: 'Pending',
-      className: 'bg-[var(--chip-bg)] text-muted-foreground border-border',
+      className: 'bg-secondary text-muted-foreground border-border',
+    },
+    waiting: {
+      icon: <Clock size={12} />,
+      label: 'Waiting',
+      className: 'bg-warning/10 text-warning border-warning/20',
     },
     cancelled: {
-      icon: <Clock size={14} />,
+      icon: <Clock size={12} />,
       label: 'Cancelled',
-      className: 'bg-[var(--chip-bg)] text-muted-foreground border-border',
+      className: 'bg-secondary text-muted-foreground border-border',
     },
   }
 
   const c = config[status] ?? config.pending!
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${c.className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold whitespace-nowrap ${c.className}`}>
       {c.icon}
       {c.label}
     </span>
   )
 }
 
-function StepStatusDot({ status }: { status: string }) {
+function StatusIcon({ status, size = 18 }: { status: string; size?: number }) {
+  switch (status) {
+    case 'succeeded': return <CheckCircle size={size} className="text-success shrink-0" />
+    case 'failed': return <XCircle size={size} className="text-destructive shrink-0" />
+    case 'running': return <Loader2 size={size} className="text-primary shrink-0 animate-spin" />
+    case 'waiting': return <Clock size={size} className="text-warning shrink-0" />
+    default: return <Clock size={size} className="text-muted-foreground shrink-0" />
+  }
+}
+
+function StepDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
     succeeded: 'bg-success',
-    failed: 'bg-red-500',
+    failed: 'bg-destructive',
     running: 'bg-primary animate-pulse',
-    waiting: 'bg-amber-400',
+    waiting: 'bg-warning',
     queued: 'bg-purple-400',
-    pending: 'bg-[var(--sea-ink-soft)] opacity-30',
-    skipped: 'bg-[var(--sea-ink-soft)] opacity-30',
-    cancelled: 'bg-[var(--sea-ink-soft)] opacity-30',
+    pending: 'bg-muted-foreground opacity-30',
+    skipped: 'bg-muted-foreground opacity-30',
+    cancelled: 'bg-muted-foreground opacity-30',
   }
-
-  return (
-    <span className={`w-2 h-2 rounded-full shrink-0 ${colors[status] ?? colors.pending}`} />
-  )
+  return <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors[status] ?? colors.pending}`} />
 }
 
 function formatDuration(start: string, end: string): string {
