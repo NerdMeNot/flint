@@ -15,7 +15,6 @@ const config = defineConfig({
   ],
   ssr: {
     noExternal: [],
-    external: ['elkjs', 'web-worker'],
   },
 })
 

@@ -1,0 +1,83 @@
+environments: [staging, production]
+
+triggers:
+  pull_request: [main]
+
+  push:
+    branches: [main]
+    environments: [staging]
+
+  promotion:
+    - from: staging
+      environments: [production]
+
+  manual:
+    environments: [staging, production]
+
+steps:
+  - name: approve
+    gate:
+      approvers: [role:release-manager, "team:platform"]
+      minApprovals: 1
+    environments: [production]
+
+  - name: test
+    image: golang122
+    run: make test
+
+  - name: lint
+    image: golang122
+    run: make lint
+    continueOnError: true
+
+  - name: security-scan
+    environments: [production]
+    dependsOn: [test]
+    run: make security-scan
+
+  - name: build-api
+    image: golang122
+    dependsOn: [test]
+    run: go build -o /workspace/api ./cmd/api
+    outputs:
+      - path: /workspace/api
+
+  - name: build-worker
+    image: golang122
+    dependsOn: [test]
+    run: go build -o /workspace/worker ./cmd/worker
+    outputs:
+      - path: /workspace/worker
+
+  - name: push
+    dependsOn: [build-api, build-worker]
+    inputs:
+      - from: build-api
+        path: /workspace/api
+      - from: build-worker
+        path: /workspace/worker
+    steps:
+      - name: ecr-login
+        use: ecr-login
+        with:
+          registry: "${{ env.ECR_REGISTRY }}"
+      - name: push-api
+        use: docker-build-push
+        with:
+          dockerfile: Dockerfile.api
+          tag: "${{ env.ECR_REGISTRY }}/api:${{ shortSha }}"
+      - name: push-worker
+        use: docker-build-push
+        with:
+          dockerfile: Dockerfile.worker
+          tag: "${{ env.ECR_REGISTRY }}/worker:${{ shortSha }}"
+
+  - name: deploy
+    dependsOn: [approve, push]
+    run: kubectl apply -f manifests/
+
+  - name: notify
+    when: always
+    run: |
+      curl -X POST ${{ env.SLACK_WEBHOOK }} \
+        -d '{"text": "deploy: ${{ status }}"}'

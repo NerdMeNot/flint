@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   type Node,
@@ -6,7 +6,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   Position,
@@ -14,89 +13,71 @@ import {
 import '@xyflow/react/dist/style.css'
 import { StepNode } from './step-node'
 
-// elkjs/lib/elk.bundled.js doesn't use web workers — safe for SSR.
-let elkPromise: Promise<any> | null = null
-function getElk() {
-  if (!elkPromise) {
-    elkPromise = import('elkjs/lib/elk.bundled.js')
-  }
-  return elkPromise
-}
+import type { PipelineStep } from '#/lib/api/types'
+export type { PipelineStep } from '#/lib/api/types'
 
-export interface PipelineStep {
-  name: string
-  status:
-    | 'pending'
-    | 'queued'
-    | 'running'
-    | 'waiting'
-    | 'succeeded'
-    | 'failed'
-    | 'skipped'
-    | 'cancelled'
-  execType: string
-  wave: number
-  dependsOn?: string[]
-  startedAt?: string
-  finishedAt?: string
-}
+export type DagDirection = 'RIGHT' | 'DOWN'
 
 interface DagViewProps {
   steps: PipelineStep[]
+  direction?: DagDirection
   onStepClick?: (stepName: string) => void
 }
 
 const nodeTypes = { step: StepNode }
 
-const ELK_OPTIONS = {
-  'elk.algorithm': 'layered',
-  'elk.direction': 'RIGHT',
-  'elk.spacing.nodeNode': '60',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '80',
-  'elk.layered.mergeEdges': 'true',
-}
+// ---------------------------------------------------------------------------
+// Layout constants
+// ---------------------------------------------------------------------------
 
-const NODE_WIDTH = 200
-const NODE_HEIGHT = 64
+const NODE_WIDTH = 150
+const NODE_HEIGHT = 44
+const GAP_X = 60 // horizontal gap between waves
+const GAP_Y = 30 // vertical gap between nodes in same wave
+const PAD = 40
 
-async function layoutGraph(
-  steps: PipelineStep[],
-): Promise<{ nodes: Node[]; edges: Edge[] }> {
-  const ELK = (await getElk()).default
-  const elk = new ELK()
+// ---------------------------------------------------------------------------
+// Simple layered layout using wave numbers (no ELK needed)
+// ---------------------------------------------------------------------------
 
-  const elkNodes = steps.map((step) => ({
-    id: step.name,
-    width: NODE_WIDTH,
-    height: NODE_HEIGHT,
-  }))
+function layoutGraph(
+  rawSteps: PipelineStep[],
+  direction: DagDirection = 'RIGHT',
+): { nodes: Node[]; edges: Edge[] } {
+  const steps = buildDependencies(rawSteps)
 
-  const elkEdges = steps.flatMap((step) =>
-    (step.dependsOn ?? []).map((dep) => ({
-      id: `${dep}->${step.name}`,
-      sources: [dep],
-      targets: [step.name],
-    })),
-  )
+  // Group by wave
+  const waves = new Map<number, PipelineStep[]>()
+  for (const step of steps) {
+    const group = waves.get(step.wave) ?? []
+    group.push(step)
+    waves.set(step.wave, group)
+  }
+  const sortedWaves = [...waves.entries()].sort((a, b) => a[0] - b[0])
+  const isHorizontal = direction === 'RIGHT'
 
-  const graph = await elk.layout({
-    id: 'root',
-    layoutOptions: ELK_OPTIONS,
-    children: elkNodes,
-    edges: elkEdges,
-  })
+  const nodes: Node[] = []
+  for (let wi = 0; wi < sortedWaves.length; wi++) {
+    const [, waveSteps] = sortedWaves[wi]
+    for (let si = 0; si < waveSteps.length; si++) {
+      const step = waveSteps[si]
+      const x = isHorizontal
+        ? PAD + wi * (NODE_WIDTH + GAP_X)
+        : PAD + si * (NODE_WIDTH + GAP_Y)
+      const y = isHorizontal
+        ? PAD + si * (NODE_HEIGHT + GAP_Y)
+        : PAD + wi * (NODE_HEIGHT + GAP_X)
 
-  const nodes: Node[] = (graph.children ?? []).map((node) => {
-    const step = steps.find((s) => s.name === node.id)!
-    return {
-      id: node.id,
-      type: 'step',
-      position: { x: node.x ?? 0, y: node.y ?? 0 },
-      data: step,
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      nodes.push({
+        id: step.name,
+        type: 'step',
+        position: { x, y },
+        data: step,
+        sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+        targetPosition: isHorizontal ? Position.Left : Position.Top,
+      })
     }
-  })
+  }
 
   const edges: Edge[] = steps.flatMap((step) =>
     (step.dependsOn ?? []).map((dep) => ({
@@ -113,36 +94,34 @@ async function layoutGraph(
 
 function edgeColor(status: PipelineStep['status']): string {
   switch (status) {
-    case 'succeeded':
-      return '#22c55e'
-    case 'failed':
-      return '#ef4444'
-    case 'running':
-      return '#3b82f6'
-    case 'waiting':
-      return '#eab308'
+    case 'succeeded': return '#22c55e'
+    case 'failed': return '#ef4444'
+    case 'running': return '#3b82f6'
+    case 'waiting': return '#eab308'
     case 'skipped':
-    case 'cancelled':
-      return '#64748b'
-    default:
-      return '#475569'
+    case 'cancelled': return '#64748b'
+    default: return '#475569'
   }
 }
 
-export function DagView({ steps, onStepClick }: DagViewProps) {
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 
+  const layout = useMemo(
+    () => (steps.length > 0 ? layoutGraph(buildDependencies(steps), direction) : null),
+    [steps, direction],
+  )
+
   useEffect(() => {
-    if (steps.length === 0) return
-
-    const stepsWithDeps = buildDependencies(steps)
-
-    layoutGraph(stepsWithDeps).then(({ nodes: n, edges: e }) => {
-      setNodes(n)
-      setEdges(e)
-    })
-  }, [steps, setNodes, setEdges])
+    if (!layout) return
+    setNodes(layout.nodes)
+    setEdges(layout.edges)
+  }, [layout, setNodes, setEdges])
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -161,9 +140,9 @@ export function DagView({ steps, onStepClick }: DagViewProps) {
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
         proOptions={{ hideAttribution: true }}
-        minZoom={0.3}
+        minZoom={0.5}
         maxZoom={1.5}
       >
         <Background
@@ -173,39 +152,15 @@ export function DagView({ steps, onStepClick }: DagViewProps) {
           size={1}
         />
         <Controls className="!bg-card !border-border !text-foreground [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground" />
-        <MiniMap
-          className="!bg-card !border-border"
-          nodeColor={(node) =>
-            statusColor((node.data as PipelineStep).status)
-          }
-          maskColor="rgba(15, 23, 42, 0.7)"
-        />
       </ReactFlow>
     </div>
   )
 }
 
-function statusColor(status: PipelineStep['status']): string {
-  switch (status) {
-    case 'succeeded':
-      return '#22c55e'
-    case 'failed':
-      return '#ef4444'
-    case 'running':
-      return '#3b82f6'
-    case 'waiting':
-      return '#eab308'
-    case 'queued':
-      return '#8b5cf6'
-    case 'skipped':
-    case 'cancelled':
-      return '#64748b'
-    default:
-      return '#475569'
-  }
-}
+// ---------------------------------------------------------------------------
+// Build dependency edges from wave numbers when explicit dependsOn is missing
+// ---------------------------------------------------------------------------
 
-/** Build dependency edges from wave numbers when explicit dependsOn is missing. */
 function buildDependencies(steps: PipelineStep[]): PipelineStep[] {
   const hasDeps = steps.some((s) => s.dependsOn && s.dependsOn.length > 0)
   if (hasDeps) return steps
@@ -217,11 +172,8 @@ function buildDependencies(steps: PipelineStep[]): PipelineStep[] {
     byWave.set(step.wave, names)
   }
 
-  return steps.map((step) => {
-    const prevWave = byWave.get(step.wave - 1)
-    return {
-      ...step,
-      dependsOn: prevWave ?? [],
-    }
-  })
+  return steps.map((step) => ({
+    ...step,
+    dependsOn: byWave.get(step.wave - 1) ?? [],
+  }))
 }

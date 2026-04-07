@@ -2,8 +2,10 @@ package pipeline_test
 
 import (
 	"errors"
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
@@ -11,134 +13,81 @@ import (
 func TestParse_Minimal(t *testing.T) {
 	data := readTestdata(t, "minimal.yaml")
 	p, err := pipeline.Parse(data)
-	if err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if p.Name != "Minimal" {
-		t.Errorf("Name = %q, want %q", p.Name, "Minimal")
-	}
-	if len(p.Steps) != 1 {
-		t.Fatalf("len(Steps) = %d, want 1", len(p.Steps))
-	}
-	if p.Steps[0].Name != "hello" {
-		t.Errorf("Steps[0].Name = %q, want %q", p.Steps[0].Name, "hello")
-	}
-	if p.Steps[0].Run != "echo hello" {
-		t.Errorf("Steps[0].Run = %q, want %q", p.Steps[0].Run, "echo hello")
-	}
-	if p.Steps[0].ExecType() != "run" {
-		t.Errorf("Steps[0].ExecType() = %q, want %q", p.Steps[0].ExecType(), "run")
-	}
+	require.Len(t, p.Steps, 1)
+	assert.Equal(t, "hello", p.Steps[0].Name)
+	assert.Equal(t, "echo hello", p.Steps[0].Run)
+	assert.Equal(t, "run", p.Steps[0].ExecType())
+	assert.NotNil(t, p.Triggers.Push)
+	assert.Equal(t, []string{"main"}, p.Triggers.Push.Branches)
 }
 
-func TestParse_FullCI(t *testing.T) {
+func TestParse_CI(t *testing.T) {
 	data := readTestdata(t, "ci.yaml")
 	p, err := pipeline.Parse(data)
-	if err != nil {
-		t.Fatalf("Parse() error: %v", err)
-	}
-
-	if p.Name != "Skills Service CI" {
-		t.Errorf("Name = %q", p.Name)
-	}
-
-	// Secrets — mixed string and map forms.
-	if len(p.Secrets) != 2 {
-		t.Fatalf("len(Secrets) = %d, want 2", len(p.Secrets))
-	}
-	if p.Secrets[0].Name != "GITHUB_TOKEN" || p.Secrets[0].Optional {
-		t.Errorf("Secrets[0] = %+v", p.Secrets[0])
-	}
-	if p.Secrets[1].Name != "SLACK_WEBHOOK" || !p.Secrets[1].Optional {
-		t.Errorf("Secrets[1] = %+v", p.Secrets[1])
-	}
+	require.NoError(t, err)
 
 	// Triggers.
-	if p.Triggers.Push == nil {
-		t.Fatal("Push trigger is nil")
-	}
-	if len(p.Triggers.Push.Branches) != 2 {
-		t.Errorf("Push.Branches = %v", p.Triggers.Push.Branches)
-	}
-	if p.Triggers.Manual == nil || len(p.Triggers.Manual.Inputs) != 1 {
-		t.Errorf("Manual trigger inputs = %v", p.Triggers.Manual)
-	}
+	assert.NotNil(t, p.Triggers.PullRequest)
+	assert.Equal(t, []string{"main"}, p.Triggers.PullRequest.Branches)
+	assert.NotNil(t, p.Triggers.Push)
+	assert.Equal(t, []string{"main", "feature/**"}, p.Triggers.Push.Branches)
+	assert.NotNil(t, p.Triggers.Manual)
+	require.Len(t, p.Triggers.Manual.Inputs, 1)
+	assert.Equal(t, "skip_tests", p.Triggers.Manual.Inputs[0].Name)
 
-	// Concurrency.
-	if p.Concurrency == nil || p.Concurrency.Mode != "cancel" {
-		t.Errorf("Concurrency = %+v", p.Concurrency)
-	}
-
-	// Steps count.
-	if len(p.Steps) != 6 {
-		t.Fatalf("len(Steps) = %d, want 6", len(p.Steps))
-	}
-
-	// Step types.
-	steps := map[string]string{
-		"deps":               "run",
-		"lint":               "run",
-		"test":               "do",
-		"build":              "run",
-		"approve-production": "gate",
-		"deploy":             "run",
-	}
+	// Steps.
+	require.Len(t, p.Steps, 6)
+	stepNames := make(map[string]string)
 	for _, s := range p.Steps {
-		want, ok := steps[s.Name]
-		if !ok {
-			t.Errorf("unexpected step %q", s.Name)
-			continue
-		}
-		if got := s.ExecType(); got != want {
-			t.Errorf("step %q: ExecType() = %q, want %q", s.Name, got, want)
-		}
+		stepNames[s.Name] = s.ExecType()
 	}
+	assert.Equal(t, "run", stepNames["deps"])
+	assert.Equal(t, "run", stepNames["lint"])
+	assert.Equal(t, "run", stepNames["test"])
+	assert.Equal(t, "run", stepNames["build"])
 
-	// Do tasks.
-	testStep := findStep(p, "test")
-	if len(testStep.Do) != 2 {
-		t.Fatalf("test step Do length = %d, want 2", len(testStep.Do))
-	}
-	if testStep.Do[0].Name != "run tests" {
-		t.Errorf("Do[0].Name = %q", testStep.Do[0].Name)
-	}
-
-	// Runner ref — structured form.
-	buildStep := findStep(p, "build")
-	if buildStep.Runner == nil || buildStep.Runner.Size != "large" {
-		t.Errorf("build step runner = %+v", buildStep.Runner)
-	}
-
-	// Runner ref — string form.
-	depsStep := findStep(p, "deps")
-	if depsStep.Runner == nil || depsStep.Runner.Name != "standard" {
-		t.Errorf("deps step runner = %+v", depsStep.Runner)
-	}
-
-	// Gate.
-	gate := findStep(p, "approve-production")
-	if gate.Gate == nil || gate.Gate.Message != "Deploy to production?" {
-		t.Errorf("gate = %+v", gate.Gate)
-	}
-	if len(gate.Gate.Form) != 1 {
-		t.Errorf("gate form fields = %d, want 1", len(gate.Gate.Form))
-	}
+	// ContinueOnError.
+	lint := findStep(p, "lint")
+	assert.True(t, lint.ContinueOnError)
 
 	// Services.
-	if len(testStep.Services) != 1 {
-		t.Fatalf("test step services = %d", len(testStep.Services))
-	}
-	pg := testStep.Services["postgres"]
-	if pg.Image != "postgres:16" {
-		t.Errorf("postgres image = %q", pg.Image)
-	}
+	testStep := findStep(p, "test")
+	require.Len(t, testStep.Services, 1)
+	assert.Equal(t, "postgres", testStep.Services[0].Name)
 
-	// Lifecycle.
-	lintStep := findStep(p, "lint")
-	if lintStep.Lifecycle == nil || lintStep.Lifecycle.OnFailure != "continue" {
-		t.Errorf("lint lifecycle = %+v", lintStep.Lifecycle)
-	}
+	// Retry.
+	require.NotNil(t, testStep.Retry)
+	assert.Equal(t, 2, testStep.Retry.Attempts)
+
+	// Cache.
+	build := findStep(p, "build")
+	require.NotNil(t, build.Cache)
+
+	// When.
+	report := findStep(p, "report")
+	assert.Equal(t, "always", report.When)
+}
+
+func TestParse_Deploy(t *testing.T) {
+	data := readTestdata(t, "deploy.yaml")
+	p, err := pipeline.Parse(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"staging", "production"}, p.Environments)
+	require.Len(t, p.Triggers.Promotion, 1)
+	assert.Equal(t, "staging", p.Triggers.Promotion[0].From)
+
+	// Gate.
+	approve := findStep(p, "approve")
+	require.NotNil(t, approve.Gate)
+	assert.Equal(t, []string{"role:release-manager", "team:platform"}, approve.Gate.Approvers)
+
+	// Nested steps.
+	push := findStep(p, "push")
+	assert.True(t, push.IsNested())
+	require.Len(t, push.Steps, 3)
 }
 
 func TestParse_Errors(t *testing.T) {
@@ -146,43 +95,173 @@ func TestParse_Errors(t *testing.T) {
 		name string
 		yaml string
 	}{
-		{"missing pipeline name", "steps:\n  - name: a\n    run: echo"},
-		{"no steps", "pipeline: Test\nsteps: []"},
-		{"missing step name", "pipeline: Test\nsteps:\n  - run: echo"},
-		{"duplicate step name", "pipeline: Test\nsteps:\n  - name: a\n    run: echo\n  - name: a\n    run: echo"},
-		{"no exec type", "pipeline: Test\nsteps:\n  - name: a\n    image: alpine"},
-		{"unknown after ref", "pipeline: Test\nsteps:\n  - name: a\n    run: echo\n    after: [missing]"},
-		{"self reference", "pipeline: Test\nsteps:\n  - name: a\n    run: echo\n    after: [a]"},
-		{"invalid yaml", "pipeline: [[["},
+		{"no triggers", "steps:\n  - name: a\n    run: echo"},
+		{"no steps", "triggers:\n  push:\n    branches: [main]\nsteps: []"},
+		{"missing step name", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - run: echo"},
+		{"duplicate step name", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: a\n    run: echo\n  - name: a\n    run: echo"},
+		{"no exec type", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: a\n    image: alpine"},
+		{"unknown dependsOn", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: a\n    run: echo\n    dependsOn: [missing]"},
+		{"self reference", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: a\n    run: echo\n    dependsOn: [a]"},
+		{"invalid yaml", "triggers: [[["},
+		{"promotion no from", "triggers:\n  promotion:\n    - environments: [prod]\nsteps:\n  - name: a\n    run: echo"},
+		{"promotion no envs", "triggers:\n  promotion:\n    - from: staging\nsteps:\n  - name: a\n    run: echo"},
+		{"sub-step with runner", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: g\n    steps:\n      - name: a\n        run: echo\n        runner: gpu"},
+		{"deeply nested", "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: g\n    steps:\n      - name: a\n        steps:\n          - name: b\n            run: echo"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := pipeline.Parse([]byte(tt.yaml))
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !errors.Is(err, pipeline.ErrInvalidPipeline) {
-				t.Errorf("expected ErrInvalidPipeline, got: %v", err)
-			}
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, pipeline.ErrInvalidPipeline), "got: %v", err)
 		})
 	}
 }
 
-func findStep(p *pipeline.Pipeline, name string) *pipeline.Step {
-	for i := range p.Steps {
-		if p.Steps[i].Name == name {
-			return &p.Steps[i]
-		}
-	}
-	return nil
+func TestParse_PullRequestShorthand(t *testing.T) {
+	p, err := pipeline.Parse([]byte(`
+triggers:
+  pull_request: [main, develop]
+steps:
+  - name: test
+    run: echo test
+`))
+	require.NoError(t, err)
+	require.NotNil(t, p.Triggers.PullRequest)
+	assert.Equal(t, []string{"main", "develop"}, p.Triggers.PullRequest.Branches)
 }
 
-func readTestdata(t *testing.T, name string) []byte {
-	t.Helper()
-	data, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatalf("reading testdata/%s: %v", name, err)
-	}
-	return data
+func TestParse_PromotionSingleAndArray(t *testing.T) {
+	// Single promotion.
+	p, err := pipeline.Parse([]byte(`
+triggers:
+  push:
+    branches: [main]
+    environments: [staging]
+  promotion:
+    from: staging
+    environments: [production]
+steps:
+  - name: a
+    run: echo
+`))
+	require.NoError(t, err)
+	require.Len(t, p.Triggers.Promotion, 1)
+
+	// Array of promotions.
+	p, err = pipeline.Parse([]byte(`
+triggers:
+  push:
+    branches: [main]
+    environments: [dev]
+  promotion:
+    - from: dev
+      environments: [staging]
+    - from: staging
+      environments: [production]
+steps:
+  - name: a
+    run: echo
+`))
+	require.NoError(t, err)
+	require.Len(t, p.Triggers.Promotion, 2)
+	assert.Equal(t, "dev", p.Triggers.Promotion[0].From)
+	assert.Equal(t, "staging", p.Triggers.Promotion[1].From)
+}
+
+func TestParse_AllTriggerTypes(t *testing.T) {
+	// Pipeline with all 7 trigger types simultaneously.
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+  pull_request: [main]
+  manual:
+    environments: [staging]
+  schedule:
+    cron: "0 2 * * *"
+  tag:
+    patterns: ["v*"]
+  promotion:
+    - from: staging
+      environments: [production]
+  webhook:
+    secret: test-secret
+steps:
+  - name: test
+    run: echo test
+`
+	p, err := pipeline.Parse([]byte(yaml))
+	require.NoError(t, err)
+	assert.True(t, p.Triggers.HasAny())
+	assert.NotNil(t, p.Triggers.Push)
+	assert.NotNil(t, p.Triggers.PullRequest)
+	assert.NotNil(t, p.Triggers.Manual)
+	assert.NotNil(t, p.Triggers.Schedule)
+	assert.NotNil(t, p.Triggers.Tag)
+	assert.Len(t, p.Triggers.Promotion, 1)
+	assert.NotNil(t, p.Triggers.Webhook)
+}
+
+func TestParse_StepWithAllFields(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: full-step
+    image: node:22
+    run: npm test
+    runner: large
+    shell: bash
+    workingDir: /workspace/frontend
+    dependsOn: []
+    environments: [staging]
+    timeout: 30m
+    if: "${{ branch == 'main' }}"
+    when: onSuccess
+    continueOnError: true
+    retry:
+      attempts: 3
+      delay: 10s
+    env:
+      NODE_ENV: test
+    outputs:
+      - path: /workspace/dist
+    services:
+      - name: redis
+        image: redis:7
+    cache:
+      key: "npm-${{ hashFiles('package-lock.json') }}"
+      paths: [node_modules]
+    matrix:
+      node: ["20", "22"]
+`
+	p, err := pipeline.Parse([]byte(yaml))
+	require.NoError(t, err)
+	s := p.Steps[0]
+	assert.Equal(t, "full-step", s.Name)
+	assert.Equal(t, "node:22", s.Image)
+	assert.Equal(t, "bash", s.Shell)
+	assert.Equal(t, "/workspace/frontend", s.WorkingDir)
+	assert.Equal(t, "30m", s.Timeout)
+	assert.True(t, s.ContinueOnError)
+	assert.NotNil(t, s.Retry)
+	assert.Equal(t, 3, s.Retry.Attempts)
+	assert.Len(t, s.Services, 1)
+	assert.NotNil(t, s.Cache)
+	assert.Len(t, s.Matrix, 1)
+}
+
+func TestParse_SingleStepPipeline(t *testing.T) {
+	yaml := `
+triggers:
+  manual: {}
+steps:
+  - name: deploy
+    run: make deploy
+`
+	p, err := pipeline.Parse([]byte(yaml))
+	require.NoError(t, err)
+	assert.Len(t, p.Steps, 1)
 }

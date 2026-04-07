@@ -26,6 +26,10 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&RunnerPoolList{},
 		&AuthProvider{},
 		&AuthProviderList{},
+		&StepTemplate{},
+		&StepTemplateList{},
+		&ImagePreset{},
+		&ImagePresetList{},
 	)
 	return nil
 }

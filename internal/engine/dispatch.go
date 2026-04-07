@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/NerdMeNot/flint/internal/runner"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
@@ -21,27 +20,19 @@ func dispatchStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Reg
 	step claimedStep, agentImage, jobNamespace, serverURL string) error {
 
 	switch step.execType {
-	case "run", "do", "use", "matrix":
+	case "run", "use", "steps":
 		return dispatchRunStep(ctx, k8s, reg, step, agentImage, jobNamespace, serverURL)
 	case "gate":
 		// Gate steps transition to "waiting" — no K8s Job needed.
 		// The timer (gate_timeout) was already created by the loop.
 		log.Info().Str("step", step.name).Msg("engine: gate step waiting for approval")
 		return nil
-	case "watch":
-		// Watch steps transition to "waiting" — first check done by timer handler.
-		log.Info().Str("step", step.name).Msg("engine: watch step waiting for condition")
-		return nil
-	case "invoke":
-		// Invoke steps are handled by creating a child workflow.
-		// The loop handles this separately since it needs the engine.
-		return nil
 	default:
 		return fmt.Errorf("engine: unknown step type %q", step.execType)
 	}
 }
 
-// dispatchRunStep creates a K8s Job for a run/do/use/matrix step.
+// dispatchRunStep creates a K8s Job for a run/use/steps step.
 func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Registry,
 	step claimedStep, agentImage, jobNamespace, serverURL string) error {
 
@@ -52,8 +43,8 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 
 	// Resolve runner pool.
 	poolName := "standard"
-	if stepDef.Runner != nil && stepDef.Runner.Name != "" {
-		poolName = stepDef.Runner.Name
+	if stepDef.Runner != "" {
+		poolName = stepDef.Runner
 	}
 	poolSpec, err := reg.Resolve(poolName)
 	if err != nil {
@@ -69,16 +60,6 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 
 	// Build the command.
 	command := stepDef.Run
-	if command == "" && len(stepDef.Do) > 0 {
-		var b strings.Builder
-		for i, task := range stepDef.Do {
-			if i > 0 {
-				b.WriteString(" && ")
-			}
-			b.WriteString(task.Run)
-		}
-		command = b.String()
-	}
 	wrappedCmd := wrapStepCommand(command)
 
 	// Build env vars.

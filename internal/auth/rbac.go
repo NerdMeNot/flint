@@ -1,88 +1,137 @@
 package auth
 
-// permissions maps each role to the actions it can perform.
-// This is the single source of truth for Flint's authorization model.
-var permissions = map[Role]map[Action]bool{
-	RoleOrgAdmin: {
-		ActionOrgManage:      true,
-		ActionOrgRead:        true,
-		ActionProjectCreate:  true,
-		ActionProjectUpdate:  true,
-		ActionProjectArchive: true,
-		ActionProjectRead:    true,
-		ActionPipelineRun:    true,
-		ActionPipelineCancel: true,
-		ActionPipelineRead:   true,
-		ActionGateApprove:    true,
-		ActionSecretCreate:   true,
-		ActionSecretRead:     true,
-		ActionSecretDelete:   true,
-		ActionRunnerManage:   true,
-		ActionRunnerRead:     true,
-		ActionRBACManage:     true,
-		ActionAuditRead:      true,
-	},
-	RolePipelineAdmin: {
-		ActionOrgRead:        true,
-		ActionProjectCreate:  true,
-		ActionProjectUpdate:  true,
-		ActionProjectArchive: true,
-		ActionProjectRead:    true,
-		ActionPipelineRun:    true,
-		ActionPipelineCancel: true,
-		ActionPipelineRead:   true,
-		ActionGateApprove:    true,
-		ActionSecretCreate:   true,
-		ActionSecretRead:     true,
-		ActionSecretDelete:   true,
-		ActionRunnerRead:     true,
-	},
-	RoleDeveloper: {
-		ActionOrgRead:        true,
-		ActionProjectRead:    true,
-		ActionPipelineRun:    true,
-		ActionPipelineCancel: true,
-		ActionPipelineRead:   true,
-		ActionGateApprove:    true,
-		ActionSecretRead:     true,
-		ActionRunnerRead:     true,
-	},
-	RoleViewer: {
-		ActionOrgRead:      true,
-		ActionProjectRead:  true,
-		ActionPipelineRead: true,
-		ActionRunnerRead:   true,
-	},
+// ────────────────────────────────────────────────────────────
+// Admin vs CI classification
+// ────────────────────────────────────────────────────────────
+
+var adminObjects = map[string]bool{
+	ObjWorkspace:   true,
+	ObjTeam:        true,
+	ObjEnvironment: true,
+	ObjRunner:      true,
+	ObjConnection:  true,
+	ObjAPIKey:      true,
+	ObjSecret:      true,
+	ObjRole:        true,
+	ObjAudit:       true,
 }
 
-// Can returns true if the given role is allowed to perform the action.
-func Can(role Role, action Action) bool {
-	if perms, ok := permissions[role]; ok {
-		return perms[action]
+var ciObjects = map[string]bool{
+	ObjProject: true,
+	ObjRun:     true,
+	ObjGate:    true,
+}
+
+// IsAdminObject returns true if the object is an admin resource.
+// Admin permissions are always platform-wide (no workspace/env scope).
+func IsAdminObject(obj string) bool {
+	return adminObjects[obj]
+}
+
+// IsCIObject returns true if the object is a CI resource.
+// CI permissions can be scoped to workspaces and environments.
+func IsCIObject(obj string) bool {
+	return ciObjects[obj]
+}
+
+// ────────────────────────────────────────────────────────────
+// Valid actions per object
+// ────────────────────────────────────────────────────────────
+
+// ValidActions maps each object to its valid actions.
+var ValidActions = map[string][]string{
+	// Admin.
+	ObjWorkspace:   {ActRead, ActManage},
+	ObjTeam:        {ActRead, ActManage},
+	ObjEnvironment: {ActRead, ActManage},
+	ObjRunner:      {ActRead, ActManage},
+	ObjConnection:  {ActRead, ActManage},
+	ObjAPIKey:      {ActRead, ActManage},
+	ObjSecret:      {ActRead, ActManage},
+	ObjRole:        {ActRead, ActManage},
+	ObjAudit:       {ActRead}, // read-only by nature
+
+	// CI.
+	ObjProject: {ActRead, ActWrite},
+	ObjRun:     {ActRead, ActTrigger, ActCancel},
+	ObjGate:    {ActApprove, ActReject},
+}
+
+// ────────────────────────────────────────────────────────────
+// Permission implications
+// ────────────────────────────────────────────────────────────
+
+// Implications maps a permission to the permissions it automatically grants.
+// Only explicitly selected permissions are stored; implications are computed.
+var Implications = map[string][]string{
+	// CI implications.
+	"project:write": {"project:read"},
+	"run:trigger":   {"project:read"},
+	"run:cancel":    {"run:read", "project:read"},
+	"gate:approve":  {"run:read", "project:read"},
+	"gate:reject":   {"run:read", "project:read"},
+
+	// Admin: manage implies read.
+	"workspace:manage":   {"workspace:read"},
+	"team:manage":        {"team:read"},
+	"environment:manage": {"environment:read"},
+	"runner:manage":      {"runner:read"},
+	"connection:manage":  {"connection:read"},
+	"apikey:manage":      {"apikey:read"},
+	"secret:manage":      {"secret:read"},
+	"role:manage":        {"role:read"},
+}
+
+// ExpandImplications takes a set of explicit permissions and returns
+// the full set including all implied permissions.
+func ExpandImplications(explicit []Permission) []Permission {
+	seen := make(map[string]bool, len(explicit)*2)
+	for _, p := range explicit {
+		seen[p.Key()] = true
+	}
+
+	// Iterate until no new implications are added.
+	changed := true
+	for changed {
+		changed = false
+		for key := range seen {
+			implied, ok := Implications[key]
+			if !ok {
+				continue
+			}
+			for _, dep := range implied {
+				if !seen[dep] {
+					seen[dep] = true
+					changed = true
+				}
+			}
+		}
+	}
+
+	result := make([]Permission, 0, len(seen))
+	for key := range seen {
+		obj, act := splitPermKey(key)
+		result = append(result, Permission{Object: obj, Action: act})
+	}
+	return result
+}
+
+// splitPermKey splits "object:action" into its parts.
+func splitPermKey(key string) (string, string) {
+	for i := range key {
+		if key[i] == ':' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, ""
+}
+
+// IsWildcard returns true if the permission set contains *:*.
+func IsWildcard(perms []Permission) bool {
+	for _, p := range perms {
+		if p.Object == ObjWildcard && p.Action == ActWildcard {
+			return true
+		}
 	}
 	return false
-}
-
-// ValidRole returns true if the role is one of the four built-in roles.
-func ValidRole(role Role) bool {
-	_, ok := permissions[role]
-	return ok
-}
-
-// AllRoles returns all built-in roles in descending privilege order.
-func AllRoles() []Role {
-	return []Role{RoleOrgAdmin, RolePipelineAdmin, RoleDeveloper, RoleViewer}
-}
-
-// ActionsForRole returns all actions permitted for a role.
-func ActionsForRole(role Role) []Action {
-	perms, ok := permissions[role]
-	if !ok {
-		return nil
-	}
-	actions := make([]Action, 0, len(perms))
-	for action := range perms {
-		actions = append(actions, action)
-	}
-	return actions
 }

@@ -1,83 +1,64 @@
-pipeline: Skills Service CI
-
-secrets:
-  - GITHUB_TOKEN
-  - SLACK_WEBHOOK:
-      optional: true
-      description: Optional Slack notification
-
 triggers:
+  pull_request:
+    branches: [main]
+
   push:
     branches: [main, "feature/**"]
     paths: ["src/**", "go.sum"]
-  pr:
-    branches: [main]
+
   manual:
     inputs:
-      skip-tests:
+      - name: skip_tests
         type: boolean
-        default: false
-
-concurrency:
-  group: ci-${{ git.branch }}
-  mode: cancel
-
-env:
-  GO_VERSION: "1.23"
+        default: "false"
+        description: Skip the test suite
 
 steps:
   - name: deps
     image: golang:1.23
     run: go mod download
-    runner: standard
 
   - name: lint
     image: golangci/golangci-lint:v1.62
-    after: [deps]
+    dependsOn: [deps]
     run: golangci-lint run ./...
-    runner: standard
-    lifecycle:
-      onFailure: continue
+    continueOnError: true
 
   - name: test
     image: golang:1.23
-    after: [deps]
-    if: ${{ inputs.skip_tests == false }}
-    runner: standard
-    do:
-      - run tests:
-          run: go test -race ./...
-      - report:
-          run: echo "done"
+    dependsOn: [deps]
+    if: "${{ inputs.skip_tests == 'false' }}"
+    run: go test -race ./...
     services:
-      postgres:
+      - name: postgres
         image: postgres:16
         env:
           POSTGRES_DB: testdb
-        healthCheck:
-          test: pg_isready
+          POSTGRES_PASSWORD: test
+    retry:
+      attempts: 2
+      delay: 5s
 
   - name: build
     image: golang:1.23
-    after: [deps]
+    dependsOn: [deps]
     run: go build -o bin/server ./cmd/server
-    runner:
-      name: standard
-      size: large
+    cache:
+      key: "go-${{ hashFiles('go.sum') }}"
+      paths: [/root/go/pkg/mod]
 
-  - name: approve-production
-    after: [test, build]
-    gate:
-      message: Deploy to production?
-      approvers: [team:platform]
-      timeout: 4h
-      form:
-        ticket:
-          type: string
-          label: Jira ticket
-          required: true
+  - name: integration-test
+    image: golang:1.23
+    dependsOn: [build]
+    timeout: 30m
+    shell: bash
+    run: |
+      set -euo pipefail
+      ./bin/server &
+      sleep 2
+      go test -tags=integration ./...
 
-  - name: deploy
-    after: [approve-production]
-    image: bitnami/kubectl:1.31
-    run: kubectl apply -f deploy.yaml
+  - name: report
+    dependsOn: [test, lint, build]
+    when: always
+    run: echo "CI complete"

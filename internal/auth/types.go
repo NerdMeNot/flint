@@ -20,53 +20,89 @@ type Claims struct {
 	Raw        map[string]any // all claims/attributes for custom mapping
 }
 
-// Role represents a Flint RBAC role.
-type Role string
+// ────────────────────────────────────────────────────────────
+// System role slugs
+// ────────────────────────────────────────────────────────────
 
 const (
-	RoleOrgAdmin      Role = "org_admin"
-	RolePipelineAdmin Role = "pipeline_admin"
-	RoleDeveloper     Role = "developer"
-	RoleViewer        Role = "viewer"
+	RoleAdmin           = "admin"
+	RoleDeveloper       = "developer"
+	RoleViewer          = "viewer"
+	RolePlatformManager = "platform-manager"
 )
 
-// Action represents a permission-controlled operation.
-type Action string
+// Legacy role constants — kept as aliases for migration compatibility.
+const (
+	RoleOrgAdmin      = "org_admin"      // maps to RoleAdmin
+	RolePipelineAdmin = "pipeline_admin" // migrated to custom role
+)
+
+// ────────────────────────────────────────────────────────────
+// Admin objects (platform-wide, no workspace/env scope)
+// ────────────────────────────────────────────────────────────
 
 const (
-	// Org management.
-	ActionOrgManage Action = "org.manage"
-	ActionOrgRead   Action = "org.read"
-
-	// Project management.
-	ActionProjectCreate  Action = "project.create"
-	ActionProjectUpdate  Action = "project.update"
-	ActionProjectArchive Action = "project.archive"
-	ActionProjectRead    Action = "project.read"
-
-	// Pipeline execution.
-	ActionPipelineRun    Action = "pipeline.run"
-	ActionPipelineCancel Action = "pipeline.cancel"
-	ActionPipelineRead   Action = "pipeline.read"
-
-	// Gate approval.
-	ActionGateApprove Action = "gate.approve"
-
-	// Secrets.
-	ActionSecretCreate Action = "secret.create"
-	ActionSecretRead   Action = "secret.read"
-	ActionSecretDelete Action = "secret.delete"
-
-	// Runner pools.
-	ActionRunnerManage Action = "runner.manage"
-	ActionRunnerRead   Action = "runner.read"
-
-	// RBAC.
-	ActionRBACManage Action = "rbac.manage"
-
-	// Audit.
-	ActionAuditRead Action = "audit.read"
+	ObjWorkspace   = "workspace"
+	ObjTeam        = "team"
+	ObjEnvironment = "environment"
+	ObjRunner      = "runner"
+	ObjConnection  = "connection"
+	ObjAPIKey      = "apikey"
+	ObjSecret      = "secret"
+	ObjRole        = "role"
+	ObjAudit       = "audit"
 )
+
+// ────────────────────────────────────────────────────────────
+// CI objects (scopable to workspaces + environments)
+// ────────────────────────────────────────────────────────────
+
+const (
+	ObjProject = "project"
+	ObjRun     = "run"
+	ObjGate    = "gate"
+)
+
+// ────────────────────────────────────────────────────────────
+// Actions
+// ────────────────────────────────────────────────────────────
+
+const (
+	// Admin actions.
+	ActRead   = "read"
+	ActManage = "manage"
+
+	// CI actions.
+	ActWrite   = "write"
+	ActTrigger = "trigger"
+	ActCancel  = "cancel"
+	ActApprove = "approve"
+	ActReject  = "reject"
+
+	// Wildcard (Admin role only).
+	ActWildcard = "*"
+	ObjWildcard = "*"
+)
+
+// Permission is an object:action pair.
+type Permission struct {
+	Object string `json:"object"`
+	Action string `json:"action"`
+}
+
+// Key returns the "object:action" string.
+func (p Permission) Key() string {
+	return p.Object + ":" + p.Action
+}
+
+// AccessRequest describes what is being checked.
+type AccessRequest struct {
+	Subject     string
+	Object      string
+	Action      string
+	Workspace   string // empty or "*" = any
+	Environment string // empty or "*" = any
+}
 
 // SessionConfig configures JWT session creation and validation.
 type SessionConfig struct {

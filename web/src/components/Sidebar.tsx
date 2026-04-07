@@ -4,30 +4,27 @@ import {
   LayoutDashboard,
   FolderGit2,
   Shield,
-  Boxes,
   Settings,
-  Users,
-  KeyRound,
   ScrollText,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ChevronsLeft,
   Menu,
   X,
+  LogOut,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { orpc } from '#/lib/orpc'
+import { ScopeSelector } from './ScopeSelector'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/projects', icon: FolderGit2, label: 'Projects' },
-  { to: '/runs/$id', icon: ScrollText, label: 'Runs', match: '/runs' },
-  { to: '/gates', icon: Shield, label: 'Gates' },
-  { to: '/workspaces', icon: Boxes, label: 'Workspaces' },
-] as const
+  { to: '/' as const, icon: LayoutDashboard, label: 'Dashboard', match: '' },
+  { to: '/projects' as const, icon: FolderGit2, label: 'Projects', match: '' },
+  { to: '/runs' as const, icon: ScrollText, label: 'Runs', match: '/runs' },
+  { to: '/gates' as const, icon: Shield, label: 'Gates', match: '' },
+]
 
 const bottomItems = [
-  { to: '/teams', icon: Users, label: 'Teams' },
-  { to: '/settings/roles', icon: KeyRound, label: 'Roles' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
-] as const
+  { to: '/settings' as const, icon: Settings, label: 'Admin', match: '/settings' },
+]
 
 const activeStyle = { background: 'color-mix(in oklab, var(--ring), black 35%)' }
 
@@ -61,10 +58,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     if (saved === 'true') setCollapsed(true)
   }, [])
 
-  // Persist preference
+  // Persist preference + set CSS variable for modal positioning
   useEffect(() => {
     if (typeof window === 'undefined') return
     localStorage.setItem('flint-sidebar-collapsed', String(collapsed))
+    document.documentElement.style.setProperty('--sidebar-width', collapsed ? '60px' : '220px')
   }, [collapsed])
 
   // Close mobile drawer on route change
@@ -105,23 +103,41 @@ export function Sidebar() {
 
   const navContent = (
     <>
-      {/* Brand */}
-      <div className={`flex h-14 items-center border-b border-border ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-5'}`}>
-        <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
-          style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
-          F
-        </div>
-        {!collapsed && (
-          <>
+      {/* Brand + collapse toggle */}
+      <div className={`flex h-14 items-center border-b border-border ${collapsed ? 'flex-col justify-center gap-1 px-2' : 'gap-2.5 px-5'}`}>
+        <Link to="/" className="flex items-center gap-2.5 min-w-0" title="Home">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
+            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            F
+          </div>
+          {!collapsed && (
             <span className="display-title font-bold text-foreground text-base tracking-tight">
               Flint
             </span>
-            <span className="ml-auto island-kicker !text-[0.6rem] !tracking-[0.12em] opacity-60">
-              CI
-            </span>
-          </>
+          )}
+        </Link>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="hidden lg:flex ml-auto items-center justify-center w-6 h-6 rounded text-muted-foreground/40 hover:text-foreground hover:bg-[var(--link-bg-hover)] transition-colors"
+            title="Collapse sidebar"
+          >
+            <ChevronsLeft size={14} />
+          </button>
         )}
       </div>
+      {/* Expand button — collapsed desktop only */}
+      {collapsed && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="hidden lg:flex items-center justify-center mx-auto my-1.5 w-8 h-5 rounded text-muted-foreground/30 hover:text-foreground hover:bg-[var(--link-bg-hover)] transition-colors"
+          title="Expand sidebar"
+        >
+          <ChevronsLeft size={13} className="rotate-180" />
+        </button>
+      )}
 
       {/* Main Nav */}
       <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
@@ -133,7 +149,6 @@ export function Sidebar() {
             <Link
               key={item.label}
               to={item.to}
-              params={item.to.includes('$id') ? { id: 'r-103' } : undefined}
               title={collapsed ? item.label : undefined}
               className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 ${
                 collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
@@ -151,10 +166,12 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom Nav */}
-      <div className={`border-t border-border py-3 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
+      {/* Bottom — Admin nav */}
+      <div className={`border-t border-border pt-3 pb-1 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
         {bottomItems.map((item) => {
-          const isActive = currentPath === item.to || currentPath.startsWith(item.to)
+          const isActive = item.match
+            ? currentPath.startsWith(item.match)
+            : currentPath === item.to
           return (
             <Link
               key={item.label}
@@ -174,21 +191,10 @@ export function Sidebar() {
             </Link>
           )
         })}
-
-        {/* Collapse toggle — desktop only */}
-        <button
-          type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:flex w-full items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)] transition-all duration-150"
-          style={collapsed ? { justifyContent: 'center', padding: '0.5rem' } : { gap: '0.625rem', padding: '0.5rem 0.75rem' }}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed
-            ? <PanelLeftOpen size={16} strokeWidth={1.8} className="shrink-0" />
-            : <><PanelLeftClose size={16} strokeWidth={1.8} className="shrink-0" />Collapse</>
-          }
-        </button>
       </div>
+
+      {/* User profile — anchored to bottom */}
+      <UserProfile collapsed={collapsed} />
     </>
   )
 
@@ -226,8 +232,131 @@ export function Sidebar() {
         >
           <X size={18} />
         </button>
-        {navContent}
+        {/* Brand (same as navContent) */}
+        <div className="flex h-14 items-center border-b border-border gap-2.5 px-5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
+            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            F
+          </div>
+          <span className="display-title font-bold text-foreground text-base tracking-tight">Flint</span>
+          <span className="ml-auto island-kicker !text-[0.6rem] !tracking-[0.12em] opacity-60">CI</span>
+        </div>
+        {/* Scope filters — mobile only */}
+        <div className="px-3 py-2.5 border-b border-border">
+          <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2 px-1">Scope</p>
+          <ScopeSelector />
+        </div>
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-3">
+          {navItems.map((item) => {
+            const isActive = item.match
+              ? currentPath.startsWith(item.match)
+              : currentPath === item.to
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 gap-2.5 px-3 ${
+                  isActive
+                    ? 'text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
+                }`}
+                style={isActive ? activeStyle : undefined}
+              >
+                <item.icon size={16} strokeWidth={isActive ? 2.2 : 1.8} className="shrink-0" />
+                {item.label}
+              </Link>
+            )
+          })}
+        </nav>
+        {/* Bottom — Admin nav */}
+        <div className="border-t border-border pt-3 pb-1 space-y-0.5 px-3">
+          {bottomItems.map((item) => {
+            const isActive = item.match
+              ? currentPath.startsWith(item.match)
+              : currentPath === item.to
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 gap-2.5 px-3 ${
+                  isActive
+                    ? 'text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
+                }`}
+                style={isActive ? activeStyle : undefined}
+              >
+                <item.icon size={16} strokeWidth={1.8} className="shrink-0" />
+                {item.label}
+              </Link>
+            )
+          })}
+        </div>
+        {/* User profile */}
+        <UserProfile collapsed={false} />
       </aside>
     </>
+  )
+}
+
+// ── User profile ────────────────────────────────────────
+function UserProfile({ collapsed }: { collapsed: boolean }) {
+  const { data } = useQuery(orpc.auth.me.queryOptions({}))
+  const user = data as { userId?: string; name?: string; email?: string; role?: string } | undefined
+  if (!user) return null
+
+  const initials = (user.name ?? user.email ?? '?')
+    .split(/[\s@]+/)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase() ?? '')
+    .join('')
+
+  if (collapsed) {
+    return (
+      <div className="border-t border-border px-1.5 py-2.5">
+        <Link
+          to="/settings/users/$id" params={{ id: user.userId ?? '' }}
+          title={user.name ?? user.email}
+          className="flex items-center justify-center w-full rounded-lg py-1.5 hover:bg-[var(--link-bg-hover)] transition-colors"
+        >
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[0.6rem] font-bold shrink-0"
+            style={{ background: 'color-mix(in oklab, var(--primary) 25%, var(--muted))', color: 'var(--foreground)' }}
+          >
+            {initials}
+          </div>
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border-t border-border px-3 py-2.5">
+      <div className="flex items-center gap-2.5">
+        <Link
+          to="/settings/users/$id" params={{ id: user.userId ?? '' }}
+          className="flex items-center gap-2.5 flex-1 min-w-0 rounded-lg px-1 py-1.5 -ml-1 hover:bg-[var(--link-bg-hover)] transition-colors"
+        >
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[0.6rem] font-bold shrink-0"
+            style={{ background: 'color-mix(in oklab, var(--primary) 25%, var(--muted))', color: 'var(--foreground)' }}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground truncate">{user.name}</p>
+            <p className="text-[0.65rem] text-muted-foreground truncate">{user.email}</p>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={() => console.log('[mock] Logout')}
+          title="Sign out"
+          className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/5 transition-colors"
+        >
+          <LogOut size={14} />
+        </button>
+      </div>
+    </div>
   )
 }

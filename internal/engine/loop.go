@@ -80,7 +80,7 @@ func (l *Loop) tick(ctx context.Context) {
 		log.Error().Err(err).Msg("engine: fire timers error")
 	}
 
-	// Phase 2: Process gate/watch signals.
+	// Phase 2: Process gate approval signals.
 	l.processSignals(ctx)
 
 	// Phase 3: Claim and dispatch queued steps.
@@ -119,56 +119,12 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 		var input StartWorkflowInput
 		_ = json.Unmarshal(inputJSON, &input)
 
-		// Create timers for gate/watch steps.
-		if c.ExecType == "gate" || c.ExecType == "watch" {
-			l.createStepTimers(ctx, c.WorkflowID, c.Name, c.ExecType, c.StepDef)
+		// Create timers for gate steps.
+		if c.ExecType == "gate" {
+			l.createStepTimers(ctx, c.WorkflowID, c.Name)
 		}
 
-		// Handle invoke steps — create child workflow.
-		if c.ExecType == "invoke" {
-			var stepDef struct {
-				Invoke string `json:"invoke"`
-			}
-			_ = json.Unmarshal(c.StepDef, &stepDef)
-
-			_, err := l.engine.StartWorkflow(ctx, StartWorkflowInput{
-				RunID:            input.RunID,
-				OrgID:            input.OrgID,
-				ProjectID:        input.ProjectID,
-				Repo:             input.Repo,
-				Ref:              input.Ref,
-				CommitSHA:        input.CommitSHA,
-				TriggerType:      "invoke",
-				TriggeredBy:      input.TriggeredBy,
-				WorkflowFile:     stepDef.Invoke,
-				PipelinePath:     input.PipelinePath,
-				RunnerPool:       input.RunnerPool,
-				JobNamespace:     input.JobNamespace,
-				Env:              input.Env,
-				RunURL:           input.RunURL,
-				ParentWorkflowID: c.WorkflowID,
-				ParentStepName:   c.Name,
-			})
-			if err != nil {
-				log.Error().Err(err).Str("step", c.Name).Msg("engine: failed to start child workflow")
-				// Mark invoke step as failed so workflow can advance.
-				_ = q.UpdateStepResult(ctx, db.UpdateStepResultParams{
-					ID:     c.ID,
-					Status: "failed",
-					Result: mustJSON(StepResult{StepName: c.Name, Success: false, Error: "child workflow creation failed: " + err.Error()}),
-				})
-				// Advance parent workflow.
-				itx, _ := l.pool.Begin(ctx)
-				if itx != nil {
-					qtx := db.New(l.pool).WithTx(itx)
-					_ = advanceWorkflow(ctx, qtx, c.WorkflowID, 0)
-					_ = itx.Commit(ctx)
-				}
-			}
-			continue
-		}
-
-		// Dispatch run/do/use/matrix steps as K8s Jobs.
+		// Dispatch run/use/steps steps as K8s Jobs.
 		if c.Status == "running" && l.k8s != nil {
 			step := claimedStep{
 				id: c.ID, workflowID: c.WorkflowID, name: c.Name,
@@ -198,66 +154,18 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 	}
 }
 
-// createStepTimers creates timers for gate and watch steps.
-func (l *Loop) createStepTimers(ctx context.Context, workflowID, stepName, execType string, stepDef []byte) {
+// createStepTimers creates timers for gate steps.
+func (l *Loop) createStepTimers(ctx context.Context, workflowID, stepName string) {
 	q := db.New(l.pool)
 
-	if execType == "gate" {
-		var def struct {
-			Gate struct {
-				Timeout string `json:"timeout"`
-			} `json:"gate"`
-		}
-		_ = json.Unmarshal(stepDef, &def)
-		timeout := 4 * time.Hour
-		if def.Gate.Timeout != "" {
-			if d, err := time.ParseDuration(def.Gate.Timeout); err == nil {
-				timeout = d
-			}
-		}
-		_ = q.CreateTimer(ctx, db.CreateTimerParams{
-			WorkflowID: workflowID,
-			StepName:   stepName,
-			TimerType:  "gate_timeout",
-			Secs:       timeout.Seconds(),
-		})
-	}
-
-	if execType == "watch" {
-		var def struct {
-			Watch struct {
-				Interval string `json:"interval"`
-				Timeout  string `json:"timeout"`
-			} `json:"watch"`
-		}
-		_ = json.Unmarshal(stepDef, &def)
-
-		interval := 15 * time.Second
-		timeout := 10 * time.Minute
-		if def.Watch.Interval != "" {
-			if d, err := time.ParseDuration(def.Watch.Interval); err == nil {
-				interval = d
-			}
-		}
-		if def.Watch.Timeout != "" {
-			if d, err := time.ParseDuration(def.Watch.Timeout); err == nil {
-				timeout = d
-			}
-		}
-
-		_ = q.CreateTimer(ctx, db.CreateTimerParams{
-			WorkflowID: workflowID,
-			StepName:   stepName,
-			TimerType:  "watch_interval",
-			Secs:       interval.Seconds(),
-		})
-		_ = q.CreateTimer(ctx, db.CreateTimerParams{
-			WorkflowID: workflowID,
-			StepName:   stepName,
-			TimerType:  "watch_timeout",
-			Secs:       timeout.Seconds(),
-		})
-	}
+	// Gate no longer has a configurable timeout — use a sensible default.
+	timeout := 4 * time.Hour
+	_ = q.CreateTimer(ctx, db.CreateTimerParams{
+		WorkflowID: workflowID,
+		StepName:   stepName,
+		TimerType:  "gate_timeout",
+		Secs:       timeout.Seconds(),
+	})
 }
 
 // processSignals checks for gate approval signals on waiting steps.

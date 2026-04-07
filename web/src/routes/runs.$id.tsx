@@ -1,4 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { useSuspenseQuery, useQuery } from '@tanstack/react-query'
 import { useState, lazy, Suspense } from 'react'
 import {
   GitBranch,
@@ -13,8 +14,12 @@ import {
   ArrowLeft,
   Network,
   List,
+  Ban,
+  RotateCcw,
 } from 'lucide-react'
-import { mockRuns, mockPipelineSteps, mockStepLogs } from '#/lib/mock-data'
+import { orpc } from '#/lib/orpc'
+import { client } from '#/lib/orpc'
+import { PipelineProgress } from '#/components/PipelineProgress'
 import { StepTimeline } from '#/components/pipeline/step-timeline'
 
 const DagView = lazy(() =>
@@ -30,9 +35,21 @@ function RunDetailPage() {
   const [selectedStep, setSelectedStep] = useState<string | null>(null)
   const [view, setView] = useState<'timeline' | 'dag'>('timeline')
 
-  const run = mockRuns.find((r) => r.id === id) ?? mockRuns[2]!
+  const { data: run } = useSuspenseQuery(
+    orpc.runs.get.queryOptions({ input: { id } }),
+  )
+  const { data: steps } = useSuspenseQuery(
+    orpc.runs.steps.queryOptions({ input: { runId: id } }),
+  )
+  const { data: logsData } = useQuery({
+    ...orpc.runs.stepLogs.queryOptions({
+      input: { runId: id, stepName: selectedStep ?? '' },
+    }),
+    enabled: selectedStep !== null,
+  })
+
   const step = selectedStep
-    ? mockPipelineSteps.find((s) => s.name === selectedStep)
+    ? steps.find((s) => s.name === selectedStep)
     : null
 
   function handleStepClick(name: string) {
@@ -40,15 +57,19 @@ function RunDetailPage() {
   }
 
   return (
-    <div className="rise-in max-w-6xl">
+    <div className="rise-in">
       {/* Run Header */}
       <div className="island-shell p-4 sm:p-5 mb-5">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <StatusBadge status={run.status} />
-            <h1 className="display-title text-lg sm:text-xl font-bold text-foreground">
+            <Link
+              to="/projects/$id"
+              params={{ id: run.projectId }}
+              className="display-title text-lg sm:text-xl font-bold text-foreground hover:text-primary transition-colors truncate"
+            >
               {run.projectName}
-            </h1>
+            </Link>
             <span className="text-xs text-muted-foreground font-mono opacity-60">
               {run.workflowFile}
             </span>
@@ -77,7 +98,36 @@ function RunDetailPage() {
             {run.duration}
           </span>
           <span className="island-kicker !text-[0.58rem]">{run.triggerType}</span>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 ml-auto">
+            {(run.status === 'running' || run.status === 'pending') && (
+              <button
+                type="button"
+                onClick={() => client.runs.cancel({ runId: run.id })}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+              >
+                <Ban size={12} />
+                Cancel
+              </button>
+            )}
+            {(run.status === 'failed' || run.status === 'cancelled') && (
+              <button
+                type="button"
+                onClick={() => client.runs.retry({ runId: run.id })}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+              >
+                <RotateCcw size={12} />
+                Retry
+              </button>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Pipeline progress */}
+      <div className="mb-4">
+        <PipelineProgress steps={steps} />
       </div>
 
       {/* View toggle + summary */}
@@ -85,7 +135,7 @@ function RunDetailPage() {
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-sm text-foreground">Pipeline</h2>
           <span className="text-xs text-muted-foreground">
-            {mockPipelineSteps.filter((s) => s.status === 'succeeded').length}/{mockPipelineSteps.length} complete
+            {steps.filter((s) => s.status === 'succeeded').length}/{steps.length} complete
           </span>
         </div>
         <div className="flex items-center rounded-lg border border-border p-0.5"
@@ -121,7 +171,7 @@ function RunDetailPage() {
 
       {/* Content: either steps view OR full-width log viewer */}
       {selectedStep && step ? (
-        /* ── Full-width log viewer ── */
+        /* -- Full-width log viewer -- */
         <div className="island-shell !p-0 overflow-hidden flex flex-col">
           {/* Log header with back + step info + nav */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
@@ -149,9 +199,9 @@ function RunDetailPage() {
             {/* Prev / Next */}
             <div className="flex items-center gap-1 shrink-0">
               {(() => {
-                const idx = mockPipelineSteps.findIndex((s) => s.name === selectedStep)
-                const prev = idx > 0 ? mockPipelineSteps[idx - 1] : null
-                const next = idx < mockPipelineSteps.length - 1 ? mockPipelineSteps[idx + 1] : null
+                const idx = steps.findIndex((s) => s.name === selectedStep)
+                const prev = idx > 0 ? steps[idx - 1] : null
+                const next = idx < steps.length - 1 ? steps[idx + 1] : null
                 return (
                   <>
                     <button
@@ -160,7 +210,7 @@ function RunDetailPage() {
                       disabled={!prev}
                       className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-25 disabled:pointer-events-none transition-colors"
                     >
-                      ← {prev ? prev.name : ''}
+                      {prev ? `\u2190 ${prev.name}` : ''}
                     </button>
                     <button
                       type="button"
@@ -168,7 +218,7 @@ function RunDetailPage() {
                       disabled={!next}
                       className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-25 disabled:pointer-events-none transition-colors"
                     >
-                      {next ? next.name : ''} →
+                      {next ? `${next.name} \u2192` : ''}
                     </button>
                   </>
                 )
@@ -176,14 +226,14 @@ function RunDetailPage() {
             </div>
           </div>
 
-          {/* Step bar — all steps visible, scrollable */}
+          {/* Step bar -- all steps visible, scrollable */}
           <div className="flex items-center gap-1 px-4 py-2 border-b border-border overflow-x-auto shrink-0">
-            {mockPipelineSteps.map((s) => (
+            {steps.map((s) => (
               <button
                 key={s.name}
                 type="button"
                 onClick={() => setSelectedStep(s.name)}
-                title={`${s.name} — ${s.status}`}
+                title={`${s.name} \u2014 ${s.status}`}
                 className={`flex items-center gap-1.5 shrink-0 rounded-md px-2 py-1 text-[0.7rem] font-medium transition-all ${
                   s.name === selectedStep
                     ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
@@ -204,8 +254,8 @@ function RunDetailPage() {
 
           {/* Full-width log output */}
           <div className="bg-[#0d1117] p-4 sm:p-5 font-mono text-xs sm:text-[0.82rem] leading-relaxed text-[#c9d1d9] min-h-[400px] sm:min-h-[500px] max-h-[75vh] overflow-auto">
-            {mockStepLogs[selectedStep] ? (
-              mockStepLogs[selectedStep].split('\n').map((line, i) => (
+            {logsData?.lines ? (
+              logsData.lines.split('\n').map((line, i) => (
                 <div key={i} className="flex gap-4 hover:bg-[#161b22] -mx-2 px-2 py-px rounded">
                   <span className="text-[#484f58] select-none shrink-0 w-7 text-right">
                     {i + 1}
@@ -227,11 +277,11 @@ function RunDetailPage() {
           </div>
         </div>
       ) : (
-        /* ── Steps view (timeline or DAG) ── */
+        /* -- Steps view (timeline or DAG) -- */
         <div>
           {view === 'timeline' ? (
             <StepTimeline
-              steps={mockPipelineSteps}
+              steps={steps}
               selectedStep={selectedStep}
               onStepClick={handleStepClick}
             />
@@ -239,7 +289,7 @@ function RunDetailPage() {
             <div className="island-shell !p-0 overflow-hidden h-[400px] sm:h-[500px]">
               <Suspense fallback={<div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading DAG...</div>}>
                 <DagView
-                  steps={mockPipelineSteps}
+                  steps={steps}
                   onStepClick={handleStepClick}
                 />
               </Suspense>

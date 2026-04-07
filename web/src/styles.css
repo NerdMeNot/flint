@@ -234,6 +234,37 @@ button, .island-shell, .feature-card, a {
   }
 }
 
+/* Running accent bar pulse */
+.running-accent {
+  animation: accent-pulse 2s ease-in-out infinite;
+}
+
+@keyframes accent-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Running shimmer overlay */
+.running-shimmer {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--primary) 4%, transparent),
+    transparent
+  );
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { left: -60%; }
+  100% { left: 160%; }
+}
+
 @theme inline {
   --font-heading: "Fraunces", Georgia, serif;
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;

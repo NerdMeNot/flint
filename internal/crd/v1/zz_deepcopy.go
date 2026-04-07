@@ -315,3 +315,97 @@ func (in *AuthProviderList) DeepCopyInto(out *AuthProviderList) {
 		}
 	}
 }
+
+// ── StepTemplate ────────────────────────────────────────────
+
+func (in *StepTemplate) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(StepTemplate)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *StepTemplate) DeepCopyInto(out *StepTemplate) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+}
+
+func (in *StepTemplateSpec) DeepCopyInto(out *StepTemplateSpec) {
+	*out = *in
+	if in.Inputs != nil {
+		out.Inputs = make([]StepTemplateInput, len(in.Inputs))
+		copy(out.Inputs, in.Inputs)
+	}
+}
+
+func (in *StepTemplateList) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(StepTemplateList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *StepTemplateList) DeepCopyInto(out *StepTemplateList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		out.Items = make([]StepTemplate, len(in.Items))
+		for i := range in.Items {
+			in.Items[i].DeepCopyInto(&out.Items[i])
+		}
+	}
+}
+
+// ── ImagePreset ────────────────────────────────────────────
+
+func (in *ImagePreset) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(ImagePreset)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *ImagePreset) DeepCopyInto(out *ImagePreset) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+}
+
+func (in *ImagePresetSpec) DeepCopyInto(out *ImagePresetSpec) {
+	*out = *in
+	if in.Tags != nil {
+		out.Tags = make([]string, len(in.Tags))
+		copy(out.Tags, in.Tags)
+	}
+}
+
+func (in *ImagePresetList) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(ImagePresetList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *ImagePresetList) DeepCopyInto(out *ImagePresetList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		out.Items = make([]ImagePreset, len(in.Items))
+		for i := range in.Items {
+			in.Items[i].DeepCopyInto(&out.Items[i])
+		}
+	}
+}

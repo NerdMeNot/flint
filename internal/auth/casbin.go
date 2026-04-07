@@ -11,26 +11,32 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// flintRBACModel is the Casbin model for Flint's RBAC-with-domains.
-// - sub: user email or IdP group name
-// - dom: workspace slug ("*" = all workspaces)
-// - obj: resource type (org, project, pipeline, gate, secret, runner, rbac, audit)
-// - act: action (read, create, update, archive, run, cancel, approve, manage, delete)
+// flintRBACModel is the Casbin model for Flint's RBAC v2.
+//
+// 5-field model:
+//   - sub: user email, "team:<slug>", or "apikey:<id>"
+//   - ws:  workspace slug ("*" = all workspaces)
+//   - env: environment name ("*" = all environments)
+//   - obj: resource type (admin: workspace,team,... / CI: project,run,gate)
+//   - act: action (admin: read,manage / CI: read,write,trigger,cancel,approve,reject)
+//
+// Grouping is 2-field (no domain): g = user, group.
+// Team membership creates g rules; workspace/env scope is on policies, not groups.
 const flintRBACModel = `
 [request_definition]
-r = sub, dom, obj, act
+r = sub, ws, env, obj, act
 
 [policy_definition]
-p = sub, dom, obj, act
+p = sub, ws, env, obj, act
 
 [role_definition]
-g = _, _, _
+g = _, _
 
 [policy_effect]
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub, r.dom) && (p.dom == "*" || r.dom == p.dom) && r.obj == p.obj && r.act == p.act
+m = g(r.sub, p.sub) && (p.ws == "*" || p.ws == r.ws) && (p.env == "*" || p.env == r.env) && (p.obj == "*" || p.obj == r.obj) && (p.act == "*" || p.act == r.act)
 `
 
 // NewEnforcer creates a Casbin enforcer with the Flint RBAC model and pgx adapter.

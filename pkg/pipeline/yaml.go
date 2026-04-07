@@ -6,116 +6,109 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SecretRef can be a plain string or a map with optional/description fields.
+// PullRequestTrigger supports a shorthand form:
 //
-//	secrets:
-//	  - SECRET_NAME
-//	  - OPTIONAL_SECRET:
-//	      optional: true
-func (s *SecretRef) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.ScalarNode {
-		s.Name = node.Value
-		return nil
-	}
-
-	if node.Kind == yaml.MappingNode && len(node.Content) == 2 {
-		s.Name = node.Content[0].Value
-
-		var inner struct {
-			Optional    bool   `yaml:"optional"`
-			Description string `yaml:"description"`
-		}
-		if err := node.Content[1].Decode(&inner); err != nil {
-			return fmt.Errorf("decoding secret ref %q: %w", s.Name, err)
-		}
-		s.Optional = inner.Optional
-		s.Description = inner.Description
-		return nil
-	}
-
-	return fmt.Errorf("secret ref must be a string or a single-key map, got %v", node.Kind)
-}
-
-// RunnerRef can be a plain string (pool name) or a structured spec.
+//	pull_request: [main, "release/*"]
 //
-//	runner: standard
-//	# or
-//	runner:
-//	  name: gpu
-//	  size: large
-func (r *RunnerRef) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.ScalarNode {
-		r.Name = node.Value
+// Which is equivalent to:
+//
+//	pull_request:
+//	  branches: [main, "release/*"]
+func (t *PullRequestTrigger) UnmarshalYAML(node *yaml.Node) error {
+	// Shorthand: pull_request: [main, develop]
+	if node.Kind == yaml.SequenceNode {
+		var branches []string
+		if err := node.Decode(&branches); err != nil {
+			return err
+		}
+		t.Branches = branches
 		return nil
 	}
 
-	// Avoid infinite recursion by decoding into an alias type.
-	type alias RunnerRef
+	// Full form: pull_request: { branches: [...], paths: [...] }
+	type alias PullRequestTrigger
 	var a alias
 	if err := node.Decode(&a); err != nil {
-		return fmt.Errorf("decoding runner ref: %w", err)
+		return err
 	}
-	*r = RunnerRef(a)
+	*t = PullRequestTrigger(a)
 	return nil
 }
 
-// DoTask is expressed as a single-key map in YAML:
-//
-//	do:
-//	  - compile:
-//	      run: go build ./...
-//	  - verify:
-//	      run: ./bin/server --version
-func (d *DoTask) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode || len(node.Content) != 2 {
-		return fmt.Errorf("do task must be a single-key map, got %v with %d items", node.Kind, len(node.Content)/2)
+// unmarshalPromotions handles the promotion field which can be a single
+// object or an array.
+func unmarshalPromotions(node *yaml.Node) ([]PromotionTrigger, error) {
+	// Array form
+	if node.Kind == yaml.SequenceNode {
+		var list []PromotionTrigger
+		if err := node.Decode(&list); err != nil {
+			return nil, err
+		}
+		return list, nil
 	}
 
-	d.Name = node.Content[0].Value
+	// Single object form
+	if node.Kind == yaml.MappingNode {
+		var single PromotionTrigger
+		if err := node.Decode(&single); err != nil {
+			return nil, err
+		}
+		return []PromotionTrigger{single}, nil
+	}
 
-	var inner struct {
-		Run string `yaml:"run"`
-	}
-	if err := node.Content[1].Decode(&inner); err != nil {
-		return fmt.Errorf("decoding do task %q: %w", d.Name, err)
-	}
-	d.Run = inner.Run
-	return nil
+	return nil, fmt.Errorf("promotion must be a mapping or sequence, got %v", node.Kind)
 }
 
-// CacheSpec handles two YAML forms:
-//
-// Named cache definitions:
-//
-//	cache:
-//	  go-modules:
-//	    key: ${{ checksum('go.sum') }}
-//	    paths: [/root/go/pkg/mod]
-//
-// Restore references:
-//
-//	cache:
-//	  restore: [go-modules, go-build]
-func (c *CacheSpec) UnmarshalYAML(node *yaml.Node) error {
+// UnmarshalYAML for Triggers handles the promotion field specially
+// (single object vs array), while delegating the rest to default decoding.
+func (t *Triggers) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("cache spec must be a map, got %v", node.Kind)
-	}
-
-	// Check if this is a restore-only spec.
-	var restoreOnly struct {
-		Restore []string `yaml:"restore"`
-	}
-	if err := node.Decode(&restoreOnly); err == nil && len(restoreOnly.Restore) > 0 {
-		c.Restore = restoreOnly.Restore
 		return nil
 	}
 
-	// Otherwise, treat each key as a named cache entry.
-	c.Entries = make(map[string]CacheEntry)
-	var raw map[string]CacheEntry
-	if err := node.Decode(&raw); err != nil {
-		return fmt.Errorf("decoding cache spec: %w", err)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		val := node.Content[i+1]
+
+		switch key {
+		case "push":
+			t.Push = &PushTrigger{}
+			if err := val.Decode(t.Push); err != nil {
+				return err
+			}
+		case "pull_request":
+			t.PullRequest = &PullRequestTrigger{}
+			if err := val.Decode(t.PullRequest); err != nil {
+				return err
+			}
+		case "manual":
+			t.Manual = &ManualTrigger{}
+			if err := val.Decode(t.Manual); err != nil {
+				return err
+			}
+		case "schedule":
+			t.Schedule = &ScheduleTrigger{}
+			if err := val.Decode(t.Schedule); err != nil {
+				return err
+			}
+		case "tag":
+			t.Tag = &TagTrigger{}
+			if err := val.Decode(t.Tag); err != nil {
+				return err
+			}
+		case "promotion":
+			promo, err := unmarshalPromotions(val)
+			if err != nil {
+				return err
+			}
+			t.Promotion = promo
+		case "webhook":
+			t.Webhook = &WebhookTrigger{}
+			if err := val.Decode(t.Webhook); err != nil {
+				return err
+			}
+		}
 	}
-	c.Entries = raw
+
 	return nil
 }

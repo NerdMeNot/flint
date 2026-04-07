@@ -53,29 +53,6 @@ func handleFiredTimer(ctx context.Context, pool *pgxpool.Pool, t db.FireDueTimer
 		})
 		log.Warn().Str("step", t.StepName).Msg("engine: gate timed out")
 
-	case "watch_timeout":
-		// Watch condition timed out.
-		err = qtx.FailGateByTimeout(ctx, db.FailGateByTimeoutParams{
-			Result:     mustJSON(StepResult{StepName: t.StepName, Success: false, Error: "watch condition timed out"}),
-			WorkflowID: t.WorkflowID,
-			StepName:   t.StepName,
-		})
-		log.Warn().Str("step", t.StepName).Msg("engine: watch timed out")
-
-	case "watch_interval":
-		// Time to check the watch condition again.
-		// For now, we just log — the actual HTTP/K8s check needs to be implemented.
-		log.Debug().Str("step", t.StepName).Msg("engine: watch interval fired (check not implemented)")
-
-		// Re-create interval timer for next check.
-		_ = qtx.UpsertTimer(ctx, db.UpsertTimerParams{
-			WorkflowID: t.WorkflowID,
-			StepName:   t.StepName,
-			TimerType:  "watch_interval",
-			Secs:       15,
-		})
-		return tx.Commit(ctx) // Don't advance — watch is still waiting.
-
 	case "retry_backoff":
 		// Retry backoff expired — re-queue the step.
 		_ = qtx.RequeueRetryStep(ctx, db.RequeueRetryStepParams{

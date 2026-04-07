@@ -31,10 +31,22 @@ tasks:
         task: build
         vars: { BIN: "{{.ITEM}}" }
 
+  build-web:
+    desc: Build the web frontend
+    dir: web
+    cmds:
+      - bun run build
+
+  build-everything:
+    desc: Build all binaries + web frontend
+    cmds:
+      - task: build-all
+      - task: build-web
+
   # --- Test ---
 
   test:
-    desc: Run all tests
+    desc: Run all Go tests
     cmds:
       - go test ./...
 
@@ -59,6 +71,12 @@ tasks:
       - go test -coverprofile=coverage.out ./...
       - go tool cover -func=coverage.out | grep total
       - go tool cover -html=coverage.out -o coverage.html
+
+  test-all:
+    desc: Run Go tests + frontend build
+    cmds:
+      - task: test
+      - task: build-web
 
   # --- Code quality ---
 
@@ -88,10 +106,34 @@ tasks:
   # --- Code generation ---
 
   generate:
-    desc: Run all code generation (sqlc, CRD manifests)
+    desc: Run all code generation (proto, sqlc, CRD manifests)
     cmds:
+      - task: proto-gen
       - task: sqlc-gen
       - task: crd-gen
+
+  proto-gen:
+    desc: Generate Go code from protobuf definitions
+    cmds:
+      - buf dep update
+      - buf lint
+      - buf generate
+    sources:
+      - proto/**/*.proto
+      - buf.yaml
+      - buf.gen.yaml
+    generates:
+      - protogen/**/*.go
+
+  proto-lint:
+    desc: Lint protobuf definitions
+    cmds:
+      - buf lint
+
+  proto-breaking:
+    desc: Check for breaking protobuf changes against main branch
+    cmds:
+      - buf breaking --against '.git#branch=main'
 
   sqlc-gen:
     desc: Generate type-safe Go from SQL queries
@@ -103,6 +145,32 @@ tasks:
     cmds:
       - mkdir -p helm/crds
       - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/crd/..." output:crd:artifacts:config=helm/crds
+
+  # --- Frontend ---
+
+  web-dev:
+    desc: Start the web frontend dev server
+    dir: web
+    cmds:
+      - bun run dev
+
+  web-build:
+    desc: Build the web frontend for production
+    dir: web
+    cmds:
+      - bun run build
+
+  web-install:
+    desc: Install web frontend dependencies
+    dir: web
+    cmds:
+      - bun install
+
+  web-typecheck:
+    desc: Run TypeScript type checking on the frontend
+    dir: web
+    cmds:
+      - bunx tsc --noEmit
 
   # --- Database ---
 
@@ -146,6 +214,12 @@ tasks:
     cmds:
       - go run ./cmd/worker --config config.yaml
 
+  dev-all:
+    desc: Start server + web frontend dev server
+    deps:
+      - dev
+      - web-dev
+
   # --- Docker ---
 
   docker:
@@ -167,9 +241,10 @@ tasks:
   # --- Dependencies ---
 
   deps:
-    desc: Download dependencies
+    desc: Download all dependencies (Go + frontend)
     cmds:
       - go mod download
+      - task: web-install
 
   tidy:
     desc: Tidy go.mod
@@ -182,4 +257,5 @@ tasks:
     desc: Remove build artifacts
     cmds:
       - rm -rf bin/ coverage.out coverage.html
+      - rm -rf web/dist web/node_modules/.vite
       - go clean -cache -testcache

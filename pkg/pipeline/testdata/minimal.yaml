@@ -1,4 +1,6 @@
-pipeline: Minimal
+triggers:
+  push:
+    branches: [main]
 
 steps:
   - name: hello

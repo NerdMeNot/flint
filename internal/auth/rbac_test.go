@@ -1,133 +1,162 @@
-package auth_test
+package auth
 
 import (
+	"sort"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/auth"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestCan_OrgAdmin(t *testing.T) {
-	// Org admin can do everything.
-	actions := []auth.Action{
-		auth.ActionOrgManage, auth.ActionOrgRead,
-		auth.ActionProjectCreate, auth.ActionProjectUpdate, auth.ActionProjectArchive, auth.ActionProjectRead,
-		auth.ActionPipelineRun, auth.ActionPipelineCancel, auth.ActionPipelineRead,
-		auth.ActionGateApprove,
-		auth.ActionSecretCreate, auth.ActionSecretRead, auth.ActionSecretDelete,
-		auth.ActionRunnerManage, auth.ActionRunnerRead,
-		auth.ActionRBACManage, auth.ActionAuditRead,
+func TestIsAdminObject(t *testing.T) {
+	adminObjs := []string{ObjWorkspace, ObjTeam, ObjEnvironment, ObjRunner, ObjConnection, ObjAPIKey, ObjSecret, ObjRole, ObjAudit}
+	for _, obj := range adminObjs {
+		assert.True(t, IsAdminObject(obj), "expected %s to be admin", obj)
+		assert.False(t, IsCIObject(obj), "expected %s to NOT be CI", obj)
 	}
+}
 
-	for _, action := range actions {
-		if !auth.Can(auth.RoleOrgAdmin, action) {
-			t.Errorf("OrgAdmin should be able to %s", action)
+func TestIsCIObject(t *testing.T) {
+	ciObjs := []string{ObjProject, ObjRun, ObjGate}
+	for _, obj := range ciObjs {
+		assert.True(t, IsCIObject(obj), "expected %s to be CI", obj)
+		assert.False(t, IsAdminObject(obj), "expected %s to NOT be admin", obj)
+	}
+}
+
+func TestExpandImplications_GateApprove(t *testing.T) {
+	explicit := []Permission{{ObjGate, ActApprove}}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	assert.Contains(t, keys, "gate:approve")
+	assert.Contains(t, keys, "run:read", "gate:approve should imply run:read")
+	assert.Contains(t, keys, "project:read", "gate:approve should imply project:read")
+}
+
+func TestExpandImplications_GateReject(t *testing.T) {
+	explicit := []Permission{{ObjGate, ActReject}}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	assert.Contains(t, keys, "gate:reject")
+	assert.Contains(t, keys, "run:read")
+	assert.Contains(t, keys, "project:read")
+}
+
+func TestExpandImplications_RunTrigger(t *testing.T) {
+	explicit := []Permission{{ObjRun, ActTrigger}}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	assert.Contains(t, keys, "run:trigger")
+	assert.Contains(t, keys, "project:read")
+	assert.NotContains(t, keys, "run:read")
+}
+
+func TestExpandImplications_RunCancel(t *testing.T) {
+	explicit := []Permission{{ObjRun, ActCancel}}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	assert.Contains(t, keys, "run:cancel")
+	assert.Contains(t, keys, "run:read")
+	assert.Contains(t, keys, "project:read")
+}
+
+func TestExpandImplications_ProjectWrite(t *testing.T) {
+	explicit := []Permission{{ObjProject, ActWrite}}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	assert.Contains(t, keys, "project:write")
+	assert.Contains(t, keys, "project:read")
+}
+
+func TestExpandImplications_AdminManageImpliesRead(t *testing.T) {
+	adminObjs := []string{ObjWorkspace, ObjTeam, ObjEnvironment, ObjRunner, ObjConnection, ObjAPIKey, ObjSecret, ObjRole}
+	for _, obj := range adminObjs {
+		explicit := []Permission{{obj, ActManage}}
+		expanded := ExpandImplications(explicit)
+		keys := permKeys(expanded)
+		assert.Contains(t, keys, obj+":manage")
+		assert.Contains(t, keys, obj+":read", "%s:manage should imply %s:read", obj, obj)
+	}
+}
+
+func TestExpandImplications_NoImplication(t *testing.T) {
+	explicit := []Permission{{ObjProject, ActRead}}
+	expanded := ExpandImplications(explicit)
+
+	require.Len(t, expanded, 1)
+	assert.Equal(t, "project:read", expanded[0].Key())
+}
+
+func TestExpandImplications_Deduplication(t *testing.T) {
+	explicit := []Permission{
+		{ObjGate, ActApprove},
+		{ObjRun, ActTrigger},
+	}
+	expanded := ExpandImplications(explicit)
+
+	keys := permKeys(expanded)
+	count := 0
+	for _, k := range keys {
+		if k == "project:read" {
+			count++
 		}
 	}
+	assert.Equal(t, 1, count, "project:read should not be duplicated")
 }
 
-func TestCan_Viewer(t *testing.T) {
-	// Viewer can only read.
-	allowed := map[auth.Action]bool{
-		auth.ActionOrgRead:      true,
-		auth.ActionProjectRead:  true,
-		auth.ActionPipelineRead: true,
-		auth.ActionRunnerRead:   true,
-	}
-
-	denied := []auth.Action{
-		auth.ActionOrgManage,
-		auth.ActionProjectCreate, auth.ActionProjectUpdate, auth.ActionProjectArchive,
-		auth.ActionPipelineRun, auth.ActionPipelineCancel,
-		auth.ActionGateApprove,
-		auth.ActionSecretCreate, auth.ActionSecretRead, auth.ActionSecretDelete,
-		auth.ActionRunnerManage,
-		auth.ActionRBACManage, auth.ActionAuditRead,
-	}
-
-	for action := range allowed {
-		if !auth.Can(auth.RoleViewer, action) {
-			t.Errorf("Viewer should be able to %s", action)
-		}
-	}
-
-	for _, action := range denied {
-		if auth.Can(auth.RoleViewer, action) {
-			t.Errorf("Viewer should NOT be able to %s", action)
-		}
-	}
+func TestIsWildcard(t *testing.T) {
+	assert.True(t, IsWildcard([]Permission{{ObjWildcard, ActWildcard}}))
+	assert.False(t, IsWildcard([]Permission{{ObjProject, ActRead}}))
+	assert.False(t, IsWildcard(nil))
 }
 
-func TestCan_Developer(t *testing.T) {
-	// Developer can run pipelines and approve gates but not manage infra.
-	if !auth.Can(auth.RoleDeveloper, auth.ActionPipelineRun) {
-		t.Error("Developer should be able to run pipelines")
+func TestIntersectScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		role     []string
+		key      []string
+		expected []string
+	}{
+		{"both empty", nil, nil, nil},
+		{"role empty key set", nil, []string{"production"}, []string{"production"}},
+		{"role set key empty", []string{"production", "staging"}, nil, []string{"production", "staging"}},
+		{"intersection", []string{"production", "staging"}, []string{"production"}, []string{"production"}},
+		{"no overlap", []string{"production"}, []string{"staging"}, nil},
 	}
-	if !auth.Can(auth.RoleDeveloper, auth.ActionGateApprove) {
-		t.Error("Developer should be able to approve gates")
-	}
-	if auth.Can(auth.RoleDeveloper, auth.ActionRunnerManage) {
-		t.Error("Developer should NOT manage runners")
-	}
-	if auth.Can(auth.RoleDeveloper, auth.ActionSecretCreate) {
-		t.Error("Developer should NOT create secrets")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := intersectScope(tt.role, tt.key)
+			if tt.expected == nil {
+				assert.Nil(t, result)
+			} else {
+				sort.Strings(result)
+				sort.Strings(tt.expected)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
 	}
 }
 
-func TestCan_PipelineAdmin(t *testing.T) {
-	// Pipeline admin can manage projects and secrets but not org/RBAC.
-	if !auth.Can(auth.RolePipelineAdmin, auth.ActionProjectCreate) {
-		t.Error("PipelineAdmin should create projects")
-	}
-	if !auth.Can(auth.RolePipelineAdmin, auth.ActionSecretCreate) {
-		t.Error("PipelineAdmin should create secrets")
-	}
-	if auth.Can(auth.RolePipelineAdmin, auth.ActionOrgManage) {
-		t.Error("PipelineAdmin should NOT manage org")
-	}
-	if auth.Can(auth.RolePipelineAdmin, auth.ActionRBACManage) {
-		t.Error("PipelineAdmin should NOT manage RBAC")
-	}
+func TestSplitPermKey(t *testing.T) {
+	obj, act := splitPermKey("gate:approve")
+	assert.Equal(t, "gate", obj)
+	assert.Equal(t, "approve", act)
+
+	obj, act = splitPermKey("*:*")
+	assert.Equal(t, "*", obj)
+	assert.Equal(t, "*", act)
 }
 
-func TestCan_InvalidRole(t *testing.T) {
-	if auth.Can(auth.Role("superadmin"), auth.ActionOrgManage) {
-		t.Error("invalid role should not have any permissions")
+func permKeys(perms []Permission) []string {
+	keys := make([]string, len(perms))
+	for i, p := range perms {
+		keys[i] = p.Key()
 	}
-}
-
-func TestValidRole(t *testing.T) {
-	for _, role := range auth.AllRoles() {
-		if !auth.ValidRole(role) {
-			t.Errorf("ValidRole(%q) = false, want true", role)
-		}
-	}
-	if auth.ValidRole("invalid") {
-		t.Error("ValidRole(invalid) = true, want false")
-	}
-}
-
-func TestAllRoles(t *testing.T) {
-	roles := auth.AllRoles()
-	if len(roles) != 4 {
-		t.Fatalf("len(AllRoles()) = %d, want 4", len(roles))
-	}
-	// First should be most privileged.
-	if roles[0] != auth.RoleOrgAdmin {
-		t.Errorf("AllRoles()[0] = %q, want org_admin", roles[0])
-	}
-	if roles[3] != auth.RoleViewer {
-		t.Errorf("AllRoles()[3] = %q, want viewer", roles[3])
-	}
-}
-
-func TestActionsForRole(t *testing.T) {
-	actions := auth.ActionsForRole(auth.RoleViewer)
-	if len(actions) != 4 {
-		t.Errorf("len(ActionsForRole(viewer)) = %d, want 4", len(actions))
-	}
-
-	actions = auth.ActionsForRole(auth.Role("invalid"))
-	if actions != nil {
-		t.Errorf("ActionsForRole(invalid) = %v, want nil", actions)
-	}
+	return keys
 }

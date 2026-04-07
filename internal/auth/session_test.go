@@ -10,10 +10,10 @@ import (
 
 func testSessionConfig() auth.SessionConfig {
 	return auth.SessionConfig{
-		SigningKey:       []byte("test-secret-key-32-bytes-long!!!"),
-		Issuer:           "https://flint.test",
-		SessionDuration:  1 * time.Hour,
-		RefreshDuration:  24 * time.Hour,
+		SigningKey:      []byte("test-secret-key-32-bytes-long!!!"),
+		Issuer:         "https://flint.test",
+		SessionDuration: 1 * time.Hour,
+		RefreshDuration: 24 * time.Hour,
 	}
 }
 
@@ -30,16 +30,15 @@ func TestSessionManager_RoundTrip(t *testing.T) {
 		Provider:   "oidc",
 	}
 
-	token, err := sm.CreateSession(claims, auth.RoleDeveloper)
+	token, err := sm.CreateSession(claims)
 	if err != nil {
 		t.Fatalf("CreateSession() error: %v", err)
 	}
-
 	if token == "" {
 		t.Fatal("CreateSession() returned empty token")
 	}
 
-	got, role, err := sm.ValidateSession(token)
+	got, err := sm.ValidateSession(token)
 	if err != nil {
 		t.Fatalf("ValidateSession() error: %v", err)
 	}
@@ -65,34 +64,11 @@ func TestSessionManager_RoundTrip(t *testing.T) {
 	if len(got.Groups) != 2 {
 		t.Errorf("Groups = %v", got.Groups)
 	}
-	if role != auth.RoleDeveloper {
-		t.Errorf("Role = %q, want developer", role)
-	}
 	if got.IssuedAt.IsZero() {
 		t.Error("IssuedAt is zero")
 	}
 	if got.ExpiresAt.IsZero() {
 		t.Error("ExpiresAt is zero")
-	}
-}
-
-func TestSessionManager_AllRoles(t *testing.T) {
-	sm := auth.NewSessionManager(testSessionConfig())
-	claims := &auth.Claims{Subject: "user", Email: "u@test.com", OrgID: "org1"}
-
-	for _, role := range auth.AllRoles() {
-		token, err := sm.CreateSession(claims, role)
-		if err != nil {
-			t.Fatalf("CreateSession(%s) error: %v", role, err)
-		}
-
-		_, gotRole, err := sm.ValidateSession(token)
-		if err != nil {
-			t.Fatalf("ValidateSession(%s) error: %v", role, err)
-		}
-		if gotRole != role {
-			t.Errorf("role = %q, want %q", gotRole, role)
-		}
 	}
 }
 
@@ -110,7 +86,7 @@ func TestSessionManager_InvalidToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := sm.ValidateSession(tt.token)
+			_, err := sm.ValidateSession(tt.token)
 			if err == nil {
 				t.Fatal("expected error for invalid token")
 			}
@@ -130,9 +106,9 @@ func TestSessionManager_WrongKey(t *testing.T) {
 	sm2 := auth.NewSessionManager(cfg2)
 
 	claims := &auth.Claims{Subject: "user", Email: "u@test.com", OrgID: "org1"}
-	token, _ := sm1.CreateSession(claims, auth.RoleDeveloper)
+	token, _ := sm1.CreateSession(claims)
 
-	_, _, err := sm2.ValidateSession(token)
+	_, err := sm2.ValidateSession(token)
 	if err == nil {
 		t.Fatal("expected error when validating with wrong key")
 	}
@@ -145,15 +121,14 @@ func TestSessionManager_ExpiredToken(t *testing.T) {
 	sm := auth.NewSessionManager(cfg)
 	claims := &auth.Claims{Subject: "user", Email: "u@test.com", OrgID: "org1"}
 
-	token, err := sm.CreateSession(claims, auth.RoleDeveloper)
+	token, err := sm.CreateSession(claims)
 	if err != nil {
 		t.Fatalf("CreateSession() error: %v", err)
 	}
 
-	// Wait for token to expire.
 	time.Sleep(10 * time.Millisecond)
 
-	_, _, err = sm.ValidateSession(token)
+	_, err = sm.ValidateSession(token)
 	if err == nil {
 		t.Fatal("expected error for expired token")
 	}

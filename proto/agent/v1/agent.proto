@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/NerdMeNot/flint/protogen/agent/v1;agentv1";
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// AgentService handles communication between the Flint agent and the server.
+// The agent runs step containers and reports results back to the server.
+service AgentService {
+  // ExecuteStep is a bidirectional stream for the lifetime of a step execution.
+  // Agent sends: log lines (batched), step status updates, heartbeats.
+  // Server sends: cancel signals, configuration updates.
+  rpc ExecuteStep(stream AgentMessage) returns (stream ServerMessage);
+
+  // ClaimStep is called by the agent to claim a queued step for execution.
+  // Returns the step definition (command, image, env vars, etc).
+  rpc ClaimStep(ClaimStepRequest) returns (ClaimStepResponse);
+
+  // ReportStepComplete is a unary RPC for the final step completion report.
+  // Includes the log digest (line count, SHA256) and tail lines for repair.
+  // This is separate from the stream to ensure delivery even if the stream drops.
+  rpc ReportStepComplete(StepCompleteRequest) returns (StepCompleteResponse);
+
+  // Heartbeat keeps the agent registration alive.
+  // The server uses this to detect dead agents and reschedule their steps.
+  rpc Heartbeat(AgentHeartbeatRequest) returns (AgentHeartbeatResponse);
+}
+
+// ────────────────────────────────────────────────────────────
+// Stream messages (bidirectional)
+// ────────────────────────────────────────────────────────────
+
+// AgentMessage is sent from the agent to the server over the ExecuteStep stream.
+message AgentMessage {
+  oneof payload {
+    LogBatch log_batch = 1;
+    StepStarted step_started = 2;
+    StepProgress step_progress = 3;
+    StreamHeartbeat heartbeat = 4;
+  }
+}
+
+// ServerMessage is sent from the server to the agent over the ExecuteStep stream.
+message ServerMessage {
+  oneof payload {
+    CancelStep cancel = 1;
+    AckHeartbeat ack = 2;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// Log streaming
+// ────────────────────────────────────────────────────────────
+
+// LogBatch is a batch of log lines sent from the agent.
+// Lines are batched (every 100ms or 50 lines) to reduce stream overhead.
+message LogBatch {
+  string run_id = 1;
+  string step_name = 2;
+  repeated LogLine lines = 3;
+}
+
+// LogLine is a single line of log output.
+message LogLine {
+  google.protobuf.Timestamp timestamp = 1;
+  string stream = 2;        // "stdout" or "stderr"
+  string content = 3;
+  int64 sequence = 4;       // monotonic sequence number within the step
+}
+
+// ────────────────────────────────────────────────────────────
+// Step lifecycle
+// ────────────────────────────────────────────────────────────
+
+// StepStarted is sent when the agent begins executing a step.
+message StepStarted {
+  string run_id = 1;
+  string step_name = 2;
+  google.protobuf.Timestamp started_at = 3;
+}
+
+// StepProgress is sent periodically during execution.
+message StepProgress {
+  string run_id = 1;
+  string step_name = 2;
+  int64 log_lines_so_far = 3;
+  int64 elapsed_seconds = 4;
+}
+
+// ────────────────────────────────────────────────────────────
+// Server → Agent control signals
+// ────────────────────────────────────────────────────────────
+
+// CancelStep tells the agent to terminate the running step container.
+message CancelStep {
+  string run_id = 1;
+  string step_name = 2;
+  string reason = 3;    // "user_cancelled", "timeout", "superseded"
+}
+
+// StreamHeartbeat is sent by the agent to keep the stream alive.
+message StreamHeartbeat {
+  string agent_id = 1;
+}
+
+// AckHeartbeat is the server's response to a stream heartbeat.
+message AckHeartbeat {}
+
+// ────────────────────────────────────────────────────────────
+// ClaimStep — agent pulls work
+// ────────────────────────────────────────────────────────────
+
+message ClaimStepRequest {
+  string agent_id = 1 [(buf.validate.field).string.min_len = 1];
+  string runner_pool = 2;   // which runner pool this agent belongs to
+  repeated string capabilities = 3; // e.g., ["docker", "gpu", "arm64"]
+}
+
+message ClaimStepResponse {
+  bool assigned = 1;   // false = no work available, poll again
+
+  // Only set if assigned = true:
+  string run_id = 2;
+  string step_name = 3;
+  StepDefinition step = 4;
+}
+
+// StepDefinition contains everything the agent needs to execute a step.
+message StepDefinition {
+  string image = 1;             // container image to run
+  repeated string command = 2;  // entrypoint + args
+  string working_dir = 3;
+  map<string, string> env = 4;  // environment variables (including secrets)
+  string shell = 5;             // "bash", "sh", "powershell"
+  int64 timeout_seconds = 6;
+  StepResources resources = 7;
+
+  // Pipeline context
+  string org_id = 8;
+  string project_id = 9;
+  string workflow_file = 10;
+  string branch = 11;
+  string commit_sha = 12;
+  string environment = 13;      // target environment name
+  string log_durability = 14;   // "standard" or "guaranteed"
+}
+
+// StepResources defines resource limits for the step container.
+message StepResources {
+  string cpu_request = 1;       // e.g., "500m"
+  string cpu_limit = 2;         // e.g., "2"
+  string memory_request = 3;    // e.g., "512Mi"
+  string memory_limit = 4;      // e.g., "4Gi"
+  bool gpu = 5;
+}
+
+// ────────────────────────────────────────────────────────────
+// ReportStepComplete — final completion report (unary)
+// ────────────────────────────────────────────────────────────
+
+message StepCompleteRequest {
+  string run_id = 1 [(buf.validate.field).string.min_len = 1];
+  string step_name = 2 [(buf.validate.field).string.min_len = 1];
+  string agent_id = 3;
+
+  StepResult result = 4;
+  LogDigest log_digest = 5;
+}
+
+// StepResult contains the execution outcome.
+message StepResult {
+  string status = 1;            // "succeeded", "failed", "cancelled", "timed_out"
+  int32 exit_code = 2;
+  string error_message = 3;     // only set on failure
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp finished_at = 5;
+  int64 duration_ms = 6;
+}
+
+// LogDigest provides verification data for log completeness.
+// See docs/design/log-architecture.md for the verification protocol.
+message LogDigest {
+  int64 line_count = 1;         // total lines produced
+  string sha256 = 2;            // hash of all log content
+  repeated LogLine tail_lines = 3; // last ~50 lines for tail repair
+}
+
+message StepCompleteResponse {
+  bool accepted = 1;
+  string next_action = 2;       // "idle", "claim_next", "shutdown"
+}
+
+// ────────────────────────────────────────────────────────────
+// Agent heartbeat (unary, separate from stream)
+// ────────────────────────────────────────────────────────────
+
+message AgentHeartbeatRequest {
+  string agent_id = 1 [(buf.validate.field).string.min_len = 1];
+  string runner_pool = 2;
+  AgentStatus status = 3;
+}
+
+message AgentStatus {
+  bool busy = 1;                // currently executing a step
+  string current_run_id = 2;
+  string current_step_name = 3;
+  int64 uptime_seconds = 4;
+  double cpu_usage_percent = 5;
+  int64 memory_used_bytes = 6;
+}
+
+message AgentHeartbeatResponse {
+  bool registered = 1;
+  string action = 2;            // "continue", "drain", "shutdown"
+}

@@ -1,5 +1,6 @@
 // Package logsink provides the LogSink interface for storing and retrieving
-// pipeline step logs. Implementations: FilesystemSink (dev), S3Sink (production).
+// pipeline step logs. S3Sink is the production implementation.
+// FilesystemSink exists for tests only.
 package logsink
 
 import (

@@ -1,340 +1,230 @@
 // Package pipeline provides the canonical types, parser, validator, DAG resolver,
-// and expression evaluator for Flint pipeline YAML files.
+// expression evaluator, and environment simulator for Flint pipeline YAML files.
 package pipeline
 
-import "time"
+// ---------------------------------------------------------------------------
+// Pipeline — top-level representation of a .flint/*.yaml file
+// ---------------------------------------------------------------------------
 
-// Pipeline is the top-level representation of a .flint/*.yaml file.
+// Pipeline is the top-level representation of a Flint pipeline YAML file.
+// Pipelines are identified by filename, not by a name field.
 type Pipeline struct {
-	Name        string            `yaml:"pipeline"`
-	Description string            `yaml:"description,omitempty"`
-	Version     int               `yaml:"version,omitempty"`
-	Parameters  map[string]Param  `yaml:"parameters,omitempty"`
-	Secrets     []SecretRef       `yaml:"secrets,omitempty"`
-	Triggers    Triggers          `yaml:"triggers,omitempty"`
-	Concurrency *Concurrency     `yaml:"concurrency,omitempty"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	Defaults    *Defaults         `yaml:"defaults,omitempty"`
-	Permissions *Permissions      `yaml:"permissions,omitempty"`
-	Steps       []Step            `yaml:"steps"`
+	// Environments restricts which environments this pipeline can target.
+	// If empty, the pipeline can target any environment (or none).
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
+
+	// Image is the default container image for all steps.
+	// Can be an image preset name or a full image reference.
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
+
+	// Triggers defines when and how pipeline runs are created.
+	Triggers Triggers `yaml:"triggers" json:"triggers"`
+
+	// Steps defines the pipeline's execution graph.
+	Steps []Step `yaml:"steps" json:"steps"`
 }
 
-// Param defines a pipeline-level parameter.
-type Param struct {
-	Type        string   `yaml:"type"`
-	Default     any      `yaml:"default,omitempty"`
-	Options     []string `yaml:"options,omitempty"`
-	Description string   `yaml:"description,omitempty"`
-}
-
-// SecretRef is either a plain string name or a structured secret declaration.
-// Custom unmarshalling handles both forms.
-type SecretRef struct {
-	Name        string `yaml:"name"`
-	Optional    bool   `yaml:"optional,omitempty"`
-	Description string `yaml:"description,omitempty"`
-}
+// ---------------------------------------------------------------------------
+// Triggers
+// ---------------------------------------------------------------------------
 
 // Triggers defines all trigger types for a pipeline.
 type Triggers struct {
-	Push     *PushTrigger     `yaml:"push,omitempty"`
-	PR       *PRTrigger       `yaml:"pr,omitempty"`
-	Tag      *TagTrigger      `yaml:"tag,omitempty"`
-	Schedule []ScheduleEntry  `yaml:"schedule,omitempty"`
-	Manual   *ManualTrigger   `yaml:"manual,omitempty"`
-	API      *APITrigger      `yaml:"api,omitempty"`
-	On       *OnTrigger       `yaml:"on,omitempty"`
-	Webhook  *WebhookTrigger  `yaml:"webhook,omitempty"`
-	Call     *CallTrigger     `yaml:"call,omitempty"`
+	Push        *PushTrigger        `yaml:"push,omitempty" json:"push,omitempty"`
+	PullRequest *PullRequestTrigger `yaml:"pull_request,omitempty" json:"pullRequest,omitempty"`
+	Manual      *ManualTrigger      `yaml:"manual,omitempty" json:"manual,omitempty"`
+	Schedule    *ScheduleTrigger    `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	Tag         *TagTrigger         `yaml:"tag,omitempty" json:"tag,omitempty"`
+	Promotion   []PromotionTrigger  `yaml:"promotion,omitempty" json:"promotion,omitempty"`
+	Webhook     *WebhookTrigger     `yaml:"webhook,omitempty" json:"webhook,omitempty"`
 }
 
+// HasAny returns true if at least one trigger is defined.
+func (t *Triggers) HasAny() bool {
+	return t.Push != nil ||
+		t.PullRequest != nil ||
+		t.Manual != nil ||
+		t.Schedule != nil ||
+		t.Tag != nil ||
+		len(t.Promotion) > 0 ||
+		t.Webhook != nil
+}
+
+// PushTrigger runs when commits are pushed to matching branches.
 type PushTrigger struct {
-	Branches       []string `yaml:"branches,omitempty"`
-	BranchesIgnore []string `yaml:"branches-ignore,omitempty"`
-	Paths          []string `yaml:"paths,omitempty"`
-	PathsIgnore    []string `yaml:"paths-ignore,omitempty"`
+	Branches     []string `yaml:"branches" json:"branches"`
+	Paths        []string `yaml:"paths,omitempty" json:"paths,omitempty"`
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
-type PRTrigger struct {
-	Branches []string `yaml:"branches,omitempty"`
-	Types    []string `yaml:"types,omitempty"`
-	Paths    []string `yaml:"paths,omitempty"`
-	Draft    *bool    `yaml:"draft,omitempty"`
+// PullRequestTrigger runs when a PR is opened/updated against matching branches.
+// Pull request triggers cannot have environments — they are always plain CI.
+type PullRequestTrigger struct {
+	Branches []string `yaml:"branches" json:"branches"`
+	Paths    []string `yaml:"paths,omitempty" json:"paths,omitempty"`
 }
 
-type TagTrigger struct {
-	Patterns []string     `yaml:"patterns,omitempty"`
-	Semver   *SemverSpec  `yaml:"semver,omitempty"`
-}
-
-type SemverSpec struct {
-	Range      string `yaml:"range,omitempty"`
-	Prerelease bool   `yaml:"prerelease,omitempty"`
-}
-
-type ScheduleEntry struct {
-	Cron string `yaml:"cron"`
-}
-
+// ManualTrigger allows runs triggered by a user from the UI or CLI.
 type ManualTrigger struct {
-	Inputs map[string]ManualInput `yaml:"inputs,omitempty"`
+	Environments []string      `yaml:"environments,omitempty" json:"environments,omitempty"`
+	Inputs       []ManualInput `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 }
 
+// ManualInput defines a user-provided form field for manual triggers.
 type ManualInput struct {
-	Type        string   `yaml:"type"`
-	Options     []string `yaml:"options,omitempty"`
-	Required    bool     `yaml:"required,omitempty"`
-	Default     any      `yaml:"default,omitempty"`
-	Description string   `yaml:"description,omitempty"`
+	Name        string   `yaml:"name" json:"name"`
+	Type        string   `yaml:"type" json:"type"` // string, boolean, choice
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool     `yaml:"required,omitempty" json:"required,omitempty"`
+	Default     string   `yaml:"default,omitempty" json:"default,omitempty"`
+	Options     []string `yaml:"options,omitempty" json:"options,omitempty"` // for type: choice
 }
 
-type APITrigger struct{}
-
-type OnTrigger struct {
-	Workflow string   `yaml:"workflow"`
-	Branches []string `yaml:"branches,omitempty"`
-	Status   []string `yaml:"status,omitempty"`
+// ScheduleTrigger runs on a cron schedule.
+type ScheduleTrigger struct {
+	Cron         string   `yaml:"cron" json:"cron"`
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
+// TagTrigger runs when a tag matching the pattern is pushed.
+type TagTrigger struct {
+	Patterns     []string `yaml:"patterns" json:"patterns"`
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
+}
+
+// PromotionTrigger runs when a previous environment run succeeds.
+type PromotionTrigger struct {
+	From          string   `yaml:"from" json:"from"`
+	Environments  []string `yaml:"environments" json:"environments"`
+	RequireStatus string   `yaml:"requireStatus,omitempty" json:"requireStatus,omitempty"` // default: succeeded
+}
+
+// WebhookTrigger runs when an external HTTP request hits the pipeline's endpoint.
 type WebhookTrigger struct {
-	Secret string                   `yaml:"secret,omitempty"`
-	Inputs map[string]WebhookInput  `yaml:"inputs,omitempty"`
+	Secret       string   `yaml:"secret,omitempty" json:"secret,omitempty"`
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
-type WebhookInput struct {
-	From    string `yaml:"from"`
-	Type    string `yaml:"type,omitempty"`
-	Default string `yaml:"default,omitempty"`
-}
+// ---------------------------------------------------------------------------
+// Steps
+// ---------------------------------------------------------------------------
 
-type CallTrigger struct {
-	Inputs  map[string]CallInput  `yaml:"inputs,omitempty"`
-	Secrets map[string]CallSecret `yaml:"secrets,omitempty"`
-	Outputs map[string]CallOutput `yaml:"outputs,omitempty"`
-}
-
-type CallInput struct {
-	Type    string `yaml:"type,omitempty"`
-	Default any    `yaml:"default,omitempty"`
-}
-
-type CallSecret struct {
-	Required bool `yaml:"required,omitempty"`
-}
-
-type CallOutput struct {
-	Value string `yaml:"value"`
-}
-
-// Concurrency controls how parallel runs of the same pipeline are handled.
-type Concurrency struct {
-	Group      string `yaml:"group"`
-	Mode       string `yaml:"mode,omitempty"` // cancel | queue | allow
-	QueueLimit int    `yaml:"queueLimit,omitempty"`
-}
-
-type Defaults struct {
-	Timeout    string `yaml:"timeout,omitempty"`
-	WorkingDir string `yaml:"workingDir,omitempty"`
-}
-
-type Permissions struct {
-	Secrets        []string `yaml:"secrets,omitempty"`
-	Forge          string   `yaml:"forge,omitempty"` // read | write
-	ServiceAccount string   `yaml:"serviceAccount,omitempty"`
-}
-
-// Step represents a single step in the pipeline.
-// Exactly one of Run, Do, Use, Invoke, Gate, or Watch must be set.
+// Step represents a single step in the pipeline. A step has exactly one
+// execution type: run, use, steps (nested), or gate. Never a combination.
 type Step struct {
-	Name   string `yaml:"name"`
-	Image  string `yaml:"image,omitempty"`
-	After  []string `yaml:"after,omitempty"`
-	If     string   `yaml:"if,omitempty"`
+	// Identity
+	Name string `yaml:"name" json:"name"`
 
-	// Execution types (exactly one must be set)
-	Run    string      `yaml:"run,omitempty"`
-	Do     []DoTask    `yaml:"do,omitempty"`
-	Use    string      `yaml:"use,omitempty"`
-	Invoke string      `yaml:"invoke,omitempty"`
-	Gate   *GateSpec   `yaml:"gate,omitempty"`
-	Watch  *WatchSpec  `yaml:"watch,omitempty"`
+	// Execution — exactly one of these must be set
+	Run   string `yaml:"run,omitempty" json:"run,omitempty"`     // shell command(s)
+	Use   string `yaml:"use,omitempty" json:"use,omitempty"`     // step template reference
+	Steps []Step `yaml:"steps,omitempty" json:"steps,omitempty"` // nested sub-steps (shared pod)
+	Gate  *Gate  `yaml:"gate,omitempty" json:"gate,omitempty"`   // approval checkpoint
 
-	// Step configuration
-	With        map[string]any    `yaml:"with,omitempty"`
-	Runner      *RunnerRef        `yaml:"runner,omitempty"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	Timeout     string            `yaml:"timeout,omitempty"`
-	Lifecycle   *Lifecycle        `yaml:"lifecycle,omitempty"`
-	Cache       *CacheSpec        `yaml:"cache,omitempty"`
-	Artifacts   *ArtifactSpec     `yaml:"artifacts,omitempty"`
-	Services    map[string]Service `yaml:"services,omitempty"`
-	Summary     *SummarySpec      `yaml:"summary,omitempty"`
-	Post        *PostSpec         `yaml:"post,omitempty"`
-	Environment *EnvironmentSpec  `yaml:"environment,omitempty"`
-	Matrix      map[string][]any  `yaml:"matrix,omitempty"`
-	SecretsRef  map[string]string `yaml:"secrets,omitempty"`
+	// Template inputs (when using use:)
+	With map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
+
+	// Container
+	Image      string `yaml:"image,omitempty" json:"image,omitempty"`
+	Shell      string `yaml:"shell,omitempty" json:"shell,omitempty"`           // sh (default), bash, python
+	WorkingDir string `yaml:"workingDir,omitempty" json:"workingDir,omitempty"` // default: /workspace
+
+	// Execution graph
+	DependsOn []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
+
+	// Compute
+	Runner string `yaml:"runner,omitempty" json:"runner,omitempty"` // runner pool name
+
+	// Environment filtering
+	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
+
+	// Execution control
+	Timeout         string     `yaml:"timeout,omitempty" json:"timeout,omitempty"` // default: 1h
+	If              string     `yaml:"if,omitempty" json:"if,omitempty"`           // conditional expression
+	When            string     `yaml:"when,omitempty" json:"when,omitempty"`       // onSuccess (default), onFailure, always
+	ContinueOnError bool       `yaml:"continueOnError,omitempty" json:"continueOnError,omitempty"`
+	Retry           *RetrySpec `yaml:"retry,omitempty" json:"retry,omitempty"`
+
+	// Environment variables
+	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	Secrets map[string]string `yaml:"secrets,omitempty" json:"secrets,omitempty"` // shorthand for secret references
+
+	// Artifacts
+	Inputs  []ArtifactInput  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs []ArtifactOutput `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+
+	// Sidecars
+	Services []Service `yaml:"services,omitempty" json:"services,omitempty"`
+
+	// Caching
+	Cache *CacheSpec `yaml:"cache,omitempty" json:"cache,omitempty"`
+
+	// Matrix
+	Matrix map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"`
 }
 
-// ExecType returns which execution type is set for this step.
+// ExecType returns which execution type is set: "run", "use", "steps", or "gate". Returns empty string if none is set.
 func (s *Step) ExecType() string {
 	switch {
 	case s.Run != "":
 		return "run"
-	case len(s.Do) > 0:
-		return "do"
 	case s.Use != "":
 		return "use"
-	case s.Invoke != "":
-		return "invoke"
+	case len(s.Steps) > 0:
+		return "steps"
 	case s.Gate != nil:
 		return "gate"
-	case s.Watch != nil:
-		return "watch"
 	default:
 		return ""
 	}
 }
 
-// DoTask represents a named task inside a do: list.
-// YAML form: - taskName: { run: "..." }
-type DoTask struct {
-	Name string `yaml:"-"`
-	Run  string `yaml:"run"`
+// IsNested returns true if this step contains sub-steps (execution type "steps").
+func (s *Step) IsNested() bool {
+	return len(s.Steps) > 0
 }
 
-// GateSpec defines an approval checkpoint.
-type GateSpec struct {
-	Message   string            `yaml:"message"`
-	Approvers []string          `yaml:"approvers,omitempty"`
-	Timeout   string            `yaml:"timeout,omitempty"`
-	Form      map[string]FormField `yaml:"form,omitempty"`
+// ---------------------------------------------------------------------------
+// Gate
+// ---------------------------------------------------------------------------
+
+// Gate defines an approval checkpoint. A gate step has no run command —
+// it pauses the pipeline until the required approvals are received.
+type Gate struct {
+	Approvers    []string `yaml:"approvers" json:"approvers"`
+	MinApprovals int      `yaml:"minApprovals,omitempty" json:"minApprovals,omitempty"` // default: 1
 }
 
-type FormField struct {
-	Type     string `yaml:"type"`
-	Label    string `yaml:"label,omitempty"`
-	Pattern  string `yaml:"pattern,omitempty"`
-	Required bool   `yaml:"required,omitempty"`
-}
+// ---------------------------------------------------------------------------
+// Step configuration types
+// ---------------------------------------------------------------------------
 
-// WatchSpec defines a condition to wait for.
-type WatchSpec struct {
-	Target    string      `yaml:"target,omitempty"`
-	Condition string      `yaml:"condition,omitempty"`
-	Namespace string      `yaml:"namespace,omitempty"`
-	HTTP      string      `yaml:"http,omitempty"`
-	Expect    *WatchExpect `yaml:"expect,omitempty"`
-	Interval  string      `yaml:"interval,omitempty"`
-	Timeout   string      `yaml:"timeout,omitempty"`
-}
-
-type WatchExpect struct {
-	Status   int    `yaml:"status,omitempty"`
-	Body     *WatchBody `yaml:"body,omitempty"`
-}
-
-type WatchBody struct {
-	JSONPath string `yaml:"jsonpath,omitempty"`
-	Equals   string `yaml:"equals,omitempty"`
-}
-
-// RunnerRef can be a simple string name or a structured spec.
-// Custom unmarshalling handles both forms.
-type RunnerRef struct {
-	Name   string `yaml:"name,omitempty"`
-	Size   string `yaml:"size,omitempty"`
-	Arch   string `yaml:"arch,omitempty"`
-	GPU    string `yaml:"gpu,omitempty"`
-	CPU    string `yaml:"cpu,omitempty"`
-	Memory string `yaml:"memory,omitempty"`
-	Spot   *bool  `yaml:"spot,omitempty"`
-}
-
-type Lifecycle struct {
-	OnFailure string     `yaml:"onFailure,omitempty"` // fail | continue | skip-dependents
-	Always    bool       `yaml:"always,omitempty"`
-	Retry     *RetrySpec `yaml:"retry,omitempty"`
-}
-
+// RetrySpec defines retry behavior on step failure.
 type RetrySpec struct {
-	Attempts        int      `yaml:"attempts,omitempty"`
-	Backoff         string   `yaml:"backoff,omitempty"` // fixed | exponential | linear
-	Interval        string   `yaml:"interval,omitempty"`
-	InitialInterval string   `yaml:"initialInterval,omitempty"`
-	MaxInterval     string   `yaml:"maxInterval,omitempty"`
-	RetryOn         *RetryOn `yaml:"retryOn,omitempty"`
+	Attempts int    `yaml:"attempts" json:"attempts"` // total attempts including first
+	Delay    string `yaml:"delay,omitempty" json:"delay,omitempty"`
 }
 
-type RetryOn struct {
-	ExitCodes []int `yaml:"exitCodes,omitempty"`
-	Not       []int `yaml:"not,omitempty"`
+// ArtifactInput declares an artifact to download before step execution.
+type ArtifactInput struct {
+	From string `yaml:"from" json:"from"` // source step name
+	Path string `yaml:"path" json:"path"` // local path to extract to
 }
 
-// CacheSpec can be either named cache definitions or a restore reference.
-// Custom unmarshalling handles both forms.
-type CacheSpec struct {
-	Entries map[string]CacheEntry `yaml:"-"`
-	Restore []string              `yaml:"-"`
+// ArtifactOutput declares an artifact to upload after step execution.
+type ArtifactOutput struct {
+	Path string `yaml:"path" json:"path"` // local path to upload
 }
 
-type CacheEntry struct {
-	Key      string   `yaml:"key"`
-	Paths    []string `yaml:"paths"`
-	Fallback []string `yaml:"fallback,omitempty"`
-}
-
-type ArtifactSpec struct {
-	Upload   []ArtifactUpload   `yaml:"upload,omitempty"`
-	Download []ArtifactDownload `yaml:"download,omitempty"`
-}
-
-type ArtifactUpload struct {
-	Name      string        `yaml:"name"`
-	Path      string        `yaml:"path"`
-	Retention time.Duration `yaml:"-"`
-	RetentionRaw string     `yaml:"retention,omitempty"`
-}
-
-type ArtifactDownload struct {
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
-	From string `yaml:"from,omitempty"`
-}
-
+// Service defines a sidecar container that runs alongside a step.
 type Service struct {
-	Image       string            `yaml:"image"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	HealthCheck *HealthCheck      `yaml:"healthCheck,omitempty"`
+	Name  string            `yaml:"name" json:"name"`
+	Image string            `yaml:"image" json:"image"`
+	Env   map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
-type HealthCheck struct {
-	Test        string `yaml:"test"`
-	Interval    string `yaml:"interval,omitempty"`
-	Timeout     string `yaml:"timeout,omitempty"`
-	Retries     int    `yaml:"retries,omitempty"`
-	StartPeriod string `yaml:"startPeriod,omitempty"`
-}
-
-type SummarySpec struct {
-	From   string `yaml:"from"`
-	Format string `yaml:"format,omitempty"`
-	Title  string `yaml:"title,omitempty"`
-}
-
-type PostSpec struct {
-	Run string `yaml:"run"`
-}
-
-type EnvironmentSpec struct {
-	Name      string        `yaml:"name"`
-	Namespace string        `yaml:"namespace,omitempty"`
-	URL       string        `yaml:"url,omitempty"`
-	Window    *DeployWindow `yaml:"window,omitempty"`
-}
-
-type DeployWindow struct {
-	Days     []string `yaml:"days,omitempty"`
-	Hours    string   `yaml:"hours,omitempty"`
-	Timezone string   `yaml:"timezone,omitempty"`
+// CacheSpec defines dependency caching for a step.
+type CacheSpec struct {
+	Key   string   `yaml:"key" json:"key"`     // cache key (supports expressions, e.g. hashFiles)
+	Paths []string `yaml:"paths" json:"paths"` // paths to cache
 }

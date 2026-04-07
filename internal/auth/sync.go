@@ -7,12 +7,16 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/casbin/casbin/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // SyncUserOnLogin upserts a user, syncs team membership from IdP groups,
-// and ensures Casbin assignments exist. Called on every SSO login.
-func SyncUserOnLogin(ctx context.Context, q *db.Queries, enforcer *casbin.Enforcer,
-	orgID string, claims *Claims, adminUsers []string, defaultRole string) (string, error) {
+// and ensures role assignments exist in the DB. Called on every SSO login.
+//
+// Role assignments are stored in the role_assignments table. Casbin policies
+// are regenerated from DB state after sync.
+func SyncUserOnLogin(ctx context.Context, q *db.Queries, pool *pgxpool.Pool, enforcer *casbin.Enforcer,
+	orgID string, claims *Claims, adminUsers []string, defaultRoleSlug string) (string, error) {
 
 	// 1. Upsert user.
 	name := claims.Name
@@ -31,9 +35,14 @@ func SyncUserOnLogin(ctx context.Context, q *db.Queries, enforcer *casbin.Enforc
 		return "", fmt.Errorf("syncing teams: %w", err)
 	}
 
-	// 3. Ensure Casbin assignments exist.
-	if err := syncCasbinAssignments(enforcer, claims.Email, claims.Groups, adminUsers, defaultRole); err != nil {
-		return "", fmt.Errorf("syncing casbin assignments: %w", err)
+	// 3. Ensure role assignments exist in the DB.
+	if err := syncRoleAssignments(ctx, pool, orgID, claims.Email, adminUsers, defaultRoleSlug); err != nil {
+		return "", fmt.Errorf("syncing role assignments: %w", err)
+	}
+
+	// 4. Regenerate Casbin policies for this user.
+	if err := RegenerateForSubject(ctx, pool, enforcer, claims.Email); err != nil {
+		return "", fmt.Errorf("regenerating policies: %w", err)
 	}
 
 	return userID, nil
@@ -73,40 +82,48 @@ func syncTeams(ctx context.Context, q *db.Queries, orgID, userID string, groups 
 	return nil
 }
 
-// syncCasbinAssignments ensures the user has appropriate Casbin role assignments.
-func syncCasbinAssignments(enforcer *casbin.Enforcer, email string, groups []string, adminUsers []string, defaultRole string) error {
-	// Admin users always get org_admin globally.
+// syncRoleAssignments ensures the user has appropriate role assignments.
+// Admin users get the admin role. Other users get the default role if they
+// have no existing assignments.
+func syncRoleAssignments(ctx context.Context, pool *pgxpool.Pool,
+	orgID, email string, adminUsers []string, defaultRoleSlug string) error {
+
+	// Check if this user is an admin.
 	for _, adminEmail := range adminUsers {
 		if strings.EqualFold(email, adminEmail) {
-			if _, err := enforcer.AddGroupingPolicy(email, "org_admin", "*"); err != nil {
-				return fmt.Errorf("adding admin assignment: %w", err)
+			// Ensure admin role assignment exists.
+			_, err := pool.Exec(ctx,
+				`INSERT INTO role_assignments (subject, role_id, created_at)
+				 SELECT $1, id, now() FROM roles WHERE org_id = $2 AND slug = $3
+				 ON CONFLICT DO NOTHING`,
+				email, orgID, RoleAdmin,
+			)
+			if err != nil {
+				return fmt.Errorf("assigning admin role: %w", err)
 			}
-			return nil // admin users don't need further assignment
+			return nil
 		}
 	}
 
-	// Check if user has any existing Casbin assignments (from prior login or admin setup).
-	roles, err := enforcer.GetRolesForUser(email)
+	// Check if user already has any assignments.
+	var count int
+	err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM role_assignments WHERE subject = $1`, email,
+	).Scan(&count)
 	if err != nil {
-		return fmt.Errorf("getting roles for user: %w", err)
+		return fmt.Errorf("checking existing assignments: %w", err)
 	}
 
-	// Also check if any of the user's IdP groups have Casbin assignments.
-	// If a group has a role binding, the user inherits it via Casbin's g rules.
-	hasGroupAssignment := false
-	for _, group := range groups {
-		groupRoles, _ := enforcer.GetRolesForUser(group)
-		if len(groupRoles) > 0 {
-			hasGroupAssignment = true
-			break
-		}
-	}
-
-	// If the user has no direct or group-inherited assignments,
-	// assign the default role globally.
-	if len(roles) == 0 && !hasGroupAssignment {
-		if _, err := enforcer.AddGroupingPolicy(email, defaultRole, "*"); err != nil {
-			return fmt.Errorf("adding default role: %w", err)
+	// If no assignments, assign the default role.
+	if count == 0 {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO role_assignments (subject, role_id, created_at)
+			 SELECT $1, id, now() FROM roles WHERE org_id = $2 AND slug = $3
+			 ON CONFLICT DO NOTHING`,
+			email, orgID, defaultRoleSlug,
+		)
+		if err != nil {
+			return fmt.Errorf("assigning default role: %w", err)
 		}
 	}
 
@@ -125,7 +142,6 @@ func slugify(s string) string {
 		}
 		return -1
 	}, s)
-	// Remove consecutive dashes.
 	for strings.Contains(s, "--") {
 		s = strings.ReplaceAll(s, "--", "-")
 	}

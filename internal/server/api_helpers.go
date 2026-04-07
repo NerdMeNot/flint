@@ -110,12 +110,13 @@ func decodeCursor(cursor string) (id, sortValue string, err error) {
 	return m["id"], m["ts"], nil
 }
 
-// paginatedResponse sends a paginated list response.
+// paginatedResponse sends a paginated list response using the standard envelope.
 func paginatedResponse(c *app.RequestContext, data any, pagination PaginationResponse) {
-	c.JSON(consts.StatusOK, utils.H{
-		"data":       data,
-		"pagination": pagination,
-	})
+	resp := utils.H{"items": data}
+	if pagination.NextCursor != "" {
+		resp["nextCursor"] = pagination.NextCursor
+	}
+	c.JSON(consts.StatusOK, resp)
 }
 
 // ── Query Helpers ───────────────────────────────────────────

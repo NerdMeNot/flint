@@ -28,7 +28,6 @@ type deviceCodeEntry struct {
 	interval    int
 	accessToken string // set when user completes auth
 	claims      *auth.Claims
-	role        auth.Role
 	completed   bool
 	oauthState  string // CSRF state token for OIDC/SAML
 	nonce       string // OIDC nonce for replay protection
@@ -145,17 +144,34 @@ func (s *Server) handleRefresh(ctx context.Context, c *app.RequestContext) {
 // handleAuthMe returns the current user's claims and permissions.
 func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	role := roleFromCtx(ctx)
 
 	if claims == nil {
 		apiUnauthorized(ctx, c, "not authenticated")
 		return
 	}
 
-	actions := auth.ActionsForRole(role)
-	permissions := make([]string, len(actions))
-	for i, a := range actions {
-		permissions[i] = string(a)
+	// Derive permissions from Casbin policies for this user.
+	var permissions []string
+	if s.deps.Enforcer != nil {
+		policies, _ := s.deps.Enforcer.GetImplicitPermissionsForUser(claims.Email)
+		seen := make(map[string]bool, len(policies))
+		for _, p := range policies {
+			// p = [sub, ws, env, obj, act]
+			if len(p) >= 5 {
+				key := p[3] + ":" + p[4]
+				if !seen[key] {
+					seen[key] = true
+					permissions = append(permissions, key)
+				}
+			}
+		}
+	}
+
+	// Derive role from Casbin grouping policies.
+	roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email)
+	role := ""
+	if len(roles) > 0 {
+		role = roles[0]
 	}
 
 	c.JSON(consts.StatusOK, utils.H{
@@ -163,7 +179,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		"email":       claims.Email,
 		"name":        claims.Name,
 		"orgId":       claims.OrgID,
-		"role":        string(role),
+		"role":        role,
 		"permissions": permissions,
 		"provider":    claims.Provider,
 		"groups":      claims.Groups,
@@ -172,12 +188,12 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 
 // CompleteDeviceAuth is called when a user completes device flow auth (from browser).
 // In production, this would be called after OIDC callback validates the user.
-func (s *Server) CompleteDeviceAuth(deviceCode string, claims *auth.Claims, role auth.Role) error {
+func (s *Server) CompleteDeviceAuth(deviceCode string, claims *auth.Claims) error {
 	if s.deps.Sessions == nil {
 		return fmt.Errorf("sessions not configured")
 	}
 
-	token, err := s.deps.Sessions.CreateSession(claims, role)
+	token, err := s.deps.Sessions.CreateSession(claims)
 	if err != nil {
 		return err
 	}
@@ -192,7 +208,6 @@ func (s *Server) CompleteDeviceAuth(deviceCode string, claims *auth.Claims, role
 
 	entry.accessToken = token
 	entry.claims = claims
-	entry.role = role
 	entry.completed = true
 
 	return nil
@@ -356,20 +371,13 @@ func (s *Server) completeSSO(ctx context.Context, deviceCode string, claims *aut
 	claims.OrgID = org.ID
 
 	// Sync user, teams, and Casbin assignments.
-	_, err = auth.SyncUserOnLogin(ctx, s.deps.Q, s.deps.Enforcer,
+	_, err = auth.SyncUserOnLogin(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer,
 		org.ID, claims, s.deps.Config.Auth.AdminUsers, s.deps.Config.Auth.DefaultRoleOrFallback())
 	if err != nil {
 		return fmt.Errorf("syncing user: %w", err)
 	}
 
-	// Determine the user's primary role for the JWT (highest privilege).
-	roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email)
-	role := auth.Role(s.deps.Config.Auth.DefaultRoleOrFallback())
-	if len(roles) > 0 {
-		role = auth.Role(highestRole(roles))
-	}
-
-	return s.CompleteDeviceAuth(deviceCode, claims, role)
+	return s.CompleteDeviceAuth(deviceCode, claims)
 }
 
 // findDeviceEntryByState finds a device code by matching oauthState.
@@ -396,29 +404,6 @@ func findDeviceEntryByUserCode(userCode string) string {
 		}
 	}
 	return ""
-}
-
-// highestRole returns the highest-privilege role from a list.
-func highestRole(roles []string) string {
-	order := map[string]int{
-		"org_admin":      4,
-		"pipeline_admin": 3,
-		"developer":      2,
-		"viewer":         1,
-	}
-
-	best := ""
-	bestRank := 0
-	for _, r := range roles {
-		if rank, ok := order[r]; ok && rank > bestRank {
-			best = r
-			bestRank = rank
-		}
-	}
-	if best == "" && len(roles) > 0 {
-		return roles[0]
-	}
-	return best
 }
 
 const authSuccessHTML = `<!DOCTYPE html>

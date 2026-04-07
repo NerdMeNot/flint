@@ -64,7 +64,9 @@ func runTUI(cmd *cobra.Command, args []string) error {
 }
 
 func validateCmd() *cobra.Command {
-	return &cobra.Command{
+	var envFlag string
+
+	cmd := &cobra.Command{
 		Use:   "validate [path]",
 		Short: "Validate pipeline YAML files",
 		Args:  cobra.MaximumNArgs(1),
@@ -94,21 +96,57 @@ func validateCmd() *cobra.Command {
 					continue
 				}
 
-				p, err := pipeline.Parse(data)
-				if err != nil {
-					fmt.Printf("  ✗ %s: %v\n", f, err)
+				// Rich validation.
+				result := pipeline.Validate(data, pipeline.ValidateOptions{})
+
+				if !result.Valid() {
+					fmt.Printf("  ✗ %s — %d error(s)\n", f, len(result.Errors()))
+					for _, issue := range result.Errors() {
+						printIssue(issue)
+					}
+					for _, issue := range result.Warnings() {
+						printIssue(issue)
+					}
 					hasErrors = true
 					continue
 				}
 
-				waves, err := pipeline.ResolveDag(p)
-				if err != nil {
-					fmt.Printf("  ✗ %s: %v\n", f, err)
-					hasErrors = true
-					continue
+				// Parse and resolve DAG for summary.
+				p, _ := pipeline.Parse(data)
+				waves, _ := pipeline.ResolveDag(p)
+
+				envAware := ""
+				if pipeline.IsEnvironmentAware(p) {
+					envAware = " [env-aware]"
+				}
+				fmt.Printf("  ✓ %s — %d steps, %d waves%s\n", f, len(p.Steps), len(waves), envAware)
+
+				// Warnings.
+				for _, issue := range result.Warnings() {
+					printIssue(issue)
 				}
 
-				fmt.Printf("  ✓ %s — %q (%d steps, %d waves)\n", f, p.Name, len(p.Steps), len(waves))
+				// Environment simulation if requested.
+				if envFlag != "" && p != nil {
+					sim := pipeline.SimulateEnv(p, envFlag)
+					fmt.Printf("\n    Preview: %s → %s\n", f, envFlag)
+					fmt.Printf("    Triggers:\n")
+					for _, t := range sim.ActiveTriggers {
+						marker := "·"
+						if t.Active {
+							marker = "✓"
+						}
+						fmt.Printf("      %s %s — %s\n", marker, t.Type, t.Reason)
+					}
+					fmt.Printf("    Steps:\n")
+					for _, s := range sim.Steps {
+						if s.Active {
+							fmt.Printf("      ✓ %-20s %s\n", s.Name, s.ExecType)
+						} else {
+							fmt.Printf("      ○ %-20s skipped — %s\n", s.Name, s.SkipReason)
+						}
+					}
+				}
 			}
 
 			if hasErrors {
@@ -117,5 +155,25 @@ func validateCmd() *cobra.Command {
 			fmt.Printf("\n✓ All %d pipelines valid\n", len(files))
 			return nil
 		},
+	}
+
+	cmd.Flags().StringVar(&envFlag, "env", "", "Simulate pipeline for a specific environment")
+	return cmd
+}
+
+func printIssue(issue pipeline.ValidationIssue) {
+	prefix := "    ⚠"
+	if issue.Severity == pipeline.SeverityError {
+		prefix = "    ✗"
+	}
+	loc := ""
+	if issue.Line > 0 {
+		loc = fmt.Sprintf("line %d: ", issue.Line)
+	} else if issue.Field != "" {
+		loc = issue.Field + ": "
+	}
+	fmt.Printf("%s %s%s\n", prefix, loc, issue.Message)
+	if issue.Suggestion != "" {
+		fmt.Printf("      %s\n", issue.Suggestion)
 	}
 }

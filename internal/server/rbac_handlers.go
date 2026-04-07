@@ -11,6 +11,32 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
 
+// ── Response types ────────────────────────────────────────────
+
+type roleResponse struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Slug         string            `json:"slug"`
+	Description  *string           `json:"description,omitempty"`
+	IsSystem     bool              `json:"isSystem"`
+	Permissions  []auth.Permission `json:"permissions"`
+	Workspaces   []string          `json:"workspaces"`
+	Environments []string          `json:"environments"`
+}
+
+type assignmentResponse struct {
+	Subject string `json:"subject"`
+	Role    string `json:"role"`
+}
+
+type workspaceResponse struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"createdAt"`
+}
+
 // ── Roles ──────────────────────────────────────────────────
 
 func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
@@ -26,38 +52,39 @@ func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Enrich with permissions from Casbin.
-	type roleWithPerms struct {
-		ID          string            `json:"id"`
-		Name        string            `json:"name"`
-		Slug        string            `json:"slug"`
-		Description *string           `json:"description"`
-		IsSystem    bool              `json:"isSystem"`
-		Permissions []auth.Permission `json:"permissions"`
-	}
-
-	result := make([]roleWithPerms, 0, len(roles))
+	result := make([]roleResponse, 0, len(roles))
 	for _, r := range roles {
 		perms := s.getPermissionsForRole(r.Slug)
-		result = append(result, roleWithPerms{
-			ID:          r.ID,
-			Name:        r.Name,
-			Slug:        r.Slug,
-			Description: r.Description,
-			IsSystem:    r.IsSystem,
-			Permissions: perms,
+		if perms == nil {
+			perms = []auth.Permission{}
+		}
+
+		workspaces := s.getWorkspaceScopesForRole(ctx, r.ID)
+		environments := s.getEnvironmentScopesForRole(ctx, r.ID)
+
+		result = append(result, roleResponse{
+			ID:           r.ID,
+			Name:         r.Name,
+			Slug:         r.Slug,
+			Description:  r.Description,
+			IsSystem:     r.IsSystem,
+			Permissions:  perms,
+			Workspaces:   workspaces,
+			Environments: environments,
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"roles": result})
+	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
 func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		Name        string            `json:"name"`
-		Slug        string            `json:"slug"`
-		Description string            `json:"description"`
-		Permissions []auth.Permission `json:"permissions"`
+		Name         string            `json:"name"`
+		Slug         string            `json:"slug"`
+		Description  string            `json:"description"`
+		Permissions  []auth.Permission `json:"permissions"`
+		Workspaces   []string          `json:"workspaces"`
+		Environments []string          `json:"environments"`
 	}
 	if err := c.BindJSON(&req); err != nil || req.Name == "" || req.Slug == "" {
 		apiBadRequest(ctx, c, "name, slug, and permissions are required")
@@ -89,10 +116,26 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 
 	// Add Casbin policies for the role.
 	for _, perm := range req.Permissions {
-		if _, err := s.deps.Enforcer.AddPolicy(req.Slug, "*", perm.Object, perm.Action); err != nil {
+		if _, err := s.deps.Enforcer.AddPolicy(req.Slug, "*", "*", perm.Object, perm.Action); err != nil {
 			apiInternal(ctx, c, "failed to add policy")
 			return
 		}
+	}
+
+	// Store workspace scope rows.
+	for _, wsSlug := range req.Workspaces {
+		_, _ = s.deps.DB.Exec(ctx,
+			`INSERT INTO role_workspace_scope (role_id, workspace_id)
+			 SELECT $1, w.id FROM workspaces w WHERE w.slug = $2`,
+			id, wsSlug)
+	}
+
+	// Store environment scope rows.
+	for _, envSlug := range req.Environments {
+		_, _ = s.deps.DB.Exec(ctx,
+			`INSERT INTO role_environment_scope (role_id, environment_id)
+			 SELECT $1, e.id FROM environments e WHERE e.slug = $2`,
+			id, envSlug)
 	}
 
 	c.JSON(consts.StatusCreated, utils.H{"id": id, "slug": req.Slug})
@@ -115,7 +158,7 @@ func (s *Server) handleDeleteRole(ctx context.Context, c *app.RequestContext) {
 
 func (s *Server) handleListAssignments(ctx context.Context, c *app.RequestContext) {
 	if s.deps.Enforcer == nil {
-		c.JSON(consts.StatusOK, utils.H{"assignments": []any{}})
+		c.JSON(consts.StatusOK, utils.H{"items": []any{}})
 		return
 	}
 
@@ -126,38 +169,27 @@ func (s *Server) handleListAssignments(ctx context.Context, c *app.RequestContex
 		return
 	}
 
-	type assignment struct {
-		Subject   string `json:"subject"`
-		Role      string `json:"role"`
-		Workspace string `json:"workspace"`
-	}
-
-	assignments := make([]assignment, 0, len(groupingPolicies))
+	assignments := make([]assignmentResponse, 0, len(groupingPolicies))
 	for _, gp := range groupingPolicies {
-		if len(gp) >= 3 {
-			assignments = append(assignments, assignment{
-				Subject:   gp[0],
-				Role:      gp[1],
-				Workspace: gp[2],
+		if len(gp) >= 2 {
+			assignments = append(assignments, assignmentResponse{
+				Subject: gp[0],
+				Role:    gp[1],
 			})
 		}
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"assignments": assignments})
+	c.JSON(consts.StatusOK, utils.H{"items": assignments})
 }
 
 func (s *Server) handleCreateAssignment(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		Subject   string `json:"subject"`
-		Role      string `json:"role"`
-		Workspace string `json:"workspace"`
+		Subject string `json:"subject"`
+		Role    string `json:"role"`
 	}
 	if err := c.BindJSON(&req); err != nil || req.Subject == "" || req.Role == "" {
 		apiBadRequest(ctx, c, "subject and role are required")
 		return
-	}
-	if req.Workspace == "" {
-		req.Workspace = "*"
 	}
 
 	if s.deps.Enforcer == nil {
@@ -165,7 +197,7 @@ func (s *Server) handleCreateAssignment(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	added, err := s.deps.Enforcer.AddGroupingPolicy(req.Subject, req.Role, req.Workspace)
+	added, err := s.deps.Enforcer.AddGroupingPolicy(req.Subject, req.Role)
 	if err != nil {
 		apiInternal(ctx, c, "failed to add assignment")
 		return
@@ -183,23 +215,18 @@ func (s *Server) handleDeleteAssignment(ctx context.Context, c *app.RequestConte
 	raw := c.Param("id")
 
 	var req struct {
-		Subject   string `json:"subject"`
-		Role      string `json:"role"`
-		Workspace string `json:"workspace"`
+		Subject string `json:"subject"`
+		Role    string `json:"role"`
 	}
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
 		// Try query params instead.
 		req.Subject = string(c.Query("subject"))
 		req.Role = string(c.Query("role"))
-		req.Workspace = string(c.Query("workspace"))
 	}
 
 	if req.Subject == "" || req.Role == "" {
 		apiBadRequest(ctx, c, "subject and role are required")
 		return
-	}
-	if req.Workspace == "" {
-		req.Workspace = "*"
 	}
 
 	if s.deps.Enforcer == nil {
@@ -207,7 +234,7 @@ func (s *Server) handleDeleteAssignment(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	removed, err := s.deps.Enforcer.RemoveGroupingPolicy(req.Subject, req.Role, req.Workspace)
+	removed, err := s.deps.Enforcer.RemoveGroupingPolicy(req.Subject, req.Role)
 	if err != nil {
 		apiInternal(ctx, c, "failed to remove assignment")
 		return
@@ -220,114 +247,7 @@ func (s *Server) handleDeleteAssignment(ctx context.Context, c *app.RequestConte
 	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
 }
 
-// ── Protected Environments ─────────────────────────────────
-
-func (s *Server) handleListEnvironments(ctx context.Context, c *app.RequestContext) {
-	org, err := s.deps.Q.GetOrg(ctx)
-	if err != nil {
-		apiInternal(ctx, c, "failed to get org")
-		return
-	}
-
-	envs, err := s.deps.Q.ListProtectedEnvironments(ctx, org.ID)
-	if err != nil {
-		apiInternal(ctx, c, "failed to list environments")
-		return
-	}
-	c.JSON(consts.StatusOK, utils.H{"environments": envs})
-}
-
-func (s *Server) handleCreateEnvironment(ctx context.Context, c *app.RequestContext) {
-	var req struct {
-		Name           string   `json:"name"`
-		MinRole        string   `json:"minRole"`
-		Approvers      []string `json:"approvers"`
-		DeployBranches []string `json:"deployBranches"`
-		DeployWindow   any      `json:"deployWindow"`
-	}
-	if err := c.BindJSON(&req); err != nil || req.Name == "" {
-		apiBadRequest(ctx, c, "name is required")
-		return
-	}
-	if req.MinRole == "" {
-		req.MinRole = "pipeline_admin"
-	}
-	if req.Approvers == nil {
-		req.Approvers = []string{}
-	}
-	if req.DeployBranches == nil {
-		req.DeployBranches = []string{}
-	}
-
-	org, err := s.deps.Q.GetOrg(ctx)
-	if err != nil {
-		apiInternal(ctx, c, "failed to get org")
-		return
-	}
-
-	var deployWindow []byte
-	if req.DeployWindow != nil {
-		deployWindow, _ = json.Marshal(req.DeployWindow)
-	}
-
-	id, err := s.deps.Q.CreateProtectedEnvironment(ctx, db.CreateProtectedEnvironmentParams{
-		OrgID:          org.ID,
-		Name:           req.Name,
-		MinRole:        req.MinRole,
-		Approvers:      req.Approvers,
-		DeployBranches: req.DeployBranches,
-		DeployWindow:   deployWindow,
-	})
-	if err != nil {
-		apiError(ctx, c, consts.StatusConflict, "CONFLICT", "environment already exists")
-		return
-	}
-
-	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name})
-}
-
-func (s *Server) handleUpdateEnvironment(ctx context.Context, c *app.RequestContext) {
-	id := c.Param("id")
-	var req struct {
-		MinRole        string   `json:"minRole"`
-		Approvers      []string `json:"approvers"`
-		DeployBranches []string `json:"deployBranches"`
-		DeployWindow   any      `json:"deployWindow"`
-	}
-	if err := c.BindJSON(&req); err != nil {
-		apiBadRequest(ctx, c, "invalid request body")
-		return
-	}
-
-	var deployWindow []byte
-	if req.DeployWindow != nil {
-		deployWindow, _ = json.Marshal(req.DeployWindow)
-	}
-
-	rows, err := s.deps.Q.UpdateProtectedEnvironment(ctx, db.UpdateProtectedEnvironmentParams{
-		ID:             id,
-		MinRole:        req.MinRole,
-		Approvers:      req.Approvers,
-		DeployBranches: req.DeployBranches,
-		DeployWindow:   deployWindow,
-	})
-	if err != nil || rows == 0 {
-		apiNotFound(ctx, c, "environment not found")
-		return
-	}
-
-	c.JSON(consts.StatusOK, utils.H{"status": "updated"})
-}
-
-func (s *Server) handleDeleteEnvironment(ctx context.Context, c *app.RequestContext) {
-	id := c.Param("id")
-	rows, err := s.deps.Q.DeleteProtectedEnvironment(ctx, id)
-	if err != nil || rows == 0 {
-		apiNotFound(ctx, c, "environment not found")
-		return
-	}
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
-}
+// ── Environments moved to env_variable_handlers.go ───────────
 
 // ── Workspaces ─────────────────────────────────────────────
 
@@ -343,7 +263,18 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 		apiInternal(ctx, c, "failed to list workspaces")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"workspaces": workspaces})
+
+	result := make([]workspaceResponse, 0, len(workspaces))
+	for _, w := range workspaces {
+		result = append(result, workspaceResponse{
+			ID:          w.ID,
+			Name:        w.Name,
+			Slug:        w.Slug,
+			Description: w.Description,
+			CreatedAt:   w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
 func (s *Server) handleCreateWorkspace(ctx context.Context, c *app.RequestContext) {
@@ -403,9 +334,56 @@ func (s *Server) getPermissionsForRole(roleSlug string) []auth.Permission {
 
 	perms := make([]auth.Permission, 0, len(policies))
 	for _, p := range policies {
-		if len(p) >= 4 {
-			perms = append(perms, auth.Permission{Object: p[2], Action: p[3]})
+		// p = [sub, ws, env, obj, act]
+		if len(p) >= 5 {
+			perms = append(perms, auth.Permission{Object: p[3], Action: p[4]})
 		}
 	}
 	return perms
+}
+
+// getWorkspaceScopesForRole loads workspace slugs scoped to a role.
+func (s *Server) getWorkspaceScopesForRole(ctx context.Context, roleID string) []string {
+	result := []string{}
+	if s.deps.DB == nil {
+		return result
+	}
+	rows, err := s.deps.DB.Query(ctx,
+		`SELECT w.slug FROM role_workspace_scope rws
+		 JOIN workspaces w ON w.id = rws.workspace_id
+		 WHERE rws.role_id = $1`, roleID)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slug string
+		if rows.Scan(&slug) == nil {
+			result = append(result, slug)
+		}
+	}
+	return result
+}
+
+// getEnvironmentScopesForRole loads environment slugs scoped to a role.
+func (s *Server) getEnvironmentScopesForRole(ctx context.Context, roleID string) []string {
+	result := []string{}
+	if s.deps.DB == nil {
+		return result
+	}
+	rows, err := s.deps.DB.Query(ctx,
+		`SELECT e.slug FROM role_environment_scope res
+		 JOIN environments e ON e.id = res.environment_id
+		 WHERE res.role_id = $1`, roleID)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slug string
+		if rows.Scan(&slug) == nil {
+			result = append(result, slug)
+		}
+	}
+	return result
 }

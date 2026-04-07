@@ -122,21 +122,16 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 			retryIntervalSec := 5
 			onFailure := "fail"
 
-			if step.Lifecycle != nil {
-				if step.Lifecycle.OnFailure != "" {
-					onFailure = step.Lifecycle.OnFailure
+			if step.ContinueOnError {
+				onFailure = "continue"
+			}
+			if step.Retry != nil {
+				if step.Retry.Attempts > 0 {
+					maxAttempts = step.Retry.Attempts
 				}
-				if step.Lifecycle.Retry != nil {
-					if step.Lifecycle.Retry.Attempts > 0 {
-						maxAttempts = step.Lifecycle.Retry.Attempts
-					}
-					if step.Lifecycle.Retry.Backoff != "" {
-						retryBackoff = step.Lifecycle.Retry.Backoff
-					}
-					if step.Lifecycle.Retry.InitialInterval != "" {
-						if d, parseErr := time.ParseDuration(step.Lifecycle.Retry.InitialInterval); parseErr == nil {
-							retryIntervalSec = int(d.Seconds())
-						}
+				if step.Retry.Delay != "" {
+					if d, parseErr := time.ParseDuration(step.Retry.Delay); parseErr == nil {
+						retryIntervalSec = int(d.Seconds())
 					}
 				}
 			}

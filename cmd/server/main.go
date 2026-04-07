@@ -97,18 +97,24 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating casbin enforcer: %w", err)
 	}
 
-	// Seed default roles.
-	if err := auth.SeedDefaultRoles(ctx, q, enforcer, orgID); err != nil {
-		return fmt.Errorf("seeding default roles: %w", err)
+	// Seed system roles.
+	if err := auth.SeedSystemRoles(ctx, pool, orgID); err != nil {
+		return fmt.Errorf("seeding system roles: %w", err)
 	}
 
 	// Seed admin users from config.
 	if len(cfg.Auth.AdminUsers) > 0 {
-		if err := auth.SeedAdminUsers(enforcer, cfg.Auth.AdminUsers); err != nil {
+		if err := auth.SeedAdminUsers(ctx, pool, orgID, cfg.Auth.AdminUsers); err != nil {
 			return fmt.Errorf("seeding admin users: %w", err)
 		}
 		log.Info().Int("count", len(cfg.Auth.AdminUsers)).Msg("admin users seeded")
 	}
+
+	// Regenerate Casbin policies from DB state.
+	if err := auth.RegeneratePolicies(ctx, pool, enforcer); err != nil {
+		return fmt.Errorf("regenerating RBAC policies: %w", err)
+	}
+	log.Info().Msg("RBAC policies regenerated")
 
 	// OIDC provider (optional).
 	var oidcProvider *auth.OIDCProvider
