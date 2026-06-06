@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -16,21 +17,23 @@ import (
 // Loop is the worker main loop. It polls Postgres for queued steps,
 // fires timers, dispatches steps via a StepExecutor, and sweeps for stale state.
 type Loop struct {
-	pool     db.Pool
-	engine   *PgEngine
-	executor StepExecutor
-	config   LoopConfig
-	wake     chan struct{}
+	pool      db.Pool
+	engine    *PgEngine
+	executors ExecutorRegistry
+	config    LoopConfig
+	wake      chan struct{}
 }
 
-// NewLoop creates a worker loop.
-func NewLoop(engine *PgEngine, executor StepExecutor, cfg LoopConfig) *Loop {
+// NewLoop creates a worker loop. executors maps step exec types to the executor
+// that runs them; an empty registry runs the loop in DB-only mode (steps are
+// claimed but never dispatched).
+func NewLoop(engine *PgEngine, executors ExecutorRegistry, cfg LoopConfig) *Loop {
 	return &Loop{
-		pool:     engine.pool,
-		engine:   engine,
-		executor: executor,
-		config:   cfg,
-		wake:     make(chan struct{}, 1),
+		pool:      engine.pool,
+		engine:    engine,
+		executors: executors,
+		config:    cfg,
+		wake:      make(chan struct{}, 1),
 	}
 }
 
@@ -133,7 +136,7 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 		}
 
 		// Dispatch run/use/steps steps as K8s Jobs.
-		if c.Status == "running" && l.executor != nil {
+		if c.Status == "running" && len(l.executors) > 0 {
 			// Enforce per-org concurrency limit: if the org already has too
 			// many running steps, push this one back to 'queued'. It'll be
 			// picked up on the next tick when a slot opens.
@@ -166,7 +169,12 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 				env:                    merged,
 				secretMapping:          stepDef.Secrets,
 			}
-			handle, err := dispatchStep(ctx, l.executor, step)
+			handle, err := dispatchStep(ctx, l.executors, step)
+			if errors.Is(err, errNoExecutor) {
+				// No executor for this step type (e.g. DB-only mode) — leave the
+				// step running; it'll be picked up if an executor appears.
+				continue
+			}
 			if err != nil {
 				log.Error().Err(err).Str("step", c.Name).Msg("engine: dispatch failed")
 				observe.DispatchErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("step", c.Name)))
@@ -361,13 +369,15 @@ func (l *Loop) sweep(ctx context.Context) {
 		log.Warn().Err(err).Msg("engine: cleanup fired timers failed")
 	}
 
-	// 4. Tear down resources for recently finished runs, if the executor needs
-	// it (e.g. the k8s executor removes the workspace pod and leftover Jobs).
-	if cleaner, ok := l.executor.(stepCleaner); ok {
+	// 4. Tear down resources for recently finished runs, for any executor that
+	// needs it (e.g. the k8s executor removes the workspace pod and leftover Jobs).
+	if cleaners := l.executors.cleaners(); len(cleaners) > 0 {
 		runIDs, err := q.RecentlyFinishedRunIDs(ctx)
 		if err == nil {
 			for _, runID := range runIDs {
-				_ = cleaner.CleanupRun(ctx, runID)
+				for _, c := range cleaners {
+					_ = c.CleanupRun(ctx, runID)
+				}
 			}
 		}
 	}

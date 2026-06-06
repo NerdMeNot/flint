@@ -135,6 +135,7 @@ type Step struct {
 	Use   string     `yaml:"use,omitempty" json:"use,omitempty"`     // step template reference
 	Steps []Step     `yaml:"steps,omitempty" json:"steps,omitempty"` // nested sub-steps (shared pod)
 	Gate  *Gate      `yaml:"gate,omitempty" json:"gate,omitempty"`   // approval checkpoint
+	HTTP  *HTTPStep  `yaml:"http,omitempty" json:"http,omitempty"`   // HTTP request (no container)
 
 	// Template inputs (when using use:)
 	With map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
@@ -190,9 +191,23 @@ func (s *Step) ExecType() string {
 		return "steps"
 	case s.Gate != nil:
 		return "gate"
+	case s.HTTP != nil:
+		return "http"
 	default:
 		return ""
 	}
+}
+
+// HTTPStep is a step that makes an HTTP request instead of running a container.
+// It is executed in-process by the engine's http executor — no Pod, no agent —
+// which is how Flint Workflows demonstrates that the StepExecutor seam is
+// execution-model-agnostic.
+type HTTPStep struct {
+	Method       string            `yaml:"method,omitempty" json:"method,omitempty"`             // default GET
+	URL          string            `yaml:"url" json:"url"`                                       // required
+	Headers      map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`           // request headers
+	Body         string            `yaml:"body,omitempty" json:"body,omitempty"`                 // request body
+	ExpectStatus []int             `yaml:"expectStatus,omitempty" json:"expectStatus,omitempty"` // success codes; default any 2xx
 }
 
 // IsNested returns true if this step contains sub-steps (execution type "steps").

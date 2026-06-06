@@ -146,55 +146,9 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 		return "", fmt.Errorf("engine: update workflow: %w", err)
 	}
 
-	// Create step rows.
-	for waveIdx, wave := range waves {
-		for _, step := range wave {
-			timeoutSec := 7200
-			if step.Timeout != "" {
-				if d, parseErr := time.ParseDuration(step.Timeout); parseErr == nil {
-					timeoutSec = int(d.Seconds())
-				}
-			}
-			maxAttempts := 1
-			retryBackoff := "exponential"
-			retryIntervalSec := 5
-			onFailure := "fail"
-
-			if step.ContinueOnError {
-				onFailure = "continue"
-			}
-			if step.Retry != nil {
-				if step.Retry.Attempts > 0 {
-					maxAttempts = step.Retry.Attempts
-				}
-				if step.Retry.Delay != "" {
-					if d, parseErr := time.ParseDuration(step.Retry.Delay); parseErr == nil {
-						retryIntervalSec = int(d.Seconds())
-					}
-				}
-			}
-
-			err = qtx.InsertStep(ctx, db.InsertStepParams{
-				WorkflowID:           workflowID,
-				Name:                 step.Name,
-				ExecType:             step.ExecType(),
-				Wave:                 int32(waveIdx),
-				MaxAttempts:          int32(maxAttempts),
-				StepDef:              mustJSON(step),
-				TimeoutSeconds:       int32(timeoutSec),
-				RetryBackoff:         retryBackoff,
-				RetryIntervalSeconds: int32(retryIntervalSec),
-				OnFailure:            onFailure,
-			})
-			if err != nil {
-				return "", fmt.Errorf("engine: insert step %s: %w", step.Name, err)
-			}
-		}
-	}
-
-	// Advance workflow — queues wave-0 steps.
-	if err := advanceWorkflow(ctx, qtx, workflowID, 0); err != nil {
-		return "", fmt.Errorf("engine: advance: %w", err)
+	// Create step rows and queue wave 0.
+	if err := createStepsAndAdvance(ctx, qtx, workflowID, waves); err != nil {
+		return "", err
 	}
 
 	// Link pipeline_runs to workflow — verify it actually updates.
@@ -223,6 +177,136 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 	logger.Info().Str("workflowID", workflowID).Int("steps", len(p.Steps)).Msg("engine: workflow started")
 
 	return workflowID, nil
+}
+
+// StartWorkflowWithWaves starts a workflow from an already-resolved DAG, with no
+// forge or pipeline-YAML involvement. This is the product-neutral entry point:
+// non-CI products (e.g. Flint Workflows) build their own [][]pipeline.Step waves
+// and hand them to the engine, which executes them generically. Idempotent for
+// root workflows, like StartWorkflow.
+func (e *PgEngine) StartWorkflowWithWaves(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step) (string, error) {
+	logger := observe.Logger(ctx)
+
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("engine: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := db.New(e.pool).WithTx(tx)
+
+	runExists, err := qtx.RunExists(ctx, input.RunID)
+	if err != nil {
+		return "", fmt.Errorf("engine: check run: %w", err)
+	}
+	if !runExists {
+		return "", fmt.Errorf("engine: pipeline_run %s not found", input.RunID)
+	}
+
+	if input.ParentWorkflowID == "" {
+		if existingID, err := qtx.GetExistingWorkflow(ctx, input.RunID); err == nil {
+			return existingID, nil // idempotent
+		}
+	}
+
+	input.normalizeInputs()
+	var parentID, parentStep *string
+	if input.ParentWorkflowID != "" {
+		parentID = &input.ParentWorkflowID
+		parentStep = &input.ParentStepName
+	}
+
+	workflowID, err := qtx.InsertWorkflow(ctx, db.InsertWorkflowParams{
+		RunID:      input.RunID,
+		ParentID:   parentID,
+		ParentStep: parentStep,
+		Input:      mustJSON(input),
+	})
+	if err != nil {
+		return "", fmt.Errorf("engine: insert workflow: %w", err)
+	}
+
+	// Cache the resolved DAG (wave→step-names) so advancement and queries work
+	// the same as for CI. There is no pipeline YAML to store.
+	if err := qtx.UpdateWorkflowPipeline(ctx, db.UpdateWorkflowPipelineParams{
+		ID:          workflowID,
+		PipelineDef: mustJSON(waves),
+		DagWaves:    mustJSON(wavesToNames(waves)),
+	}); err != nil {
+		return "", fmt.Errorf("engine: update workflow: %w", err)
+	}
+
+	if err := createStepsAndAdvance(ctx, qtx, workflowID, waves); err != nil {
+		return "", err
+	}
+
+	wfID := workflowID
+	if _, err := qtx.UpdateRunWorkflow(ctx, db.UpdateRunWorkflowParams{
+		ID:         input.RunID,
+		WorkflowID: &wfID,
+	}); err != nil {
+		return "", fmt.Errorf("engine: link pipeline_run: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("engine: commit: %w", err)
+	}
+
+	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
+	logger.Info().Str("workflowID", workflowID).Int("waves", len(waves)).Msg("engine: workflow started (waves)")
+	return workflowID, nil
+}
+
+// createStepsAndAdvance inserts step rows for the resolved waves and advances the
+// workflow (queuing wave 0). Shared by every product entry point.
+func createStepsAndAdvance(ctx context.Context, qtx *db.Queries, workflowID string, waves [][]pipeline.Step) error {
+	for waveIdx, wave := range waves {
+		for _, step := range wave {
+			timeoutSec := 7200
+			if step.Timeout != "" {
+				if d, parseErr := time.ParseDuration(step.Timeout); parseErr == nil {
+					timeoutSec = int(d.Seconds())
+				}
+			}
+			maxAttempts := 1
+			retryBackoff := "exponential"
+			retryIntervalSec := 5
+			onFailure := "fail"
+
+			if step.ContinueOnError {
+				onFailure = "continue"
+			}
+			if step.Retry != nil {
+				if step.Retry.Attempts > 0 {
+					maxAttempts = step.Retry.Attempts
+				}
+				if step.Retry.Delay != "" {
+					if d, parseErr := time.ParseDuration(step.Retry.Delay); parseErr == nil {
+						retryIntervalSec = int(d.Seconds())
+					}
+				}
+			}
+
+			if err := qtx.InsertStep(ctx, db.InsertStepParams{
+				WorkflowID:           workflowID,
+				Name:                 step.Name,
+				ExecType:             step.ExecType(),
+				Wave:                 int32(waveIdx),
+				MaxAttempts:          int32(maxAttempts),
+				StepDef:              mustJSON(step),
+				TimeoutSeconds:       int32(timeoutSec),
+				RetryBackoff:         retryBackoff,
+				RetryIntervalSeconds: int32(retryIntervalSec),
+				OnFailure:            onFailure,
+			}); err != nil {
+				return fmt.Errorf("engine: insert step %s: %w", step.Name, err)
+			}
+		}
+	}
+
+	if err := advanceWorkflow(ctx, qtx, workflowID, 0); err != nil {
+		return fmt.Errorf("engine: advance: %w", err)
+	}
+	return nil
 }
 
 // CompleteStep reports that a step has finished.
