@@ -149,9 +149,11 @@ func enqueueWebhooksInTx(ctx context.Context, q *db.Queries, runID, status strin
 	basePayload := WebhookPayload{
 		Event:     eventName,
 		RunID:     runID,
-		ProjectID: run.ProjectID,
 		Status:    run.Status,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	if run.ProjectID != nil {
+		basePayload.ProjectID = *run.ProjectID
 	}
 	if run.TriggerRef != nil {
 		basePayload.Branch = *run.TriggerRef

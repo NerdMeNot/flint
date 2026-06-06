@@ -266,9 +266,9 @@ func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 
 			err = s.deps.Q.InsertPipelineRun(ctx, db.InsertPipelineRunParams{
 				ID:            runID,
-				ProjectID:     projectID,
+				ProjectID:     &projectID,
 				OrgID:         orgID,
-				WorkflowFile:  workflowFile,
+				WorkflowFile:  &workflowFile,
 				TriggerType:   string(event.Kind),
 				TriggerRef:    &ref,
 				CommitSha:     &event.CommitSHA,

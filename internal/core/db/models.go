@@ -156,16 +156,15 @@ type PipelineModule struct {
 
 type PipelineRun struct {
 	ID            string      `json:"id"`
-	ProjectID     string      `json:"project_id"`
+	ProjectID     *string     `json:"project_id"`
 	OrgID         string      `json:"org_id"`
-	WorkflowFile  string      `json:"workflow_file"`
+	WorkflowFile  *string     `json:"workflow_file"`
 	TriggerType   string      `json:"trigger_type"`
 	TriggerRef    *string     `json:"trigger_ref"`
 	CommitSha     *string     `json:"commit_sha"`
 	CommitMessage *string     `json:"commit_message"`
 	TriggeredBy   *string     `json:"triggered_by"`
 	Status        string      `json:"status"`
-	RunnerPool    *string     `json:"runner_pool"`
 	StartedAt     time.Time   `json:"started_at"`
 	FinishedAt    *time.Time  `json:"finished_at"`
 	DurationMs    pgtype.Int4 `json:"duration_ms"`
@@ -175,6 +174,7 @@ type PipelineRun struct {
 	Repo          *string     `json:"repo"`
 	Environment   *string     `json:"environment"`
 	ErrorMessage  *string     `json:"error_message"`
+	Kind          string      `json:"kind"`
 }
 
 type Project struct {
@@ -190,7 +190,6 @@ type Project struct {
 	Tags           []string  `json:"tags"`
 	DefaultBranch  string    `json:"default_branch"`
 	PipelineSource []byte    `json:"pipeline_source"`
-	WebhookID      *string   `json:"webhook_id"`
 	IsArchived     bool      `json:"is_archived"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`

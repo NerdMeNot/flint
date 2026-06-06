@@ -57,7 +57,7 @@ LIMIT $1
 
 type GetDashboardActivityRow struct {
 	ID            string      `json:"id"`
-	ProjectID     string      `json:"project_id"`
+	ProjectID     *string     `json:"project_id"`
 	ProjectName   *string     `json:"project_name"`
 	ProjectColour string      `json:"project_colour"`
 	Status        string      `json:"status"`

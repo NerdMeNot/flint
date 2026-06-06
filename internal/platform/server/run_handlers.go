@@ -65,8 +65,17 @@ func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 		apiNotFound(ctx, c, "run not found")
 		return
 	}
+	if orig.ProjectID == nil {
+		apiBadRequest(ctx, c, "run cannot be retried: not a CI run")
+		return
+	}
+	projectID := *orig.ProjectID
+	var workflowFile string
+	if orig.WorkflowFile != nil {
+		workflowFile = *orig.WorkflowFile
+	}
 
-	info, err := s.deps.Q.GetProjectRepoInfo(ctx, orig.ProjectID)
+	info, err := s.deps.Q.GetProjectRepoInfo(ctx, projectID)
 	if err != nil {
 		apiInternal(ctx, c, "failed to get project info")
 		return
@@ -101,10 +110,10 @@ func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 	if s.deps.Engine != nil {
 		var startErr error
 		workflowID, startErr = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
-			RunID: newRunID, OrgID: orig.OrgID, ProjectID: orig.ProjectID,
+			RunID: newRunID, OrgID: orig.OrgID, ProjectID: projectID,
 			Repo: info.RepoPath, Ref: ref, CommitSHA: sha,
 			TriggerType: "retry", TriggeredBy: "api",
-			WorkflowFile: orig.WorkflowFile, PipelinePath: info.PipelinePath,
+			WorkflowFile: workflowFile, PipelinePath: info.PipelinePath,
 			Environment: env,
 		})
 		if startErr != nil {

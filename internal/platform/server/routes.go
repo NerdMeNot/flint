@@ -638,8 +638,8 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 	}
 
 	err = s.deps.Q.InsertManualRun(ctx, db.InsertManualRunParams{
-		ID: runID, ProjectID: req.ProjectID, OrgID: info.OrgID,
-		WorkflowFile: req.WorkflowFile, TriggerRef: &req.Branch,
+		ID: runID, ProjectID: &req.ProjectID, OrgID: info.OrgID,
+		WorkflowFile: &req.WorkflowFile, TriggerRef: &req.Branch,
 		Environment: env,
 	})
 	if err != nil {
