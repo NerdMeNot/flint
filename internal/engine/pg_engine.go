@@ -21,15 +21,24 @@ import (
 // PgEngine is the Postgres-backed implementation of Engine.
 type PgEngine struct {
 	pool       db.Pool
-	forge      forge.ForgeProvider
-	signingKey []byte // HMAC key for task tokens; empty = unsigned (dev/test)
+	files      FileGetter           // fetches pipeline + template files
+	status     commitStatusReporter // posts commit status; removed in PR4
+	signingKey []byte               // HMAC key for task tokens; empty = unsigned (dev/test)
 }
 
-// New creates a new PgEngine. signingKey signs/verifies task tokens — it must
+// commitStatusReporter posts pipeline status back to a forge. This is a
+// CI-specific concern; the engine's use of it (postStatus) moves to the CI
+// product in PR4, at which point this field and method go away.
+type commitStatusReporter interface {
+	PostCommitStatus(ctx context.Context, repo, sha string, status forge.CommitStatus) error
+}
+
+// New creates a new PgEngine. The forge supplies both file fetching (FileGetter)
+// and commit-status reporting. signingKey signs/verifies task tokens — it must
 // match the key the worker loop uses to mint them, and must NOT be a value
 // exposed to step pods (use the server-side JWT secret, not the internal token).
 func New(pool db.Pool, forge forge.ForgeProvider, signingKey []byte) *PgEngine {
-	return &PgEngine{pool: pool, forge: forge, signingKey: signingKey}
+	return &PgEngine{pool: pool, files: forge, status: forge, signingKey: signingKey}
 }
 
 func (e *PgEngine) Close() {}
@@ -85,7 +94,7 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 
 	// Fetch pipeline YAML — on failure, rollback entirely (don't pollute DB).
 	filePath := path.Join(input.PipelinePath, input.WorkflowFile)
-	rawYAML, err := e.forge.GetFile(ctx, input.Repo, input.CommitSHA, filePath)
+	rawYAML, err := e.files.GetFile(ctx, input.Repo, input.CommitSHA, filePath)
 	if err != nil {
 		logger.Error().Err(err).Str("file", filePath).Msg("engine: failed to fetch pipeline")
 		return "", fmt.Errorf("engine: fetch pipeline: %w", err)
@@ -102,8 +111,8 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 	input.PipelineServiceAccount = p.ServiceAccount
 
 	// Resolve templates (use: → run/steps).
-	resolver := &forgeResolver{
-		forge:        e.forge,
+	resolver := &fileResolver{
+		files:        e.files,
 		repo:         input.Repo,
 		ref:          input.CommitSHA,
 		pipelinePath: input.PipelinePath,
@@ -426,10 +435,10 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 }
 
 func (e *PgEngine) postStatus(ctx context.Context, input StartWorkflowInput, status forge.StatusState) {
-	if e.forge == nil || input.CommitSHA == "" {
+	if e.status == nil || input.CommitSHA == "" {
 		return
 	}
-	_ = e.forge.PostCommitStatus(ctx, input.Repo, input.CommitSHA, forge.CommitStatus{
+	_ = e.status.PostCommitStatus(ctx, input.Repo, input.CommitSHA, forge.CommitStatus{
 		State:       status,
 		Context:     fmt.Sprintf("flint/%s", input.WorkflowFile),
 		Description: statusDescription(status),
