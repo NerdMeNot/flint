@@ -189,10 +189,6 @@ type LoopConfig struct {
 	// ClaimBatchSize is how many steps to claim per poll. Default: 20.
 	ClaimBatchSize int
 
-	// InternalToken is injected into agent pods as FLINT_INTERNAL_TOKEN
-	// for authenticating calls to /internal endpoints.
-	InternalToken string
-
 	// SigningKey signs the task tokens minted for each step. It MUST match the
 	// key the server uses to verify them, and MUST NOT be a pod-exposed value
 	// (the internal token is injected into pods, so it cannot be used here).
