@@ -220,6 +220,31 @@ tasks:
       - dev
       - web-dev
 
+  dev-db:
+    desc: Start a local Postgres for development (Podman)
+    cmds:
+      - podman run -d --name flint-dev-db -p 5432:5432 -e POSTGRES_DB=flint -e POSTGRES_USER=flint -e POSTGRES_PASSWORD=flint postgres:17-alpine
+      - echo "waiting for postgres..."; until podman exec flint-dev-db pg_isready -U flint >/dev/null 2>&1; do sleep 1; done; echo "postgres ready"
+    status:
+      - podman container exists flint-dev-db
+
+  dev-db-stop:
+    desc: Stop and remove the local dev Postgres
+    cmds:
+      - podman rm -f flint-dev-db
+
+  dev-local:
+    desc: Run the full stack locally with the subprocess executor — no Kubernetes
+    deps:
+      - dev-db
+    cmds:
+      - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
+      - |
+        go run ./cmd/worker --config config.local.yaml &
+        WORKER_PID=$!
+        trap "kill $WORKER_PID 2>/dev/null" EXIT
+        go run ./cmd/server --config config.local.yaml --mode all
+
   # --- Docker ---
 
   docker:
