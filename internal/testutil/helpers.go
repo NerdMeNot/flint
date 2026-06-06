@@ -11,16 +11,16 @@ import (
 
 // Mocks holds all mock instances for a test. Construct with NewMocks().
 type Mocks struct {
-	Querier    *mocks.Querier
-	Pool       *mocks.Pool
-	Engine     *mocks.Engine
-	Forge      *mocks.ForgeProvider
-	Sessions   *mocks.Sessions
-	OIDC       *mocks.OIDCAuth
-	SAML       *mocks.SAMLAuth
-	Logs       *mocks.LogSink
-	Secrets    *mocks.SecretStore
-	LogStream  *mocks.LogStream
+	Querier   *mocks.Querier
+	Pool      *mocks.Pool
+	Engine    *mocks.Engine
+	Forge     *mocks.ForgeProvider
+	Sessions  *mocks.Sessions
+	OIDC      *mocks.OIDCAuth
+	SAML      *mocks.SAMLAuth
+	Logs      *mocks.LogSink
+	Secrets   *mocks.SecretStore
+	LogStream *mocks.LogStream
 }
 
 // NewMocks creates a fresh set of mocks for a test.
