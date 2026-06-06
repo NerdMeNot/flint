@@ -2,6 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
 
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/pkg/logsink"
@@ -64,10 +68,11 @@ func (s *Server) handleGetStepLogs(ctx context.Context, c *app.RequestContext) {
 // POST /internal/logs
 func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		RunID    string            `json:"runId"`
-		StepName string            `json:"stepName"`
-		OrgID    string            `json:"orgId"`
-		Lines    []logsink.LogLine `json:"lines"`
+		RunID     string            `json:"runId"`
+		StepName  string            `json:"stepName"`
+		OrgID     string            `json:"orgId"`
+		MatrixKey string            `json:"matrixKey"`
+		Lines     []logsink.LogLine `json:"lines"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid request"})
@@ -80,9 +85,10 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 	}
 
 	ref := logsink.LogRef{
-		OrgID:    req.OrgID,
-		RunID:    req.RunID,
-		StepName: req.StepName,
+		OrgID:     req.OrgID,
+		RunID:     req.RunID,
+		StepName:  req.StepName,
+		MatrixKey: req.MatrixKey,
 	}
 
 	if err := s.deps.Logs.Write(ctx, ref, req.Lines); err != nil {
@@ -90,5 +96,102 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 		return
 	}
 
+	// Fan out to SSE subscribers (no-op when none are listening).
+	if s.deps.LogBroadcast != nil {
+		s.deps.LogBroadcast.Publish(req.RunID, req.StepName, req.Lines)
+	}
+
 	c.JSON(consts.StatusOK, utils.H{"status": "ok", "lines": len(req.Lines)})
+}
+
+// handleStreamStepLogs streams log lines via Server-Sent Events (SSE).
+// GET /api/v1/runs/:id/logs/:step/stream
+//
+// Events:
+//
+//	event: log   data: {"lines":[...]}
+//	event: done  data: {"status":"succeeded"}
+//
+// Uses Hertz's SetBodyStream with an io.Pipe for true streaming — bytes are
+// flushed to the wire as they are written, not buffered until handler return.
+// The stream closes when the step reaches a terminal state, or when the
+// client disconnects.
+func (s *Server) handleStreamStepLogs(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	stepName := c.Param("step")
+
+	if s.deps.LogBroadcast == nil {
+		c.JSON(consts.StatusServiceUnavailable, utils.H{"error": "log streaming not enabled"})
+		return
+	}
+
+	// SSE headers — must be set before SetBodyStream.
+	c.Response.Header.SetContentType("text/event-stream")
+	c.Response.Header.Set("Cache-Control", "no-cache")
+	c.Response.Header.Set("Connection", "keep-alive")
+	c.Response.Header.Set("X-Accel-Buffering", "no") // disable nginx buffering
+
+	pr, pw := io.Pipe()
+	c.Response.SetBodyStream(pr, -1) // -1 = chunked transfer encoding
+
+	sub := s.deps.LogBroadcast.Subscribe(runID, stepName)
+
+	// The streaming goroutine writes SSE events to the pipe. When it's done
+	// (step complete or client gone), it closes the pipe writer, which signals
+	// Hertz to end the response.
+	go func() {
+		defer pw.Close()
+		defer s.deps.LogBroadcast.Unsubscribe(runID, stepName, sub)
+
+		// Send existing (historical) lines first so the client doesn't miss anything.
+		if s.deps.Logs != nil {
+			orgID, _ := s.deps.Q.GetRunOrgID(ctx, runID)
+			ref := logsink.LogRef{
+				OrgID:     orgID,
+				RunID:     runID,
+				StepName:  stepName,
+				MatrixKey: queryString(c, "matrix_key"),
+			}
+			if hist, err := s.deps.Logs.Read(ctx, ref); err == nil && len(hist) > 0 {
+				if writeSSEEvent(pw, "log", hist) != nil {
+					return
+				}
+			}
+		}
+
+		completionTicker := time.NewTicker(2 * time.Second)
+		defer completionTicker.Stop()
+
+		for {
+			select {
+			case lines, ok := <-sub:
+				if !ok {
+					return
+				}
+				if writeSSEEvent(pw, "log", lines) != nil {
+					return // client disconnected
+				}
+
+			case <-completionTicker.C:
+				stepStatus, _ := s.deps.Q.GetStepStatus(ctx, db.GetStepStatusParams{
+					ID:   runID,
+					Name: stepName,
+				})
+				if stepStatus == "succeeded" || stepStatus == "failed" ||
+					stepStatus == "skipped" || stepStatus == "cancelled" {
+					_ = writeSSEEvent(pw, "done", map[string]string{"status": stepStatus})
+					return
+				}
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func writeSSEEvent(w io.Writer, event string, data any) error {
+	payload, _ := json.Marshal(data)
+	_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+	return err
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/NerdMeNot/flint/internal/runner"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/rs/zerolog/log"
+	"github.com/zeebo/xxh3"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -17,11 +19,11 @@ import (
 
 // dispatchStep handles a newly claimed step based on its exec type.
 func dispatchStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Registry,
-	step claimedStep, agentImage, jobNamespace, serverURL string) error {
+	step claimedStep, agentImage, jobNamespace, serverURL, internalToken string) error {
 
 	switch step.execType {
 	case "run", "use", "steps":
-		return dispatchRunStep(ctx, k8s, reg, step, agentImage, jobNamespace, serverURL)
+		return dispatchRunStep(ctx, k8s, reg, step, agentImage, jobNamespace, serverURL, internalToken)
 	case "gate":
 		// Gate steps transition to "waiting" — no K8s Job needed.
 		// The timer (gate_timeout) was already created by the loop.
@@ -34,11 +36,20 @@ func dispatchStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Reg
 
 // dispatchRunStep creates a K8s Job for a run/use/steps step.
 func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Registry,
-	step claimedStep, agentImage, jobNamespace, serverURL string) error {
+	step claimedStep, agentImage, jobNamespace, serverURL, internalToken string) error {
 
 	var stepDef pipeline.Step
 	if err := json.Unmarshal(step.stepDef, &stepDef); err != nil {
 		return fmt.Errorf("engine: unmarshal step def: %w", err)
+	}
+
+	// Resolve container image. Step image takes priority; fall back to the
+	// pipeline-level default image stored on the workflow input.
+	if stepDef.Image == "" {
+		stepDef.Image = step.pipelineImage
+	}
+	if stepDef.Image == "" && stepDef.ExecType() != "steps" {
+		return fmt.Errorf("engine: step %q has no container image (set image: on the step or at pipeline level)", step.name)
 	}
 
 	// Resolve runner pool.
@@ -59,8 +70,28 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 	}
 
 	// Build the command.
-	command := stepDef.Run
+	command := stepDef.Run.String()
 	wrappedCmd := wrapStepCommand(command)
+
+	// Workspace setup depends on the runner pool's workspace mode.
+	// PVC mode: all pods mount the same PVC — no workspace agent needed.
+	// Agent mode (default): emptyDir per pod + gRPC workspace agent for sync.
+	usePVC := poolSpec.Workspace.Mode == runner.WorkspaceModePVC
+	var wsAddr string
+
+	if usePVC {
+		// Ensure the per-run PVC exists. Idempotent.
+		if err := ensureWorkspacePVC(ctx, k8s, step.runID, poolSpec, jobNamespace); err != nil {
+			return fmt.Errorf("engine: create workspace PVC: %w", err)
+		}
+	} else {
+		// Agent mode: ensure per-run workspace agent pod is running.
+		var wsErr error
+		wsAddr, wsErr = EnsureWorkspace(ctx, k8s, step.runID, step.orgID, agentImage, jobNamespace)
+		if wsErr != nil {
+			log.Warn().Err(wsErr).Str("runID", step.runID).Msg("engine: workspace unavailable, falling back to S3 artifacts")
+		}
+	}
 
 	// Build env vars.
 	agentEnv := []corev1.EnvVar{
@@ -69,10 +100,61 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 		{Name: "FLINT_RUN_ID", Value: step.runID},
 		{Name: "FLINT_STEP_NAME", Value: step.name},
 		{Name: "FLINT_ORG_ID", Value: step.orgID},
+		{Name: "FLINT_PROJECT_ID", Value: step.projectID},
+		{Name: "FLINT_ENVIRONMENT", Value: step.environment},
 		{Name: "FLINT_WORKSPACE", Value: "/workspace"},
 		{Name: "FLINT_GIT_REPO", Value: step.repo},
 		{Name: "FLINT_GIT_REF", Value: step.ref},
 		{Name: "FLINT_GIT_SHA", Value: step.commitSHA},
+	}
+
+	// Inject internal token for /internal endpoint auth.
+	if internalToken != "" {
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_INTERNAL_TOKEN", Value: internalToken},
+		)
+	}
+
+	// Inject workspace mode so the agent knows which sync backend to use.
+	switch {
+	case usePVC:
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_WS_MODE", Value: "pvc"},
+		)
+	case poolSpec.Workspace.Mode == runner.WorkspaceModeS3:
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_WS_MODE", Value: "s3"},
+		)
+		// S3 bucket/region are injected from the pool config so the agent
+		// can construct the S3FS with the correct per-run prefix.
+		// Note: FLINT_S3_BUCKET/REGION may already be set for cache; the
+		// workspace uses the same bucket with a different key prefix.
+	}
+
+	// Inject workspace agent address when available.
+	// The token is the run ID — shared across all steps in the run.
+	if wsAddr != "" {
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_WS_ADDR", Value: wsAddr},
+			corev1.EnvVar{Name: "FLINT_WS_TOKEN", Value: step.runID},
+		)
+	}
+
+	// Secret mapping: tells agent which secrets to fetch and how to expose them.
+	if len(step.secretMapping) > 0 {
+		mappingJSON, _ := json.Marshal(step.secretMapping)
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_SECRET_MAPPING", Value: string(mappingJSON),
+		})
+	}
+
+	// Pass step template inputs (with:) as env var for built-in templates
+	// like use: checkout that read configuration from FLINT_CHECKOUT_INPUTS.
+	if len(stepDef.With) > 0 {
+		withJSON, _ := json.Marshal(stepDef.With)
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_CHECKOUT_INPUTS", Value: string(withJSON)},
+		)
 	}
 
 	userEnv := make([]corev1.EnvVar, 0, len(step.env))
@@ -82,14 +164,47 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 
 	// Labels for informer filtering.
 	labels := map[string]string{
-		"flint.dev/managed-by": "flint",
-		"flint.dev/org-id":     step.orgID,
-		"flint.dev/run-id":     step.runID,
-		"flint.dev/step-name":  step.name,
+		"flint.dev/managed-by":  "flint",
+		"flint.dev/org-id":      step.orgID,
+		"flint.dev/run-id":      step.runID,
+		"flint.dev/step-name":   step.name,
 		"flint.dev/runner-pool": poolSpec.Name,
 	}
 
-	jobName := fmt.Sprintf("flint-%s-%s", step.runID[:8], step.name)
+	// Extract matrix key from expanded step name (e.g., "test[node=16]" → "node=16").
+	matrixKey := extractMatrixKey(step.name)
+	if matrixKey != "" {
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_MATRIX_KEY", Value: matrixKey,
+		})
+	}
+
+	// Artifact config for agent.
+	if len(stepDef.Inputs) > 0 {
+		inputsJSON, _ := json.Marshal(stepDef.Inputs)
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_ARTIFACT_INPUTS", Value: string(inputsJSON),
+		})
+	}
+	if len(stepDef.Outputs) > 0 {
+		outputsJSON, _ := json.Marshal(stepDef.Outputs)
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_ARTIFACT_OUTPUTS", Value: string(outputsJSON),
+		})
+	}
+
+	// Cache config for agent.
+	if stepDef.Cache != nil {
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_CACHE_KEY", Value: stepDef.Cache.Key,
+		})
+		pathsJSON, _ := json.Marshal(stepDef.Cache.Paths)
+		agentEnv = append(agentEnv, corev1.EnvVar{
+			Name: "FLINT_CACHE_PATHS", Value: string(pathsJSON),
+		})
+	}
+
+	jobName := fmt.Sprintf("flint-%s-%s", step.runID[:8], sanitizeK8sName(step.name))
 	ttl := int32(3600)
 	backoffLimit := int32(0)
 
@@ -162,20 +277,35 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 						},
 					},
 					Volumes: []corev1.Volume{
-						{
-							Name: "workspace",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
+						workspaceVolume(usePVC, step.runID, poolSpec),
 					},
 				},
 			},
 		},
 	}
 
-	// Apply runner pool scheduling.
+	// Add sidecar service containers.
+	for _, svc := range stepDef.Services {
+		svcEnv := make([]corev1.EnvVar, 0, len(svc.Env))
+		for k, v := range svc.Env {
+			svcEnv = append(svcEnv, corev1.EnvVar{Name: k, Value: v})
+		}
+		job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, corev1.Container{
+			Name:  "svc-" + sanitizeK8sName(svc.Name),
+			Image: svc.Image,
+			Env:   svcEnv,
+		})
+	}
+
+	// Apply runner pool scheduling (includes pool-level ServiceAccount).
 	runner.MergeIntoJob(poolSpec, job)
+
+	// Override service account: step > pipeline > runner pool.
+	// MergeIntoJob already set the runner pool SA; override if a more specific
+	// scope is configured.
+	if sa := resolveServiceAccount(stepDef.ServiceAccount, step.pipelineServiceAccount); sa != "" {
+		job.Spec.Template.Spec.ServiceAccountName = sa
+	}
 
 	created, err := k8s.BatchV1().Jobs(jobNamespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
@@ -193,18 +323,77 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 
 // claimedStep holds the data needed to dispatch a step after claiming.
 type claimedStep struct {
-	id         string
-	workflowID string
-	name       string
-	execType   string
-	taskToken  string
-	stepDef    []byte
-	runID      string
-	orgID      string
-	repo       string
-	ref        string
-	commitSHA  string
-	env        map[string]string
+	id                     string
+	workflowID             string
+	name                   string
+	execType               string
+	taskToken              string
+	stepDef                []byte
+	runID                  string
+	orgID                  string
+	projectID              string
+	repo                   string
+	ref                    string
+	commitSHA              string
+	environment            string            // target environment for secret scoping
+	pipelineImage          string            // pipeline-level default image (fallback)
+	pipelineServiceAccount string            // pipeline-level default K8s SA (fallback)
+	env                    map[string]string // merged env vars (org env_vars + step.env + input.Env)
+	secretMapping          map[string]string // env var name → secret store name (from step YAML secrets:)
+}
+
+// sanitizeK8sName converts a step name to a valid K8s DNS subdomain component.
+// K8s names: lowercase, alphanumeric, hyphens only, max 63 chars.
+//
+// A 5-char xxh3 hash of the original name is appended as a suffix to prevent
+// collisions when two different step names normalize to the same string
+// (e.g. "my.build" and "my-build" would both become "my-build" without it).
+func sanitizeK8sName(name string) string {
+	// Compute hash before any normalization so it reflects the original name.
+	hash := fmt.Sprintf("%05x", xxh3.HashString(name)&0xfffff)
+
+	var b strings.Builder
+	for _, c := range strings.ToLower(name) {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			b.WriteRune(c)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	s := b.String()
+
+	// Trim leading/trailing hyphens and collapse runs.
+	s = strings.Trim(s, "-")
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+
+	// Reserve 6 chars for "-HHHHH" suffix; cap sanitized part at 57 chars.
+	if len(s) > 57 {
+		s = strings.TrimRight(s[:57], "-")
+	}
+	return s + "-" + hash
+}
+
+// extractMatrixKey returns the matrix key portion from an expanded step name.
+// "test[node=16,os=ubuntu]" → "node=16,os=ubuntu". Returns "" for non-matrix steps.
+func extractMatrixKey(name string) string {
+	start := strings.Index(name, "[")
+	end := strings.LastIndex(name, "]")
+	if start >= 0 && end > start {
+		return name[start+1 : end]
+	}
+	return ""
+}
+
+// resolveServiceAccount returns the most specific service account override.
+// Precedence: step > pipeline. Returns "" if neither is set (runner pool
+// default from MergeIntoJob applies).
+func resolveServiceAccount(stepSA, pipelineSA string) string {
+	if stepSA != "" {
+		return stepSA
+	}
+	return pipelineSA
 }
 
 func wrapStepCommand(userCommand string) []string {

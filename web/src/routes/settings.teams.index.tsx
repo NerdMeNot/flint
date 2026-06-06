@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Users, KeyRound } from 'lucide-react'
+import { Users } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 
 export const Route = createFileRoute('/settings/teams/')({
@@ -57,7 +57,7 @@ function TeamsPage() {
                   <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{team.name}</h3>
                   <p className="text-xs text-muted-foreground font-mono truncate">{team.slug}</p>
                 </div>
-                <span className={`island-kicker !text-[0.55rem] shrink-0 ${
+                <span className={`island-kicker !text-[11px] shrink-0 ${
                   team.source === 'idp'
                     ? 'bg-primary/10 text-primary border-primary/20'
                     : ''
@@ -67,7 +67,7 @@ function TeamsPage() {
               </div>
 
               {team.idpGroup && (
-                <p className="text-[0.65rem] text-muted-foreground opacity-60 font-mono truncate">
+                <p className="text-[12px] text-muted-foreground opacity-60 font-mono truncate">
                   group: {team.idpGroup}
                 </p>
               )}
@@ -77,7 +77,7 @@ function TeamsPage() {
                 return tRoles.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
                     {tRoles.map((r) => (
-                      <span key={r.slug} className="rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium bg-secondary text-foreground border border-border">
+                      <span key={r.slug} className="rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-secondary text-foreground border border-border">
                         {r.name}
                       </span>
                     ))}

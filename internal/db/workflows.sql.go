@@ -165,6 +165,34 @@ func (q *Queries) LockWorkflow(ctx context.Context, id string) (LockWorkflowRow,
 	return i, err
 }
 
+const recentlyFinishedRunIDs = `-- name: RecentlyFinishedRunIDs :many
+SELECT DISTINCT pr.id AS run_id FROM pipeline_runs pr
+JOIN workflows w ON w.run_id = pr.id
+WHERE w.status IN ('succeeded', 'failed', 'cancelled')
+AND w.finished_at >= now() - interval '10 minutes'
+AND w.parent_id IS NULL
+`
+
+func (q *Queries) RecentlyFinishedRunIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, recentlyFinishedRunIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var run_id string
+		if err := rows.Scan(&run_id); err != nil {
+			return nil, err
+		}
+		items = append(items, run_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sweepStaleWorkflows = `-- name: SweepStaleWorkflows :exec
 UPDATE workflows SET status = 'failed', finished_at = now()
 WHERE status = 'running'

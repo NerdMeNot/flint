@@ -122,6 +122,29 @@ func ParseUseRef(ref string) UseRef {
 	}
 }
 
+// malformedCrossRepoRef reports a diagnostic message if ref looks like a
+// cross-repo reference (it contains '@') but is missing required parts. It
+// mirrors ParseUseRef's cross-repo rule so that a ref ParseUseRef silently
+// downgrades to a CRD-name lookup (e.g. "//path@", "org/@v1") is surfaced as an
+// error instead. Returns "" for valid or non-cross-repo refs.
+func malformedCrossRepoRef(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "../") {
+		return "" // local file
+	}
+	atIdx := strings.LastIndex(ref, "@")
+	if atIdx <= 0 {
+		return "" // no '@' → plain CRD name, not a cross-repo ref
+	}
+	path := ref[:atIdx]
+	gitRef := ref[atIdx+1:]
+	parts := strings.SplitN(path, "/", 3)
+	if len(parts) < 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" || gitRef == "" {
+		return fmt.Sprintf("malformed cross-repo reference %q — expected org/repo/path@ref with all parts non-empty", ref)
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // Template Resolution
 // ---------------------------------------------------------------------------
@@ -185,13 +208,18 @@ func resolveStep(ctx context.Context, s *Step, resolver TemplateResolver, depth 
 		return s, nil
 	}
 
+	// Built-in templates — resolved without a CRD or file lookup.
+	if resolved, ok := resolveBuiltin(s); ok {
+		return resolved, nil
+	}
+
 	ref := ParseUseRef(s.Use)
 
 	switch ref.Kind {
 	case UseRefCRD:
 		return resolveCRDTemplate(ctx, s, ref, resolver)
 	case UseRefLocal, UseRefCrossRepo:
-		return resolveFileTemplate(ctx, s, ref, resolver)
+		return resolveFileTemplate(ctx, s, ref, resolver, depth)
 	default:
 		return s, nil
 	}
@@ -218,17 +246,54 @@ func resolveCRDTemplate(ctx context.Context, s *Step, ref UseRef, resolver Templ
 	resolved.Use = ""
 	resolved.With = nil
 
-	// Substitute ${{ inputs.NAME }} in the template's run command.
-	resolved.Run = substituteInputs(tmpl.Run, inputValues)
+	// Substitute ${{ inputs.NAME }} in the template's fields. A StepTemplate CRD
+	// only exposes Run and Image, so those are the only template-provided fields
+	// that can reference inputs (the use-step's own fields are not substituted —
+	// template inputs are internal to the template).
+	resolved.Run = Cmd(substituteInputs(tmpl.Run, inputValues))
 
 	if tmpl.Image != "" && resolved.Image == "" {
-		resolved.Image = tmpl.Image
+		resolved.Image = substituteInputs(tmpl.Image, inputValues)
 	}
 
 	return &resolved, nil
 }
 
-func resolveFileTemplate(ctx context.Context, s *Step, ref UseRef, resolver TemplateResolver) (*Step, error) {
+// resolveBuiltin handles built-in step templates that don't require a CRD or
+// file lookup. Returns (resolved, true) if the use: ref matches a built-in,
+// or (nil, false) otherwise.
+//
+// Built-in templates:
+//   - "checkout" — clones the repository (replaces implicit init-container clone)
+func resolveBuiltin(s *Step) (*Step, bool) {
+	switch s.Use {
+	case "checkout":
+		resolved := Step{
+			Name: s.Name,
+			// The engine dispatches this as a run step with the agent image.
+			// The command runs `flint-agent checkout` with step inputs passed
+			// as FLINT_CHECKOUT_INPUTS env var.
+			Run:  Cmd("flint-agent checkout"),
+			With: s.With,
+			// Preserve step-level overrides.
+			Image:          s.Image,
+			ServiceAccount: s.ServiceAccount,
+			Runner:         s.Runner,
+			Timeout:        s.Timeout,
+			If:             s.If,
+			When:           s.When,
+			Env:            s.Env,
+		}
+		if resolved.Name == "" {
+			resolved.Name = "checkout"
+		}
+		return &resolved, true
+	default:
+		return nil, false
+	}
+}
+
+func resolveFileTemplate(ctx context.Context, s *Step, ref UseRef, resolver TemplateResolver, depth int) (*Step, error) {
 	tmpl, err := resolver.ResolveFile(ctx, ref.Raw)
 	if err != nil {
 		return nil, &ParseError{
@@ -258,6 +323,17 @@ func resolveFileTemplate(ctx context.Context, s *Step, ref UseRef, resolver Temp
 	copy(resolvedSteps, tmpl.Steps)
 	for i := range resolvedSteps {
 		substituteStepInputs(&resolvedSteps[i], inputValues)
+	}
+
+	// Re-resolve sub-steps so nested use: references inside the template are
+	// expanded too. depth+1 bounds mutual template references against
+	// maxResolveDepth (otherwise a template that references itself loops forever).
+	for i := range resolvedSteps {
+		sub, err := resolveStep(ctx, &resolvedSteps[i], resolver, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		resolvedSteps[i] = *sub
 	}
 
 	// Convert to a nested step — the file's steps become sub-steps.
@@ -378,7 +454,9 @@ func substituteStepInputs(s *Step, inputs map[string]string) {
 		return
 	}
 
-	s.Run = substituteInputs(s.Run, inputs)
+	for i, cmd := range s.Run.Commands {
+		s.Run.Commands[i] = substituteInputs(cmd, inputs)
+	}
 	s.Image = substituteInputs(s.Image, inputs)
 	s.WorkingDir = substituteInputs(s.WorkingDir, inputs)
 	s.Timeout = substituteInputs(s.Timeout, inputs)

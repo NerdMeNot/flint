@@ -20,6 +20,17 @@ type ApiKey struct {
 	ExpiresAt  *time.Time `json:"expires_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	CreatedAt  time.Time  `json:"created_at"`
+	RoleID     *string    `json:"role_id"`
+}
+
+type ApiKeyEnvironmentScope struct {
+	ApiKeyID      string `json:"api_key_id"`
+	EnvironmentID string `json:"environment_id"`
+}
+
+type ApiKeyWorkspaceScope struct {
+	ApiKeyID    string `json:"api_key_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type AuditLog struct {
@@ -54,6 +65,31 @@ type CasbinRule struct {
 	V5    string `json:"v5"`
 }
 
+type EnvVariable struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description"`
+	Scope       string    `json:"scope"`
+	IsSecret    bool      `json:"is_secret"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type EnvVariableValue struct {
+	VariableID    string    `json:"variable_id"`
+	EnvironmentID *string   `json:"environment_id"`
+	Value         string    `json:"value"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type Environment struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type FlintOutbox struct {
 	ID             string     `json:"id"`
 	EventType      string     `json:"event_type"`
@@ -80,12 +116,30 @@ type ForgeConnection struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type LoginAttempt struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	IpAddress *string   `json:"ip_address"`
+	Success   bool      `json:"success"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Org struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	TemporalNamespace string    `json:"temporal_namespace"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Slug             string    `json:"slug"`
+	CreatedAt        time.Time `json:"created_at"`
+	ConcurrencyLimit int32     `json:"concurrency_limit"`
+}
+
+type PersonalToken struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	Name       string     `json:"name"`
+	TokenHash  string     `json:"token_hash"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type PipelineModule struct {
@@ -101,25 +155,26 @@ type PipelineModule struct {
 }
 
 type PipelineRun struct {
-	ID                 string      `json:"id"`
-	ProjectID          string      `json:"project_id"`
-	OrgID              string      `json:"org_id"`
-	TemporalWorkflowID *string     `json:"temporal_workflow_id"`
-	WorkflowFile       string      `json:"workflow_file"`
-	TriggerType        string      `json:"trigger_type"`
-	TriggerRef         *string     `json:"trigger_ref"`
-	CommitSha          *string     `json:"commit_sha"`
-	CommitMessage      *string     `json:"commit_message"`
-	TriggeredBy        *string     `json:"triggered_by"`
-	Status             string      `json:"status"`
-	RunnerPool         *string     `json:"runner_pool"`
-	StartedAt          time.Time   `json:"started_at"`
-	FinishedAt         *time.Time  `json:"finished_at"`
-	DurationMs         pgtype.Int4 `json:"duration_ms"`
-	CreatedAt          time.Time   `json:"created_at"`
-	WorkflowID         *string     `json:"workflow_id"`
-	Branch             *string     `json:"branch"`
-	Repo               *string     `json:"repo"`
+	ID            string      `json:"id"`
+	ProjectID     string      `json:"project_id"`
+	OrgID         string      `json:"org_id"`
+	WorkflowFile  string      `json:"workflow_file"`
+	TriggerType   string      `json:"trigger_type"`
+	TriggerRef    *string     `json:"trigger_ref"`
+	CommitSha     *string     `json:"commit_sha"`
+	CommitMessage *string     `json:"commit_message"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	Status        string      `json:"status"`
+	RunnerPool    *string     `json:"runner_pool"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    *time.Time  `json:"finished_at"`
+	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	CreatedAt     time.Time   `json:"created_at"`
+	WorkflowID    *string     `json:"workflow_id"`
+	Branch        *string     `json:"branch"`
+	Repo          *string     `json:"repo"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
 }
 
 type Project struct {
@@ -166,6 +221,30 @@ type Role struct {
 	Description *string   `json:"description"`
 	IsSystem    bool      `json:"is_system"`
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	RequireMfa  bool      `json:"require_mfa"`
+}
+
+type RoleAssignment struct {
+	Subject   string    `json:"subject"`
+	RoleID    string    `json:"role_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type RoleEnvironmentScope struct {
+	RoleID        string `json:"role_id"`
+	EnvironmentID string `json:"environment_id"`
+}
+
+type RolePermission struct {
+	RoleID string `json:"role_id"`
+	Object string `json:"object"`
+	Action string `json:"action"`
+}
+
+type RoleWorkspaceScope struct {
+	RoleID      string `json:"role_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type RunnerPool struct {
@@ -198,6 +277,21 @@ type Secret struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	Environment    *string   `json:"environment"`
+}
+
+type Session struct {
+	ID            string     `json:"id"`
+	UserID        string     `json:"user_id"`
+	TokenHash     string     `json:"token_hash"`
+	IdpTokenEnc   []byte     `json:"idp_token_enc"`
+	IpAddress     *string    `json:"ip_address"`
+	UserAgent     *string    `json:"user_agent"`
+	CreatedAt     time.Time  `json:"created_at"`
+	LastActivity  time.Time  `json:"last_activity"`
+	LastSyncedAt  *time.Time `json:"last_synced_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	IdleExpiresAt time.Time  `json:"idle_expires_at"`
+	RevokedAt     *time.Time `json:"revoked_at"`
 }
 
 type Signal struct {
@@ -234,10 +328,12 @@ type Step struct {
 }
 
 type Team struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-	Name  string `json:"name"`
-	Slug  string `json:"slug"`
+	ID       string  `json:"id"`
+	OrgID    string  `json:"org_id"`
+	Name     string  `json:"name"`
+	Slug     string  `json:"slug"`
+	Source   string  `json:"source"`
+	IdpGroup *string `json:"idp_group"`
 }
 
 type TeamMember struct {
@@ -256,13 +352,31 @@ type Timer struct {
 }
 
 type User struct {
-	ID         string    `json:"id"`
-	OrgID      string    `json:"org_id"`
-	Email      string    `json:"email"`
-	ExternalID string    `json:"external_id"`
-	Name       *string   `json:"name"`
-	AvatarUrl  *string   `json:"avatar_url"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID                  string      `json:"id"`
+	OrgID               string      `json:"org_id"`
+	Email               string      `json:"email"`
+	ExternalID          string      `json:"external_id"`
+	Name                *string     `json:"name"`
+	AvatarUrl           *string     `json:"avatar_url"`
+	CreatedAt           time.Time   `json:"created_at"`
+	IsActive            bool        `json:"is_active"`
+	PasswordHash        *string     `json:"password_hash"`
+	TotpSecretEnc       []byte      `json:"totp_secret_enc"`
+	TotpVerified        bool        `json:"totp_verified"`
+	MfaRequiredOverride pgtype.Bool `json:"mfa_required_override"`
+	PasswordChangedAt   *time.Time  `json:"password_changed_at"`
+	RecoveryCodes       []string    `json:"recovery_codes"`
+	ForcePasswordChange bool        `json:"force_password_change"`
+}
+
+type Webhook struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Url       string    `json:"url"`
+	Secret    string    `json:"secret"`
+	Events    []byte    `json:"events"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Workflow struct {

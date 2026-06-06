@@ -41,7 +41,7 @@ function RunnersPage() {
                   )}
                 </div>
                 <span
-                  className={`island-kicker !text-[0.55rem] shrink-0 flex items-center gap-1 ${
+                  className={`island-kicker !text-[11px] shrink-0 flex items-center gap-1 ${
                     runner.ready
                       ? 'bg-success/10 text-success border-success/20'
                       : 'bg-destructive/10 text-destructive border-destructive/20'
@@ -65,7 +65,7 @@ function RunnersPage() {
                   <HardDrive size={12} />
                   {runner.memory}
                 </span>
-                <span className="font-mono text-[0.65rem] bg-muted px-1.5 py-0.5 rounded">
+                <span className="font-mono text-[12px] bg-muted px-1.5 py-0.5 rounded">
                   {runner.arch}
                 </span>
               </div>

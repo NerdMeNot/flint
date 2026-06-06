@@ -67,6 +67,24 @@ func (m *mockResolver) ResolveFile(_ context.Context, ref string) (*pipeline.Res
 	return nil, fmt.Errorf("file %q not found", ref)
 }
 
+// Mutually-referencing file templates (a -> b -> a) must hit the resolution
+// depth limit instead of looping forever.
+func TestResolveTemplates_CircularFileTemplates(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Steps: []pipeline.Step{{Name: "start", Use: "./a.yaml"}},
+	}
+	resolver := &mockResolver{
+		files: map[string]*pipeline.ResolvedFileTemplate{
+			"./a.yaml": {Source: "a", Steps: []pipeline.Step{{Name: "sa", Use: "./b.yaml"}}},
+			"./b.yaml": {Source: "b", Steps: []pipeline.Step{{Name: "sb", Use: "./a.yaml"}}},
+		},
+	}
+
+	_, err := pipeline.ResolveTemplates(context.Background(), p, resolver)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "depth")
+}
+
 func TestResolveTemplates_CRDWithInputSubstitution(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
@@ -81,7 +99,7 @@ func TestResolveTemplates_CRDWithInputSubstitution(t *testing.T) {
 			},
 			{
 				Name:      "build",
-				Run:       "make build",
+				Run:       pipeline.Cmd("make build"),
 				DependsOn: []string{"login"},
 			},
 		},
@@ -109,12 +127,37 @@ func TestResolveTemplates_CRDWithInputSubstitution(t *testing.T) {
 	assert.Equal(t, "", login.Use) // use cleared
 	assert.Nil(t, login.With)      // with cleared
 	assert.Equal(t, "amazon/aws-cli:2", login.Image)
-	assert.Contains(t, login.Run, "us-west-2")
-	assert.Contains(t, login.Run, "123456789.dkr.ecr.us-east-1.amazonaws.com")
-	assert.NotContains(t, login.Run, "${{ inputs.")
+	assert.Contains(t, login.Run.String(), "us-west-2")
+	assert.Contains(t, login.Run.String(), "123456789.dkr.ecr.us-east-1.amazonaws.com")
+	assert.NotContains(t, login.Run.String(), "${{ inputs.")
 
 	// Build step should be untouched.
-	assert.Equal(t, "make build", resolved.Steps[1].Run)
+	assert.Equal(t, "make build", resolved.Steps[1].Run.String())
+}
+
+// CRD templates must substitute inputs into the template Image, not just Run.
+func TestResolveTemplates_CRDImageSubstitution(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
+		Steps: []pipeline.Step{
+			{Name: "test", Use: "go-test", With: map[string]string{"version": "1.22"}},
+		},
+	}
+	resolver := &mockResolver{
+		steps: map[string]*pipeline.ResolvedStepTemplate{
+			"go-test": {
+				Name:   "go-test",
+				Inputs: []pipeline.TemplateInput{{Name: "version", Type: "string", Required: true}},
+				Image:  "golang:${{ inputs.version }}",
+				Run:    "go test ./...",
+			},
+		},
+	}
+
+	resolved, err := pipeline.ResolveTemplates(context.Background(), p, resolver)
+	require.NoError(t, err)
+	assert.Equal(t, "golang:1.22", resolved.Steps[0].Image)
+	assert.NotContains(t, resolved.Steps[0].Image, "${{")
 }
 
 func TestResolveTemplates_MissingRequiredInput(t *testing.T) {
@@ -207,8 +250,8 @@ func TestResolveTemplates_DefaultInput(t *testing.T) {
 	require.NoError(t, err)
 
 	login := resolved.Steps[0]
-	assert.Contains(t, login.Run, "us-east-1")   // default applied
-	assert.Contains(t, login.Run, "my-registry") // provided value
+	assert.Contains(t, login.Run.String(), "us-east-1")   // default applied
+	assert.Contains(t, login.Run.String(), "my-registry") // provided value
 }
 
 func TestResolveTemplates_NestedUse(t *testing.T) {
@@ -225,7 +268,7 @@ func TestResolveTemplates_NestedUse(t *testing.T) {
 					},
 					{
 						Name: "push-image",
-						Run:  "docker push my-registry/app:latest",
+						Run:  pipeline.Cmd("docker push my-registry/app:latest"),
 					},
 				},
 			},
@@ -252,6 +295,80 @@ func TestResolveTemplates_NestedUse(t *testing.T) {
 	assert.True(t, push.IsNested())
 	login := push.Steps[0]
 	assert.Equal(t, "", login.Use)
-	assert.Contains(t, login.Run, "my-registry")
-	assert.NotContains(t, login.Run, "${{ inputs.")
+	assert.Contains(t, login.Run.String(), "my-registry")
+	assert.NotContains(t, login.Run.String(), "${{ inputs.")
+}
+
+func TestResolveTemplates_BuiltinCheckout(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
+		Steps: []pipeline.Step{
+			{
+				Name: "checkout",
+				Use:  "checkout",
+				With: map[string]string{"depth": "0", "submodules": "true"},
+			},
+			{
+				Name: "test",
+				Run:  pipeline.Cmd("npm test"),
+			},
+		},
+	}
+
+	// The resolver should NOT be called for built-in templates.
+	resolver := &mockResolver{steps: map[string]*pipeline.ResolvedStepTemplate{}}
+
+	resolved, err := pipeline.ResolveTemplates(context.Background(), p, resolver)
+	require.NoError(t, err)
+	require.Len(t, resolved.Steps, 2)
+
+	checkout := resolved.Steps[0]
+	assert.Equal(t, "checkout", checkout.Name)
+	assert.Empty(t, checkout.Use, "use: should be cleared after resolution")
+	assert.Equal(t, "flint-agent checkout", checkout.Run.String())
+	assert.Equal(t, "0", checkout.With["depth"])
+	assert.Equal(t, "true", checkout.With["submodules"])
+
+	test := resolved.Steps[1]
+	assert.Equal(t, "npm test", test.Run.String())
+}
+
+func TestResolveTemplates_InputTypeValidation(t *testing.T) {
+	mk := func(with map[string]string) (*pipeline.Pipeline, *mockResolver) {
+		p := &pipeline.Pipeline{
+			Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
+			Steps:    []pipeline.Step{{Name: "s", Use: "tmpl", With: with}},
+		}
+		r := &mockResolver{steps: map[string]*pipeline.ResolvedStepTemplate{
+			"tmpl": {Name: "tmpl", Run: "echo", Inputs: []pipeline.TemplateInput{
+				{Name: "flag", Type: "boolean", Required: true},
+				{Name: "mode", Type: "choice", Options: []string{"fast", "slow"}},
+			}},
+		}}
+		return p, r
+	}
+
+	p, r := mk(map[string]string{"flag": "true", "mode": "fast"})
+	_, err := pipeline.ResolveTemplates(context.Background(), p, r)
+	require.NoError(t, err)
+
+	p, r = mk(map[string]string{"flag": "yes", "mode": "fast"})
+	_, err = pipeline.ResolveTemplates(context.Background(), p, r)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boolean")
+
+	p, r = mk(map[string]string{"flag": "true", "mode": "medium"})
+	_, err = pipeline.ResolveTemplates(context.Background(), p, r)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "options")
+}
+
+func TestResolveTemplates_EmptyFileTemplate(t *testing.T) {
+	p := &pipeline.Pipeline{Steps: []pipeline.Step{{Name: "s", Use: "./empty.yaml"}}}
+	r := &mockResolver{files: map[string]*pipeline.ResolvedFileTemplate{
+		"./empty.yaml": {Source: "empty", Steps: nil},
+	}}
+	_, err := pipeline.ResolveTemplates(context.Background(), p, r)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no steps")
 }

@@ -19,6 +19,13 @@ func validServerConfig() *config.Config {
 				Secret: "this-is-a-secret-that-is-at-least-32-chars",
 			},
 		},
+		Encryption: config.EncryptionConfig{
+			// 32-byte (64 hex char) master key.
+			MasterKey: strings.Repeat("ab", 32),
+		},
+		Server: config.ServerConfig{
+			InternalToken: "internal-token-at-least-16-chars",
+		},
 		Worker: config.WorkerConfig{
 			AgentImage: "ghcr.io/NerdMeNot/flint-agent:latest",
 		},

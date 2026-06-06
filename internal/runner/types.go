@@ -21,6 +21,45 @@ type PoolSpec struct {
 	NodeSelector map[string]string
 	Tolerations  []corev1.Toleration
 	Spot         bool
+
+	// ServiceAccountName is the K8s ServiceAccount assigned to step pods
+	// in this pool. Used for IAM role-based auth:
+	//   - EKS IRSA: annotate the SA with eks.amazonaws.com/role-arn
+	//   - GKE Workload Identity: annotate with iam.gke.io/gcp-service-account
+	//   - AKS Workload Identity: annotate with azure.workload.identity/client-id
+	//
+	// When set, step pods automatically receive cloud credentials via the
+	// platform's token projection — no secrets stored in Flint.
+	ServiceAccountName string
+
+	// Workspace configures how step pods share the /workspace directory.
+	Workspace WorkspaceConfig
+}
+
+// WorkspaceMode selects the workspace storage backend.
+type WorkspaceMode string
+
+const (
+	// WorkspaceModeAgent uses emptyDir per pod + per-run gRPC workspace agent
+	// for incremental sync between steps. Default; needs no cluster storage.
+	WorkspaceModeAgent WorkspaceMode = "agent"
+
+	// WorkspaceModePVC creates a ReadWriteMany PVC per run, shared by all step
+	// pods. No sync needed — all pods mount the same volume. Requires a
+	// StorageClass that supports ReadWriteMany (EFS, CephFS, NFS, FSx Lustre).
+	WorkspaceModePVC WorkspaceMode = "pvc"
+
+	// WorkspaceModeS3 uses S3 for incremental workspace sync between steps.
+	// Each step uses a local emptyDir; sync happens via S3 with per-run key
+	// prefix. No infrastructure beyond an S3 bucket. Slowest but most portable.
+	WorkspaceModeS3 WorkspaceMode = "s3"
+)
+
+// WorkspaceConfig holds the resolved workspace settings for a pool.
+type WorkspaceConfig struct {
+	Mode         WorkspaceMode
+	StorageClass string // required for PVC mode
+	Size         string // PVC size, default "10Gi"
 }
 
 // ResourceProfile defines the compute resources for a runner.

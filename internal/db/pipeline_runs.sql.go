@@ -12,6 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const failRunWithError = `-- name: FailRunWithError :exec
+UPDATE pipeline_runs SET status = 'failed', error_message = $2,
+    finished_at = now(), duration_ms = EXTRACT(EPOCH FROM (now() - started_at)) * 1000
+WHERE id = $1
+`
+
+type FailRunWithErrorParams struct {
+	ID           string  `json:"id"`
+	ErrorMessage *string `json:"error_message"`
+}
+
+func (q *Queries) FailRunWithError(ctx context.Context, arg FailRunWithErrorParams) error {
+	_, err := q.db.Exec(ctx, failRunWithError, arg.ID, arg.ErrorMessage)
+	return err
+}
+
 const finishRun = `-- name: FinishRun :exec
 UPDATE pipeline_runs SET status = $2, finished_at = now(),
     duration_ms = EXTRACT(EPOCH FROM (now() - started_at)) * 1000
@@ -29,7 +45,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 }
 
 const getOriginalRunParams = `-- name: GetOriginalRunParams :one
-SELECT project_id, org_id, workflow_file, trigger_ref, commit_sha
+SELECT project_id, org_id, workflow_file, trigger_ref, commit_sha, environment
 FROM pipeline_runs WHERE id = $1
 `
 
@@ -39,6 +55,7 @@ type GetOriginalRunParamsRow struct {
 	WorkflowFile string  `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
 	CommitSha    *string `json:"commit_sha"`
+	Environment  *string `json:"environment"`
 }
 
 func (q *Queries) GetOriginalRunParams(ctx context.Context, id string) (GetOriginalRunParamsRow, error) {
@@ -50,13 +67,15 @@ func (q *Queries) GetOriginalRunParams(ctx context.Context, id string) (GetOrigi
 		&i.WorkflowFile,
 		&i.TriggerRef,
 		&i.CommitSha,
+		&i.Environment,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
 SELECT id, project_id, workflow_file, trigger_type, trigger_ref, commit_sha,
-       commit_message, triggered_by, status, started_at, finished_at, duration_ms, workflow_id
+       commit_message, triggered_by, status, started_at, finished_at, duration_ms,
+       workflow_id, environment, error_message
 FROM pipeline_runs
 WHERE id = $1
 `
@@ -75,6 +94,8 @@ type GetRunRow struct {
 	FinishedAt    *time.Time  `json:"finished_at"`
 	DurationMs    pgtype.Int4 `json:"duration_ms"`
 	WorkflowID    *string     `json:"workflow_id"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
 }
 
 func (q *Queries) GetRun(ctx context.Context, id string) (GetRunRow, error) {
@@ -94,6 +115,8 @@ func (q *Queries) GetRun(ctx context.Context, id string) (GetRunRow, error) {
 		&i.FinishedAt,
 		&i.DurationMs,
 		&i.WorkflowID,
+		&i.Environment,
+		&i.ErrorMessage,
 	)
 	return i, err
 }
@@ -122,8 +145,8 @@ func (q *Queries) GetRunWorkflowID(ctx context.Context, id string) (*string, err
 
 const insertManualRun = `-- name: InsertManualRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
-    trigger_type, trigger_ref, triggered_by, status)
-VALUES ($1, $2, $3, $4, 'manual', $5, 'api', 'pending')
+    trigger_type, trigger_ref, triggered_by, environment, status)
+VALUES ($1, $2, $3, $4, 'manual', $5, 'api', $6, 'pending')
 `
 
 type InsertManualRunParams struct {
@@ -132,6 +155,7 @@ type InsertManualRunParams struct {
 	OrgID        string  `json:"org_id"`
 	WorkflowFile string  `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
+	Environment  *string `json:"environment"`
 }
 
 func (q *Queries) InsertManualRun(ctx context.Context, arg InsertManualRunParams) error {
@@ -141,14 +165,16 @@ func (q *Queries) InsertManualRun(ctx context.Context, arg InsertManualRunParams
 		arg.OrgID,
 		arg.WorkflowFile,
 		arg.TriggerRef,
+		arg.Environment,
 	)
 	return err
 }
 
 const insertPipelineRun = `-- name: InsertPipelineRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
-    trigger_type, trigger_ref, commit_sha, commit_message, triggered_by, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+    trigger_type, trigger_ref, commit_sha, commit_message, triggered_by,
+    environment, status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
 `
 
 type InsertPipelineRunParams struct {
@@ -161,6 +187,7 @@ type InsertPipelineRunParams struct {
 	CommitSha     *string `json:"commit_sha"`
 	CommitMessage *string `json:"commit_message"`
 	TriggeredBy   *string `json:"triggered_by"`
+	Environment   *string `json:"environment"`
 }
 
 func (q *Queries) InsertPipelineRun(ctx context.Context, arg InsertPipelineRunParams) error {
@@ -174,14 +201,15 @@ func (q *Queries) InsertPipelineRun(ctx context.Context, arg InsertPipelineRunPa
 		arg.CommitSha,
 		arg.CommitMessage,
 		arg.TriggeredBy,
+		arg.Environment,
 	)
 	return err
 }
 
 const insertRetryRun = `-- name: InsertRetryRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
-    trigger_type, trigger_ref, commit_sha, triggered_by, status)
-VALUES ($1, $2, $3, $4, 'retry', $5, $6, 'api', 'pending')
+    trigger_type, trigger_ref, commit_sha, triggered_by, environment, status)
+VALUES ($1, $2, $3, $4, 'retry', $5, $6, 'api', $7, 'pending')
 `
 
 type InsertRetryRunParams struct {
@@ -191,6 +219,7 @@ type InsertRetryRunParams struct {
 	WorkflowFile string  `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
 	CommitSha    *string `json:"commit_sha"`
+	Environment  *string `json:"environment"`
 }
 
 func (q *Queries) InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) error {
@@ -201,6 +230,7 @@ func (q *Queries) InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) 
 		arg.WorkflowFile,
 		arg.TriggerRef,
 		arg.CommitSha,
+		arg.Environment,
 	)
 	return err
 }
@@ -208,7 +238,7 @@ func (q *Queries) InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) 
 const listRunsAll = `-- name: ListRunsAll :many
 SELECT pr.id, pr.project_id, p.display_name AS project_name, p.colour AS project_colour,
        pr.status, pr.trigger_type, pr.trigger_ref, pr.commit_sha,
-       pr.triggered_by, pr.started_at, pr.duration_ms
+       pr.triggered_by, pr.started_at, pr.duration_ms, pr.error_message
 FROM pipeline_runs pr
 JOIN projects p ON pr.project_id = p.id
 ORDER BY pr.started_at DESC
@@ -227,6 +257,7 @@ type ListRunsAllRow struct {
 	TriggeredBy   *string     `json:"triggered_by"`
 	StartedAt     time.Time   `json:"started_at"`
 	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	ErrorMessage  *string     `json:"error_message"`
 }
 
 func (q *Queries) ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error) {
@@ -250,6 +281,7 @@ func (q *Queries) ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRo
 			&i.TriggeredBy,
 			&i.StartedAt,
 			&i.DurationMs,
+			&i.ErrorMessage,
 		); err != nil {
 			return nil, err
 		}
@@ -263,7 +295,8 @@ func (q *Queries) ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRo
 
 const listRunsByProject = `-- name: ListRunsByProject :many
 SELECT id, workflow_file, trigger_type, trigger_ref, commit_sha,
-       commit_message, triggered_by, status, started_at, finished_at, duration_ms
+       commit_message, triggered_by, status, started_at, finished_at, duration_ms,
+       error_message
 FROM pipeline_runs
 WHERE project_id = $1
 ORDER BY started_at DESC
@@ -287,6 +320,7 @@ type ListRunsByProjectRow struct {
 	StartedAt     time.Time   `json:"started_at"`
 	FinishedAt    *time.Time  `json:"finished_at"`
 	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	ErrorMessage  *string     `json:"error_message"`
 }
 
 func (q *Queries) ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error) {
@@ -310,6 +344,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, arg ListRunsByProjectPa
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.DurationMs,
+			&i.ErrorMessage,
 		); err != nil {
 			return nil, err
 		}

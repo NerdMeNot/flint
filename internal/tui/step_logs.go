@@ -34,5 +34,5 @@ func (v *StepLogsView) View() string {
 	)
 }
 
-func (v *StepLogsView) SetSize(w, h int) { v.width = w; v.height = h }
+func (v *StepLogsView) SetSize(w, h int)  { v.width = w; v.height = h }
 func (v *StepLogsView) ShortHelp() string { return "  esc back" }

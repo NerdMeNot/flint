@@ -119,7 +119,7 @@ func (s *Server) handleCreateTeam(ctx context.Context, c *app.RequestContext) {
 		apiConflict(ctx, c, "team already exists")
 		return
 	}
-	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "slug": req.Slug})
+	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "slug": req.Slug, "memberCount": 0})
 }
 
 func (s *Server) handleDeleteTeam(ctx context.Context, c *app.RequestContext) {
@@ -129,7 +129,7 @@ func (s *Server) handleDeleteTeam(ctx context.Context, c *app.RequestContext) {
 		apiNotFound(ctx, c, "team not found")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Users ─────────────────────────────────────────────────
@@ -274,32 +274,12 @@ func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 		k.Workspaces = []string{}
 		k.Environments = []string{}
 
-		wsRows, wsErr := s.deps.DB.Query(ctx,
-			`SELECT w.slug FROM api_key_workspace_scope akws
-			 JOIN workspaces w ON w.id = akws.workspace_id
-			 WHERE akws.api_key_id = $1`, k.ID)
-		if wsErr == nil {
-			defer wsRows.Close()
-			for wsRows.Next() {
-				var slug string
-				if wsRows.Scan(&slug) == nil {
-					k.Workspaces = append(k.Workspaces, slug)
-				}
-			}
+		if wsSlugs, wsErr := s.deps.Q.ListAPIKeyWorkspaceSlugs(ctx, k.ID); wsErr == nil {
+			k.Workspaces = wsSlugs
 		}
 
-		envRows, envErr := s.deps.DB.Query(ctx,
-			`SELECT e.slug FROM api_key_environment_scope akes
-			 JOIN environments e ON e.id = akes.environment_id
-			 WHERE akes.api_key_id = $1`, k.ID)
-		if envErr == nil {
-			defer envRows.Close()
-			for envRows.Next() {
-				var slug string
-				if envRows.Scan(&slug) == nil {
-					k.Environments = append(k.Environments, slug)
-				}
-			}
+		if envSlugs, envErr := s.deps.Q.ListAPIKeyEnvironmentSlugs(ctx, k.ID); envErr == nil {
+			k.Environments = envSlugs
 		}
 
 		result = append(result, k)
@@ -351,10 +331,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, c *app.RequestContext) 
 	c.JSON(consts.StatusCreated, utils.H{
 		"id":           id,
 		"name":         req.Name,
-		"key":          rawKey,
+		"token":        rawKey,
 		"role":         req.Role,
 		"workspaces":   req.Workspaces,
 		"environments": req.Environments,
+		"createdBy":    claims.Email,
+		"createdAt":    time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -365,7 +347,7 @@ func (s *Server) handleDeleteAPIKey(ctx context.Context, c *app.RequestContext) 
 		apiNotFound(ctx, c, "API key not found")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "revoked"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Audit Log ─────────────────────────────────────────────

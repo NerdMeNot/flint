@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"net/http"
 	"net/url"
 	"time"
@@ -24,6 +25,17 @@ type SAMLProviderConfig struct {
 	CertPEM     string // Optional SP signing certificate (PEM)
 	KeyPEM      string // Optional SP signing private key (PEM)
 }
+
+// SAMLAuth is the interface for SAML authentication. *SAMLProvider implements
+// it; tests can mock it to avoid real IdP metadata fetching and response validation.
+type SAMLAuth interface {
+	AuthURL(relayState string) (string, error)
+	ValidateResponse(samlResponse string) (*Claims, error)
+	MetadataXML() ([]byte, error)
+}
+
+// compile-time check
+var _ SAMLAuth = (*SAMLProvider)(nil)
 
 // SAMLProvider wraps crewjam/saml for SAML SP operations.
 type SAMLProvider struct {
@@ -190,6 +202,16 @@ func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 	// Set expiry from conditions.
 	if assertion.Conditions != nil && !assertion.Conditions.NotOnOrAfter.IsZero() {
 		claims.ExpiresAt = assertion.Conditions.NotOnOrAfter
+	}
+
+	// Email is required for user identification and policy lookups.
+	if claims.Email == "" {
+		// Fall back to Subject if it looks like an email.
+		if strings.Contains(claims.Subject, "@") {
+			claims.Email = claims.Subject
+		} else {
+			return nil, fmt.Errorf("SAML assertion did not contain an email attribute")
+		}
 	}
 
 	return claims, nil

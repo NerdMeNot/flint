@@ -58,10 +58,19 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 		log.Warn().Err(err).Str("workflow", workflowID).Msg("engine: signal consumption error")
 	}
 
-	// 6. Walk waves in order.
+	// 6. Determine whether the pipeline has experienced an unrecoverable failure
+	// so far. This drives `when:` semantics for pending steps.
+	//
+	// A step failure is unrecoverable when its onFailure policy is not "continue".
+	// We compute this from already-terminal steps before processing any pending
+	// ones, so that `when: onFailure` steps in a later wave see the correct state.
+	pipelineFailed := isPipelineFailed(dagWaves, stepByName)
+
+	// 7. Walk waves in order. Unlike the old early-exit model, we continue past
+	// failed waves so that steps with `when: onFailure` or `when: always` can
+	// still be queued. Steps whose `when:` condition is not met are skipped.
 	for waveIdx, wave := range dagWaves {
 		allComplete := true
-		waveFailed := false
 
 		for _, stepName := range wave {
 			step, exists := stepByName[stepName]
@@ -70,19 +79,29 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 			}
 
 			switch step.status {
-			case "succeeded", "skipped":
-				// Done.
-			case "failed":
-				if step.onFailure != "continue" {
-					waveFailed = true
-				}
-			case "cancelled":
-				// Ignore.
+			case "succeeded", "skipped", "failed", "cancelled":
+				// Already terminal — nothing to do.
+
 			case "pending":
+				// Wait for the previous wave to finish before queuing this one.
 				if waveIdx > 0 && !waveComplete(dagWaves[waveIdx-1], stepByName) {
 					allComplete = false
 					continue
 				}
+
+				// Check `when:` condition against current pipeline failure state.
+				if !stepShouldRun(step.when, pipelineFailed) {
+					setStepStatus(ctx, qtx, step.id, "skipped")
+					stepByName[stepName] = stepRow{
+						id:          step.id,
+						status:      "skipped",
+						onFailure:   step.onFailure,
+						ifCondition: step.ifCondition,
+						when:        step.when,
+					}
+					continue
+				}
+
 				// Evaluate if-condition.
 				if step.ifCondition != "" {
 					exprCtx := buildEngineExprContext(input, stepOutputs)
@@ -90,27 +109,30 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 					if !shouldRun {
 						setStepStatus(ctx, qtx, step.id, "skipped")
 						stepByName[stepName] = stepRow{
-							id: step.id, status: "skipped",
-							onFailure: step.onFailure, ifCondition: step.ifCondition,
+							id:          step.id,
+							status:      "skipped",
+							onFailure:   step.onFailure,
+							ifCondition: step.ifCondition,
+							when:        step.when,
 						}
 						continue
 					}
 				}
+
 				setStepStatus(ctx, qtx, step.id, "queued")
 				stepByName[stepName] = stepRow{
-					id: step.id, status: "queued",
-					onFailure: step.onFailure, ifCondition: step.ifCondition,
+					id:          step.id,
+					status:      "queued",
+					onFailure:   step.onFailure,
+					ifCondition: step.ifCondition,
+					when:        step.when,
 				}
 				allComplete = false
+
 			default:
+				// Running, queued, waiting — not yet done.
 				allComplete = false
 			}
-		}
-
-		if waveFailed {
-			finishWorkflow(ctx, qtx, workflowID, "failed")
-			_ = qtx.CancelPendingSteps(ctx, workflowID)
-			return nil
 		}
 
 		if !allComplete {
@@ -118,15 +140,13 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 		}
 	}
 
-	// 7. Check if all waves complete.
+	// 8. Check if all waves are complete and finish the workflow.
 	if allWavesComplete(dagWaves, stepByName) {
+		// Re-evaluate pipelineFailed with the now-complete step map.
+		pipelineFailed = isPipelineFailed(dagWaves, stepByName)
 		finalStatus := "succeeded"
-		for _, wave := range dagWaves {
-			for _, name := range wave {
-				if s, ok := stepByName[name]; ok && s.status == "failed" {
-					finalStatus = "failed"
-				}
-			}
+		if pipelineFailed {
+			finalStatus = "failed"
 		}
 		finishWorkflow(ctx, qtx, workflowID, finalStatus)
 
@@ -151,17 +171,20 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 			}
 
 			resultJSON := mustJSON(childResult)
-			_ = qtx.CompleteParentInvokeStep(ctx, db.CompleteParentInvokeStepParams{
+			if err := qtx.CompleteParentInvokeStep(ctx, db.CompleteParentInvokeStepParams{
 				NewStatus:  finalStatus,
 				Result:     resultJSON,
 				WorkflowID: *parent.ParentID,
 				StepName:   *parent.ParentStep,
-			})
-			// Update parent's step_outputs.
-			_ = qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
+			}); err != nil {
+				log.Error().Err(err).Str("parent", *parent.ParentID).Msg("engine: failed to complete parent invoke step")
+			}
+			if err := qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
 				ID:      *parent.ParentID,
 				Column2: mustJSON(map[string]StepResult{*parent.ParentStep: childResult}),
-			})
+			}); err != nil {
+				log.Error().Err(err).Str("parent", *parent.ParentID).Msg("engine: failed to update parent step outputs")
+			}
 			// Advance the parent (with incremented depth to prevent cycles).
 			if err := advanceWorkflow(ctx, qtx, *parent.ParentID, depth+1); err != nil {
 				log.Error().Err(err).Str("parent", *parent.ParentID).Msg("engine: failed to advance parent")
@@ -172,11 +195,47 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 	return nil
 }
 
+// stepShouldRun reports whether a step should be queued given the current
+// pipeline failure state.
+//
+//   - "" or "onSuccess": run only if the pipeline has not failed
+//   - "onFailure":       run only if the pipeline has failed
+//   - "always":          run unconditionally
+func stepShouldRun(when string, pipelineFailed bool) bool {
+	switch when {
+	case "onFailure":
+		return pipelineFailed
+	case "always":
+		return true
+	default: // "" or "onSuccess"
+		return !pipelineFailed
+	}
+}
+
+// isPipelineFailed reports whether any already-terminal step failed in a way
+// that is not recovered by a continueOnError policy.
+func isPipelineFailed(dagWaves [][]string, stepByName map[string]stepRow) bool {
+	for _, wave := range dagWaves {
+		for _, name := range wave {
+			s, ok := stepByName[name]
+			if ok && s.status == "failed" && s.onFailure != "continue" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ─────────────────────────────────────────────────────────────
+// step loading
+// ─────────────────────────────────────────────────────────────
+
 type stepRow struct {
 	id          string
 	status      string
 	onFailure   string
 	ifCondition string
+	when        string
 }
 
 func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (map[string]stepRow, error) {
@@ -191,10 +250,14 @@ func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (m
 			status:    row.Status,
 			onFailure: row.OnFailure,
 		}
-		// IfCondition is interface{} from sqlc (jsonb expression), convert to string
 		if row.IfCondition != nil {
-			if ifStr, ok := row.IfCondition.(string); ok {
-				s.ifCondition = ifStr
+			if v, ok := row.IfCondition.(string); ok {
+				s.ifCondition = v
+			}
+		}
+		if row.WhenCondition != nil {
+			if v, ok := row.WhenCondition.(string); ok {
+				s.when = v
 			}
 		}
 		result[row.Name] = s
@@ -203,19 +266,28 @@ func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (m
 }
 
 func setStepStatus(ctx context.Context, qtx *db.Queries, stepID, status string) {
+	var err error
 	switch status {
 	case "queued":
-		_ = qtx.SetStepQueued(ctx, stepID)
+		err = qtx.SetStepQueued(ctx, stepID)
 	case "skipped":
-		_ = qtx.SetStepSkipped(ctx, stepID)
+		err = qtx.SetStepSkipped(ctx, stepID)
 	default:
-		_ = qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
+		err = qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
 			ID:     stepID,
 			Status: status,
 			Result: nil,
 		})
 	}
+	if err != nil {
+		log.Error().Err(err).Str("stepID", stepID).Str("status", status).
+			Msg("engine: failed to set step status")
+	}
 }
+
+// ─────────────────────────────────────────────────────────────
+// signal handling
+// ─────────────────────────────────────────────────────────────
 
 func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string, stepByName map[string]stepRow) error {
 	payloads, err := qtx.ConsumeStepResultSignals(ctx, workflowID)
@@ -243,8 +315,11 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 		}
 		setStepStatus(ctx, qtx, step.id, newStatus)
 		stepByName[signal.StepName] = stepRow{
-			id: step.id, status: newStatus,
-			onFailure: step.onFailure, ifCondition: step.ifCondition,
+			id:          step.id,
+			status:      newStatus,
+			onFailure:   step.onFailure,
+			ifCondition: step.ifCondition,
+			when:        step.when,
 		}
 
 		log.Info().
@@ -254,6 +329,10 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 	}
 	return nil
 }
+
+// ─────────────────────────────────────────────────────────────
+// wave helpers
+// ─────────────────────────────────────────────────────────────
 
 func waveComplete(waveNames []string, stepByName map[string]stepRow) bool {
 	for _, name := range waveNames {
@@ -273,6 +352,10 @@ func allWavesComplete(waves [][]string, stepByName map[string]stepRow) bool {
 	}
 	return true
 }
+
+// ─────────────────────────────────────────────────────────────
+// expression context
+// ─────────────────────────────────────────────────────────────
 
 func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult) pipeline.ExprContext {
 	ctx := pipeline.ExprContext{

@@ -17,6 +17,21 @@ type Pipeline struct {
 	// Can be an image preset name or a full image reference.
 	Image string `yaml:"image,omitempty" json:"image,omitempty"`
 
+	// Runner is the default runner pool for all steps that do not specify
+	// their own runner. When set, consecutive top-level steps that share this
+	// runner (and have no explicit dependsOn or gate) are automatically
+	// coalesced into a single nested steps: group so they run in one K8s Job
+	// with a shared emptyDir workspace — eliminating the need for explicit
+	// workspace sync between sequential steps.
+	Runner string `yaml:"runner,omitempty" json:"runner,omitempty"`
+
+	// ServiceAccount is the K8s ServiceAccount for step pods in this pipeline.
+	// Overrides the runner pool's service account. Individual steps can override
+	// this further with their own serviceAccount field.
+	// Used for IAM role-based auth (IRSA, Workload Identity) scoped to this
+	// pipeline rather than the entire runner pool.
+	ServiceAccount string `yaml:"serviceAccount,omitempty" json:"serviceAccount,omitempty"`
+
 	// Triggers defines when and how pipeline runs are created.
 	Triggers Triggers `yaml:"triggers" json:"triggers"`
 
@@ -116,10 +131,10 @@ type Step struct {
 	Name string `yaml:"name" json:"name"`
 
 	// Execution — exactly one of these must be set
-	Run   string `yaml:"run,omitempty" json:"run,omitempty"`     // shell command(s)
-	Use   string `yaml:"use,omitempty" json:"use,omitempty"`     // step template reference
-	Steps []Step `yaml:"steps,omitempty" json:"steps,omitempty"` // nested sub-steps (shared pod)
-	Gate  *Gate  `yaml:"gate,omitempty" json:"gate,omitempty"`   // approval checkpoint
+	Run   RunCommand `yaml:"run,omitempty" json:"run,omitempty"`     // shell command(s) — string or list
+	Use   string     `yaml:"use,omitempty" json:"use,omitempty"`     // step template reference
+	Steps []Step     `yaml:"steps,omitempty" json:"steps,omitempty"` // nested sub-steps (shared pod)
+	Gate  *Gate      `yaml:"gate,omitempty" json:"gate,omitempty"`   // approval checkpoint
 
 	// Template inputs (when using use:)
 	With map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
@@ -133,7 +148,8 @@ type Step struct {
 	DependsOn []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 
 	// Compute
-	Runner string `yaml:"runner,omitempty" json:"runner,omitempty"` // runner pool name
+	Runner         string `yaml:"runner,omitempty" json:"runner,omitempty"`                 // runner pool name
+	ServiceAccount string `yaml:"serviceAccount,omitempty" json:"serviceAccount,omitempty"` // K8s SA override
 
 	// Environment filtering
 	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
@@ -166,7 +182,7 @@ type Step struct {
 // ExecType returns which execution type is set: "run", "use", "steps", or "gate". Returns empty string if none is set.
 func (s *Step) ExecType() string {
 	switch {
-	case s.Run != "":
+	case !s.Run.IsEmpty():
 		return "run"
 	case s.Use != "":
 		return "use"

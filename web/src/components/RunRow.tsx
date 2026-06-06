@@ -96,7 +96,7 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
       <div className={`w-[3px] shrink-0 ${accent} ${isRunning ? 'running-accent' : ''}`} />
 
       {/* Content */}
-      <div className="flex-1 px-4 py-3 min-w-0 space-y-1.5">
+      <div className="flex-1 px-4 lg:px-5 py-3 lg:py-3.5 min-w-0 space-y-1.5">
         {/* Row 1: Status + project + commit message */}
         <div className="flex items-start gap-3">
           <span className={`shrink-0 mt-2 ${status.className}`}>
@@ -108,7 +108,7 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
               {showProject && (
                 <>
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: run.projectColour }} />
-                  <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors truncate">
+                  <span className="font-semibold text-base text-foreground group-hover:text-primary transition-colors truncate">
                     {run.projectName}
                   </span>
                   <span className="text-muted-foreground/30">·</span>
@@ -133,7 +133,7 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
         </div>
 
         {/* Row 2: Metadata — compact with dot separators */}
-        <div className="flex items-center gap-0 pl-[26px] text-[0.7rem] text-muted-foreground">
+        <div className="flex items-center gap-0 pl-[26px] text-[12px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <GitBranch size={11} />
             <span className="font-mono">{run.branch}</span>

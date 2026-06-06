@@ -7,8 +7,35 @@ package db
 
 import (
 	"context"
+	"net/netip"
 	"time"
 )
+
+const insertAuditEntry = `-- name: InsertAuditEntry :exec
+INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, ip_address)
+VALUES ($1, $2, $3, $4, $5, $6::inet)
+`
+
+type InsertAuditEntryParams struct {
+	OrgID        string     `json:"org_id"`
+	UserID       *string    `json:"user_id"`
+	Action       string     `json:"action"`
+	ResourceType string     `json:"resource_type"`
+	ResourceID   *string    `json:"resource_id"`
+	Column6      netip.Addr `json:"column_6"`
+}
+
+func (q *Queries) InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error {
+	_, err := q.db.Exec(ctx, insertAuditEntry,
+		arg.OrgID,
+		arg.UserID,
+		arg.Action,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.Column6,
+	)
+	return err
+}
 
 const listAuditLog = `-- name: ListAuditLog :many
 SELECT al.id, al.user_id, u.email AS user_email, al.action, al.resource_type,

@@ -53,7 +53,7 @@ func (v *TriggerView) View() string {
 		DimStyle.Render("  Press enter to trigger, esc to cancel")
 }
 
-func (v *TriggerView) SetSize(w, h int) { v.width = w; v.height = h }
+func (v *TriggerView) SetSize(w, h int)  { v.width = w; v.height = h }
 func (v *TriggerView) ShortHelp() string { return "  enter trigger  esc cancel" }
 
 func (v *TriggerView) triggerRun() tea.Cmd {

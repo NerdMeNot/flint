@@ -54,20 +54,23 @@ type WorkerLoop interface {
 
 // StartWorkflowInput contains everything needed to create a workflow.
 type StartWorkflowInput struct {
-	RunID        string
-	OrgID        string
-	ProjectID    string
-	Repo         string
-	Ref          string
-	CommitSHA    string
-	TriggerType  string
-	TriggeredBy  string
-	WorkflowFile string
-	PipelinePath string
-	RunnerPool   string
-	JobNamespace string
-	Env          map[string]string
-	RunURL       string
+	RunID                  string
+	OrgID                  string
+	ProjectID              string
+	Repo                   string
+	Ref                    string
+	CommitSHA              string
+	TriggerType            string
+	TriggeredBy            string
+	WorkflowFile           string
+	PipelinePath           string
+	RunnerPool             string
+	JobNamespace           string
+	Environment            string // target environment (empty = no env filtering)
+	Env                    map[string]string
+	RunURL                 string
+	PipelineImage          string // default container image from pipeline YAML
+	PipelineServiceAccount string // default K8s ServiceAccount from pipeline YAML
 
 	// For child workflows (invoke steps).
 	ParentWorkflowID string
@@ -95,12 +98,17 @@ type WorkflowState struct {
 
 // StepState is one step within a workflow state query.
 type StepState struct {
-	Name     string
-	Status   string
-	Wave     int
-	Attempt  int
-	ExitCode *int
-	Error    string
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`
+	ExecType    string     `json:"execType"`
+	Wave        int        `json:"wave"`
+	Attempt     int        `json:"attempt"`
+	MaxAttempts int        `json:"maxAttempts"`
+	DependsOn   []string   `json:"dependsOn,omitempty"`
+	ExitCode    *int       `json:"exitCode,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	StartedAt   *time.Time `json:"startedAt,omitempty"`
+	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
 }
 
 // LoopConfig configures the worker main loop.
@@ -113,6 +121,15 @@ type LoopConfig struct {
 
 	// ClaimBatchSize is how many steps to claim per poll. Default: 20.
 	ClaimBatchSize int
+
+	// InternalToken is injected into agent pods as FLINT_INTERNAL_TOKEN
+	// for authenticating calls to /internal endpoints.
+	InternalToken string
+
+	// SigningKey signs the task tokens minted for each step. It MUST match the
+	// key the server uses to verify them, and MUST NOT be a pod-exposed value
+	// (the internal token is injected into pods, so it cannot be used here).
+	SigningKey []byte
 }
 
 func (c *LoopConfig) pollInterval() time.Duration {

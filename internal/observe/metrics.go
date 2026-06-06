@@ -22,6 +22,12 @@ var (
 	WebhooksReceived metric.Int64Counter
 	WebhooksInvalid  metric.Int64Counter
 
+	// Engine — step lifecycle.
+	StepsDispatched metric.Int64Counter
+	StepsCompleted  metric.Int64Counter
+	DispatchErrors  metric.Int64Counter
+	StepsThrottled  metric.Int64Counter
+
 	// Secrets.
 	SecretOperations metric.Int64Counter
 
@@ -59,6 +65,22 @@ func init() {
 
 	WebhooksInvalid, err = meter.Int64Counter("flint.webhooks.invalid",
 		metric.WithDescription("Total invalid/rejected webhooks"))
+	must(err)
+
+	StepsDispatched, err = meter.Int64Counter("flint.engine.steps.dispatched",
+		metric.WithDescription("Total steps dispatched as K8s Jobs"))
+	must(err)
+
+	StepsCompleted, err = meter.Int64Counter("flint.engine.steps.completed",
+		metric.WithDescription("Total steps completed by status (succeeded/failed)"))
+	must(err)
+
+	DispatchErrors, err = meter.Int64Counter("flint.engine.dispatch.errors",
+		metric.WithDescription("Total step dispatch failures"))
+	must(err)
+
+	StepsThrottled, err = meter.Int64Counter("flint.engine.steps.throttled",
+		metric.WithDescription("Total steps re-queued due to org concurrency limit"))
 	must(err)
 
 	SecretOperations, err = meter.Int64Counter("flint.secrets.operations",

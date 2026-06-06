@@ -23,7 +23,7 @@ type GateFilter = 'pending' | 'approved' | 'rejected'
 const GATE_PAGE_SIZE = 12
 
 function GatesPage() {
-  const { workspace, environment } = useScope()
+  const { workspaceMatches, environmentMatches } = useScope()
   const [status, setStatus] = useState<GateFilter>('pending')
   const { page, cursor, goToPage, reset } = useCursorPagination()
 
@@ -32,8 +32,8 @@ function GatesPage() {
   )
 
   const gates = data.items.filter((g: any) => {
-    if (workspace && g.workspace !== workspace) return false
-    if (environment && g.environment !== environment) return false
+    if (!workspaceMatches(g.workspace)) return false
+    if (!environmentMatches(g.environment)) return false
     return true
   })
 
@@ -41,8 +41,8 @@ function GatesPage() {
     <div className="rise-in space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="display-title text-2xl text-foreground">Gates</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="display-title text-3xl lg:text-4xl text-foreground">Gates</h1>
+          <p className="text-muted-foreground text-sm lg:text-base mt-2">
             Deployment approval gates
           </p>
         </div>
@@ -180,20 +180,20 @@ function GateStatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'pending':
       return (
-        <span className="island-kicker !text-[0.55rem] shrink-0 bg-warning/10 text-warning border-warning/20">
+        <span className="island-kicker !text-[11px] shrink-0 bg-warning/10 text-warning border-warning/20">
           Awaiting
         </span>
       )
     case 'approved':
       return (
-        <span className="inline-flex items-center gap-1 island-kicker !text-[0.55rem] shrink-0 bg-success/10 text-success border-success/20">
+        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-success/10 text-success border-success/20">
           <CheckCircle size={10} />
           Approved
         </span>
       )
     case 'rejected':
       return (
-        <span className="inline-flex items-center gap-1 island-kicker !text-[0.55rem] shrink-0 bg-destructive/10 text-destructive border-destructive/20">
+        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-destructive/10 text-destructive border-destructive/20">
           <Ban size={10} />
           Rejected
         </span>

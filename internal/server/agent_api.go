@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/NerdMeNot/flint/internal/engine"
 	"github.com/NerdMeNot/flint/internal/observe"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -12,18 +13,42 @@ import (
 )
 
 // handleAgentSecrets returns secret values for a step.
-// Authenticated by task token (agent only, not exposed to users).
-// The agent passes its org_id and a JSON array of secret names.
+//
+// The secret scope (org/project/environment) is derived SERVER-SIDE from the
+// signed task token's workflow, NOT from client headers — a step pod runs
+// untrusted user code and must not be able to read another run's secrets by
+// rewriting headers. The agent only chooses WHICH secret names it wants; the
+// scope it can reach is fixed by the run that minted its token.
 func (s *Server) handleAgentSecrets(ctx context.Context, c *app.RequestContext) {
 	log := observe.Logger(ctx)
 
-	orgID := string(c.GetHeader("X-Flint-Org-ID"))
-	projectID := string(c.GetHeader("X-Flint-Project-ID"))
-	environment := string(c.GetHeader("X-Flint-Environment"))
-	namesRaw := string(c.GetHeader("X-Flint-Secret-Names"))
+	tokenStr := string(c.GetHeader("X-Flint-Task-Token"))
+	if tokenStr == "" {
+		c.JSON(consts.StatusUnauthorized, utils.H{"error": "missing task token"})
+		return
+	}
+	tok, err := engine.DecodeTaskToken(tokenStr, []byte(s.deps.Config.Auth.JWT.Secret))
+	if err != nil {
+		c.JSON(consts.StatusUnauthorized, utils.H{"error": "invalid task token"})
+		return
+	}
 
-	if orgID == "" || namesRaw == "" {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "missing required headers"})
+	// Derive the run's identity from its workflow input (the trusted source).
+	inputJSON, err := s.deps.Q.GetWorkflowInput(ctx, tok.WorkflowID)
+	if err != nil {
+		c.JSON(consts.StatusNotFound, utils.H{"error": "run not found"})
+		return
+	}
+	var input engine.StartWorkflowInput
+	if err := json.Unmarshal(inputJSON, &input); err != nil {
+		c.JSON(consts.StatusInternalServerError, utils.H{"error": "invalid run input"})
+		return
+	}
+	orgID, projectID, environment := input.OrgID, input.ProjectID, input.Environment
+
+	namesRaw := string(c.GetHeader("X-Flint-Secret-Names"))
+	if namesRaw == "" {
+		c.JSON(consts.StatusBadRequest, utils.H{"error": "missing secret names"})
 		return
 	}
 

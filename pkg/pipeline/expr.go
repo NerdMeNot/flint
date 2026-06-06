@@ -1,18 +1,44 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/expr-lang/expr"
 )
+
+// exprCtxVar is the env key under which the evaluation deadline context is
+// injected. Prefixed to avoid colliding with any user-facing context variable.
+const exprCtxVar = "__flintctx"
+
+// exprEvalTimeout bounds how long a single expression may run, defending against
+// pathological inputs. Var (not const) so tests can tighten it.
+var exprEvalTimeout = time.Second
 
 // exprPattern matches ${{ ... }} template expressions.
 var exprPattern = regexp.MustCompile(`\$\{\{\s*(.*?)\s*\}\}`)
 
 // ExprContext holds the variables available during expression evaluation.
 type ExprContext map[string]any
+
+// reservedContextVars are the built-in top-level variable names available in
+// ${{ }} expressions (see BuildRuntimeContext). User-chosen names — manual
+// input names and matrix dimension keys — that collide with these are flagged
+// to avoid confusing shadowing.
+var reservedContextVars = map[string]bool{
+	"branch": true, "commitSha": true, "shortSha": true, "tag": true,
+	"environment": true, "triggeredBy": true, "triggerType": true, "status": true,
+	"project": true, "run": true, "inputs": true, "env": true, "secrets": true,
+	"matrix": true, "steps": true, "webhook": true, "hashFiles": true,
+}
+
+// IsReservedContextVar reports whether name collides with a built-in expression
+// context variable.
+func IsReservedContextVar(name string) bool { return reservedContextVars[name] }
 
 // FileHasher computes file hashes for the hashFiles() expression function.
 // At parse/validate time, a no-op implementation is used.
@@ -25,6 +51,7 @@ type FileHasher interface {
 func safeCompileOpts(env map[string]any) []expr.Option {
 	return []expr.Option{
 		expr.Env(env),
+		expr.WithContext(exprCtxVar),
 		expr.DisableAllBuiltins(),
 		expr.EnableBuiltin("len"),
 		expr.EnableBuiltin("all"),
@@ -67,22 +94,65 @@ func EvalExpr(expression string, ctx ExprContext) (any, error) {
 		return nil, fmt.Errorf("%w: empty expression", ErrInvalidExpr)
 	}
 
-	env := make(map[string]any, len(ctx))
-	for k, v := range ctx {
-		env[k] = v
-	}
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), exprEvalTimeout)
+	defer cancel()
+
+	env := make(map[string]any, len(ctx)+1)
+	maps.Copy(env, ctx)
+	env[exprCtxVar] = timeoutCtx
 
 	program, err := expr.Compile(expression, safeCompileOpts(env)...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: compile %q: %v", ErrInvalidExpr, expression, err)
 	}
 
-	result, err := expr.Run(program, env)
-	if err != nil {
-		return nil, fmt.Errorf("%w: eval %q: %v", ErrInvalidExpr, expression, err)
+	// Run on a goroutine so EvalExpr returns within the deadline even if the
+	// program is pathological; WithContext lets the VM observe cancellation.
+	type evalResult struct {
+		val any
+		err error
+	}
+	done := make(chan evalResult, 1)
+	go func() {
+		val, err := expr.Run(program, env)
+		done <- evalResult{val, err}
+	}()
+
+	select {
+	case <-timeoutCtx.Done():
+		return nil, fmt.Errorf("%w: evaluation timed out after %s", ErrInvalidExpr, exprEvalTimeout)
+	case r := <-done:
+		if r.err != nil {
+			if timeoutCtx.Err() != nil {
+				return nil, fmt.Errorf("%w: evaluation timed out after %s", ErrInvalidExpr, exprEvalTimeout)
+			}
+			return nil, fmt.Errorf("%w: eval %q: %v", ErrInvalidExpr, expression, r.err)
+		}
+		return r.val, nil
+	}
+}
+
+// compileExpr type-checks an expression against the given context without
+// running it. It returns a non-nil error only for compile/type errors, which
+// makes it the right tool for validation (no fragile error-string matching and
+// no evaluation side effects).
+func compileExpr(expression string, ctx ExprContext) error {
+	if len(expression) > MaxExpressionLength {
+		return fmt.Errorf("%w: expression exceeds %d characters", ErrInvalidExpr, MaxExpressionLength)
+	}
+	expression = unwrapTemplate(expression)
+	if expression == "" {
+		return fmt.Errorf("%w: empty expression", ErrInvalidExpr)
 	}
 
-	return result, nil
+	env := make(map[string]any, len(ctx)+1)
+	maps.Copy(env, ctx)
+	env[exprCtxVar] = context.Background()
+
+	if _, err := expr.Compile(expression, safeCompileOpts(env)...); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidExpr, err)
+	}
+	return nil
 }
 
 // EvalCondition evaluates a ${{ }} expression as a boolean.

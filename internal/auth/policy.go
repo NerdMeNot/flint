@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/casbin/casbin/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ────────────────────────────────────────────────────────────
@@ -35,8 +35,8 @@ type Assignment struct {
 
 // RegeneratePolicies performs a full rebuild of all Casbin policies
 // from the database. Called at boot and after migrations.
-func RegeneratePolicies(ctx context.Context, pool *pgxpool.Pool, enforcer *casbin.Enforcer) error {
-	roles, err := loadAllRolesWithScope(ctx, pool)
+func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer) error {
+	roles, err := loadAllRolesWithScope(ctx, q, pool)
 	if err != nil {
 		return fmt.Errorf("loading roles: %w", err)
 	}
@@ -45,7 +45,7 @@ func RegeneratePolicies(ctx context.Context, pool *pgxpool.Pool, enforcer *casbi
 		roleMap[roles[i].ID] = &roles[i]
 	}
 
-	assignments, err := loadAllAssignments(ctx, pool)
+	assignments, err := loadAllAssignments(ctx, q)
 	if err != nil {
 		return fmt.Errorf("loading assignments: %w", err)
 	}
@@ -55,7 +55,7 @@ func RegeneratePolicies(ctx context.Context, pool *pgxpool.Pool, enforcer *casbi
 		return fmt.Errorf("loading team members: %w", err)
 	}
 
-	apiKeys, err := loadAllAPIKeysWithScope(ctx, pool)
+	apiKeys, err := loadAllAPIKeysWithScope(ctx, q, pool)
 	if err != nil {
 		return fmt.Errorf("loading api keys: %w", err)
 	}
@@ -99,18 +99,18 @@ func RegeneratePolicies(ctx context.Context, pool *pgxpool.Pool, enforcer *casbi
 
 // RegenerateForSubject rebuilds Casbin policies for a single subject.
 // Called when an assignment is created or deleted.
-func RegenerateForSubject(ctx context.Context, pool *pgxpool.Pool, enforcer *casbin.Enforcer, subject string) error {
+func RegenerateForSubject(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer, subject string) error {
 	// Remove existing policies for this subject.
 	enforcer.RemoveFilteredPolicy(0, subject)
 
 	// Load this subject's assignments.
-	assignments, err := loadAssignmentsForSubject(ctx, pool, subject)
+	assignments, err := loadAssignmentsForSubject(ctx, q, subject)
 	if err != nil {
 		return fmt.Errorf("loading assignments for %s: %w", subject, err)
 	}
 
 	for _, a := range assignments {
-		role, err := loadRoleWithScope(ctx, pool, a.RoleID)
+		role, err := loadRoleWithScope(ctx, q, pool, a.RoleID)
 		if err != nil {
 			return fmt.Errorf("loading role %s: %w", a.RoleID, err)
 		}
@@ -122,14 +122,14 @@ func RegenerateForSubject(ctx context.Context, pool *pgxpool.Pool, enforcer *cas
 
 // RegenerateForRole rebuilds Casbin policies for all subjects
 // assigned to a specific role. Called when a role is updated.
-func RegenerateForRole(ctx context.Context, pool *pgxpool.Pool, enforcer *casbin.Enforcer, roleID string) error {
-	assignments, err := loadAssignmentsForRole(ctx, pool, roleID)
+func RegenerateForRole(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer, roleID string) error {
+	assignments, err := loadAssignmentsForRole(ctx, q, roleID)
 	if err != nil {
 		return fmt.Errorf("loading assignments for role %s: %w", roleID, err)
 	}
 
 	for _, a := range assignments {
-		if err := RegenerateForSubject(ctx, pool, enforcer, a.Subject); err != nil {
+		if err := RegenerateForSubject(ctx, q, pool, enforcer, a.Subject); err != nil {
 			return err
 		}
 	}
@@ -142,7 +142,7 @@ func RegenerateForRole(ctx context.Context, pool *pgxpool.Pool, enforcer *casbin
 // ────────────────────────────────────────────────────────────
 
 // addSubjectPolicies generates and adds Casbin p rules for a subject's role.
-func addSubjectPolicies(enforcer *casbin.Enforcer, subject string, role *RoleWithScope) {
+func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWithScope) {
 	expanded := ExpandImplications(role.Permissions)
 
 	if IsWildcard(role.Permissions) {
@@ -185,7 +185,7 @@ type APIKeyWithScope struct {
 
 // addAPIKeyPolicies generates Casbin p rules for an API key.
 // The effective scope is the intersection of the role's scope and the key's restriction.
-func addAPIKeyPolicies(enforcer *casbin.Enforcer, key APIKeyWithScope, role *RoleWithScope) {
+func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *RoleWithScope) {
 	subject := "apikey:" + key.ID
 	expanded := ExpandImplications(role.Permissions)
 
@@ -257,10 +257,11 @@ func intersectScope(roleScope, keyRestriction []string) []string {
 }
 
 // ────────────────────────────────────────────────────────────
-// Database loaders (raw pgx queries — no sqlc dependency)
+// Database loaders (sqlc type-safe queries + raw pgx for non-scope tables)
 // ────────────────────────────────────────────────────────────
 
-func loadAllRolesWithScope(ctx context.Context, pool *pgxpool.Pool) ([]RoleWithScope, error) {
+func loadAllRolesWithScope(ctx context.Context, q db.Querier, pool db.Pool) ([]RoleWithScope, error) {
+	// The roles table itself is not covered by scope queries; use raw pgx.
 	rows, err := pool.Query(ctx, `
 		SELECT r.id, r.slug, r.is_system
 		FROM roles r
@@ -283,15 +284,15 @@ func loadAllRolesWithScope(ctx context.Context, pool *pgxpool.Pool) ([]RoleWithS
 	}
 
 	for i := range roles {
-		roles[i].Permissions, err = loadPermissionsForRole(ctx, pool, roles[i].ID)
+		roles[i].Permissions, err = loadPermissionsForRole(ctx, q, roles[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		roles[i].Workspaces, err = loadWorkspaceScopeForRole(ctx, pool, roles[i].ID)
+		roles[i].Workspaces, err = loadWorkspaceScopeForRole(ctx, q, roles[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		roles[i].Environments, err = loadEnvironmentScopeForRole(ctx, pool, roles[i].ID)
+		roles[i].Environments, err = loadEnvironmentScopeForRole(ctx, q, roles[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +301,8 @@ func loadAllRolesWithScope(ctx context.Context, pool *pgxpool.Pool) ([]RoleWithS
 	return roles, nil
 }
 
-func loadRoleWithScope(ctx context.Context, pool *pgxpool.Pool, roleID string) (*RoleWithScope, error) {
+func loadRoleWithScope(ctx context.Context, q db.Querier, pool db.Pool, roleID string) (*RoleWithScope, error) {
+	// The roles table itself is not covered by scope queries; use raw pgx.
 	var r RoleWithScope
 	err := pool.QueryRow(ctx,
 		`SELECT id, slug, is_system FROM roles WHERE id = $1`, roleID,
@@ -309,15 +311,15 @@ func loadRoleWithScope(ctx context.Context, pool *pgxpool.Pool, roleID string) (
 		return nil, err
 	}
 
-	r.Permissions, err = loadPermissionsForRole(ctx, pool, roleID)
+	r.Permissions, err = loadPermissionsForRole(ctx, q, roleID)
 	if err != nil {
 		return nil, err
 	}
-	r.Workspaces, err = loadWorkspaceScopeForRole(ctx, pool, roleID)
+	r.Workspaces, err = loadWorkspaceScopeForRole(ctx, q, roleID)
 	if err != nil {
 		return nil, err
 	}
-	r.Environments, err = loadEnvironmentScopeForRole(ctx, pool, roleID)
+	r.Environments, err = loadEnvironmentScopeForRole(ctx, q, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -325,125 +327,63 @@ func loadRoleWithScope(ctx context.Context, pool *pgxpool.Pool, roleID string) (
 	return &r, nil
 }
 
-func loadPermissionsForRole(ctx context.Context, pool *pgxpool.Pool, roleID string) ([]Permission, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT object, action FROM role_permissions WHERE role_id = $1`, roleID)
+func loadPermissionsForRole(ctx context.Context, q db.Querier, roleID string) ([]Permission, error) {
+	rows, err := q.ListRolePermissions(ctx, roleID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var perms []Permission
-	for rows.Next() {
-		var p Permission
-		if err := rows.Scan(&p.Object, &p.Action); err != nil {
-			return nil, err
-		}
-		perms = append(perms, p)
+	perms := make([]Permission, len(rows))
+	for i, r := range rows {
+		perms[i] = Permission{Object: r.Object, Action: r.Action}
 	}
-	return perms, rows.Err()
+	return perms, nil
 }
 
-func loadWorkspaceScopeForRole(ctx context.Context, pool *pgxpool.Pool, roleID string) ([]string, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT w.slug FROM role_workspace_scope rws
-		 JOIN workspaces w ON w.id = rws.workspace_id
-		 WHERE rws.role_id = $1`, roleID)
+func loadWorkspaceScopeForRole(ctx context.Context, q db.Querier, roleID string) ([]string, error) {
+	return q.ListRoleWorkspaceSlugs(ctx, roleID)
+}
+
+func loadEnvironmentScopeForRole(ctx context.Context, q db.Querier, roleID string) ([]string, error) {
+	return q.ListRoleEnvironmentNames(ctx, roleID)
+}
+
+func loadAllAssignments(ctx context.Context, q db.Querier) ([]Assignment, error) {
+	rows, err := q.ListAllRoleAssignments(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var slugs []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		slugs = append(slugs, s)
+	result := make([]Assignment, len(rows))
+	for i, r := range rows {
+		result[i] = Assignment{Subject: r.Subject, RoleID: r.RoleID}
 	}
-	return slugs, rows.Err()
+	return result, nil
 }
 
-func loadEnvironmentScopeForRole(ctx context.Context, pool *pgxpool.Pool, roleID string) ([]string, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT pe.name FROM role_environment_scope res
-		 JOIN protected_environments pe ON pe.id = res.environment_id
-		 WHERE res.role_id = $1`, roleID)
+func loadAssignmentsForSubject(ctx context.Context, q db.Querier, subject string) ([]Assignment, error) {
+	rows, err := q.ListRoleAssignmentsBySubject(ctx, subject)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var names []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		names = append(names, s)
+	result := make([]Assignment, len(rows))
+	for i, r := range rows {
+		result[i] = Assignment{Subject: r.Subject, RoleID: r.RoleID}
 	}
-	return names, rows.Err()
+	return result, nil
 }
 
-func loadAllAssignments(ctx context.Context, pool *pgxpool.Pool) ([]Assignment, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT subject, role_id FROM role_assignments`)
+func loadAssignmentsForRole(ctx context.Context, q db.Querier, roleID string) ([]Assignment, error) {
+	rows, err := q.ListRoleAssignmentsByRole(ctx, roleID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var result []Assignment
-	for rows.Next() {
-		var a Assignment
-		if err := rows.Scan(&a.Subject, &a.RoleID); err != nil {
-			return nil, err
-		}
-		result = append(result, a)
+	result := make([]Assignment, len(rows))
+	for i, r := range rows {
+		result[i] = Assignment{Subject: r.Subject, RoleID: r.RoleID}
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
-func loadAssignmentsForSubject(ctx context.Context, pool *pgxpool.Pool, subject string) ([]Assignment, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT subject, role_id FROM role_assignments WHERE subject = $1`, subject)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []Assignment
-	for rows.Next() {
-		var a Assignment
-		if err := rows.Scan(&a.Subject, &a.RoleID); err != nil {
-			return nil, err
-		}
-		result = append(result, a)
-	}
-	return result, rows.Err()
-}
-
-func loadAssignmentsForRole(ctx context.Context, pool *pgxpool.Pool, roleID string) ([]Assignment, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT subject, role_id FROM role_assignments WHERE role_id = $1`, roleID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []Assignment
-	for rows.Next() {
-		var a Assignment
-		if err := rows.Scan(&a.Subject, &a.RoleID); err != nil {
-			return nil, err
-		}
-		result = append(result, a)
-	}
-	return result, rows.Err()
-}
-
-func loadAllTeamMembers(ctx context.Context, pool *pgxpool.Pool) (map[string][]string, error) {
+func loadAllTeamMembers(ctx context.Context, pool db.Pool) (map[string][]string, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT t.slug, u.email
 		 FROM team_members tm
@@ -465,7 +405,8 @@ func loadAllTeamMembers(ctx context.Context, pool *pgxpool.Pool) (map[string][]s
 	return result, rows.Err()
 }
 
-func loadAllAPIKeysWithScope(ctx context.Context, pool *pgxpool.Pool) ([]APIKeyWithScope, error) {
+func loadAllAPIKeysWithScope(ctx context.Context, q db.Querier, pool db.Pool) ([]APIKeyWithScope, error) {
+	// The api_keys table itself is not covered by scope queries; use raw pgx.
 	rows, err := pool.Query(ctx,
 		`SELECT id, role_id FROM api_keys WHERE role_id IS NOT NULL AND (expires_at IS NULL OR expires_at > now())`)
 	if err != nil {
@@ -486,11 +427,11 @@ func loadAllAPIKeysWithScope(ctx context.Context, pool *pgxpool.Pool) ([]APIKeyW
 	}
 
 	for i := range keys {
-		keys[i].Workspaces, err = loadAPIKeyWorkspaceScope(ctx, pool, keys[i].ID)
+		keys[i].Workspaces, err = loadAPIKeyWorkspaceScope(ctx, q, keys[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		keys[i].Environments, err = loadAPIKeyEnvironmentScope(ctx, pool, keys[i].ID)
+		keys[i].Environments, err = loadAPIKeyEnvironmentScope(ctx, q, keys[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -499,44 +440,10 @@ func loadAllAPIKeysWithScope(ctx context.Context, pool *pgxpool.Pool) ([]APIKeyW
 	return keys, nil
 }
 
-func loadAPIKeyWorkspaceScope(ctx context.Context, pool *pgxpool.Pool, keyID string) ([]string, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT w.slug FROM api_key_workspace_scope akws
-		 JOIN workspaces w ON w.id = akws.workspace_id
-		 WHERE akws.api_key_id = $1`, keyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var slugs []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		slugs = append(slugs, s)
-	}
-	return slugs, rows.Err()
+func loadAPIKeyWorkspaceScope(ctx context.Context, q db.Querier, keyID string) ([]string, error) {
+	return q.ListAPIKeyWorkspaceSlugs(ctx, keyID)
 }
 
-func loadAPIKeyEnvironmentScope(ctx context.Context, pool *pgxpool.Pool, keyID string) ([]string, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT pe.name FROM api_key_environment_scope akes
-		 JOIN protected_environments pe ON pe.id = akes.environment_id
-		 WHERE akes.api_key_id = $1`, keyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var names []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		names = append(names, s)
-	}
-	return names, rows.Err()
+func loadAPIKeyEnvironmentScope(ctx context.Context, q db.Querier, keyID string) ([]string, error) {
+	return q.ListAPIKeyEnvironmentSlugs(ctx, keyID)
 }

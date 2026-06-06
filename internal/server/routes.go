@@ -8,6 +8,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/engine"
 	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -17,12 +18,12 @@ import (
 // ── Response structs ──────────────────────────────────────────
 
 type lastRunResponse struct {
-	ID          string  `json:"id"`
-	Status      string  `json:"status"`
-	Branch      string  `json:"branch"`
-	Duration    string  `json:"duration"`
-	TriggeredBy string  `json:"triggeredBy"`
-	StartedAt   string  `json:"startedAt"`
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	Branch      string `json:"branch"`
+	Duration    string `json:"duration"`
+	TriggeredBy string `json:"triggeredBy"`
+	StartedAt   string `json:"startedAt"`
 }
 
 type projectResponse struct {
@@ -43,6 +44,7 @@ type runResponse struct {
 	ProjectID     string  `json:"projectId"`
 	ProjectName   string  `json:"projectName"`
 	ProjectColour string  `json:"projectColour"`
+	Repo          string  `json:"repo"`
 	Status        string  `json:"status"`
 	TriggerType   string  `json:"triggerType"`
 	Branch        string  `json:"branch"`
@@ -53,6 +55,7 @@ type runResponse struct {
 	Duration      string  `json:"duration"`
 	StartedAt     string  `json:"startedAt"`
 	FinishedAt    *string `json:"finishedAt,omitempty"`
+	Environment   *string `json:"environment,omitempty"`
 }
 
 type runnerResponse struct {
@@ -78,6 +81,7 @@ func (s *Server) registerAPIRoutes() {
 
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
+	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
 
 	// Org.
 	v1.GET("/org", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.getOrg)
@@ -86,6 +90,9 @@ func (s *Server) registerAPIRoutes() {
 	v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
 	v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
 	v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
+	v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
+	v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
+	v1.DELETE("/projects/:id/webhooks/:webhookId", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
 
 	// Runs (global list + per-run operations).
 	v1.GET("/runs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListRuns)
@@ -93,6 +100,7 @@ func (s *Server) registerAPIRoutes() {
 	v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
 	v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
 	v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
+	v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
 	v1.POST("/runs/:id/cancel", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleCancelRun)
 	v1.POST("/runs/:id/retry", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryRun)
 
@@ -148,8 +156,16 @@ func (s *Server) registerAPIRoutes() {
 	v1.POST("/personal-tokens", s.handleCreatePersonalToken)
 	v1.DELETE("/personal-tokens/:id", s.handleRevokePersonalToken)
 
-	// Forge connections.
+	// Auth provider config (SSO setup).
+	v1.GET("/auth/providers", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleListAuthProviders)
+	v1.PUT("/auth/provider", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleUpdateAuthProvider)
+	v1.DELETE("/auth/provider/:type", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleDeleteAuthProvider)
+
+	// Forge connections (DB-managed; credentials envelope-encrypted server-side).
 	v1.GET("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActRead), s.handleListForgeConnections)
+	v1.POST("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleCreateForgeConnection)
+	v1.PUT("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleUpdateForgeConnection)
+	v1.DELETE("/forge-connections/:id", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleDeleteForgeConnection)
 
 	// Runners.
 	v1.GET("/runners", s.requirePermission(auth.ObjRunner, auth.ActRead), s.listRunners)
@@ -173,6 +189,74 @@ func (s *Server) handleStats(ctx context.Context, c *app.RequestContext) {
 		"runsToday":      0,
 		"avgDuration":    "0s",
 	})
+}
+
+func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
+	q := string(c.Query("q"))
+	if q == "" {
+		c.JSON(consts.StatusOK, utils.H{"projects": []any{}, "runs": []any{}})
+		return
+	}
+
+	claims := claimsFromCtx(ctx)
+	pattern := "%" + q + "%"
+
+	// Search projects by name/repo.
+	projectRows, _ := s.deps.DB.Query(ctx,
+		`SELECT id, COALESCE(display_name, repo_path) AS name, repo_path, colour
+		 FROM projects WHERE org_id = $1 AND is_archived = false
+		 AND (display_name ILIKE $2 OR repo_path ILIKE $2)
+		 ORDER BY display_name LIMIT 10`, claims.OrgID, pattern)
+
+	var projects []utils.H
+	if projectRows != nil {
+		defer projectRows.Close()
+		for projectRows.Next() {
+			var id, name, repo, colour string
+			if projectRows.Scan(&id, &name, &repo, &colour) == nil {
+				projects = append(projects, utils.H{
+					"id": id, "name": name, "repo": repo, "colour": colour,
+				})
+			}
+		}
+	}
+	if projects == nil {
+		projects = []utils.H{}
+	}
+
+	// Search runs by commit SHA or branch.
+	runRows, _ := s.deps.DB.Query(ctx,
+		`SELECT pr.id, pr.status, pr.trigger_ref, pr.commit_sha,
+		        COALESCE(p.display_name, p.repo_path) AS project_name, p.colour
+		 FROM pipeline_runs pr
+		 JOIN projects p ON p.id = pr.project_id
+		 WHERE pr.org_id = $1
+		 AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
+		 ORDER BY pr.started_at DESC LIMIT 10`, claims.OrgID, pattern)
+
+	var runs []utils.H
+	if runRows != nil {
+		defer runRows.Close()
+		for runRows.Next() {
+			var id, status, projectName, colour string
+			var branch, sha *string
+			if runRows.Scan(&id, &status, &branch, &sha, &projectName, &colour) == nil {
+				r := utils.H{"id": id, "status": status, "projectName": projectName, "projectColour": colour}
+				if branch != nil {
+					r["branch"] = *branch
+				}
+				if sha != nil {
+					r["commitSha"] = *sha
+				}
+				runs = append(runs, r)
+			}
+		}
+	}
+	if runs == nil {
+		runs = []utils.H{}
+	}
+
+	c.JSON(consts.StatusOK, utils.H{"projects": projects, "runs": runs})
 }
 
 // ── Projects ──────────────────────────────────────────────────
@@ -324,8 +408,66 @@ func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
 }
 
 func (s *Server) handleListProjectPipelines(ctx context.Context, c *app.RequestContext) {
-	// TODO: load pipeline definitions from repo/DB
-	c.JSON(consts.StatusOK, utils.H{"items": []any{}})
+	projectID := c.Param("id")
+
+	info, err := s.deps.Q.GetProjectRepoInfo(ctx, projectID)
+	if err != nil {
+		apiNotFound(ctx, c, "project not found")
+		return
+	}
+
+	// Fetch pipeline files from the forge.
+	files, err := s.deps.Forge.GetDirectory(ctx, info.RepoPath, "HEAD", info.PipelinePath)
+	if err != nil {
+		// Forge unavailable or no pipeline dir — return empty.
+		c.JSON(consts.StatusOK, utils.H{"items": []any{}})
+		return
+	}
+
+	type pipelineItem struct {
+		Filename string   `json:"filename"`
+		Status   string   `json:"status"`
+		Errors   []string `json:"errors,omitempty"`
+		Steps    []any    `json:"steps"`
+	}
+
+	var items []pipelineItem
+	for name, content := range files {
+		if !isYAMLFile(name) {
+			continue
+		}
+
+		item := pipelineItem{
+			Filename: name,
+			Status:   "valid",
+			Steps:    []any{},
+		}
+
+		p, parseErr := pipeline.Parse(content)
+		if parseErr != nil {
+			item.Status = "invalid"
+			item.Errors = []string{parseErr.Error()}
+		} else {
+			for _, step := range p.Steps {
+				item.Steps = append(item.Steps, map[string]any{
+					"name":     step.Name,
+					"execType": step.ExecType(),
+					"wave":     0,
+				})
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	if items == nil {
+		items = []pipelineItem{}
+	}
+	c.JSON(consts.StatusOK, utils.H{"items": items})
+}
+
+func isYAMLFile(name string) bool {
+	return len(name) > 5 && (name[len(name)-5:] == ".yaml" || name[len(name)-4:] == ".yml")
 }
 
 // ── Runs ──────────────────────────────────────────────────────
@@ -340,7 +482,8 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
 		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
 		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour
+		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
+		       p.repo_path, pr.environment
 		FROM pipeline_runs pr
 		JOIN projects p ON p.id = pr.project_id
 		WHERE ($1::text = '' OR pr.project_id = $1)
@@ -367,6 +510,7 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 			&branch, &r.TriggerType, &commitSha,
 			&commitMessage, &triggeredBy, &durationMs, &finishedAt,
 			&projectName, &r.ProjectID, &r.ProjectColour,
+			&r.Repo, &r.Environment,
 		); err != nil {
 			apiInternal(ctx, c, "failed to scan run")
 			return
@@ -421,7 +565,8 @@ func (s *Server) getRun(ctx context.Context, c *app.RequestContext) {
 		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
 		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
 		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour
+		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
+		       p.repo_path, pr.environment
 		FROM pipeline_runs pr
 		JOIN projects p ON p.id = pr.project_id
 		WHERE pr.id = $1
@@ -430,6 +575,7 @@ func (s *Server) getRun(ctx context.Context, c *app.RequestContext) {
 		&branch, &r.TriggerType, &commitSha,
 		&commitMessage, &triggeredBy, &durationMs, &finishedAt,
 		&projectName, &r.ProjectID, &r.ProjectColour,
+		&r.Repo, &r.Environment,
 	)
 	if err != nil {
 		apiNotFound(ctx, c, "run not found")
@@ -456,6 +602,7 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 		ProjectID    string `json:"projectId"`
 		Branch       string `json:"branch"`
 		WorkflowFile string `json:"workflowFile"`
+		Environment  string `json:"environment"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		apiBadRequest(ctx, c, "invalid request body")
@@ -485,9 +632,15 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 
 	runID := observe.RequestID(ctx)
 
+	var env *string
+	if req.Environment != "" {
+		env = &req.Environment
+	}
+
 	err = s.deps.Q.InsertManualRun(ctx, db.InsertManualRunParams{
 		ID: runID, ProjectID: req.ProjectID, OrgID: info.OrgID,
 		WorkflowFile: req.WorkflowFile, TriggerRef: &req.Branch,
+		Environment: env,
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to create run")
@@ -496,12 +649,21 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 
 	var workflowID string
 	if s.deps.Engine != nil {
-		workflowID, _ = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
+		var startErr error
+		workflowID, startErr = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
 			RunID: runID, OrgID: info.OrgID, ProjectID: req.ProjectID,
 			Repo: info.RepoPath, Ref: req.Branch,
 			TriggerType: "manual", TriggeredBy: "api",
 			WorkflowFile: req.WorkflowFile, PipelinePath: pipelinePath,
+			Environment: req.Environment,
 		})
+		if startErr != nil {
+			errMsg := startErr.Error()
+			_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
+				ID:           runID,
+				ErrorMessage: &errMsg,
+			})
+		}
 	}
 
 	c.JSON(consts.StatusAccepted, utils.H{
@@ -682,11 +844,11 @@ func (s *Server) handleGetTeam(ctx context.Context, c *app.RequestContext) {
 func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 	var req struct {
-		Name         *string            `json:"name,omitempty"`
-		Description  *string            `json:"description,omitempty"`
-		Permissions  []auth.Permission  `json:"permissions,omitempty"`
-		Workspaces   []string           `json:"workspaces,omitempty"`
-		Environments []string           `json:"environments,omitempty"`
+		Name         *string           `json:"name,omitempty"`
+		Description  *string           `json:"description,omitempty"`
+		Permissions  []auth.Permission `json:"permissions,omitempty"`
+		Workspaces   []string          `json:"workspaces,omitempty"`
+		Environments []string          `json:"environments,omitempty"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		apiBadRequest(ctx, c, "invalid request body")

@@ -44,15 +44,33 @@ func Validate(cfg *Config, component string) error {
 
 	// Engine uses Postgres directly — no separate Temporal validation needed.
 
-	// Server-specific.
-	if component == "server" {
+	// JWT secret signs both web sessions and the engine's task tokens. The worker
+	// mints task tokens and the server verifies them, so BOTH need it and it must
+	// be the same value across components.
+	if component == "server" || component == "worker" {
 		if cfg.Auth.JWT.Secret == "" {
 			v.add("auth.jwt.secret is required")
 		} else if len(cfg.Auth.JWT.Secret) < 32 {
 			v.add("auth.jwt.secret must be at least 32 characters")
 		}
 
-		if cfg.Encryption.MasterKey != "" {
+		// Internal token guards the /internal agent endpoints and is injected into
+		// step pods by the worker. Required (and matching) on server and worker so
+		// the endpoints can never be left unauthenticated in prod.
+		if cfg.Server.InternalToken == "" {
+			v.add("server.internalToken is required (protects internal agent endpoints)")
+		} else if len(cfg.Server.InternalToken) < 16 {
+			v.add("server.internalToken must be at least 16 characters")
+		}
+	}
+
+	// Server-specific.
+	if component == "server" {
+		// Master key is required: forge connections, SSO config, and the secret
+		// store are all envelope-encrypted with it.
+		if cfg.Encryption.MasterKey == "" {
+			v.add("encryption.masterKey is required")
+		} else {
 			key, err := hex.DecodeString(cfg.Encryption.MasterKey)
 			if err != nil {
 				v.add("encryption.masterKey must be valid hex")

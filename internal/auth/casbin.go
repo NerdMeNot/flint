@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // flintRBACModel is the Casbin model for Flint's RBAC v2.
@@ -40,7 +40,7 @@ m = g(r.sub, p.sub) && (p.ws == "*" || p.ws == r.ws) && (p.env == "*" || p.env =
 `
 
 // NewEnforcer creates a Casbin enforcer with the Flint RBAC model and pgx adapter.
-func NewEnforcer(pool *pgxpool.Pool) (*casbin.Enforcer, error) {
+func NewEnforcer(pool db.Pool) (*casbin.Enforcer, error) {
 	m, err := model.NewModelFromString(flintRBACModel)
 	if err != nil {
 		return nil, fmt.Errorf("loading casbin model: %w", err)
@@ -61,14 +61,14 @@ func NewEnforcer(pool *pgxpool.Pool) (*casbin.Enforcer, error) {
 // PgxAdapter implements persist.Adapter for pgx v5.
 // It stores Casbin policies in the casbin_rules table.
 type PgxAdapter struct {
-	pool *pgxpool.Pool
+	pool db.Pool
 }
 
 // Verify interface compliance.
 var _ persist.Adapter = (*PgxAdapter)(nil)
 
 // NewPgxAdapter creates a new adapter backed by a pgx connection pool.
-func NewPgxAdapter(pool *pgxpool.Pool) *PgxAdapter {
+func NewPgxAdapter(pool db.Pool) *PgxAdapter {
 	return &PgxAdapter{pool: pool}
 }
 

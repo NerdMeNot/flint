@@ -40,10 +40,9 @@ func (s *SyncChecker) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.checkRunnerPools(ctx)
-			s.checkForgeConnections(ctx)
-			s.checkAuthProviders(ctx)
-			// Pipeline projects use soft-delete (archive), so orphan
-			// detection is less critical — archived projects are harmless.
+			// Forge connections and auth providers are now DB-managed (no CRD),
+			// so there is nothing to reconcile against. Projects use soft-delete
+			// (archive), so orphan detection is unnecessary there too.
 		}
 	}
 }
@@ -65,65 +64,6 @@ func (s *SyncChecker) checkRunnerPools(ctx context.Context) {
 				if err := s.Q.DeleteRunnerPool(ctx, name); err != nil {
 					log.Error().Str("pool", name).Err(err).Msg("sync: failed to delete orphaned runner pool")
 				}
-			}
-		}
-	}
-}
-
-// checkAuthProviders finds DB rows without a matching AuthProvider CRD.
-func (s *SyncChecker) checkAuthProviders(ctx context.Context) {
-	dbRows, err := s.Q.ListAuthProviderConfigNames(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("sync: failed to list auth providers from DB")
-		return
-	}
-
-	var crdList flintv1.AuthProviderList
-	if err := s.Client.List(ctx, &crdList, client.InNamespace("flint")); err != nil {
-		log.Error().Err(err).Msg("sync: failed to list AuthProvider CRDs")
-		return
-	}
-
-	crdNames := make(map[string]bool, len(crdList.Items))
-	for _, ap := range crdList.Items {
-		crdNames[ap.Name] = true
-	}
-
-	for _, row := range dbRows {
-		if !crdNames[row.DisplayName] {
-			log.Warn().Str("name", row.DisplayName).Str("id", row.ID).Msg("sync: removing orphaned auth provider from DB")
-			if _, err := s.Q.DeleteAuthProviderConfig(ctx, row.ProviderType); err != nil {
-				log.Error().Str("id", row.ID).Err(err).Msg("sync: failed to delete orphaned auth provider")
-			}
-		}
-	}
-}
-
-// checkForgeConnections finds DB rows without a matching ForgeConnection CRD.
-func (s *SyncChecker) checkForgeConnections(ctx context.Context) {
-	dbRows, err := s.Q.ListForgeConnectionNames(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("sync: failed to list forge connections from DB")
-		return
-	}
-
-	// List all ForgeConnection CRDs.
-	var crdList flintv1.ForgeConnectionList
-	if err := s.Client.List(ctx, &crdList, client.InNamespace("flint")); err != nil {
-		log.Error().Err(err).Msg("sync: failed to list ForgeConnection CRDs")
-		return
-	}
-
-	crdNames := make(map[string]bool, len(crdList.Items))
-	for _, fc := range crdList.Items {
-		crdNames[fc.Name] = true
-	}
-
-	for _, row := range dbRows {
-		if !crdNames[row.DisplayName] {
-			log.Warn().Str("name", row.DisplayName).Str("id", row.ID).Msg("sync: removing orphaned forge connection from DB")
-			if err := s.Q.DeleteForgeConnectionByID(ctx, row.ID); err != nil {
-				log.Error().Str("id", row.ID).Err(err).Msg("sync: failed to delete orphaned forge connection")
 			}
 		}
 	}

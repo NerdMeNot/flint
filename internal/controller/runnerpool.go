@@ -10,9 +10,11 @@ import (
 	"github.com/NerdMeNot/flint/internal/observe"
 	"github.com/NerdMeNot/flint/internal/runner"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,8 +27,9 @@ const runnerPoolFinalizer = "flint.dev/runnerpool-cleanup"
 // in-memory runner.Registry (for fast worker lookups at Job creation time).
 type RunnerPoolReconciler struct {
 	client.Client
-	Q        *db.Queries
-	Registry *runner.Registry
+	K8sClient kubernetes.Interface
+	Q         *db.Queries
+	Registry  *runner.Registry
 }
 
 func (r *RunnerPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -94,6 +97,46 @@ func (r *RunnerPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if pool.Spec.Spot != nil {
 		spec.Spot = pool.Spec.Spot.Preferred
+	}
+
+	spec.ServiceAccountName = pool.Spec.ServiceAccountName
+
+	// Workspace configuration.
+	if pool.Spec.Workspace != nil {
+		switch pool.Spec.Workspace.Mode {
+		case "pvc":
+			if pool.Spec.Workspace.StorageClass == "" {
+				r.setCondition(&pool, "Ready", metav1.ConditionFalse, "InvalidWorkspace",
+					"workspace mode=pvc requires storageClass")
+				_ = r.Status().Update(ctx, &pool)
+				return ctrl.Result{}, fmt.Errorf("workspace mode=pvc requires storageClass")
+			}
+			if err := r.validateStorageClassRWX(ctx, pool.Spec.Workspace.StorageClass); err != nil {
+				r.setCondition(&pool, "Ready", metav1.ConditionFalse, "InvalidStorageClass", err.Error())
+				_ = r.Status().Update(ctx, &pool)
+				return ctrl.Result{}, err
+			}
+			size := pool.Spec.Workspace.Size
+			if size == "" {
+				size = "10Gi"
+			}
+			spec.Workspace = runner.WorkspaceConfig{
+				Mode:         runner.WorkspaceModePVC,
+				StorageClass: pool.Spec.Workspace.StorageClass,
+				Size:         size,
+			}
+
+		case "s3":
+			if pool.Spec.Workspace.Bucket == "" {
+				r.setCondition(&pool, "Ready", metav1.ConditionFalse, "InvalidWorkspace",
+					"workspace mode=s3 requires bucket")
+				_ = r.Status().Update(ctx, &pool)
+				return ctrl.Result{}, fmt.Errorf("workspace mode=s3 requires bucket")
+			}
+			spec.Workspace = runner.WorkspaceConfig{
+				Mode: runner.WorkspaceModeS3,
+			}
+		}
 	}
 
 	// Persist to Postgres (for server/UI reads).
@@ -176,6 +219,62 @@ func (r *RunnerPoolReconciler) setCondition(pool *flintv1.RunnerPool, condType s
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
 	})
+}
+
+// rwxProvisioners lists storage class provisioners known to support
+// ReadWriteMany. This is not exhaustive — unknown provisioners get a warning
+// condition rather than a hard block, since custom CSI drivers may support RWX.
+var rwxProvisioners = map[string]bool{
+	"efs.csi.aws.com":                 true, // AWS EFS
+	"fsx.csi.aws.com":                 true, // AWS FSx Lustre
+	"file.csi.azure.com":              true, // Azure Files
+	"filestore.csi.storage.gke.io":    true, // GCP Filestore
+	"nfs.csi.k8s.io":                  true, // NFS CSI
+	"cephfs.csi.ceph.com":             true, // CephFS
+	"rook-ceph.cephfs.csi.ceph.com":   true, // Rook CephFS
+	"cluster.local/nfs-provisioner":   true, // NFS subdir provisioner
+	"nfs-subdir-external-provisioner": true,
+	"lustre.csi.aws.com":              true, // FSx Lustre (alternate)
+}
+
+// rwoDenyList lists provisioners that definitely do NOT support ReadWriteMany.
+// These get a hard rejection with a clear error message.
+var rwoDenyList = map[string]string{
+	"ebs.csi.aws.com":          "AWS EBS (gp2/gp3/io2) is ReadWriteOnce only — use efs.csi.aws.com for shared workspaces",
+	"disk.csi.azure.com":       "Azure Managed Disks are ReadWriteOnce only — use file.csi.azure.com for shared workspaces",
+	"pd.csi.storage.gke.io":    "GCP Persistent Disk is ReadWriteOnce only — use filestore.csi.storage.gke.io for shared workspaces",
+	"kubernetes.io/aws-ebs":    "AWS EBS (legacy in-tree) is ReadWriteOnce only — use efs.csi.aws.com",
+	"kubernetes.io/gce-pd":     "GCP PD (legacy in-tree) is ReadWriteOnce only — use filestore.csi.storage.gke.io",
+	"kubernetes.io/azure-disk": "Azure Disk (legacy in-tree) is ReadWriteOnce only — use file.csi.azure.com",
+}
+
+// validateStorageClassRWX checks that the named StorageClass uses a provisioner
+// known to support ReadWriteMany. Rejects known-RWO provisioners with a clear
+// error. Warns on unknown provisioners (may still work).
+func (r *RunnerPoolReconciler) validateStorageClassRWX(ctx context.Context, scName string) error {
+	sc, err := r.K8sClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("storage class %q not found: %w", scName, err)
+	}
+
+	provisioner := sc.Provisioner
+
+	// Hard reject known-RWO provisioners.
+	if msg, blocked := rwoDenyList[provisioner]; blocked {
+		return fmt.Errorf("storage class %q cannot be used for workspace PVC: %s", scName, msg)
+	}
+
+	// Known-good provisioners pass immediately.
+	if rwxProvisioners[provisioner] {
+		return nil
+	}
+
+	// Unknown provisioner — allow with warning.
+	log.Warn().
+		Str("storageClass", scName).
+		Str("provisioner", provisioner).
+		Msg("workspace: storage class provisioner not in known RWX list — it may not support ReadWriteMany")
+	return nil
 }
 
 func (r *RunnerPoolReconciler) SetupWithManager(mgr ctrl.Manager) error {

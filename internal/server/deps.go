@@ -10,21 +10,21 @@ import (
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/casbin/casbin/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Deps holds all dependencies for the HTTP server.
 type Deps struct {
 	Config       *config.Config
-	DB           *pgxpool.Pool
-	Q            *db.Queries // sqlc type-safe queries
+	DB           db.Pool
+	Q            db.Querier // sqlc type-safe queries (interface for mockability)
 	Engine       engine.Engine
 	Forge        forge.ForgeProvider
 	Secrets      secret.SecretStore
 	Logs         logsink.LogSink
-	Sessions     *auth.SessionManager
+	LogBroadcast LogStream     // SSE log streaming; nil disables streaming
+	Sessions     auth.Sessions // JWT session management
 	Mode         string
-	OIDCProvider *auth.OIDCProvider // nil if not configured
-	SAMLProvider *auth.SAMLProvider // nil if not configured
-	Enforcer     *casbin.Enforcer   // Casbin RBAC enforcer
+	OIDCProvider auth.OIDCAuth    // nil if not configured
+	SAMLProvider auth.SAMLAuth    // nil if not configured
+	Enforcer     casbin.IEnforcer // Casbin RBAC enforcer (interface for mockability)
 }

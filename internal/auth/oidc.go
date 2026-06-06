@@ -18,6 +18,16 @@ type OIDCProviderConfig struct {
 	Scopes       []string // defaults to [openid, profile, email, groups]
 }
 
+// OIDCAuth is the interface for OIDC authentication. *OIDCProvider implements
+// it; tests can mock it to avoid real OIDC discovery and token exchange.
+type OIDCAuth interface {
+	AuthURL(state, nonce string) string
+	Exchange(ctx context.Context, code, expectedNonce string) (*Claims, *oauth2.Token, error)
+}
+
+// compile-time check
+var _ OIDCAuth = (*OIDCProvider)(nil)
+
 // OIDCProvider wraps go-oidc for OIDC authentication.
 type OIDCProvider struct {
 	provider *oidc.Provider
@@ -64,29 +74,30 @@ func (p *OIDCProvider) AuthURL(state, nonce string) string {
 }
 
 // Exchange exchanges an authorization code for tokens, verifies the ID token,
-// and returns unified Claims.
-func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string) (*Claims, error) {
+// and returns unified Claims plus the raw OAuth2 token (which may contain a
+// refresh token for IdP sync).
+func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string) (*Claims, *oauth2.Token, error) {
 	// Exchange authorization code for tokens.
 	token, err := p.oauth2.Exchange(ctx, code)
 	if err != nil {
-		return nil, fmt.Errorf("exchanging auth code: %w", err)
+		return nil, nil, fmt.Errorf("exchanging auth code: %w", err)
 	}
 
 	// Extract the ID token.
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return nil, fmt.Errorf("no id_token in token response")
+		return nil, nil, fmt.Errorf("no id_token in token response")
 	}
 
 	// Verify the ID token (signature, aud, exp, iss).
 	idToken, err := p.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return nil, fmt.Errorf("verifying id_token: %w", err)
+		return nil, nil, fmt.Errorf("verifying id_token: %w", err)
 	}
 
 	// Verify nonce matches to prevent replay attacks.
 	if idToken.Nonce != expectedNonce {
-		return nil, fmt.Errorf("nonce mismatch: expected %q, got %q", expectedNonce, idToken.Nonce)
+		return nil, nil, fmt.Errorf("nonce mismatch: expected %q, got %q", expectedNonce, idToken.Nonce)
 	}
 
 	// Extract claims from the ID token.
@@ -98,7 +109,7 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string)
 		Groups        []string `json:"groups"`
 	}
 	if err := idToken.Claims(&idClaims); err != nil {
-		return nil, fmt.Errorf("extracting id_token claims: %w", err)
+		return nil, nil, fmt.Errorf("extracting id_token claims: %w", err)
 	}
 
 	// Build raw claims map for custom attribute mapping.
@@ -115,7 +126,42 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string)
 		IssuedAt:   idToken.IssuedAt,
 		ExpiresAt:  idToken.Expiry,
 		Raw:        rawClaims,
+	}, token, nil
+}
+
+// UserInfo calls the OIDC UserInfo endpoint using the given token to get
+// current user claims. Used by the sync daemon to validate sessions.
+func (p *OIDCProvider) UserInfo(ctx context.Context, token *oauth2.Token) (*Claims, error) {
+	tokenSource := p.oauth2.TokenSource(ctx, token)
+	userInfo, err := p.provider.UserInfo(ctx, tokenSource)
+	if err != nil {
+		return nil, fmt.Errorf("userinfo: %w", err)
+	}
+
+	var info struct {
+		Email  string   `json:"email"`
+		Name   string   `json:"name"`
+		Sub    string   `json:"sub"`
+		Groups []string `json:"groups"`
+	}
+	if err := userInfo.Claims(&info); err != nil {
+		return nil, fmt.Errorf("userinfo claims: %w", err)
+	}
+
+	return &Claims{
+		Subject:    info.Sub,
+		Email:      info.Email,
+		Name:       info.Name,
+		Groups:     info.Groups,
+		Provider:   "oidc",
+		ExternalID: info.Sub,
 	}, nil
+}
+
+// TokenSource returns an oauth2.TokenSource for the given token.
+// The returned source automatically refreshes the token when expired.
+func (p *OIDCProvider) TokenSource(ctx context.Context, token *oauth2.Token) oauth2.TokenSource {
+	return p.oauth2.TokenSource(ctx, token)
 }
 
 // OIDCConfigured returns true if the OIDC provider config has the minimum

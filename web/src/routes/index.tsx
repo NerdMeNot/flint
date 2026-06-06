@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -17,35 +17,34 @@ export const Route = createFileRoute('/')({
 })
 
 function DashboardPage() {
-  const { workspace, environment } = useScope()
+  const { workspaces, environmentMatches } = useScope()
   const { data: stats } = useSuspenseQuery(orpc.stats.get.queryOptions())
   const { data: runsData } = useSuspenseQuery(
     orpc.runs.list.queryOptions({ input: { limit: 20 } }),
   )
 
   // Client-side scope filtering (real API would accept these as params)
+  const wsMap: Record<string, string> = { 'p-1': 'production', 'p-2': 'production', 'p-3': 'staging', 'p-4': 'platform', 'p-5': 'production', 'p-6': 'platform' }
+  const wsSet = workspaces.length > 0 ? new Set(workspaces) : null
   const runs = runsData.items.filter((r) => {
-    if (workspace) {
-      const wsMap: Record<string, string> = { 'p-1': 'production', 'p-2': 'production', 'p-3': 'staging', 'p-4': 'platform', 'p-5': 'production', 'p-6': 'platform' }
-      if (wsMap[r.projectId] !== workspace) return false
-    }
-    if (environment && r.environment !== environment) return false
+    if (wsSet && !wsSet.has(wsMap[r.projectId] ?? '')) return false
+    if (!environmentMatches(r.environment)) return false
     return true
   }).slice(0, 10)
 
   return (
     <div className="space-y-8 rise-in">
       <div>
-        <h1 className="display-title text-2xl text-foreground">
+        <h1 className="display-title text-3xl lg:text-4xl text-foreground">
           Dashboard
         </h1>
-        <p className="text-muted-foreground text-sm mt-1">
+        <p className="text-muted-foreground text-sm lg:text-base mt-2">
           Overview of your CI pipelines
         </p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
         <StatCard icon={<Activity size={16} />} label="Total Runs" value={stats.totalRuns.toLocaleString()} />
         <StatCard icon={<TrendingUp size={16} />} label="Success Rate" value={`${stats.successRate}%`} accent />
         <StatCard icon={<Shield size={16} />} label="Pending Gates" value={String(stats.pendingGates)} warning={stats.pendingGates > 0} />
@@ -56,8 +55,8 @@ function DashboardPage() {
 
       {/* Recent Runs */}
       <div className="island-shell !p-0 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-          <h2 className="font-semibold text-foreground text-sm">Recent Pipeline Runs</h2>
+        <div className="flex items-center justify-between px-5 lg:px-6 py-3.5 lg:py-4 border-b border-border">
+          <h2 className="font-semibold text-foreground text-base lg:text-lg">Recent Pipeline Runs</h2>
           <span className="island-kicker">Live</span>
         </div>
 
@@ -77,12 +76,12 @@ function StatCard({
   icon: React.ReactNode; label: string; value: string; accent?: boolean; warning?: boolean
 }) {
   return (
-    <div className="island-shell !p-4 space-y-2">
+    <div className="island-shell !p-4 lg:!p-5 space-y-2 lg:space-y-3">
       <div className="flex items-center gap-2">
         <span className={warning ? 'text-warning' : accent ? 'text-success' : 'text-muted-foreground'}>{icon}</span>
-        <span className="island-kicker !text-[0.6rem]">{label}</span>
+        <span className="island-kicker !text-[11px]">{label}</span>
       </div>
-      <span className={`text-xl font-bold tracking-tight ${warning ? 'text-warning' : accent ? 'text-success' : 'text-foreground'}`}>
+      <span className={`block text-2xl lg:text-3xl xl:text-4xl font-bold tracking-tight ${warning ? 'text-warning' : accent ? 'text-success' : 'text-foreground'}`}>
         {value}
       </span>
     </div>

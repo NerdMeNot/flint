@@ -29,5 +29,5 @@ func (v *GatesView) View() string {
 		DimStyle.Render("  No pending gates. (Gate approval endpoint coming soon.)")
 }
 
-func (v *GatesView) SetSize(w, h int) { v.width = w; v.height = h }
+func (v *GatesView) SetSize(w, h int)  { v.width = w; v.height = h }
 func (v *GatesView) ShortHelp() string { return "  enter approve  esc back" }

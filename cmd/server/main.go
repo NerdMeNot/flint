@@ -98,20 +98,63 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Seed system roles.
-	if err := auth.SeedSystemRoles(ctx, pool, orgID); err != nil {
+	if err := auth.SeedSystemRoles(ctx, q, orgID); err != nil {
 		return fmt.Errorf("seeding system roles: %w", err)
 	}
 
 	// Seed admin users from config.
 	if len(cfg.Auth.AdminUsers) > 0 {
-		if err := auth.SeedAdminUsers(ctx, pool, orgID, cfg.Auth.AdminUsers); err != nil {
+		if err := auth.SeedAdminUsers(ctx, q, orgID, cfg.Auth.AdminUsers); err != nil {
 			return fmt.Errorf("seeding admin users: %w", err)
 		}
 		log.Info().Int("count", len(cfg.Auth.AdminUsers)).Msg("admin users seeded")
 	}
 
+	// Auto-bootstrap: create initial admin if no users exist.
+	userCount, _ := q.CountUsers(ctx, orgID)
+	if userCount == 0 {
+		bootstrapEmail := cfg.Bootstrap.EmailOrDefault()
+		bootstrapPassword := cfg.Bootstrap.Password
+		if bootstrapPassword == "" {
+			bootstrapPassword = auth.GenerateRandomPassword()
+		}
+		hash, hashErr := auth.HashPassword(bootstrapPassword)
+		if hashErr == nil {
+			userID, createErr := q.CreateLocalUser(ctx, db.CreateLocalUserParams{
+				OrgID: orgID, Email: bootstrapEmail, Name: strPtr("Admin"),
+				PasswordHash: &hash,
+			})
+			if createErr == nil {
+				// Assign admin role.
+				adminRole, roleErr := q.GetRoleBySlug(ctx, db.GetRoleBySlugParams{
+					OrgID: orgID, Slug: "admin",
+				})
+				if roleErr == nil {
+					_ = q.InsertRoleAssignment(ctx, db.InsertRoleAssignmentParams{
+						Subject: bootstrapEmail, RoleID: adminRole.ID,
+					})
+				}
+				// Mark for forced password change.
+				_, _ = pool.Exec(ctx,
+					`UPDATE users SET force_password_change = true WHERE id = $1`, userID)
+
+				log.Warn().
+					Str("email", bootstrapEmail).
+					Msg("⚡ BOOTSTRAP: initial admin created (password change required on first login)")
+
+				// Print the temporary password to stdout ONLY when we generated
+				// it — never via the structured logger, which would persist the
+				// credential to log aggregation. Shown once.
+				if cfg.Bootstrap.Password == "" {
+					fmt.Printf("\n⚡ BOOTSTRAP admin %q — temporary password: %s\n   Save it now; it will not be shown again and a change is required on first login.\n\n",
+						bootstrapEmail, bootstrapPassword)
+				}
+			}
+		}
+	}
+
 	// Regenerate Casbin policies from DB state.
-	if err := auth.RegeneratePolicies(ctx, pool, enforcer); err != nil {
+	if err := auth.RegeneratePolicies(ctx, q, pool, enforcer); err != nil {
 		return fmt.Errorf("regenerating RBAC policies: %w", err)
 	}
 	log.Info().Msg("RBAC policies regenerated")
@@ -163,7 +206,9 @@ func run(cmd *cobra.Command, args []string) error {
 	forgeProvider := forge.NewGitHub("", nil)
 
 	// Engine — replaces Temporal. Embedded, Postgres-backed.
-	eng := engine.New(pool, forgeProvider)
+	// The JWT secret signs/verifies task tokens (server-side only, never injected
+	// into step pods — unlike the internal token).
+	eng := engine.New(pool, forgeProvider, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
 	deps := flintserver.Deps{
@@ -173,10 +218,11 @@ func run(cmd *cobra.Command, args []string) error {
 		Engine:       eng,
 		Forge:        forgeProvider,
 		Logs:         &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
+		LogBroadcast: flintserver.NewLogStream(),
 		Mode:         mode,
 		Sessions: auth.NewSessionManager(auth.SessionConfig{
 			SigningKey: []byte(cfg.Auth.JWT.Secret),
-			Issuer:    cfg.Server.BaseURL,
+			Issuer:     cfg.Server.BaseURL,
 		}),
 		OIDCProvider: oidcProvider,
 		SAMLProvider: samlProvider,
@@ -188,3 +234,5 @@ func run(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
+
+func strPtr(s string) *string { return &s }

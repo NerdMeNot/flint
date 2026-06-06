@@ -18,7 +18,14 @@ const (
 	MaxEnvVarsPerStep  = 50
 	MaxServicesPerStep = 10
 	MaxRunCommandSize  = 64 << 10 // 64 KB
+	MaxEnvValueSize    = 32 << 10 // 32 KB per env value
 	MaxStepNameLength  = 128
+
+	// maxYAMLNodes/maxYAMLDepth bound alias expansion to defend against
+	// "billion laughs" anchor/alias bombs (gopkg.in/yaml.v3 expands aliases on
+	// decode). We count nodes while following aliases and abort early.
+	maxYAMLNodes = 100_000
+	maxYAMLDepth = 100
 )
 
 // Parse decodes raw YAML bytes into a Pipeline. It performs structural
@@ -30,6 +37,11 @@ func Parse(data []byte) (*Pipeline, error) {
 	}
 	if len(data) == 0 {
 		return nil, newParseError("", "empty pipeline YAML")
+	}
+
+	// Guard against alias-expansion bombs before decoding into the struct.
+	if err := checkYAMLComplexity(data); err != nil {
+		return nil, newParseError("", err.Error())
 	}
 
 	var p Pipeline
@@ -58,11 +70,16 @@ func Parse(data []byte) (*Pipeline, error) {
 		if len(s.Name) > MaxStepNameLength {
 			return nil, newParseError(field+".name", fmt.Sprintf("step name is %d characters, maximum is %d", len(s.Name), MaxStepNameLength))
 		}
-		if len(s.Run) > MaxRunCommandSize {
-			return nil, newParseError(field+".run", fmt.Sprintf("run command is %d bytes, maximum is %d", len(s.Run), MaxRunCommandSize))
+		if len(s.Run.String()) > MaxRunCommandSize {
+			return nil, newParseError(field+".run", fmt.Sprintf("run command is %d bytes, maximum is %d", len(s.Run.String()), MaxRunCommandSize))
 		}
 		if len(s.Env) > MaxEnvVarsPerStep {
 			return nil, newParseError(field+".env", fmt.Sprintf("step has %d env vars, maximum is %d", len(s.Env), MaxEnvVarsPerStep))
+		}
+		for k, v := range s.Env {
+			if len(v) > MaxEnvValueSize {
+				return nil, newParseError(field+".env."+k, fmt.Sprintf("env value is %d bytes, maximum is %d", len(v), MaxEnvValueSize))
+			}
 		}
 		if len(s.Services) > MaxServicesPerStep {
 			return nil, newParseError(field+".services", fmt.Sprintf("step has %d services, maximum is %d", len(s.Services), MaxServicesPerStep))
@@ -119,6 +136,42 @@ func Parse(data []byte) (*Pipeline, error) {
 	}
 
 	return &p, nil
+}
+
+// checkYAMLComplexity decodes the document into a node tree (which preserves,
+// rather than expands, anchors/aliases) and walks it while following aliases,
+// counting visited nodes. An alias bomb makes the count explode, so we abort at
+// maxYAMLNodes — bounding the work the subsequent struct decode would do.
+func checkYAMLComplexity(data []byte) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil // syntax errors are reported by the real Unmarshal
+	}
+
+	count := 0
+	var walk func(n *yaml.Node, depth int) error
+	walk = func(n *yaml.Node, depth int) error {
+		if n == nil {
+			return nil
+		}
+		if depth > maxYAMLDepth {
+			return fmt.Errorf("YAML nesting exceeds %d levels", maxYAMLDepth)
+		}
+		count++
+		if count > maxYAMLNodes {
+			return fmt.Errorf("YAML expands to too many nodes (possible anchor/alias bomb); limit is %d", maxYAMLNodes)
+		}
+		if n.Kind == yaml.AliasNode {
+			return walk(n.Alias, depth+1)
+		}
+		for _, c := range n.Content {
+			if err := walk(c, depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(&root, 0)
 }
 
 // validateStep checks a single top-level step for structural correctness.
@@ -192,7 +245,7 @@ func validateStep(s *Step, index int, names map[string]bool, _ bool) error {
 // validateExecType ensures exactly one execution type is set.
 func validateExecType(s *Step, field string) error {
 	count := 0
-	if s.Run != "" {
+	if !s.Run.IsEmpty() {
 		count++
 	}
 	if s.Use != "" {

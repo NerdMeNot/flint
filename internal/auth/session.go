@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -22,10 +25,20 @@ type flintClaims struct {
 	Provider   string   `json:"provider"`
 }
 
+// Sessions is the interface for JWT session management. *SessionManager
+// implements it; tests can mock it to avoid real JWT signing.
+type Sessions interface {
+	CreateSession(claims *Claims) (string, error)
+	ValidateSession(tokenString string) (*Claims, error)
+}
+
 // SessionManager creates and validates JWT session tokens.
 type SessionManager struct {
 	config SessionConfig
 }
+
+// compile-time check
+var _ Sessions = (*SessionManager)(nil)
 
 // NewSessionManager creates a SessionManager.
 func NewSessionManager(config SessionConfig) *SessionManager {
@@ -95,4 +108,22 @@ func (s *SessionManager) ValidateSession(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+// GenerateRefreshToken creates a cryptographically random refresh token.
+// Returns the raw token (to send to client) and its SHA-256 hash (to store in DB).
+func GenerateRefreshToken() (raw string, hash string, err error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", fmt.Errorf("generate refresh token: %w", err)
+	}
+	raw = "flint_rt_" + hex.EncodeToString(bytes)
+	hash = HashToken(raw)
+	return raw, hash, nil
+}
+
+// HashToken returns the SHA-256 hex digest of a token string.
+func HashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }

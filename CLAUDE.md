@@ -2,7 +2,7 @@
 
 ## Project
 
-Flint is a Kubernetes-native CI platform built on Temporal. MIT licensed, OSS.
+Flint is a Kubernetes-native CI platform built on a custom Postgres-backed workflow engine (`internal/engine/`). MIT licensed, OSS.
 
 ## Build & Test
 
@@ -29,13 +29,13 @@ Requires [Task](https://taskfile.dev/): `go install github.com/go-task/task/v3/c
 
 ## Package Layout
 
-- `cmd/` — Binary entry points (server, worker, agent, controller, flint CLI)
-- `internal/temporalkit/` — Temporal client/worker wrapper
-- `internal/dbkit/` — Bun database connection + migrations
+- `cmd/` — Binary entry points (server, worker, agent, controller, syncd, flint CLI)
+- `internal/engine/` — Postgres-backed workflow engine (DAG advance/dispatch/loop, timers, outbox)
+- `internal/dbkit/` — pgx connection pool + goose migrations
+- `internal/db/` — sqlc-generated queries + models (`sqlc.yaml` at repo root)
 - `internal/flinterr/` — Shared error types + Clock interface
 - `internal/auth/` — OIDC/SAML/JWT/RBAC (thin layer over go-oidc + crewjam/saml)
 - `internal/secret/` — Envelope encryption
-- `internal/outbox/` — Outbox processor (SELECT FOR UPDATE SKIP LOCKED)
 - `internal/runner/` — RunnerPool resolution
 - `internal/config/` — Viper config loading
 - `pkg/forge/` — ForgeProvider interface + implementations (GitHub first)

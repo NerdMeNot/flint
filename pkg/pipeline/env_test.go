@@ -13,7 +13,7 @@ func TestIsEnvironmentAware(t *testing.T) {
 	// Plain CI — not env-aware.
 	plain := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{PullRequest: &pipeline.PullRequestTrigger{Branches: []string{"main"}}},
-		Steps:    []pipeline.Step{{Name: "test", Run: "echo test"}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo test")}},
 	}
 	assert.False(t, pipeline.IsEnvironmentAware(plain))
 
@@ -21,21 +21,21 @@ func TestIsEnvironmentAware(t *testing.T) {
 	withTopLevel := &pipeline.Pipeline{
 		Environments: []string{"staging"},
 		Triggers:     pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
-		Steps:        []pipeline.Step{{Name: "test", Run: "echo test"}},
+		Steps:        []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo test")}},
 	}
 	assert.True(t, pipeline.IsEnvironmentAware(withTopLevel))
 
 	// Trigger with environments.
 	withTriggerEnv := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}, Environments: []string{"staging"}}},
-		Steps:    []pipeline.Step{{Name: "test", Run: "echo test"}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo test")}},
 	}
 	assert.True(t, pipeline.IsEnvironmentAware(withTriggerEnv))
 
 	// Step with environments.
 	withStepEnv := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
-		Steps:    []pipeline.Step{{Name: "test", Run: "echo test", Environments: []string{"production"}}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo test"), Environments: []string{"production"}}},
 	}
 	assert.True(t, pipeline.IsEnvironmentAware(withStepEnv))
 
@@ -45,7 +45,7 @@ func TestIsEnvironmentAware(t *testing.T) {
 			Push:      &pipeline.PushTrigger{Branches: []string{"main"}},
 			Promotion: []pipeline.PromotionTrigger{{From: "staging", Environments: []string{"production"}}},
 		},
-		Steps: []pipeline.Step{{Name: "test", Run: "echo test"}},
+		Steps: []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo test")}},
 	}
 	assert.True(t, pipeline.IsEnvironmentAware(withPromo))
 }
@@ -61,9 +61,9 @@ func TestSimulateEnv(t *testing.T) {
 		},
 		Steps: []pipeline.Step{
 			{Name: "approve", Gate: &pipeline.Gate{Approvers: []string{"role:release-manager"}}, Environments: []string{"production"}},
-			{Name: "test", Run: "make test"},
-			{Name: "security-scan", Run: "make scan", Environments: []string{"production"}, DependsOn: []string{"test"}},
-			{Name: "deploy", Run: "make deploy", DependsOn: []string{"approve", "test"}},
+			{Name: "test", Run: pipeline.Cmd("make test")},
+			{Name: "security-scan", Run: pipeline.Cmd("make scan"), Environments: []string{"production"}, DependsOn: []string{"test"}},
+			{Name: "deploy", Run: pipeline.Cmd("make deploy"), DependsOn: []string{"approve", "test"}},
 		},
 	}
 
@@ -110,7 +110,7 @@ func TestSimulateEnv_MatrixStep(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "test", Run: "echo", Matrix: map[string][]string{"node": {"18", "20", "22"}}},
+			{Name: "test", Run: pipeline.Cmd("echo"), Matrix: map[string][]string{"node": {"18", "20", "22"}}},
 		},
 	}
 	sim := pipeline.SimulateEnv(p, "staging")
@@ -121,7 +121,33 @@ func TestSimulateEnv_MatrixStep(t *testing.T) {
 func TestIsEnvironmentAware_PlainCI(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{PullRequest: &pipeline.PullRequestTrigger{Branches: []string{"main"}}},
-		Steps:    []pipeline.Step{{Name: "test", Run: "echo"}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo")}},
 	}
 	assert.False(t, pipeline.IsEnvironmentAware(p))
+}
+
+func TestSimulateEnv_NoEnvironments(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo")}},
+	}
+	sim := pipeline.SimulateEnv(p, "")
+	require.NotNil(t, sim)
+	require.Len(t, sim.Steps, 1)
+	assert.True(t, sim.Steps[0].Active)
+}
+
+func TestSimulateEnv_WhenAlwaysFiltered(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Environments: []string{"staging", "production"},
+		Triggers:     pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}, Environments: []string{"staging"}}},
+		Steps: []pipeline.Step{
+			{Name: "notify", Run: pipeline.Cmd("echo"), When: "always", Environments: []string{"production"}},
+			{Name: "test", Run: pipeline.Cmd("echo")},
+		},
+	}
+	sim := pipeline.SimulateEnv(p, "staging")
+	notify := findStepStatus(sim, "notify")
+	require.NotNil(t, notify)
+	assert.False(t, notify.Active, "env-filtered step stays inactive even with when: always")
 }

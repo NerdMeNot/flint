@@ -14,8 +14,12 @@ import (
 
 // FetchSecrets fetches declared secrets from the Flint server and injects
 // them as environment variables into the current process (for the step container).
+//
+// SecretMapping maps env var names to secret store names. For example,
+// {"API_KEY": "api-key-name"} means: fetch the secret named "api-key-name"
+// and expose it as the environment variable API_KEY.
 func FetchSecrets(ctx context.Context, cfg *Config) error {
-	if len(cfg.SecretNames) == 0 {
+	if len(cfg.SecretMapping) == 0 {
 		return nil
 	}
 
@@ -24,7 +28,17 @@ func FetchSecrets(ctx context.Context, cfg *Config) error {
 		return nil
 	}
 
-	namesJSON, _ := json.Marshal(cfg.SecretNames)
+	// Collect unique secret store names to request.
+	storeNames := make([]string, 0, len(cfg.SecretMapping))
+	seen := make(map[string]bool)
+	for _, storeName := range cfg.SecretMapping {
+		if !seen[storeName] {
+			storeNames = append(storeNames, storeName)
+			seen[storeName] = true
+		}
+	}
+
+	namesJSON, _ := json.Marshal(storeNames)
 
 	url := strings.TrimRight(cfg.ServerURL, "/") + "/internal/secrets"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -32,7 +46,10 @@ func FetchSecrets(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("agent: failed to create secrets request: %w", err)
 	}
 
-	req.Header.Set("X-Flint-Org-ID", cfg.OrgID)
+	// The signed task token determines the secret scope server-side; org/project/
+	// environment headers are no longer sent (they were spoofable and are ignored).
+	req.Header.Set("X-Flint-Task-Token", cfg.TaskToken)
+	req.Header.Set("X-Flint-Internal-Token", cfg.InternalToken)
 	req.Header.Set("X-Flint-Secret-Names", string(namesJSON))
 
 	resp, err := http.DefaultClient.Do(req)
@@ -53,13 +70,18 @@ func FetchSecrets(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("agent: failed to decode secrets response: %w", err)
 	}
 
-	// Inject secrets as environment variables.
-	for name, value := range result.Secrets {
-		if err := os.Setenv(name, value); err != nil {
-			log.Warn().Str("secret", name).Err(err).Msg("agent: failed to set secret env var")
+	// Re-map: inject as the env var name from the mapping, not the store name.
+	injected := 0
+	for envVarName, storeName := range cfg.SecretMapping {
+		if val, ok := result.Secrets[storeName]; ok {
+			if err := os.Setenv(envVarName, val); err != nil {
+				log.Warn().Str("secret", envVarName).Err(err).Msg("agent: failed to set secret env var")
+			} else {
+				injected++
+			}
 		}
 	}
 
-	log.Info().Int("count", len(result.Secrets)).Msg("agent: secrets injected")
+	log.Info().Int("count", injected).Msg("agent: secrets injected")
 	return nil
 }

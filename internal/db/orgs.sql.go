@@ -9,9 +9,24 @@ import (
 	"context"
 )
 
+const countRunningStepsByOrg = `-- name: CountRunningStepsByOrg :one
+SELECT COUNT(*) AS running_count
+FROM steps s
+JOIN workflows w ON s.workflow_id = w.id
+JOIN pipeline_runs pr ON w.run_id = pr.id
+WHERE pr.org_id = $1 AND s.status = 'running'
+`
+
+func (q *Queries) CountRunningStepsByOrg(ctx context.Context, orgID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countRunningStepsByOrg, orgID)
+	var running_count int64
+	err := row.Scan(&running_count)
+	return running_count, err
+}
+
 const getOrCreateDefaultOrg = `-- name: GetOrCreateDefaultOrg :one
-INSERT INTO orgs (name, slug, temporal_namespace)
-VALUES ('default', 'default', 'default')
+INSERT INTO orgs (name, slug)
+VALUES ('default', 'default')
 ON CONFLICT (slug) DO UPDATE SET name = orgs.name
 RETURNING id
 `
@@ -24,18 +39,35 @@ func (q *Queries) GetOrCreateDefaultOrg(ctx context.Context) (string, error) {
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, slug FROM orgs LIMIT 1
+SELECT id, name, slug, concurrency_limit FROM orgs LIMIT 1
 `
 
 type GetOrgRow struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	ConcurrencyLimit int32  `json:"concurrency_limit"`
 }
 
 func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
 	row := q.db.QueryRow(ctx, getOrg)
 	var i GetOrgRow
-	err := row.Scan(&i.ID, &i.Name, &i.Slug)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.ConcurrencyLimit,
+	)
 	return i, err
+}
+
+const getOrgConcurrencyLimit = `-- name: GetOrgConcurrencyLimit :one
+SELECT concurrency_limit FROM orgs WHERE id = $1
+`
+
+func (q *Queries) GetOrgConcurrencyLimit(ctx context.Context, id string) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrgConcurrencyLimit, id)
+	var concurrency_limit int32
+	err := row.Scan(&concurrency_limit)
+	return concurrency_limit, err
 }

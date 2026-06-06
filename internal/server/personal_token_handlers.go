@@ -135,5 +135,5 @@ func (s *Server) handleRevokePersonalToken(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "revoked"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }

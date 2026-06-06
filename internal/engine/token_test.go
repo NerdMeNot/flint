@@ -77,3 +77,41 @@ func TestTaskToken_RetryAttempt(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskToken_SignedRoundTrip(t *testing.T) {
+	key := []byte("test-signing-key-at-least-32-chars!!")
+	tok := engine.TaskToken{WorkflowID: "wf1", StepName: "build", Attempt: 1}
+
+	enc := engine.EncodeTaskToken(tok, key)
+	got, err := engine.DecodeTaskToken(enc, key)
+	if err != nil {
+		t.Fatalf("DecodeTaskToken(signed) error: %v", err)
+	}
+	if got != tok {
+		t.Fatalf("round-trip mismatch: got %+v want %+v", got, tok)
+	}
+}
+
+func TestTaskToken_RejectsForgedAndTampered(t *testing.T) {
+	key := []byte("the-real-signing-key-32-chars-min!!!")
+	tok := engine.TaskToken{WorkflowID: "wf1", StepName: "build", Attempt: 1}
+
+	// 1. A token signed with a DIFFERENT key must be rejected (forgery).
+	forged := engine.EncodeTaskToken(tok, []byte("attacker-key-also-32-characters-x!!!"))
+	if _, err := engine.DecodeTaskToken(forged, key); err == nil {
+		t.Error("expected forged token (wrong key) to be rejected")
+	}
+
+	// 2. An UNSIGNED token must be rejected when a key is required.
+	unsigned := engine.EncodeTaskToken(tok) // no key
+	if _, err := engine.DecodeTaskToken(unsigned, key); err == nil {
+		t.Error("expected unsigned token to be rejected when key is set")
+	}
+
+	// 3. A tampered payload must be rejected.
+	valid := engine.EncodeTaskToken(tok, key)
+	tampered := "x" + valid // corrupt the payload prefix
+	if _, err := engine.DecodeTaskToken(tampered, key); err == nil {
+		t.Error("expected tampered token to be rejected")
+	}
+}

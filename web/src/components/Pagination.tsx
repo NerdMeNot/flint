@@ -44,11 +44,11 @@ export function Pagination({
         </span>
         {onPageSizeChange && (
           <div className="flex items-center gap-1.5">
-            <span className="text-[0.65rem] text-muted-foreground opacity-50">Show</span>
+            <span className="text-[12px] text-muted-foreground opacity-50">Show</span>
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[0.65rem] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[12px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               {pageSizeOptions.map((size) => (
                 <option key={size} value={size}>{size}</option>

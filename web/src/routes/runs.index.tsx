@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Ban, FolderGit2, RotateCcw, CheckCircle } from 'lucide-react'
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/runs/')({
 })
 
 function RunsListPage() {
-  const { workspace, environment } = useScope()
+  const { workspaces, environmentMatches } = useScope()
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
   const [projectFilter, setProjectFilter] = useState<string | undefined>()
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -47,26 +47,26 @@ function RunsListPage() {
   const allProjects = projectsData.items
 
   // Scope filtering
-  const projectsInScope = workspace
-    ? allProjects.filter((p) => p.workspace === workspace)
+  const wsSet = workspaces.length > 0 ? new Set(workspaces) : null
+  const projectsInScope = wsSet
+    ? allProjects.filter((p) => wsSet.has(p.workspace))
     : allProjects
-  const projectIds = workspace ? new Set(projectsInScope.map((p) => p.id)) : null
+  const projectIds = wsSet ? new Set(projectsInScope.map((p) => p.id)) : null
 
   const filteredItems = data.items.filter((r) => {
     if (projectIds && !projectIds.has(r.projectId)) return false
-    if (environment && r.environment !== environment) return false
+    if (!environmentMatches(r.environment)) return false
     return true
   })
 
   const projects = projectsInScope
-  const hasFilters = statusFilter || projectFilter
 
   return (
     <div className="space-y-6 rise-in">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="display-title text-2xl text-foreground">Runs</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="display-title text-3xl lg:text-4xl text-foreground">Runs</h1>
+          <p className="text-muted-foreground text-sm lg:text-base mt-2">
             All pipeline runs across projects
           </p>
         </div>

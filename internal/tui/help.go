@@ -52,5 +52,5 @@ func (v *HelpView) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
-func (v *HelpView) SetSize(w, h int) { v.width = w; v.height = h }
+func (v *HelpView) SetSize(w, h int)  { v.width = w; v.height = h }
 func (v *HelpView) ShortHelp() string { return "  any key to dismiss" }

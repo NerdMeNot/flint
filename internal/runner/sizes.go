@@ -6,12 +6,12 @@ import "k8s.io/apimachinery/pkg/api/resource"
 type TShirtSize string
 
 const (
-	SizeXS   TShirtSize = "xs"
-	SizeS    TShirtSize = "small"
-	SizeM    TShirtSize = "medium"
-	SizeL    TShirtSize = "large"
-	SizeXL   TShirtSize = "xl"
-	Size2XL  TShirtSize = "2xl"
+	SizeXS  TShirtSize = "xs"
+	SizeS   TShirtSize = "small"
+	SizeM   TShirtSize = "medium"
+	SizeL   TShirtSize = "large"
+	SizeXL  TShirtSize = "xl"
+	Size2XL TShirtSize = "2xl"
 )
 
 // tshirtSizes maps size names to CPU and memory defaults.

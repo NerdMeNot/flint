@@ -8,7 +8,79 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const checkMFARequiredForUser = `-- name: CheckMFARequiredForUser :one
+SELECT EXISTS(
+    SELECT 1 FROM role_assignments ra
+    JOIN roles r ON r.id = ra.role_id
+    WHERE ra.subject = $1 AND r.require_mfa = true
+) AS required
+`
+
+func (q *Queries) CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error) {
+	row := q.db.QueryRow(ctx, checkMFARequiredForUser, subject)
+	var required bool
+	err := row.Scan(&required)
+	return required, err
+}
+
+const clearForcePasswordChange = `-- name: ClearForcePasswordChange :exec
+UPDATE users SET force_password_change = false WHERE id = $1
+`
+
+func (q *Queries) ClearForcePasswordChange(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, clearForcePasswordChange, id)
+	return err
+}
+
+const clearUserTOTP = `-- name: ClearUserTOTP :exec
+UPDATE users SET totp_secret_enc = NULL, totp_verified = false, recovery_codes = NULL
+WHERE id = $1
+`
+
+func (q *Queries) ClearUserTOTP(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, clearUserTOTP, id)
+	return err
+}
+
+const countUsers = `-- name: CountUsers :one
+SELECT COUNT(*) FROM users WHERE org_id = $1
+`
+
+func (q *Queries) CountUsers(ctx context.Context, orgID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers, orgID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createLocalUser = `-- name: CreateLocalUser :one
+INSERT INTO users (org_id, email, external_id, name, password_hash, password_changed_at)
+VALUES ($1, $2, $2, $3, $4, now())
+RETURNING id
+`
+
+type CreateLocalUserParams struct {
+	OrgID        string  `json:"org_id"`
+	Email        string  `json:"email"`
+	Name         *string `json:"name"`
+	PasswordHash *string `json:"password_hash"`
+}
+
+func (q *Queries) CreateLocalUser(ctx context.Context, arg CreateLocalUserParams) (string, error) {
+	row := q.db.QueryRow(ctx, createLocalUser,
+		arg.OrgID,
+		arg.Email,
+		arg.Name,
+		arg.PasswordHash,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
 
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, external_id, name FROM users
@@ -37,6 +109,89 @@ func (q *Queries) GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) 
 		&i.Name,
 	)
 	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, email, external_id, name, is_active FROM users
+WHERE id = $1
+`
+
+type GetUserByIDRow struct {
+	ID         string  `json:"id"`
+	Email      string  `json:"email"`
+	ExternalID string  `json:"external_id"`
+	Name       *string `json:"name"`
+	IsActive   bool    `json:"is_active"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i GetUserByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.ExternalID,
+		&i.Name,
+		&i.IsActive,
+	)
+	return i, err
+}
+
+const getUserForAuth = `-- name: GetUserForAuth :one
+SELECT id, org_id, email, external_id, name, password_hash,
+       totp_secret_enc, totp_verified, mfa_required_override, is_active,
+       force_password_change
+FROM users
+WHERE org_id = $1 AND email = $2
+`
+
+type GetUserForAuthParams struct {
+	OrgID string `json:"org_id"`
+	Email string `json:"email"`
+}
+
+type GetUserForAuthRow struct {
+	ID                  string      `json:"id"`
+	OrgID               string      `json:"org_id"`
+	Email               string      `json:"email"`
+	ExternalID          string      `json:"external_id"`
+	Name                *string     `json:"name"`
+	PasswordHash        *string     `json:"password_hash"`
+	TotpSecretEnc       []byte      `json:"totp_secret_enc"`
+	TotpVerified        bool        `json:"totp_verified"`
+	MfaRequiredOverride pgtype.Bool `json:"mfa_required_override"`
+	IsActive            bool        `json:"is_active"`
+	ForcePasswordChange bool        `json:"force_password_change"`
+}
+
+func (q *Queries) GetUserForAuth(ctx context.Context, arg GetUserForAuthParams) (GetUserForAuthRow, error) {
+	row := q.db.QueryRow(ctx, getUserForAuth, arg.OrgID, arg.Email)
+	var i GetUserForAuthRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Email,
+		&i.ExternalID,
+		&i.Name,
+		&i.PasswordHash,
+		&i.TotpSecretEnc,
+		&i.TotpVerified,
+		&i.MfaRequiredOverride,
+		&i.IsActive,
+		&i.ForcePasswordChange,
+	)
+	return i, err
+}
+
+const getUserRecoveryCodes = `-- name: GetUserRecoveryCodes :one
+SELECT recovery_codes FROM users WHERE id = $1
+`
+
+func (q *Queries) GetUserRecoveryCodes(ctx context.Context, id string) ([]string, error) {
+	row := q.db.QueryRow(ctx, getUserRecoveryCodes, id)
+	var recovery_codes []string
+	err := row.Scan(&recovery_codes)
+	return recovery_codes, err
 }
 
 const listUsers = `-- name: ListUsers :many
@@ -124,6 +279,49 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Sea
 	return items, nil
 }
 
+const setUserRecoveryCodes = `-- name: SetUserRecoveryCodes :exec
+UPDATE users SET recovery_codes = $2 WHERE id = $1
+`
+
+type SetUserRecoveryCodesParams struct {
+	ID            string   `json:"id"`
+	RecoveryCodes []string `json:"recovery_codes"`
+}
+
+func (q *Queries) SetUserRecoveryCodes(ctx context.Context, arg SetUserRecoveryCodesParams) error {
+	_, err := q.db.Exec(ctx, setUserRecoveryCodes, arg.ID, arg.RecoveryCodes)
+	return err
+}
+
+const setUserTOTPSecret = `-- name: SetUserTOTPSecret :exec
+UPDATE users SET totp_secret_enc = $2 WHERE id = $1
+`
+
+type SetUserTOTPSecretParams struct {
+	ID            string `json:"id"`
+	TotpSecretEnc []byte `json:"totp_secret_enc"`
+}
+
+func (q *Queries) SetUserTOTPSecret(ctx context.Context, arg SetUserTOTPSecretParams) error {
+	_, err := q.db.Exec(ctx, setUserTOTPSecret, arg.ID, arg.TotpSecretEnc)
+	return err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2, password_changed_at = now()
+WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           string  `json:"id"`
+	PasswordHash *string `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
 const upsertUser = `-- name: UpsertUser :one
 INSERT INTO users (org_id, email, external_id, name)
 VALUES ($1, $2, $3, $4)
@@ -149,4 +347,13 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (string,
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const verifyUserTOTP = `-- name: VerifyUserTOTP :exec
+UPDATE users SET totp_verified = true WHERE id = $1
+`
+
+func (q *Queries) VerifyUserTOTP(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, verifyUserTOTP, id)
+	return err
 }

@@ -54,7 +54,7 @@ func (s *Server) handleCancelRun(ctx context.Context, c *app.RequestContext) {
 		apiInternal(ctx, c, "failed to cancel workflow")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "cancelled"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
@@ -75,7 +75,8 @@ func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 	newRunID := observe.RequestID(ctx)
 	err = s.deps.Q.InsertRetryRun(ctx, db.InsertRetryRunParams{
 		ID: newRunID, ProjectID: orig.ProjectID, OrgID: orig.OrgID,
-		WorkflowFile: orig.WorkflowFile, TriggerRef: orig.TriggerRef, CommitSha: orig.CommitSha,
+		WorkflowFile: orig.WorkflowFile, TriggerRef: orig.TriggerRef,
+		CommitSha: orig.CommitSha, Environment: orig.Environment,
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to create retry run")
@@ -91,14 +92,28 @@ func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 		sha = *orig.CommitSha
 	}
 
+	env := ""
+	if orig.Environment != nil {
+		env = *orig.Environment
+	}
+
 	var workflowID string
 	if s.deps.Engine != nil {
-		workflowID, _ = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
+		var startErr error
+		workflowID, startErr = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
 			RunID: newRunID, OrgID: orig.OrgID, ProjectID: orig.ProjectID,
 			Repo: info.RepoPath, Ref: ref, CommitSHA: sha,
 			TriggerType: "retry", TriggeredBy: "api",
 			WorkflowFile: orig.WorkflowFile, PipelinePath: info.PipelinePath,
+			Environment: env,
 		})
+		if startErr != nil {
+			errMsg := startErr.Error()
+			_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
+				ID:           newRunID,
+				ErrorMessage: &errMsg,
+			})
+		}
 	}
 
 	c.JSON(consts.StatusAccepted, utils.H{
@@ -174,7 +189,7 @@ func (s *Server) handleApproveGate(ctx context.Context, c *app.RequestContext) {
 		apiInternal(ctx, c, "failed to approve gate")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "approved"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 func (s *Server) handleRejectGate(ctx context.Context, c *app.RequestContext) {
@@ -201,5 +216,5 @@ func (s *Server) handleRejectGate(ctx context.Context, c *app.RequestContext) {
 		apiInternal(ctx, c, "failed to reject gate")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "rejected"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }

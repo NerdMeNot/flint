@@ -13,18 +13,23 @@ import (
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // PgEngine is the Postgres-backed implementation of Engine.
 type PgEngine struct {
-	pool  *pgxpool.Pool
-	forge forge.ForgeProvider
+	pool       db.Pool
+	forge      forge.ForgeProvider
+	signingKey []byte // HMAC key for task tokens; empty = unsigned (dev/test)
 }
 
-// New creates a new PgEngine.
-func New(pool *pgxpool.Pool, forge forge.ForgeProvider) *PgEngine {
-	return &PgEngine{pool: pool, forge: forge}
+// New creates a new PgEngine. signingKey signs/verifies task tokens — it must
+// match the key the worker loop uses to mint them, and must NOT be a value
+// exposed to step pods (use the server-side JWT secret, not the internal token).
+func New(pool db.Pool, forge forge.ForgeProvider, signingKey []byte) *PgEngine {
+	return &PgEngine{pool: pool, forge: forge, signingKey: signingKey}
 }
 
 func (e *PgEngine) Close() {}
@@ -90,7 +95,38 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 		return "", fmt.Errorf("engine: parse pipeline: %w", err)
 	}
 
-	waves, err := pipeline.ResolveDag(p)
+	// Capture pipeline-level defaults for dispatch-time fallback.
+	input.PipelineImage = p.Image
+	input.PipelineServiceAccount = p.ServiceAccount
+
+	// Resolve templates (use: → run/steps).
+	resolver := &forgeResolver{
+		forge:        e.forge,
+		repo:         input.Repo,
+		ref:          input.CommitSHA,
+		pipelinePath: input.PipelinePath,
+	}
+	p, err = pipeline.ResolveTemplates(ctx, p, resolver)
+	if err != nil {
+		logger.Error().Err(err).Msg("engine: failed to resolve templates")
+		return "", fmt.Errorf("engine: resolve templates: %w", err)
+	}
+
+	// Expand matrix steps into individual variants.
+	p = pipeline.ExpandMatrix(p)
+
+	// Coalesce consecutive same-runner steps into shared pods when the pipeline
+	// declares a top-level runner. This eliminates workspace sync overhead for
+	// simple sequential pipelines.
+	p = pipeline.CoalesceSteps(p)
+
+	// Resolve DAG — filter by environment if set.
+	var waves [][]pipeline.Step
+	if input.Environment != "" {
+		waves, err = pipeline.ResolveDagForEnv(p, input.Environment)
+	} else {
+		waves, err = pipeline.ResolveDag(p)
+	}
 	if err != nil {
 		logger.Error().Err(err).Msg("engine: failed to resolve DAG")
 		return "", fmt.Errorf("engine: resolve DAG: %w", err)
@@ -192,7 +228,7 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 // CompleteStep reports that a step has finished.
 // Idempotent: calling twice with the same token for a terminal step returns nil.
 func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result StepResult) error {
-	token, err := DecodeTaskToken(encodedToken)
+	token, err := DecodeTaskToken(encodedToken, e.signingKey)
 	if err != nil {
 		return err
 	}
@@ -231,6 +267,7 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 	if !result.Success {
 		newStatus = "failed"
 	}
+	observe.StepsCompleted.Add(ctx, 1, metric.WithAttributes(attribute.String("status", newStatus)))
 
 	// Update step.
 	err = qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
@@ -243,11 +280,13 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 	}
 
 	// Cancel timeout timer.
-	_ = qtx.CancelTimer(ctx, db.CancelTimerParams{
+	if err := qtx.CancelTimer(ctx, db.CancelTimerParams{
 		WorkflowID: token.WorkflowID,
 		StepName:   token.StepName,
 		TimerType:  "timeout",
-	})
+	}); err != nil {
+		log.Warn().Err(err).Str("step", token.StepName).Msg("engine: failed to cancel timeout timer")
+	}
 
 	// Update workflow step_outputs.
 	outputJSON := mustJSON(map[string]StepResult{token.StepName: result})
@@ -323,9 +362,15 @@ func (e *PgEngine) CancelWorkflow(ctx context.Context, workflowID string) error 
 	if err := qtx.CancelWorkflow(ctx, workflowID); err != nil {
 		return fmt.Errorf("engine: cancel workflow: %w", err)
 	}
-	_ = qtx.CancelPendingSteps(ctx, workflowID)
-	_ = qtx.CancelAllWorkflowTimers(ctx, workflowID)
-	_ = qtx.CancelChildWorkflows(ctx, &workflowID)
+	if err := qtx.CancelPendingSteps(ctx, workflowID); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel pending steps")
+	}
+	if err := qtx.CancelAllWorkflowTimers(ctx, workflowID); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel timers")
+	}
+	if err := qtx.CancelChildWorkflows(ctx, &workflowID); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel child workflows")
+	}
 
 	return tx.Commit(ctx)
 }
@@ -351,10 +396,14 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 	}
 	for _, row := range stepRows {
 		s := StepState{
-			Name:    row.Name,
-			Status:  row.Status,
-			Wave:    int(row.Wave),
-			Attempt: int(row.Attempt),
+			Name:        row.Name,
+			Status:      row.Status,
+			ExecType:    row.ExecType,
+			Wave:        int(row.Wave),
+			Attempt:     int(row.Attempt),
+			MaxAttempts: int(row.MaxAttempts),
+			StartedAt:   row.StartedAt,
+			FinishedAt:  row.FinishedAt,
 		}
 		if row.Result != nil {
 			var r StepResult
@@ -362,6 +411,12 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 				s.ExitCode = &r.ExitCode
 				s.Error = r.Error
 			}
+		}
+		if row.DependsOn != nil {
+			// DependsOn comes from JSONB via pgx as interface{} (typically []interface{}).
+			// Round-trip through JSON to get []string.
+			raw, _ := json.Marshal(row.DependsOn)
+			_ = json.Unmarshal(raw, &s.DependsOn)
 		}
 		result.Steps = append(result.Steps, s)
 	}
@@ -396,8 +451,24 @@ func statusDescription(s forge.StatusState) string {
 }
 
 func finishWorkflow(ctx context.Context, qtx *db.Queries, workflowID, status string) {
-	_ = qtx.FinishWorkflow(ctx, db.FinishWorkflowParams{ID: workflowID, Status: status})
-	_ = qtx.FinishRun(ctx, db.FinishRunParams{WorkflowID: &workflowID, Status: status})
+	if err := qtx.FinishWorkflow(ctx, db.FinishWorkflowParams{ID: workflowID, Status: status}); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Str("status", status).
+			Msg("engine: failed to finish workflow (sweep will recover)")
+	}
+	if err := qtx.FinishRun(ctx, db.FinishRunParams{WorkflowID: &workflowID, Status: status}); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Str("status", status).
+			Msg("engine: failed to finish run")
+	}
+	// Webhook delivery is decoupled via the outbox. We look up the runID from
+	// the workflow and enqueue events. This runs inside the same transaction as
+	// finishWorkflow — if the tx rolls back, no webhooks are enqueued.
+	ws, err := qtx.GetWorkflowStatus(ctx, workflowID)
+	if err == nil {
+		// Insert outbox events inline — they'll be delivered by processOutbox
+		// on the next tick. The idempotency key prevents duplicates if this
+		// path runs more than once (e.g., sweep retry).
+		enqueueWebhooksInTx(ctx, qtx, ws.RunID, status)
+	}
 }
 
 func isTerminal(status string) bool {
@@ -432,6 +503,15 @@ func wavesToNames(waves [][]pipeline.Step) [][]string {
 }
 
 func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		// All types passed to mustJSON are plain Go structs with JSON tags.
+		// A marshal failure here indicates a programming error (e.g. a channel
+		// or func field was added to a struct), not a runtime condition.
+		// Log at fatal level — this kills the process, which is preferable to
+		// silently writing null into a JSONB column and corrupting workflow state.
+		log.Fatal().Err(err).Str("type", fmt.Sprintf("%T", v)).Msg("engine: mustJSON: cannot marshal")
+		return nil // unreachable
+	}
 	return b
 }

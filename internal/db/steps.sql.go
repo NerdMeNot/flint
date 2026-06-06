@@ -22,7 +22,7 @@ func (q *Queries) CancelPendingSteps(ctx context.Context, workflowID string) err
 
 const claimQueuedSteps = `-- name: ClaimQueuedSteps :many
 UPDATE steps SET
-    status = CASE WHEN exec_type IN ('gate', 'watch') THEN 'waiting' ELSE 'running' END,
+    status = CASE WHEN exec_type = 'gate' THEN 'waiting' ELSE 'running' END,
     started_at = now(),
     deadline_at = now() + make_interval(secs := timeout_seconds)
 WHERE id IN (
@@ -233,17 +233,20 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 }
 
 const latestStepsByWorkflow = `-- name: LatestStepsByWorkflow :many
-SELECT DISTINCT ON (name) id, name, status, on_failure, step_def->>'if' AS if_condition
+SELECT DISTINCT ON (name) id, name, status, on_failure,
+    step_def->>'if' AS if_condition,
+    step_def->>'when' AS when_condition
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC
 `
 
 type LatestStepsByWorkflowRow struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Status      string      `json:"status"`
-	OnFailure   string      `json:"on_failure"`
-	IfCondition interface{} `json:"if_condition"`
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	Status        string      `json:"status"`
+	OnFailure     string      `json:"on_failure"`
+	IfCondition   interface{} `json:"if_condition"`
+	WhenCondition interface{} `json:"when_condition"`
 }
 
 func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error) {
@@ -261,6 +264,7 @@ func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) 
 			&i.Status,
 			&i.OnFailure,
 			&i.IfCondition,
+			&i.WhenCondition,
 		); err != nil {
 			return nil, err
 		}
@@ -333,21 +337,24 @@ func (q *Queries) ListPendingGates(ctx context.Context) ([]ListPendingGatesRow, 
 }
 
 const listStepsByWorkflow = `-- name: ListStepsByWorkflow :many
-SELECT DISTINCT ON (name) name, status, wave, attempt, result,
-    exec_type, started_at, finished_at
+SELECT DISTINCT ON (name) name, status, wave, attempt, max_attempts, result,
+    exec_type, started_at, finished_at,
+    step_def->'dependsOn' AS depends_on
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC
 `
 
 type ListStepsByWorkflowRow struct {
-	Name       string     `json:"name"`
-	Status     string     `json:"status"`
-	Wave       int32      `json:"wave"`
-	Attempt    int32      `json:"attempt"`
-	Result     []byte     `json:"result"`
-	ExecType   string     `json:"exec_type"`
-	StartedAt  *time.Time `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at"`
+	Name        string      `json:"name"`
+	Status      string      `json:"status"`
+	Wave        int32       `json:"wave"`
+	Attempt     int32       `json:"attempt"`
+	MaxAttempts int32       `json:"max_attempts"`
+	Result      []byte      `json:"result"`
+	ExecType    string      `json:"exec_type"`
+	StartedAt   *time.Time  `json:"started_at"`
+	FinishedAt  *time.Time  `json:"finished_at"`
+	DependsOn   interface{} `json:"depends_on"`
 }
 
 func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([]ListStepsByWorkflowRow, error) {
@@ -364,10 +371,57 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 			&i.Status,
 			&i.Wave,
 			&i.Attempt,
+			&i.MaxAttempts,
 			&i.Result,
 			&i.ExecType,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.DependsOn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWaitingGatesWithRejectSignals = `-- name: ListWaitingGatesWithRejectSignals :many
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name,
+       sig.id AS signal_id, sig.payload
+FROM steps s
+JOIN signals sig ON sig.workflow_id = s.workflow_id
+    AND sig.signal_name = 'gate-reject-' || s.name
+    AND sig.consumed = false
+WHERE s.status = 'waiting' AND s.exec_type = 'gate'
+LIMIT 50
+`
+
+type ListWaitingGatesWithRejectSignalsRow struct {
+	StepID     string `json:"step_id"`
+	WorkflowID string `json:"workflow_id"`
+	StepName   string `json:"step_name"`
+	SignalID   string `json:"signal_id"`
+	Payload    []byte `json:"payload"`
+}
+
+func (q *Queries) ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error) {
+	rows, err := q.db.Query(ctx, listWaitingGatesWithRejectSignals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWaitingGatesWithRejectSignalsRow{}
+	for rows.Next() {
+		var i ListWaitingGatesWithRejectSignalsRow
+		if err := rows.Scan(
+			&i.StepID,
+			&i.WorkflowID,
+			&i.StepName,
+			&i.SignalID,
+			&i.Payload,
 		); err != nil {
 			return nil, err
 		}

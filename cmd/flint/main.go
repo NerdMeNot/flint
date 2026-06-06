@@ -36,6 +36,7 @@ Durable by default, K8s-native, and not Jenkins.`,
 	root.Flags().BoolVar(&gates, "gates", false, "show pending gate approvals")
 
 	root.AddCommand(validateCmd())
+	root.AddCommand(adminCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

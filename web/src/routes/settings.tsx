@@ -11,6 +11,9 @@ import {
   Server,
   GitFork,
   ScrollText,
+  Globe,
+  Shield,
+  Monitor,
 } from 'lucide-react'
 
 const adminNav = [
@@ -21,6 +24,9 @@ const adminNav = [
   { to: '/settings/environments', icon: ShieldCheck, label: 'Environments' },
   { to: '/settings/variables', icon: Lock, label: 'Variables' },
   { to: '/settings/api-keys', icon: Key, label: 'API Keys' },
+  { to: '/settings/sso', icon: Globe, label: 'SSO' },
+  { to: '/settings/security', icon: Shield, label: 'Security' },
+  { to: '/settings/sessions', icon: Monitor, label: 'Sessions' },
   { to: '/settings/runners', icon: Server, label: 'Runners' },
   { to: '/settings/connections', icon: GitFork, label: 'Connections' },
   { to: '/settings/audit-log', icon: ScrollText, label: 'Audit Log' },
@@ -78,7 +84,7 @@ function SettingsLayout() {
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.82rem] font-medium transition-colors ${
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                   isActive
                     ? 'text-white shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'

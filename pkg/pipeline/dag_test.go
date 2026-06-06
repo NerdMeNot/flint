@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,9 +15,9 @@ func TestResolveDag_Linear(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "a", Run: "echo a"},
-			{Name: "b", Run: "echo b", DependsOn: []string{"a"}},
-			{Name: "c", Run: "echo c", DependsOn: []string{"b"}},
+			{Name: "a", Run: pipeline.Cmd("echo a")},
+			{Name: "b", Run: pipeline.Cmd("echo b"), DependsOn: []string{"a"}},
+			{Name: "c", Run: pipeline.Cmd("echo c"), DependsOn: []string{"b"}},
 		},
 	}
 
@@ -32,11 +33,11 @@ func TestResolveDag_Parallel(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "deps", Run: "echo deps"},
-			{Name: "lint", Run: "echo lint", DependsOn: []string{"deps"}},
-			{Name: "test", Run: "echo test", DependsOn: []string{"deps"}},
-			{Name: "build", Run: "echo build", DependsOn: []string{"deps"}},
-			{Name: "deploy", Run: "echo deploy", DependsOn: []string{"lint", "test", "build"}},
+			{Name: "deps", Run: pipeline.Cmd("echo deps")},
+			{Name: "lint", Run: pipeline.Cmd("echo lint"), DependsOn: []string{"deps"}},
+			{Name: "test", Run: pipeline.Cmd("echo test"), DependsOn: []string{"deps"}},
+			{Name: "build", Run: pipeline.Cmd("echo build"), DependsOn: []string{"deps"}},
+			{Name: "deploy", Run: pipeline.Cmd("echo deploy"), DependsOn: []string{"lint", "test", "build"}},
 		},
 	}
 
@@ -52,9 +53,9 @@ func TestResolveDag_NoDeps(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "a", Run: "echo a"},
-			{Name: "b", Run: "echo b"},
-			{Name: "c", Run: "echo c"},
+			{Name: "a", Run: pipeline.Cmd("echo a")},
+			{Name: "b", Run: pipeline.Cmd("echo b")},
+			{Name: "c", Run: pipeline.Cmd("echo c")},
 		},
 	}
 
@@ -68,9 +69,9 @@ func TestResolveDag_Cycle(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "a", Run: "echo", DependsOn: []string{"c"}},
-			{Name: "b", Run: "echo", DependsOn: []string{"a"}},
-			{Name: "c", Run: "echo", DependsOn: []string{"b"}},
+			{Name: "a", Run: pipeline.Cmd("echo"), DependsOn: []string{"c"}},
+			{Name: "b", Run: pipeline.Cmd("echo"), DependsOn: []string{"a"}},
+			{Name: "c", Run: pipeline.Cmd("echo"), DependsOn: []string{"b"}},
 		},
 	}
 
@@ -99,9 +100,9 @@ func TestResolveDagForEnv_Filters(t *testing.T) {
 		Environments: []string{"staging", "production"},
 		Triggers:     pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "test", Run: "make test"},
-			{Name: "security-scan", Run: "make scan", Environments: []string{"production"}, DependsOn: []string{"test"}},
-			{Name: "deploy", Run: "make deploy", DependsOn: []string{"test", "security-scan"}},
+			{Name: "test", Run: pipeline.Cmd("make test")},
+			{Name: "security-scan", Run: pipeline.Cmd("make scan"), Environments: []string{"production"}, DependsOn: []string{"test"}},
+			{Name: "deploy", Run: pipeline.Cmd("make deploy"), DependsOn: []string{"test", "security-scan"}},
 		},
 	}
 
@@ -124,7 +125,7 @@ func TestResolveDagForEnv_Filters(t *testing.T) {
 func TestResolveDag_SingleStep(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
-		Steps:    []pipeline.Step{{Name: "only", Run: "echo"}},
+		Steps:    []pipeline.Step{{Name: "only", Run: pipeline.Cmd("echo")}},
 	}
 	waves, err := pipeline.ResolveDag(p)
 	require.NoError(t, err)
@@ -136,7 +137,7 @@ func TestResolveDagForEnv_AllFiltered(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
 		Steps: []pipeline.Step{
-			{Name: "prod-only", Run: "echo", Environments: []string{"production"}},
+			{Name: "prod-only", Run: pipeline.Cmd("echo"), Environments: []string{"production"}},
 		},
 	}
 	waves, err := pipeline.ResolveDagForEnv(p, "staging")
@@ -147,7 +148,7 @@ func TestResolveDagForEnv_AllFiltered(t *testing.T) {
 func TestResolveDagForEnv_EmptyEnv(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
-		Steps:    []pipeline.Step{{Name: "test", Run: "echo"}},
+		Steps:    []pipeline.Step{{Name: "test", Run: pipeline.Cmd("echo")}},
 	}
 	// Empty env = all steps included.
 	waves, err := pipeline.ResolveDagForEnv(p, "")
@@ -173,4 +174,31 @@ func waveNames(wave []pipeline.Step) []string {
 		names[i] = s.Name
 	}
 	return names
+}
+
+func TestResolveDag_LargeIndependent(t *testing.T) {
+	p := &pipeline.Pipeline{Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}}}
+	for i := 0; i < 60; i++ {
+		p.Steps = append(p.Steps, pipeline.Step{Name: fmt.Sprintf("s%d", i), Run: pipeline.Cmd("echo")})
+	}
+	waves, err := pipeline.ResolveDag(p)
+	require.NoError(t, err)
+	require.Len(t, waves, 1) // all independent → a single wave
+	assert.Len(t, waves[0], 60)
+}
+
+func TestResolveDag_WithMatrix(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Triggers: pipeline.Triggers{Push: &pipeline.PushTrigger{Branches: []string{"main"}}},
+		Steps: []pipeline.Step{
+			{Name: "test", Run: pipeline.Cmd("echo"), Matrix: map[string][]string{"go": {"1.22", "1.23", "1.24"}}},
+			{Name: "report", Run: pipeline.Cmd("echo"), DependsOn: []string{"test"}},
+		},
+	}
+	expanded := pipeline.ExpandMatrix(p)
+	waves, err := pipeline.ResolveDag(expanded)
+	require.NoError(t, err)
+	require.Len(t, waves, 2)
+	assert.Len(t, waves[0], 3) // 3 matrix variants in the first wave
+	assertWaveContains(t, waves[1], "report")
 }

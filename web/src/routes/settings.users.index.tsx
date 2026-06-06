@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { UserCircle, Mail, KeyRound, Users } from 'lucide-react'
+import { Mail } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { ScopeBadges } from '#/components/ScopeBadges'
 
@@ -15,9 +15,6 @@ function UsersPage() {
   const assignments = assignmentsData.items
   const { data: rolesData } = useSuspenseQuery(orpc.roles.list.queryOptions({ input: {} }))
   const roles = rolesData.items
-  const { data: teamsData } = useSuspenseQuery(orpc.teams.list.queryOptions({ input: {} }))
-  const teams = teamsData.items
-
   const roleMap = new Map(roles.map((r) => [r.slug, r]))
 
   // Build per-user role and team lookups
@@ -42,20 +39,15 @@ function UsersPage() {
     }
   }
 
-  // Which teams each user belongs to
-  const userTeams = new Map<string, typeof teams>()
-  // We'd need team membership data per user. Use the mock teams list.
-  // For now, show teams in the detail page.
-
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="display-title text-lg text-foreground">Users</h2>
-        <p className="text-muted-foreground text-xs mt-0.5">{users.length} users</p>
+        <h2 className="display-title text-2xl lg:text-3xl text-foreground">Users</h2>
+        <p className="text-muted-foreground text-sm lg:text-base mt-1">{users.length} users</p>
       </div>
 
       <div className="island-shell !p-0 overflow-hidden">
-        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[0.65rem] font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
           <span>User</span>
           <span>Roles</span>
           <span>Scope</span>
@@ -92,7 +84,7 @@ function UsersPage() {
                     directRoles.map((role) => (
                       <span
                         key={role.slug}
-                        className={`rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                        className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                           role.isSystem
                             ? 'bg-primary/10 text-primary border border-primary/20'
                             : 'bg-secondary text-foreground border border-border'
@@ -108,7 +100,7 @@ function UsersPage() {
                   {directRoles.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {directRoles.some((r) => r.workspaces.length === 0 && r.environments.length === 0) ? (
-                        <span className="text-[0.6rem] text-muted-foreground opacity-50">All</span>
+                        <span className="text-[11px] text-muted-foreground opacity-50">All</span>
                       ) : (
                         <ScopeBadges
                           workspaces={[...new Set(directRoles.flatMap((r) => r.workspaces))]}

@@ -6,6 +6,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  MarkerType,
   useNodesState,
   useEdgesState,
   Position,
@@ -30,11 +31,11 @@ const nodeTypes = { step: StepNode }
 // Layout constants
 // ---------------------------------------------------------------------------
 
-const NODE_WIDTH = 150
-const NODE_HEIGHT = 44
-const GAP_X = 60 // horizontal gap between waves
-const GAP_Y = 30 // vertical gap between nodes in same wave
-const PAD = 40
+const NODE_WIDTH = 300
+const NODE_HEIGHT = 88
+const GAP_X = 130 // gap between waves (along the flow axis)
+const GAP_Y = 64 // gap between siblings inside a wave
+const PAD = 70
 
 // ---------------------------------------------------------------------------
 // Simple layered layout using wave numbers (no ELK needed)
@@ -56,16 +57,27 @@ function layoutGraph(
   const sortedWaves = [...waves.entries()].sort((a, b) => a[0] - b[0])
   const isHorizontal = direction === 'RIGHT'
 
+  // Center each wave on the perpendicular axis so parallel siblings
+  // sit symmetrically around the canvas midline (and under their
+  // parent's center) instead of left-aligning into a stair-step.
+  const perpDim = isHorizontal ? NODE_HEIGHT : NODE_WIDTH
+  const waveExtent = (n: number) => n * perpDim + Math.max(n - 1, 0) * GAP_Y
+  const maxExtent = Math.max(
+    ...sortedWaves.map(([, ws]) => waveExtent(ws.length)),
+  )
+
   const nodes: Node[] = []
   for (let wi = 0; wi < sortedWaves.length; wi++) {
     const [, waveSteps] = sortedWaves[wi]
+    const offset = (maxExtent - waveExtent(waveSteps.length)) / 2
+
     for (let si = 0; si < waveSteps.length; si++) {
       const step = waveSteps[si]
       const x = isHorizontal
         ? PAD + wi * (NODE_WIDTH + GAP_X)
-        : PAD + si * (NODE_WIDTH + GAP_Y)
+        : PAD + offset + si * (NODE_WIDTH + GAP_Y)
       const y = isHorizontal
-        ? PAD + si * (NODE_HEIGHT + GAP_Y)
+        ? PAD + offset + si * (NODE_HEIGHT + GAP_Y)
         : PAD + wi * (NODE_HEIGHT + GAP_X)
 
       nodes.push({
@@ -80,13 +92,27 @@ function layoutGraph(
   }
 
   const edges: Edge[] = steps.flatMap((step) =>
-    (step.dependsOn ?? []).map((dep) => ({
-      id: `${dep}->${step.name}`,
-      source: dep,
-      target: step.name,
-      animated: step.status === 'running',
-      style: { stroke: edgeColor(step.status) },
-    })),
+    (step.dependsOn ?? []).map((dep) => {
+      const color = edgeColor(step.status)
+      return {
+        id: `${dep}->${step.name}`,
+        source: dep,
+        target: step.name,
+        // smoothstep = orthogonal routing with rounded corners. Reads as a
+        // proper flowchart: lines run cleanly along the axis and turn at
+        // 90° with a gentle radius, no dramatic bezier swoops.
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 18, offset: 24 },
+        animated: step.status === 'running',
+        style: { stroke: color, strokeWidth: 1.75 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 16,
+          height: 16,
+          color,
+        },
+      }
+    }),
   )
 
   return { nodes, edges }
@@ -109,8 +135,8 @@ function edgeColor(status: PipelineStep['status']): string {
 // ---------------------------------------------------------------------------
 
 export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
 
   const layout = useMemo(
     () => (steps.length > 0 ? layoutGraph(buildDependencies(steps), direction) : null),
@@ -140,10 +166,10 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
+        fitViewOptions={{ padding: 0.12, maxZoom: 1.3 }}
         proOptions={{ hideAttribution: true }}
         minZoom={0.5}
-        maxZoom={1.5}
+        maxZoom={2}
       >
         <Background
           variant={BackgroundVariant.Dots}

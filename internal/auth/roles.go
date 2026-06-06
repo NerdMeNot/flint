@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/NerdMeNot/flint/internal/db"
 )
 
 // SystemRoleDefinition describes a system role to be seeded on boot.
@@ -83,14 +83,13 @@ var SystemRoles = []SystemRoleDefinition{
 // SeedSystemRoles ensures all system roles exist in the database with
 // correct permissions. Idempotent — skips roles that already exist.
 // Does NOT touch Casbin directly; call RegeneratePolicies after.
-func SeedSystemRoles(ctx context.Context, pool *pgxpool.Pool, orgID string) error {
+func SeedSystemRoles(ctx context.Context, q db.Querier, orgID string) error {
 	for _, def := range SystemRoles {
 		// Check if role exists.
-		var exists bool
-		err := pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM roles WHERE org_id = $1 AND slug = $2)`,
-			orgID, def.Slug,
-		).Scan(&exists)
+		exists, err := q.RoleExists(ctx, db.RoleExistsParams{
+			OrgID: orgID,
+			Slug:  def.Slug,
+		})
 		if err != nil {
 			return fmt.Errorf("checking role %s: %w", def.Slug, err)
 		}
@@ -100,24 +99,25 @@ func SeedSystemRoles(ctx context.Context, pool *pgxpool.Pool, orgID string) erro
 		}
 
 		// Create role.
-		var roleID string
-		err = pool.QueryRow(ctx,
-			`INSERT INTO roles (org_id, name, slug, description, is_system, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, true, now(), now())
-			 RETURNING id`,
-			orgID, def.Name, def.Slug, def.Description,
-		).Scan(&roleID)
+		desc := def.Description
+		roleID, err := q.CreateRole(ctx, db.CreateRoleParams{
+			OrgID:       orgID,
+			Name:        def.Name,
+			Slug:        def.Slug,
+			Description: &desc,
+			IsSystem:    true,
+		})
 		if err != nil {
 			return fmt.Errorf("creating role %s: %w", def.Slug, err)
 		}
 
 		// Insert permissions.
 		for _, perm := range def.Permissions {
-			_, err := pool.Exec(ctx,
-				`INSERT INTO role_permissions (role_id, object, action) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-				roleID, perm.Object, perm.Action,
-			)
-			if err != nil {
+			if err := q.InsertRolePermission(ctx, db.InsertRolePermissionParams{
+				RoleID: roleID,
+				Object: perm.Object,
+				Action: perm.Action,
+			}); err != nil {
 				return fmt.Errorf("inserting permission %s for role %s: %w", perm.Key(), def.Slug, err)
 			}
 		}
@@ -128,23 +128,21 @@ func SeedSystemRoles(ctx context.Context, pool *pgxpool.Pool, orgID string) erro
 
 // SeedAdminUsers ensures each email has an assignment to the admin role.
 // Does NOT touch Casbin directly; call RegenerateForSubject after.
-func SeedAdminUsers(ctx context.Context, pool *pgxpool.Pool, orgID string, adminEmails []string) error {
+func SeedAdminUsers(ctx context.Context, q db.Querier, orgID string, adminEmails []string) error {
 	// Find the admin role ID.
-	var roleID string
-	err := pool.QueryRow(ctx,
-		`SELECT id FROM roles WHERE org_id = $1 AND slug = $2`,
-		orgID, RoleAdmin,
-	).Scan(&roleID)
+	role, err := q.GetRoleBySlug(ctx, db.GetRoleBySlugParams{
+		OrgID: orgID,
+		Slug:  RoleAdmin,
+	})
 	if err != nil {
 		return fmt.Errorf("finding admin role: %w", err)
 	}
 
 	for _, email := range adminEmails {
-		_, err := pool.Exec(ctx,
-			`INSERT INTO role_assignments (subject, role_id, created_at) VALUES ($1, $2, now()) ON CONFLICT DO NOTHING`,
-			email, roleID,
-		)
-		if err != nil {
+		if err := q.InsertRoleAssignment(ctx, db.InsertRoleAssignmentParams{
+			Subject: email,
+			RoleID:  role.ID,
+		}); err != nil {
 			return fmt.Errorf("assigning admin to %s: %w", email, err)
 		}
 	}

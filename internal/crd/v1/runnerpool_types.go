@@ -42,9 +42,51 @@ type RunnerPoolSpec struct {
 	// +optional
 	Spot *SpotSpec `json:"spot,omitempty"`
 
+	// ServiceAccountName is the K8s ServiceAccount to assign to step pods in
+	// this pool. Use this for cloud IAM role-based auth without storing secrets:
+	//   - EKS IRSA: annotate the SA with eks.amazonaws.com/role-arn
+	//   - GKE Workload Identity: annotate with iam.gke.io/gcp-service-account
+	//   - AKS Workload Identity: annotate with azure.workload.identity/client-id
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Workspace configures how step pods share the /workspace directory.
+	// +optional
+	Workspace *WorkspaceSpec `json:"workspace,omitempty"`
+
 	// DefaultTimeout is the default step timeout for this pool.
 	// +optional
 	DefaultTimeout string `json:"defaultTimeout,omitempty"`
+}
+
+// WorkspaceSpec configures the workspace storage backend for a runner pool.
+type WorkspaceSpec struct {
+	// Mode selects the workspace backend.
+	//   - "agent" (default): emptyDir per pod + per-run gRPC workspace agent for sync
+	//   - "pvc": ReadWriteMany PVC shared by all step pods in a run — no sync needed
+	//   - "s3": emptyDir per pod + S3-backed incremental sync between steps
+	// +kubebuilder:validation:Enum=agent;pvc;s3
+	// +kubebuilder:default=agent
+	Mode string `json:"mode"`
+
+	// StorageClass is required when mode=pvc. Must support ReadWriteMany access
+	// (e.g. EFS, CephFS, NFS, FSx Lustre). The controller validates this at
+	// reconciliation time — gp2/gp3/io2 will be rejected with a clear error.
+	// +optional
+	StorageClass string `json:"storageClass,omitempty"`
+
+	// Size is the PVC capacity when mode=pvc. Default: "10Gi".
+	// +optional
+	// +kubebuilder:default="10Gi"
+	Size string `json:"size,omitempty"`
+
+	// Bucket is the S3 bucket name when mode=s3. Required for S3 mode.
+	// +optional
+	Bucket string `json:"bucket,omitempty"`
+
+	// Region is the AWS region when mode=s3.
+	// +optional
+	Region string `json:"region,omitempty"`
 }
 
 // ResourceProfileSpec defines what developers see — human-readable compute resources.

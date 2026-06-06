@@ -60,7 +60,7 @@ function ConnectionsPage() {
                     </h3>
                   </div>
                 </div>
-                <span className="island-kicker !text-[0.55rem] shrink-0">
+                <span className="island-kicker !text-[11px] shrink-0">
                   {forgeLabel(conn.forgeType)}
                 </span>
               </div>

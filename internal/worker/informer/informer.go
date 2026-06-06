@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,12 +37,13 @@ func (c *Config) labelSelector() string {
 type Watcher struct {
 	client kubernetes.Interface
 	engine engine.Engine
+	pool   *pgxpool.Pool
 	config Config
 }
 
 // New creates a new informer Watcher.
-func New(client kubernetes.Interface, eng engine.Engine, cfg Config) *Watcher {
-	return &Watcher{client: client, engine: eng, config: cfg}
+func New(client kubernetes.Interface, eng engine.Engine, pool *pgxpool.Pool, cfg Config) *Watcher {
+	return &Watcher{client: client, engine: eng, pool: pool, config: cfg}
 }
 
 // Run starts the informers and blocks until the context is cancelled.
@@ -121,18 +124,23 @@ func (w *Watcher) handleJobEvent(job *batchv1.Job, success bool, reason string) 
 	if runID == "" || stepName == "" {
 		return
 	}
-
-	// Look up workflow ID from pipeline_runs.
-	// The informer needs this to deliver signals to the right workflow.
-	if w.engine == nil {
+	if w.engine == nil || w.pool == nil {
 		return
 	}
 
-	// Deliver signal to engine. The engine's advanceWorkflow will consume it.
+	// Resolve workflowID from runID via the pipeline_runs table.
+	ctx := context.Background()
+	q := db.New(w.pool)
+	wfID, err := q.GetRunWorkflowID(ctx, runID)
+	if err != nil || wfID == nil {
+		log.Warn().Err(err).Str("runID", runID).Msg("informer: cannot resolve workflow for run")
+		return
+	}
+
 	if success {
-		HandleJobCompleted(context.Background(), w.engine, "", stepName, runID)
+		HandleJobCompleted(ctx, w.engine, *wfID, stepName, runID)
 	} else {
-		HandleJobFailed(context.Background(), w.engine, "", stepName, runID, reason)
+		HandleJobFailed(ctx, w.engine, *wfID, stepName, runID, reason)
 	}
 }
 

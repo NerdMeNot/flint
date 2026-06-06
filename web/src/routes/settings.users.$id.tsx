@@ -47,14 +47,6 @@ function UserDetailPage() {
     .map((a) => roleMap.get(a.role))
     .filter(Boolean) as typeof roles
 
-  // Teams this user belongs to (check mock team membership)
-  const userTeams = teams.filter((t) => {
-    // We need the full team with members to check. Use the teams.get endpoint logic.
-    // For the mock, we match by the users array in getTeamWithMembers.
-    // Simplification: check all teams
-    return true // Will filter in the component with actual data
-  })
-
   // Team-inherited roles
   const teamAssignments = assignments.filter((a) => a.subject.startsWith('team:'))
   const teamRoleMap = new Map<string, typeof roles>()
@@ -100,7 +92,7 @@ function UserDetailPage() {
           <div className="flex items-center gap-2">
             <KeyRound size={14} className="text-muted-foreground" />
             <h3 className="text-xs font-semibold text-foreground">Direct Roles</h3>
-            <span className="text-[0.6rem] text-muted-foreground opacity-50">{directRoles.length}</span>
+            <span className="text-[11px] text-muted-foreground opacity-50">{directRoles.length}</span>
           </div>
           <button
             type="button"
@@ -122,7 +114,7 @@ function UserDetailPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-foreground">{role.name}</span>
                     {role.isSystem && (
-                      <span className="island-kicker !text-[0.5rem] bg-primary/10 text-primary border-primary/20">System</span>
+                      <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
                     )}
                   </div>
                   <ScopeBadges workspaces={role.workspaces} environments={role.environments} />
@@ -151,7 +143,7 @@ function UserDetailPage() {
         <div className="flex items-center gap-2">
           <Shield size={14} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-foreground">Effective Permissions</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">Combined from all roles</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">Combined from all roles</span>
         </div>
         <div className="island-shell p-3">
           <PermissionMatrix permissions={mergePermissions(directRoles, teamRoleMap)} />
@@ -206,7 +198,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
         <div className="flex items-center gap-2">
           <Key size={14} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-foreground">Personal Tokens</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{tokens.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{tokens.length}</span>
         </div>
         <button
           type="button"
@@ -233,7 +225,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
                   <Key size={13} className={isExpired ? 'text-warning shrink-0' : 'text-muted-foreground shrink-0'} />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{token.name}</p>
-                    <div className="flex flex-wrap items-center gap-3 text-[0.65rem] text-muted-foreground mt-0.5">
+                    <div className="flex flex-wrap items-center gap-3 text-[12px] text-muted-foreground mt-0.5">
                       <span className="flex items-center gap-1">
                         <Calendar size={10} />
                         Created {formatTime(token.createdAt)}
@@ -299,10 +291,10 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
         <div className="px-5 py-5 space-y-4">
           <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
             <p className="text-xs font-semibold text-success">Token generated</p>
-            <p className="text-[0.65rem] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Copy this token now. It will not be shown again. Use it in the Flint CLI:
             </p>
-            <code className="block text-[0.65rem] text-muted-foreground font-mono mt-1">
+            <code className="block text-[12px] text-muted-foreground font-mono mt-1">
               flint auth login --token &lt;token&gt;
             </code>
             <div className="flex items-center gap-2 mt-3">
@@ -337,7 +329,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
                 placeholder="MacBook Pro"
                 className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
               />
-              <p className="text-[0.65rem] text-muted-foreground">A name to identify this token (e.g., your device name)</p>
+              <p className="text-[12px] text-muted-foreground">A name to identify this token (e.g., your device name)</p>
             </div>
 
             <div className="space-y-1.5">
@@ -357,7 +349,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
             </div>
 
             <div className="rounded-lg border border-border/50 p-3">
-              <p className="text-[0.65rem] text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 This token will have the same permissions as <span className="font-medium text-foreground">{userName}</span>.
                 If your roles change, the token's access changes automatically.
               </p>
@@ -490,7 +482,7 @@ function TeamMemberships({
             <div className="flex items-center gap-2 min-w-0">
               <Users size={14} className="text-muted-foreground shrink-0" />
               <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{team.name}</span>
-              <span className={`island-kicker !text-[0.5rem] shrink-0 ${
+              <span className={`island-kicker !text-[11px] shrink-0 ${
                 team.source === 'idp' ? 'bg-primary/10 text-primary border-primary/20' : ''
               }`}>
                 {team.source === 'idp' ? 'IdP' : 'Internal'}
@@ -498,10 +490,10 @@ function TeamMemberships({
             </div>
             <div className="flex flex-wrap gap-1 shrink-0">
               {inherited.length === 0 ? (
-                <span className="text-[0.6rem] text-muted-foreground opacity-40">No team roles</span>
+                <span className="text-[11px] text-muted-foreground opacity-40">No team roles</span>
               ) : (
                 inherited.map((role) => (
-                  <span key={role.slug} className="rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium bg-secondary text-foreground border border-border">
+                  <span key={role.slug} className="rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-secondary text-foreground border border-border">
                     {role.name}
                   </span>
                 ))

@@ -27,11 +27,6 @@ import type { Project, PipelineRun } from '#/lib/api/types'
 // Types
 // ---------------------------------------------------------------------------
 
-interface SearchResult {
-  projects: Project[]
-  runs: PipelineRun[]
-}
-
 interface PaletteItem {
   id: string
   label: string
@@ -129,7 +124,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   // Search API query
   const trimmed = query.trim()
-  const { data: searchData } = useQuery<SearchResult>({
+  const { data: searchData } = useQuery({
     ...orpc.search.query.queryOptions({ input: { q: trimmed, limit: 6 } }),
     enabled: open && trimmed.length > 0,
   })
@@ -253,7 +248,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               placeholder="Search projects, runs, pages..."
               className="flex-1 py-3.5 text-sm bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
             />
-            <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground/60 border border-border rounded">
+            <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground/60 border border-border rounded">
               ESC
             </kbd>
           </div>
@@ -268,7 +263,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               groups.map((group) => (
                 <div key={group.label}>
                   <div className="px-4 pt-2 pb-1">
-                    <span className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                    <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/50">
                       {group.label}
                     </span>
                   </div>
@@ -311,9 +306,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           </div>
 
           {/* Footer hints */}
-          <div className="flex items-center gap-4 px-4 py-2.5 border-t border-border text-[0.6rem] text-muted-foreground/40">
+          <div className="flex items-center gap-4 px-4 py-2.5 border-t border-border text-[11px] text-muted-foreground/40">
             <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 border border-border rounded text-[0.55rem]">&uarr;&darr;</kbd>
+              <kbd className="px-1 py-0.5 border border-border rounded text-[11px]">&uarr;&darr;</kbd>
               navigate
             </span>
             <span className="flex items-center gap-1">
@@ -321,7 +316,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               open
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 border border-border rounded text-[0.55rem]">esc</kbd>
+              <kbd className="px-1 py-0.5 border border-border rounded text-[11px]">esc</kbd>
               close
             </span>
           </div>

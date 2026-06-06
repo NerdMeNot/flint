@@ -14,13 +14,17 @@ export const Route = createFileRoute('/projects/')({
 })
 
 function ProjectsPage() {
-  const { workspace } = useScope()
+  const { workspaces } = useScope()
   const { page, cursor, goToPage, reset } = useCursorPagination()
   const [search, setSearch] = useState('')
 
   const { data: projectsData } = useSuspenseQuery(
     orpc.projects.list.queryOptions({
-      input: { workspace, limit: PROJECT_PAGE_SIZE, cursor },
+      input: {
+        workspace: workspaces.length > 0 ? workspaces : undefined,
+        limit: PROJECT_PAGE_SIZE,
+        cursor,
+      },
     }),
   )
 
@@ -35,16 +39,25 @@ function ProjectsPage() {
     : projectsData.items
   const hasMore = !!projectsData.nextCursor
 
+  // Subline: "in production", "in production, staging", "in production +2"
+  const wsLabel = workspaces.length === 0
+    ? ' connected'
+    : workspaces.length === 1
+      ? ` in ${workspaces[0]}`
+      : workspaces.length === 2
+        ? ` in ${workspaces[0]}, ${workspaces[1]}`
+        : ` in ${workspaces[0]} +${workspaces.length - 1}`
+
   return (
     <div className="space-y-6 rise-in">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="display-title text-2xl text-foreground">Projects</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {projects.length} repositories{workspace ? ` in ${workspace}` : ' connected'}
+          <h1 className="display-title text-3xl lg:text-4xl text-foreground">Projects</h1>
+          <p className="text-muted-foreground text-sm lg:text-base mt-2">
+            {projects.length} repositories{wsLabel}
           </p>
         </div>
-        <div className="relative w-64 shrink-0">
+        <div className="relative w-64 lg:w-72 shrink-0">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <input
             type="text"
@@ -85,13 +98,13 @@ function ProjectsPage() {
                     <p className="text-xs text-muted-foreground font-mono truncate">{project.repo}</p>
                   </div>
                 </div>
-                <span className="island-kicker !text-[0.55rem] shrink-0 ml-2">{project.workspace}</span>
+                <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
               </div>
 
               {project.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {project.tags.map((tag) => (
-                    <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
+                    <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
                       {tag}
                     </span>
                   ))}

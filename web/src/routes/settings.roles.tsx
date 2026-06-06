@@ -79,7 +79,7 @@ function RolesTab() {
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">System Roles</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{systemRoles.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{systemRoles.length}</span>
         </div>
         <div className="space-y-2">
           {systemRoles.map((role) => (
@@ -98,7 +98,7 @@ function RolesTab() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Custom Roles</h3>
-            <span className="text-[0.6rem] text-muted-foreground opacity-50">{customRoles.length}</span>
+            <span className="text-[11px] text-muted-foreground opacity-50">{customRoles.length}</span>
           </div>
           <button
             type="button"
@@ -164,9 +164,9 @@ function RoleCard({
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">{role.name}</span>
             {role.isSystem && (
-              <span className="island-kicker !text-[0.55rem] bg-primary/10 text-primary border-primary/20">System</span>
+              <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
             )}
-            <span className="text-[0.6rem] text-muted-foreground opacity-50">{permCount} permissions</span>
+            <span className="text-[11px] text-muted-foreground opacity-50">{permCount} permissions</span>
           </div>
           {role.description && (
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{role.description}</p>
@@ -270,7 +270,7 @@ function RoleFormModal({ role, onClose }: { role?: Role; onClose: () => void }) 
                 placeholder="Prod Release Manager"
                 className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
               />
-              {slug && <p className="text-[0.65rem] text-muted-foreground font-mono">slug: {slug}</p>}
+              {slug && <p className="text-[12px] text-muted-foreground font-mono">slug: {slug}</p>}
             </div>
 
             {/* Description */}
@@ -289,7 +289,7 @@ function RoleFormModal({ role, onClose }: { role?: Role; onClose: () => void }) 
               <div className="rounded-lg border border-border p-3">
                 <PermissionMatrix permissions={permissions} editable onChange={setPermissions} />
               </div>
-              {permissions.length === 0 && <p className="text-[0.65rem] text-destructive">Select at least one permission</p>}
+              {permissions.length === 0 && <p className="text-[12px] text-destructive">Select at least one permission</p>}
             </div>
 
             {/* Scope — only shown when CI permissions are selected */}
@@ -297,7 +297,7 @@ function RoleFormModal({ role, onClose }: { role?: Role; onClose: () => void }) 
               <div className="space-y-4 rounded-lg border border-border p-4">
                 <div>
                   <h4 className="text-xs font-semibold text-foreground">CI Scope</h4>
-                  <p className="text-[0.65rem] text-muted-foreground mt-0.5">
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
                     Limit CI permissions to specific workspaces and/or environments. Admin permissions are always platform-wide.
                   </p>
                 </div>
@@ -406,7 +406,7 @@ function AssignmentsTab() {
       </div>
 
       <div className="island-shell !p-0 overflow-hidden">
-        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[0.65rem] font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
           <span>Subject</span>
           <span>Role</span>
           <span>Scope</span>
@@ -425,7 +425,7 @@ function AssignmentsTab() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-foreground truncate">{role?.name ?? a.role}</span>
-                  {role?.isSystem && <span className="island-kicker !text-[0.5rem] bg-primary/10 text-primary border-primary/20">System</span>}
+                  {role?.isSystem && <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>}
                 </div>
                 <div>{role && <ScopeBadges workspaces={role.workspaces} environments={role.environments} />}</div>
                 <div className="flex justify-end">

@@ -28,11 +28,11 @@ import (
 //   [rest]    encrypted plaintext (AES-256-GCM: 12-byte nonce + ciphertext + 16-byte tag)
 
 const (
-	blobVersion    = 0x01
-	dekSize        = 32 // AES-256
-	gcmNonceSize   = 12
-	gcmOverhead    = gcmNonceSize + 16 // nonce + tag
-	headerSize     = 4                  // version + key version + 2-byte dek length
+	blobVersion  = 0x01
+	dekSize      = 32 // AES-256
+	gcmNonceSize = 12
+	gcmOverhead  = gcmNonceSize + 16 // nonce + tag
+	headerSize   = 4                 // version + key version + 2-byte dek length
 )
 
 // Encrypt encrypts plaintext using envelope encryption with the given master key.

@@ -7,7 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/NerdMeNot/flint/pkg/artifact"
+	pkgcache "github.com/NerdMeNot/flint/pkg/cache"
 	"github.com/NerdMeNot/flint/pkg/logsink"
+	"github.com/NerdMeNot/flint/pkg/workspace"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,6 +67,10 @@ func Watch(ctx context.Context, cfg *Config, sink logsink.LogSink) error {
 		log.Warn().Err(err).Msg("failed to read emit outputs")
 	}
 
+	// Clean up agent internal files so they don't leak into the next step
+	// when using a shared volume (PVC mode).
+	cleanupAgentFiles(cfg.Workspace)
+
 	result := &StepResult{
 		StepName: cfg.StepName,
 		Success:  exitCode == 0,
@@ -72,6 +79,49 @@ func Watch(ctx context.Context, cfg *Config, sink logsink.LogSink) error {
 	}
 	if exitCode != 0 {
 		result.Error = fmt.Sprintf("step exited with code %d", exitCode)
+	}
+
+	// On success: sync workspace out, upload artifacts, save cache.
+	if exitCode == 0 {
+		// Workspace sync.
+		ws, wsErr := workspace.New(
+			cfg.WorkspaceMode, cfg.WorkspaceAddr, cfg.WorkspaceToken,
+			cfg.S3Bucket, cfg.S3Region, cfg.RunID,
+		)
+		if wsErr != nil {
+			log.Warn().Err(wsErr).Msg("agent: workspace init failed (skipping sync)")
+		}
+		if ws != nil {
+			defer ws.Close()
+			if syncErr := ws.SyncOut(ctx, cfg.Workspace); syncErr != nil {
+				log.Warn().Err(syncErr).Msg("agent: workspace SyncOut failed (continuing)")
+			}
+		}
+
+		// Upload artifacts.
+		if cfg.S3Bucket != "" && len(cfg.ArtifactOutputs) > 0 {
+			store := artifact.NewS3Store(cfg.S3Bucket, cfg.S3Region)
+			for _, output := range cfg.ArtifactOutputs {
+				ref := artifact.Ref{
+					OrgID: cfg.OrgID, RunID: cfg.RunID,
+					StepName: cfg.StepName, Name: output.Path,
+				}
+				if err := store.Upload(ctx, ref, output.Path); err != nil {
+					log.Warn().Err(err).Str("path", output.Path).Msg("agent: failed to upload artifact")
+				}
+			}
+		}
+
+		// Save cache.
+		if cfg.S3Bucket != "" && cfg.CacheKey != "" && len(cfg.CachePaths) > 0 {
+			cacheStore := pkgcache.NewS3(cfg.OrgID, cfg.ProjectID, cfg.S3Bucket, cfg.S3Region)
+			key, keyErr := EvaluateCacheKey(cfg)
+			if keyErr != nil {
+				log.Warn().Err(keyErr).Msg("agent: failed to evaluate cache key (skipping save)")
+			} else if err := cacheStore.Save(ctx, key, cfg.CachePaths); err != nil {
+				log.Warn().Err(err).Msg("agent: failed to save cache")
+			}
+		}
 	}
 
 	// Report to server via HTTP — no Temporal.
@@ -168,5 +218,13 @@ func waitForCompletion(ctx context.Context, workspace string) (int, error) {
 			}
 			return code, nil
 		}
+	}
+}
+
+// cleanupAgentFiles removes internal agent files from the workspace so they
+// don't leak into the next step when using a shared volume (PVC mode).
+func cleanupAgentFiles(workspace string) {
+	for _, name := range []string{".flint-emit", ".flint-exit", ".flint-step.log"} {
+		_ = os.Remove(fmt.Sprintf("%s/%s", workspace, name))
 	}
 }

@@ -41,7 +41,7 @@ function TeamDetailPage() {
           <div>
             <div className="flex items-center gap-2.5">
               <h2 className="display-title text-lg font-bold text-foreground">{team.name}</h2>
-              <span className={`island-kicker !text-[0.55rem] shrink-0 ${
+              <span className={`island-kicker !text-[11px] shrink-0 ${
                 team.source === 'idp'
                   ? 'bg-primary/10 text-primary border-primary/20'
                   : ''
@@ -85,7 +85,7 @@ function TeamDetailPage() {
               <div className="flex items-center gap-2">
                 <KeyRound size={14} className="text-muted-foreground" />
                 <h3 className="text-xs font-semibold text-foreground">Team Roles</h3>
-                <span className="text-[0.6rem] text-muted-foreground opacity-50">Inherited by all members</span>
+                <span className="text-[11px] text-muted-foreground opacity-50">Inherited by all members</span>
               </div>
               <button
                 type="button"
@@ -103,7 +103,7 @@ function TeamDetailPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground">{role.name}</span>
                       {role.isSystem && (
-                        <span className="island-kicker !text-[0.5rem] bg-primary/10 text-primary border-primary/20">System</span>
+                        <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
                       )}
                     </div>
                     <ScopeBadges workspaces={role.workspaces} environments={role.environments} />
@@ -154,7 +154,7 @@ function TeamDetailPage() {
                     {member.email}
                   </p>
                 </div>
-                <span className="text-[0.6rem] font-mono text-muted-foreground opacity-50 shrink-0">{member.id}</span>
+                <span className="text-[11px] font-mono text-muted-foreground opacity-50 shrink-0">{member.id}</span>
               </div>
             ))}
           </div>

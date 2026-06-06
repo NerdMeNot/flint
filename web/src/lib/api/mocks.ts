@@ -168,6 +168,25 @@ const projectEnvironment: Record<string, string> = {
 export function getRuns(): PipelineRun[] {
   return [
     {
+      // Designed test-bed for the gate panel: a production deploy that
+      // has cleared all upstream checks and is currently parked at the
+      // approve-production gate. Use this run id when poking at gate UX.
+      id: 'r-gate-1',
+      projectId: 'p-5',
+      projectName: 'Auth Service',
+      projectColour: '#f59e0b',
+      repo: 'acme/auth-service',
+      status: 'running',
+      branch: 'main',
+      commitSha: 'a3b4c5d',
+      commitMessage: 'fix: payment retry on 5xx responses',
+      triggeredBy: 'alice',
+      triggerType: 'push',
+      duration: '4m 12s',
+      startedAt: '18 min ago',
+      workflowFile: 'deploy.yaml',
+    },
+    {
       id: 'r-101',
       projectId: 'p-1',
       projectName: 'Checkout Service',
@@ -487,99 +506,239 @@ export function getRuns(): PipelineRun[] {
       startedAt: '30 sec ago',
       workflowFile: 'ci.yaml',
     },
-  ].map((r) => ({ ...r, environment: projectEnvironment[r.projectId] }))
+  ].map((r) => ({ ...r, environment: projectEnvironment[r.projectId] }) as PipelineRun)
 }
 
 // ---------------------------------------------------------------------------
 // Pipeline steps (11-step pipeline for default run)
 // ---------------------------------------------------------------------------
 
-export function getSteps(): PipelineStep[] {
+export function getSteps(runId?: string): PipelineStep[] {
+  if (runId === 'r-gate-1') return getGatePausedSteps()
   return [
-    {
-      name: 'checkout',
-      status: 'succeeded',
-      execType: 'run',
-      wave: 0,
-      startedAt: '2024-01-15T10:00:00Z',
-      finishedAt: '2024-01-15T10:00:05Z',
-    },
     {
       name: 'install-deps',
       status: 'succeeded',
       execType: 'run',
-      wave: 1,
-      dependsOn: ['checkout'],
-      startedAt: '2024-01-15T10:00:05Z',
-      finishedAt: '2024-01-15T10:00:32Z',
+      wave: 0,
+      attempt: 1,
+      maxAttempts: 1,
+      startedAt: '2024-01-15T10:00:00Z',
+      finishedAt: '2024-01-15T10:00:27Z',
     },
     {
       name: 'lint',
       status: 'succeeded',
       execType: 'run',
-      wave: 2,
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:32Z',
+      startedAt: '2024-01-15T10:00:28Z',
       finishedAt: '2024-01-15T10:00:48Z',
     },
     {
       name: 'unit-tests',
       status: 'succeeded',
       execType: 'run',
-      wave: 2,
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:32Z',
+      startedAt: '2024-01-15T10:00:28Z',
       finishedAt: '2024-01-15T10:01:15Z',
     },
     {
       name: 'integration-tests',
       status: 'running',
       execType: 'run',
-      wave: 2,
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:32Z',
+      startedAt: '2024-01-15T10:00:28Z',
     },
     {
       name: 'build',
       status: 'pending',
       execType: 'run',
-      wave: 3,
+      wave: 2,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['lint', 'unit-tests', 'integration-tests'],
     },
     {
       name: 'docker-push',
       status: 'pending',
       execType: 'run',
-      wave: 4,
+      wave: 3,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['build'],
     },
     {
       name: 'deploy-staging',
       status: 'pending',
       execType: 'run',
-      wave: 5,
+      wave: 4,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['docker-push'],
     },
     {
       name: 'smoke-tests',
       status: 'pending',
       execType: 'run',
-      wave: 6,
+      wave: 5,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['deploy-staging'],
     },
     {
-      name: 'gate-prod',
+      name: 'approve-production',
       status: 'pending',
       execType: 'gate',
-      wave: 7,
+      wave: 6,
+      attempt: 1,
+      maxAttempts: 1,
       dependsOn: ['smoke-tests'],
     },
     {
       name: 'deploy-prod',
       status: 'pending',
       execType: 'run',
+      wave: 7,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['approve-production'],
+    },
+  ]
+}
+
+/**
+ * Step list for the dedicated gate-test run (r-gate-1). All upstream
+ * stages have completed; the production-approval gate is currently
+ * waiting on a human, and the post-gate deploy is pending.
+ */
+function getGatePausedSteps(): PipelineStep[] {
+  return [
+    {
+      name: 'install-deps',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 0,
+      attempt: 1,
+      maxAttempts: 1,
+      startedAt: '2024-01-15T10:00:00Z',
+      finishedAt: '2024-01-15T10:00:24Z',
+    },
+    {
+      name: 'lint',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['install-deps'],
+      startedAt: '2024-01-15T10:00:25Z',
+      finishedAt: '2024-01-15T10:00:42Z',
+    },
+    {
+      name: 'unit-tests',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['install-deps'],
+      startedAt: '2024-01-15T10:00:25Z',
+      finishedAt: '2024-01-15T10:01:08Z',
+    },
+    {
+      name: 'integration-tests',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 1,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['install-deps'],
+      startedAt: '2024-01-15T10:00:25Z',
+      finishedAt: '2024-01-15T10:01:42Z',
+    },
+    {
+      name: 'build',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 2,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['lint', 'unit-tests', 'integration-tests'],
+      startedAt: '2024-01-15T10:01:43Z',
+      finishedAt: '2024-01-15T10:02:31Z',
+    },
+    {
+      name: 'docker-push',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 3,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['build'],
+      startedAt: '2024-01-15T10:02:32Z',
+      finishedAt: '2024-01-15T10:03:10Z',
+    },
+    {
+      name: 'deploy-staging',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 4,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['docker-push'],
+      startedAt: '2024-01-15T10:03:11Z',
+      finishedAt: '2024-01-15T10:03:48Z',
+    },
+    {
+      name: 'smoke-tests',
+      status: 'succeeded',
+      execType: 'run',
+      wave: 5,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['deploy-staging'],
+      startedAt: '2024-01-15T10:03:49Z',
+      finishedAt: '2024-01-15T10:04:12Z',
+    },
+    {
+      // The gate the run is currently parked at — startedAt set so the
+      // rail/Gantt see it as actively waiting (clickable, animatable),
+      // no finishedAt yet because the human hasn't decided.
+      name: 'approve-production',
+      status: 'waiting',
+      execType: 'gate',
+      wave: 6,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['smoke-tests'],
+      startedAt: '2024-01-15T10:04:13Z',
+    },
+    {
+      name: 'deploy-prod',
+      status: 'pending',
+      execType: 'run',
+      wave: 7,
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['approve-production'],
+    },
+    {
+      name: 'post-deploy-smoke',
+      status: 'pending',
+      execType: 'run',
       wave: 8,
-      dependsOn: ['gate-prod'],
+      attempt: 1,
+      maxAttempts: 1,
+      dependsOn: ['deploy-prod'],
     },
   ]
 }
@@ -590,13 +749,7 @@ export function getSteps(): PipelineStep[] {
 
 export function getStepLogs(): Record<string, string> {
   return {
-    checkout: `[10:00:00] Cloning repository acme/api-gateway...
-[10:00:01] Fetching ref main (a3f8c21)
-[10:00:03] Submodule init: 0 submodules
-[10:00:04] Checkout complete in 4.2s
-[10:00:05] HEAD is now at a3f8c21 fix: rate limiter race condition`,
-
-    'install-deps': `[10:00:05] Running: go mod download
+    'install-deps': `[10:00:00] Running: go mod download
 [10:00:12] go: downloading github.com/gin-gonic/gin v1.9.1
 [10:00:18] go: downloading github.com/redis/go-redis/v9 v9.5.1
 [10:00:24] go: downloading google.golang.org/grpc v1.62.0
@@ -649,73 +802,112 @@ const projectPipelines: Record<string, PipelineDef[]> = {
   'p-1': [{
     filename: 'ci.yaml',
     status: 'valid',
-    yaml: `name: ci
-on:
+    yaml: `# API Gateway — CI/CD Pipeline
+image: golang:1.23-alpine
+
+triggers:
   push:
-    branches: [main, release/*]
+    branches: [main, "release/**"]
   pull_request:
+    branches: [main]
+  manual:
+    environments: [staging, production]
+    inputs:
+      - name: environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      - name: skip_tests
+        type: boolean
+        description: Skip test steps for hotfixes
+        default: "false"
 
 steps:
-  checkout:
-    run: git checkout
-
-  install-deps:
-    needs: [checkout]
+  - name: install-deps
     run: go mod download
+    cache:
+      key: go-mod-\${{ hashFiles('go.sum') }}
+      paths: [/go/pkg/mod]
 
-  lint:
-    needs: [install-deps]
-    run: golangci-lint run ./...
+  - name: lint
+    dependsOn: [install-deps]
+    run: golangci-lint run --timeout 5m ./...
 
-  unit-tests:
-    needs: [install-deps]
-    run: go test -race -count=1 ./...
+  - name: unit-tests
+    dependsOn: [install-deps]
+    run: go test -race -count=1 -coverprofile=coverage.out ./...
+    if: \${{ inputs.skip_tests != 'true' }}
 
-  integration-tests:
-    needs: [install-deps]
-    run: go test -tags=integration ./...
+  - name: integration-tests
+    dependsOn: [install-deps]
+    run: go test -tags=integration -timeout 10m ./...
+    if: \${{ inputs.skip_tests != 'true' }}
     services:
-      postgres: postgres:16-alpine
-      redis: redis:7-alpine
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_PASSWORD: test
+      - name: redis
+        image: redis:7-alpine
 
-  build:
-    needs: [lint, unit-tests, integration-tests]
-    run: go build -ldflags="-s -w" -o bin/api-gateway ./cmd/server
+  - name: build
+    dependsOn: [lint, unit-tests, integration-tests]
+    run: |
+      CGO_ENABLED=0 go build -trimpath \\
+        -ldflags="-s -w -X main.version=\${{ shortSha }}" \\
+        -o bin/api-gateway ./cmd/server
+    continueOnError: false
 
-  docker-push:
-    needs: [build]
-    run: docker build -t api-gateway:\${{ commit.sha }} .
+  - name: docker-push
+    dependsOn: [build]
+    image: docker:24
+    run: |
+      docker build -t ghcr.io/acme/api-gateway:\${{ commitSha }} .
+      docker push ghcr.io/acme/api-gateway:\${{ commitSha }}
+    secrets:
+      REGISTRY_TOKEN: ghcr-push-token
 
-  deploy-staging:
-    needs: [docker-push]
-    environment: staging
-    run: helm upgrade api-gateway ./charts/api-gateway
+  - name: deploy-staging
+    dependsOn: [docker-push]
+    environments: [staging]
+    run: |
+      helm upgrade --install api-gateway ./charts/api-gateway \\
+        --namespace api --set image.tag=\${{ commitSha }}
 
-  smoke-tests:
-    needs: [deploy-staging]
-    run: ./scripts/smoke-test.sh staging
+  - name: smoke-tests
+    dependsOn: [deploy-staging]
+    run: ./scripts/smoke-test.sh --env staging --timeout 120s
+    timeout: 5m
+    retry:
+      attempts: 2
+      delay: 30s
 
-  gate-prod:
-    needs: [smoke-tests]
-    type: gate
-    approvers: [alice, eve]
+  - name: approve-production
+    dependsOn: [smoke-tests]
+    gate:
+      approvers:
+        - team:platform
+        - user:alice@acme.dev
+      minApprovals: 1
 
-  deploy-prod:
-    needs: [gate-prod]
-    environment: production
-    run: helm upgrade api-gateway ./charts/api-gateway --set env=prod`,
+  - name: deploy-prod
+    dependsOn: [approve-production]
+    environments: [production]
+    run: |
+      helm upgrade --install api-gateway ./charts/api-gateway \\
+        --namespace api --set image.tag=\${{ commitSha }} --set env=prod`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'install-deps', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'lint', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'unit-tests', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'integration-tests', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'build', execType: 'run', wave: 3, dependsOn: ['lint', 'unit-tests', 'integration-tests'] },
-      { name: 'docker-push', execType: 'run', wave: 4, dependsOn: ['build'] },
-      { name: 'deploy-staging', execType: 'run', wave: 5, dependsOn: ['docker-push'] },
-      { name: 'smoke-tests', execType: 'run', wave: 6, dependsOn: ['deploy-staging'] },
-      { name: 'gate-prod', execType: 'gate', wave: 7, dependsOn: ['smoke-tests'] },
-      { name: 'deploy-prod', execType: 'run', wave: 8, dependsOn: ['gate-prod'] },
+      { name: 'install-deps', execType: 'run', wave: 0 },
+      { name: 'lint', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'unit-tests', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'integration-tests', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'build', execType: 'run', wave: 2, dependsOn: ['lint', 'unit-tests', 'integration-tests'] },
+      { name: 'docker-push', execType: 'run', wave: 3, dependsOn: ['build'] },
+      { name: 'deploy-staging', execType: 'run', wave: 4, dependsOn: ['docker-push'] },
+      { name: 'smoke-tests', execType: 'run', wave: 5, dependsOn: ['deploy-staging'] },
+      { name: 'approve-production', execType: 'gate', wave: 6, dependsOn: ['smoke-tests'] },
+      { name: 'deploy-prod', execType: 'run', wave: 7, dependsOn: ['approve-production'] },
     ],
     dispatchInputs: [
       { name: 'environment', type: 'choice', description: 'Target environment', required: true, default: 'staging', options: ['dev', 'staging', 'production'] },
@@ -725,175 +917,196 @@ steps:
   }, {
     filename: 'nightly.yaml',
     status: 'valid',
-    yaml: `name: nightly
-on:
+    yaml: `# Nightly Performance Benchmarks
+image: golang:1.23-alpine
+
+triggers:
   schedule:
-    - cron: "0 3 * * *"
+    cron: "0 3 * * *"
 
 steps:
-  checkout:
-    run: git checkout
-
-  build:
-    needs: [checkout]
+  - name: build
     run: go build -o bin/api-gateway ./cmd/server
 
-  load-test:
-    needs: [build]
-    run: k6 run scripts/load-test.js
+  - name: load-test
+    dependsOn: [build]
+    image: grafana/k6:latest
+    run: k6 run --vus 50 --duration 10m scripts/load-test.js
     timeout: 30m
 
-  report:
-    needs: [load-test]
-    run: ./scripts/publish-perf-report.sh`,
+  - name: report
+    dependsOn: [load-test]
+    run: ./scripts/publish-perf-report.sh
+    when: always`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'build', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'load-test', execType: 'run', wave: 2, dependsOn: ['build'] },
-      { name: 'report', execType: 'run', wave: 3, dependsOn: ['load-test'] },
+      { name: 'build', execType: 'run', wave: 0 },
+      { name: 'load-test', execType: 'run', wave: 1, dependsOn: ['build'] },
+      { name: 'report', execType: 'run', wave: 2, dependsOn: ['load-test'] },
     ],
   }],
   'p-2': [{
     filename: 'ci.yaml',
     status: 'valid',
-    yaml: `name: ci
-on:
+    yaml: `# Payment Service — PCI-Compliant Pipeline
+image: golang:1.23-alpine
+
+triggers:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 steps:
-  checkout:
-    run: git checkout
-
-  install-deps:
-    needs: [checkout]
+  - name: install-deps
     run: go mod download
 
-  lint:
-    needs: [install-deps]
+  - name: lint
+    dependsOn: [install-deps]
     run: golangci-lint run ./...
 
-  unit-tests:
-    needs: [install-deps]
+  - name: unit-tests
+    dependsOn: [install-deps]
     run: go test -race ./...
 
-  security-scan:
-    needs: [install-deps]
-    run: gosec ./...
+  - name: security-scan
+    dependsOn: [install-deps]
+    image: securego/gosec:latest
+    run: gosec -fmt json -out report.json ./...
 
-  build:
-    needs: [lint, unit-tests, security-scan]
+  - name: build
+    dependsOn: [lint, unit-tests, security-scan]
     run: go build -o bin/payment-service ./cmd/server
 
-  docker-push:
-    needs: [build]
-    run: docker build -t payment-service:\${{ commit.sha }} .
+  - name: docker-push
+    dependsOn: [build]
+    image: docker:24
+    run: |
+      docker build -t ghcr.io/acme/payment-service:\${{ commitSha }} .
+      docker push ghcr.io/acme/payment-service:\${{ commitSha }}
+    secrets:
+      REGISTRY_TOKEN: ghcr-push-token
 
-  deploy-staging:
-    needs: [docker-push]
-    environment: staging
-    run: helm upgrade payment-service ./charts/payment-service
+  - name: deploy-staging
+    dependsOn: [docker-push]
+    environments: [staging]
+    run: helm upgrade --install payment-service ./charts/payment-service
 
-  pci-compliance-check:
-    needs: [deploy-staging]
-    run: ./scripts/pci-scan.sh staging
+  - name: pci-compliance
+    dependsOn: [deploy-staging]
+    run: ./scripts/pci-scan.sh --level 2 --env staging
+    timeout: 15m
 
-  gate-prod:
-    needs: [pci-compliance-check]
-    type: gate
-    approvers: [alice, eve]
+  - name: approve-production
+    dependsOn: [pci-compliance]
+    gate:
+      approvers:
+        - role:admin
+        - user:alice@acme.dev
+      minApprovals: 2
 
-  deploy-prod:
-    needs: [gate-prod]
-    environment: production
-    run: helm upgrade payment-service ./charts/payment-service --set env=prod`,
+  - name: deploy-prod
+    dependsOn: [approve-production]
+    environments: [production]
+    run: helm upgrade --install payment-service ./charts/payment-service --set env=prod`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'install-deps', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'lint', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'unit-tests', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'security-scan', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'build', execType: 'run', wave: 3, dependsOn: ['lint', 'unit-tests', 'security-scan'] },
-      { name: 'docker-push', execType: 'run', wave: 4, dependsOn: ['build'] },
-      { name: 'deploy-staging', execType: 'run', wave: 5, dependsOn: ['docker-push'] },
-      { name: 'pci-compliance-check', execType: 'run', wave: 6, dependsOn: ['deploy-staging'] },
-      { name: 'gate-prod', execType: 'gate', wave: 7, dependsOn: ['pci-compliance-check'] },
-      { name: 'deploy-prod', execType: 'run', wave: 8, dependsOn: ['gate-prod'] },
+      { name: 'install-deps', execType: 'run', wave: 0 },
+      { name: 'lint', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'unit-tests', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'security-scan', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'build', execType: 'run', wave: 2, dependsOn: ['lint', 'unit-tests', 'security-scan'] },
+      { name: 'docker-push', execType: 'run', wave: 3, dependsOn: ['build'] },
+      { name: 'deploy-staging', execType: 'run', wave: 4, dependsOn: ['docker-push'] },
+      { name: 'pci-compliance', execType: 'run', wave: 5, dependsOn: ['deploy-staging'] },
+      { name: 'approve-production', execType: 'gate', wave: 6, dependsOn: ['pci-compliance'] },
+      { name: 'deploy-prod', execType: 'run', wave: 7, dependsOn: ['approve-production'] },
     ],
   }],
   'p-3': [{
     filename: 'ci.yaml',
     status: 'valid',
-    yaml: `name: ci
-on:
+    yaml: `# Customer Portal — Nested Steps + Matrix Testing
+image: node:20-alpine
+
+triggers:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 steps:
-  checkout:
-    run: git checkout
+  # Nested step group: install + codegen run sequentially in the same pod
+  - name: setup
+    steps:
+      - name: install
+        run: npm ci --ignore-scripts
+      - name: codegen
+        run: npm run generate:api-types
 
-  install:
-    needs: [checkout]
-    run: bun install --frozen-lockfile
+  # Parallel quality checks after setup
+  - name: quality
+    dependsOn: [setup]
+    steps:
+      - name: lint
+        run: npm run lint -- --max-warnings 0
+      - name: typecheck
+        run: npx tsc --noEmit --pretty
+      - name: stylelint
+        run: npx stylelint "src/**/*.css"
 
-  typecheck:
-    needs: [install]
-    run: bun run typecheck
+  # Matrix: test across browsers
+  - name: test
+    dependsOn: [setup]
+    run: npx playwright test --reporter=html
+    matrix:
+      browser: [chromium, firefox, webkit]
+    timeout: 10m
 
-  lint:
-    needs: [install]
-    run: bun run lint
+  - name: build
+    dependsOn: [quality, test]
+    run: npm run build
+    env:
+      NODE_ENV: production
+      VITE_API_URL: https://api.acme.dev
+    cache:
+      key: next-cache-\${{ hashFiles('package-lock.json') }}
+      paths: [/workspace/.next/cache]
 
-  unit-tests:
-    needs: [install]
-    run: bun run test
-
-  build:
-    needs: [typecheck, lint, unit-tests]
-    run: bun run build
-
-  deploy-preview:
-    needs: [build]
-    environment: staging
-    run: bunx wrangler pages deploy dist/`,
+  - name: deploy-preview
+    dependsOn: [build]
+    environments: [staging]
+    run: bunx wrangler pages deploy dist/
+    secrets:
+      CLOUDFLARE_API_TOKEN: cf-deploy-token`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'install', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'typecheck', execType: 'run', wave: 2, dependsOn: ['install'] },
-      { name: 'lint', execType: 'run', wave: 2, dependsOn: ['install'] },
-      { name: 'unit-tests', execType: 'run', wave: 2, dependsOn: ['install'] },
-      { name: 'build', execType: 'run', wave: 3, dependsOn: ['typecheck', 'lint', 'unit-tests'] },
-      { name: 'deploy-preview', execType: 'run', wave: 4, dependsOn: ['build'] },
+      { name: 'setup', execType: 'steps', wave: 0 },
+      { name: 'quality', execType: 'steps', wave: 1, dependsOn: ['setup'] },
+      { name: 'test', execType: 'run', wave: 1, dependsOn: ['setup'] },
+      { name: 'build', execType: 'run', wave: 2, dependsOn: ['quality', 'test'] },
+      { name: 'deploy-preview', execType: 'run', wave: 3, dependsOn: ['build'] },
     ],
   }, {
     filename: 'deploy.yaml',
     status: 'invalid',
     errors: [
-      'Step "deploy-prod" depends on "approval-gate" which does not exist',
-      'Step "notify" has a circular dependency: notify → deploy-prod → notify',
+      'Step "deploy-prod" depends on "approval-gate" which does not exist (did you mean "approve-release"?)',
+      'triggers: at least one trigger is required',
     ],
-    yaml: `name: deploy
-on:
-  push:
-    branches: [main]
+    yaml: `# Deploy to Production — BROKEN
+# TODO: fix the missing gate step and add triggers
 
 steps:
-  build:
+  - name: build
     run: bun run build
 
-  deploy-prod:
-    needs: [approval-gate]
-    environment: production
+  - name: deploy-prod
+    dependsOn: [approval-gate]
+    environments: [production]
     run: bunx wrangler pages deploy dist/ --env production
 
-  notify:
-    needs: [deploy-prod]
+  - name: notify
+    dependsOn: [deploy-prod]
     run: ./scripts/notify-slack.sh
-
-  # BUG: approval-gate is referenced but never defined`,
+    when: always`,
     steps: [
       { name: 'build', execType: 'run', wave: 0 },
       { name: 'deploy-prod', execType: 'run', wave: 1, dependsOn: ['approval-gate'] },
@@ -903,43 +1116,63 @@ steps:
   'p-4': [{
     filename: 'plan.yaml',
     status: 'valid',
-    yaml: `name: plan
-on:
+    yaml: `# Infrastructure — Terraform Plan & Apply
+image: hashicorp/terraform:1.7
+
+triggers:
   pull_request:
-    paths: ["**/*.tf", "**/*.tfvars"]
+    branches: [main]
+  manual:
+    environments: [staging, production]
+    inputs:
+      - name: workspace
+        type: choice
+        options: [default, staging, production]
+        default: default
+      - name: auto_approve
+        type: boolean
+        description: Skip the approval gate
+        default: "false"
 
 steps:
-  checkout:
-    run: git checkout
-
-  init:
-    needs: [checkout]
+  - name: init
     run: terraform init -backend-config=backend.hcl
+    cache:
+      key: tf-providers-\${{ hashFiles('.terraform.lock.hcl') }}
+      paths: [/workspace/.terraform]
 
-  validate:
-    needs: [init]
+  - name: validate
+    dependsOn: [init]
     run: terraform validate
 
-  plan:
-    needs: [validate]
-    run: terraform plan -out=tfplan
+  - name: plan
+    dependsOn: [validate]
+    run: terraform plan -out=tfplan -no-color
+    env:
+      TF_WORKSPACE: \${{ inputs.workspace }}
 
-  gate-apply:
-    needs: [plan]
-    type: gate
-    approvers: [alice, dave]
+  - name: approve-apply
+    dependsOn: [plan]
+    if: \${{ inputs.auto_approve != 'true' }}
+    gate:
+      approvers:
+        - team:infrastructure
+        - user:dave@acme.dev
+      minApprovals: 1
 
-  apply:
-    needs: [gate-apply]
-    environment: production
-    run: terraform apply tfplan`,
+  - name: apply
+    dependsOn: [approve-apply]
+    environments: [production]
+    run: terraform apply -auto-approve tfplan
+    secrets:
+      AWS_ACCESS_KEY_ID: aws-infra-key
+      AWS_SECRET_ACCESS_KEY: aws-infra-secret`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'init', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'validate', execType: 'run', wave: 2, dependsOn: ['init'] },
-      { name: 'plan', execType: 'run', wave: 3, dependsOn: ['validate'] },
-      { name: 'gate-apply', execType: 'gate', wave: 4, dependsOn: ['plan'] },
-      { name: 'apply', execType: 'run', wave: 5, dependsOn: ['gate-apply'] },
+      { name: 'init', execType: 'run', wave: 0 },
+      { name: 'validate', execType: 'run', wave: 1, dependsOn: ['init'] },
+      { name: 'plan', execType: 'run', wave: 2, dependsOn: ['validate'] },
+      { name: 'approve-apply', execType: 'gate', wave: 3, dependsOn: ['plan'] },
+      { name: 'apply', execType: 'run', wave: 4, dependsOn: ['approve-apply'] },
     ],
     dispatchInputs: [
       { name: 'workspace', type: 'choice', description: 'Terraform workspace', required: true, default: 'default', options: ['default', 'production', 'staging'] },
@@ -948,130 +1181,173 @@ steps:
   }, {
     filename: 'drift.yaml',
     status: 'valid',
-    yaml: `name: drift-detect
-on:
+    yaml: `# Infrastructure Drift Detection
+image: hashicorp/terraform:1.7
+
+triggers:
   schedule:
-    - cron: "0 8 * * 1-5"
+    cron: "0 8 * * 1-5"
 
 steps:
-  checkout:
-    run: git checkout
-
-  init:
-    needs: [checkout]
+  - name: init
     run: terraform init -backend-config=backend.hcl
 
-  plan:
-    needs: [init]
-    run: terraform plan -detailed-exitcode
+  - name: plan
+    dependsOn: [init]
+    run: terraform plan -detailed-exitcode -no-color 2>&1 | tee drift-report.txt
 
-  notify:
-    needs: [plan]
-    run: ./scripts/slack-drift-alert.sh`,
+  - name: notify
+    dependsOn: [plan]
+    when: always
+    run: |
+      if [ -s drift-report.txt ]; then
+        ./scripts/slack-drift-alert.sh
+      fi`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'init', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'plan', execType: 'run', wave: 2, dependsOn: ['init'] },
-      { name: 'notify', execType: 'run', wave: 3, dependsOn: ['plan'] },
+      { name: 'init', execType: 'run', wave: 0 },
+      { name: 'plan', execType: 'run', wave: 1, dependsOn: ['init'] },
+      { name: 'notify', execType: 'run', wave: 2, dependsOn: ['plan'] },
     ],
   }],
   'p-5': [{
     filename: 'ci.yaml',
     status: 'valid',
-    yaml: `name: ci
-on:
+    yaml: `# Auth Service — Templates, Artifacts, and Promotion
+image: golang:1.23-alpine
+environments: [staging, production]
+
+triggers:
   push:
-    branches: [main, release/*]
+    branches: [main]
+    environments: [staging]
+  promotion:
+    - from: staging
+      environments: [production]
   pull_request:
+    branches: [main]
 
 steps:
-  checkout:
-    run: git checkout
+  # Reusable template for AWS ECR login
+  - name: ecr-login
+    use: ./fragments/ecr-login.yaml
+    with:
+      region: us-east-1
+      registry: "123456789.dkr.ecr.us-east-1.amazonaws.com"
 
-  install-deps:
-    needs: [checkout]
+  - name: install-deps
     run: go mod download
+    cache:
+      key: go-\${{ hashFiles('go.sum') }}
+      paths: [/go/pkg/mod]
 
-  lint:
-    needs: [install-deps]
-    run: golangci-lint run ./...
+  # Nested: lint + security in one pod
+  - name: checks
+    dependsOn: [install-deps]
+    steps:
+      - name: lint
+        run: golangci-lint run --timeout 5m ./...
+      - name: gosec
+        run: gosec -fmt json -out /workspace/security-report.json ./...
+      - name: govulncheck
+        run: govulncheck ./...
 
-  unit-tests:
-    needs: [install-deps]
-    run: go test -race ./...
+  - name: test
+    dependsOn: [install-deps]
+    run: go test -race -count=1 -coverprofile=coverage.out ./...
+    services:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: auth_test
+          POSTGRES_PASSWORD: test
+    # Upload coverage as artifact for downstream steps
+    outputs:
+      - path: /workspace/coverage.out
 
-  security-scan:
-    needs: [install-deps]
-    run: gosec ./...
+  - name: build
+    dependsOn: [checks, test]
+    run: |
+      CGO_ENABLED=0 go build -trimpath \\
+        -ldflags="-s -w -X main.version=\${{ shortSha }}" \\
+        -o bin/auth-service ./cmd/server
+    outputs:
+      - path: /workspace/bin
 
-  build:
-    needs: [lint, unit-tests, security-scan]
-    run: go build -o bin/auth-service ./cmd/server
+  - name: docker-push
+    dependsOn: [build, ecr-login]
+    image: docker:24
+    run: |
+      docker build -t auth-service:\${{ commitSha }} .
+      docker push auth-service:\${{ commitSha }}
+    inputs:
+      - from: build
+        path: /workspace/bin
 
-  docker-push:
-    needs: [build]
-    run: docker build -t auth-service:\${{ commit.sha }} .
+  - name: deploy
+    dependsOn: [docker-push]
+    run: |
+      helm upgrade --install auth-service ./charts/auth-service \\
+        --set image.tag=\${{ commitSha }}
 
-  deploy-staging:
-    needs: [docker-push]
-    environment: staging
-    run: helm upgrade auth-service ./charts/auth-service
+  - name: e2e-tests
+    dependsOn: [deploy]
+    run: ./scripts/e2e-auth.sh --timeout 5m
+    timeout: 10m
+    retry:
+      attempts: 3
+      delay: 10s
 
-  e2e-auth-tests:
-    needs: [deploy-staging]
-    run: ./scripts/e2e-auth.sh staging
-
-  gate-prod:
-    needs: [e2e-auth-tests]
-    type: gate
-    approvers: [alice, eve]
-
-  deploy-prod:
-    needs: [gate-prod]
-    environment: production
-    run: helm upgrade auth-service ./charts/auth-service --set env=prod`,
+  - name: approve-production
+    dependsOn: [e2e-tests]
+    environments: [production]
+    gate:
+      approvers:
+        - team:security
+        - role:admin
+      minApprovals: 2`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'install-deps', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'lint', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'unit-tests', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'security-scan', execType: 'run', wave: 2, dependsOn: ['install-deps'] },
-      { name: 'build', execType: 'run', wave: 3, dependsOn: ['lint', 'unit-tests', 'security-scan'] },
-      { name: 'docker-push', execType: 'run', wave: 4, dependsOn: ['build'] },
-      { name: 'deploy-staging', execType: 'run', wave: 5, dependsOn: ['docker-push'] },
-      { name: 'e2e-auth-tests', execType: 'run', wave: 6, dependsOn: ['deploy-staging'] },
-      { name: 'gate-prod', execType: 'gate', wave: 7, dependsOn: ['e2e-auth-tests'] },
-      { name: 'deploy-prod', execType: 'run', wave: 8, dependsOn: ['gate-prod'] },
+      { name: 'ecr-login', execType: 'use', wave: 0 },
+      { name: 'install-deps', execType: 'run', wave: 0 },
+      { name: 'checks', execType: 'steps', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'test', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+      { name: 'build', execType: 'run', wave: 2, dependsOn: ['checks', 'test'] },
+      { name: 'docker-push', execType: 'run', wave: 3, dependsOn: ['build', 'ecr-login'] },
+      { name: 'deploy', execType: 'run', wave: 4, dependsOn: ['docker-push'] },
+      { name: 'e2e-tests', execType: 'run', wave: 5, dependsOn: ['deploy'] },
+      { name: 'approve-production', execType: 'gate', wave: 6, dependsOn: ['e2e-tests'] },
     ],
   }],
   'p-6': [{
     filename: 'lint.yaml',
     status: 'valid',
-    yaml: `name: lint
-on:
+    yaml: `# Helm Charts — Lint & Test
+image: alpine/helm:3.14
+
+triggers:
   pull_request:
-    paths: ["charts/**"]
+    branches: [main]
 
 steps:
-  checkout:
-    run: git checkout
+  - name: helm-lint
+    run: |
+      for chart in charts/*/; do
+        helm lint "$chart" --strict
+      done
 
-  helm-lint:
-    needs: [checkout]
-    run: helm lint charts/*
+  - name: kubeval
+    run: |
+      helm template charts/* | kubeval --strict
 
-  kubeval:
-    needs: [checkout]
-    run: kubeval charts/*/templates/*.yaml
-
-  chart-test:
-    needs: [helm-lint, kubeval]
-    run: ct lint-and-install --config ct.yaml`,
+  - name: chart-test
+    dependsOn: [helm-lint, kubeval]
+    run: ct lint-and-install --config ct.yaml
+    services:
+      - name: kind
+        image: kindest/node:v1.29.0`,
     steps: [
-      { name: 'checkout', execType: 'run', wave: 0 },
-      { name: 'helm-lint', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'kubeval', execType: 'run', wave: 1, dependsOn: ['checkout'] },
-      { name: 'chart-test', execType: 'run', wave: 2, dependsOn: ['helm-lint', 'kubeval'] },
+      { name: 'helm-lint', execType: 'run', wave: 0 },
+      { name: 'kubeval', execType: 'run', wave: 0 },
+      { name: 'chart-test', execType: 'run', wave: 1, dependsOn: ['helm-lint', 'kubeval'] },
     ],
   }],
 }

@@ -148,7 +148,7 @@ func checkDeployWindow(w DeployWindow) error {
 
 // IsAuthorizedApprover checks if a user is in the list of authorized approvers
 // for a gate. Supports "team:<slug>" and "user:<email>" formats.
-func IsAuthorizedApprover(ctx context.Context, q *db.Queries, orgID, userID, userEmail string, approvers []string) (bool, error) {
+func IsAuthorizedApprover(ctx context.Context, q db.Querier, orgID, userID, userEmail string, approvers []string) (bool, error) {
 	if len(approvers) == 0 {
 		return true, nil // no approver restriction
 	}

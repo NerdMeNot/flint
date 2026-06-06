@@ -48,8 +48,10 @@ export const PipelineRunSchema = z.object({
   triggerType: TriggerType,
   duration: z.string(),
   startedAt: z.string(),
+  finishedAt: z.optional(z.string()),
   workflowFile: z.string(),
   environment: z.optional(z.string()),
+  errorMessage: z.optional(z.string()),
 })
 
 export const LastRunSchema = z.object({
@@ -78,12 +80,16 @@ export const PipelineStepSchema = z.object({
   status: StepStatus,
   execType: z.string(),
   wave: z.number(),
+  attempt: z.number(),
+  maxAttempts: z.number(),
   dependsOn: z.optional(z.array(z.string())),
   startedAt: z.optional(z.string()),
   finishedAt: z.optional(z.string()),
+  exitCode: z.optional(z.number()),
+  error: z.optional(z.string()),
 })
 
-export const PipelineDefinitionStepSchema = PipelineStepSchema.omit({ status: true, startedAt: true, finishedAt: true })
+export const PipelineDefinitionStepSchema = PipelineStepSchema.omit({ status: true, attempt: true, maxAttempts: true, startedAt: true, finishedAt: true, exitCode: true, error: true })
 
 export const PipelineValidationStatus = z.enum(['valid', 'invalid'])
 
@@ -222,6 +228,18 @@ export const ApiKeySchema = z.object({
   createdAt: z.string(),
 })
 
+export const ApiKeyCreatedSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  token: z.string(),
+  role: z.string(),
+  workspaces: z.array(z.string()),
+  environments: z.array(z.string()),
+  createdBy: z.string(),
+  createdAt: z.string(),
+})
+export type ApiKeyCreated = z.infer<typeof ApiKeyCreatedSchema>
+
 export const PersonalTokenSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -270,6 +288,12 @@ export const AuthUserSchema = z.object({
   permissions: z.array(z.string()),
   groups: z.array(z.string()),
 })
+
+export const SearchResultSchema = z.object({
+  projects: z.array(ProjectSchema),
+  runs: z.array(PipelineRunSchema),
+})
+export type SearchResult = z.infer<typeof SearchResultSchema>
 
 // ---------------------------------------------------------------------------
 // Inferred TypeScript types

@@ -49,3 +49,10 @@ AND NOT EXISTS (
     WHERE workflow_id = workflows.id
     AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
 );
+
+-- name: RecentlyFinishedRunIDs :many
+SELECT DISTINCT pr.id AS run_id FROM pipeline_runs pr
+JOIN workflows w ON w.run_id = pr.id
+WHERE w.status IN ('succeeded', 'failed', 'cancelled')
+AND w.finished_at >= now() - interval '10 minutes'
+AND w.parent_id IS NULL;

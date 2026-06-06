@@ -77,12 +77,12 @@ func Wrap(kind ErrorKind, message string, err error) *Error {
 
 // Convenience constructors.
 
-func NewTransient(msg string) *Error      { return New(KindTransient, msg) }
-func NewInvalidInput(msg string) *Error   { return New(KindInvalidInput, msg) }
-func NewNotFound(msg string) *Error       { return New(KindNotFound, msg) }
-func NewConflict(msg string) *Error       { return New(KindConflict, msg) }
-func NewForbidden(msg string) *Error      { return New(KindForbidden, msg) }
-func NewInternal(msg string) *Error       { return New(KindInternal, msg) }
+func NewTransient(msg string) *Error                { return New(KindTransient, msg) }
+func NewInvalidInput(msg string) *Error             { return New(KindInvalidInput, msg) }
+func NewNotFound(msg string) *Error                 { return New(KindNotFound, msg) }
+func NewConflict(msg string) *Error                 { return New(KindConflict, msg) }
+func NewForbidden(msg string) *Error                { return New(KindForbidden, msg) }
+func NewInternal(msg string) *Error                 { return New(KindInternal, msg) }
 func WrapTransient(msg string, err error) *Error    { return Wrap(KindTransient, msg, err) }
 func WrapInvalidInput(msg string, err error) *Error { return Wrap(KindInvalidInput, msg, err) }
 func WrapNotFound(msg string, err error) *Error     { return Wrap(KindNotFound, msg, err) }

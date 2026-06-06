@@ -77,6 +77,37 @@ func (q *Queries) ListTeamMembers(ctx context.Context, teamID string) ([]ListTea
 	return items, nil
 }
 
+const listUserIdpTeams = `-- name: ListUserIdpTeams :many
+SELECT t.id, t.slug FROM teams t
+JOIN team_members tm ON tm.team_id = t.id
+WHERE tm.user_id = $1 AND t.source = 'idp'
+`
+
+type ListUserIdpTeamsRow struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+}
+
+func (q *Queries) ListUserIdpTeams(ctx context.Context, userID string) ([]ListUserIdpTeamsRow, error) {
+	rows, err := q.db.Query(ctx, listUserIdpTeams, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserIdpTeamsRow{}
+	for rows.Next() {
+		var i ListUserIdpTeamsRow
+		if err := rows.Scan(&i.ID, &i.Slug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserTeamIDs = `-- name: ListUserTeamIDs :many
 SELECT team_id FROM team_members WHERE user_id = $1
 `

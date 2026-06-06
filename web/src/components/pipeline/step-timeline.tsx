@@ -51,7 +51,7 @@ export function StepTimeline({ steps, selectedStep, onStepClick }: StepTimelineP
               {/* Parallel indicator */}
               <div className="flex items-center gap-2 px-3">
                 <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-                <span className="text-[0.6rem] font-medium text-muted-foreground uppercase tracking-wider">
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                   parallel
                 </span>
                 <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
@@ -112,12 +112,12 @@ function StepCard({
             {step.name}
           </span>
           {step.execType === 'gate' && (
-            <span className="text-[0.6rem] font-semibold uppercase tracking-wide text-warning px-1.5 py-0.5 rounded bg-warning/10 border border-warning/20">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-warning px-1.5 py-0.5 rounded bg-warning/10 border border-warning/20">
               gate
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-0.5 text-[0.7rem] text-muted-foreground">
+        <div className="flex items-center gap-2 mt-0.5 text-[12px] text-muted-foreground">
           {step.status === 'running' && (
             <span className="text-primary font-medium">Running...</span>
           )}

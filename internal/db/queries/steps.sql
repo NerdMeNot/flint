@@ -26,19 +26,22 @@ UPDATE steps SET status = 'cancelled', finished_at = now()
 WHERE workflow_id = $1 AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled');
 
 -- name: LatestStepsByWorkflow :many
-SELECT DISTINCT ON (name) id, name, status, on_failure, step_def->>'if' AS if_condition
+SELECT DISTINCT ON (name) id, name, status, on_failure,
+    step_def->>'if' AS if_condition,
+    step_def->>'when' AS when_condition
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC;
 
 -- name: ListStepsByWorkflow :many
-SELECT DISTINCT ON (name) name, status, wave, attempt, result,
-    exec_type, started_at, finished_at
+SELECT DISTINCT ON (name) name, status, wave, attempt, max_attempts, result,
+    exec_type, started_at, finished_at,
+    step_def->'dependsOn' AS depends_on
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC;
 
 -- name: ClaimQueuedSteps :many
 UPDATE steps SET
-    status = CASE WHEN exec_type IN ('gate', 'watch') THEN 'waiting' ELSE 'running' END,
+    status = CASE WHEN exec_type = 'gate' THEN 'waiting' ELSE 'running' END,
     started_at = now(),
     deadline_at = now() + make_interval(secs := timeout_seconds)
 WHERE id IN (
@@ -127,6 +130,16 @@ SELECT s.id AS step_id, s.workflow_id, s.name AS step_name,
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-' || s.name
+    AND sig.consumed = false
+WHERE s.status = 'waiting' AND s.exec_type = 'gate'
+LIMIT 50;
+
+-- name: ListWaitingGatesWithRejectSignals :many
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name,
+       sig.id AS signal_id, sig.payload
+FROM steps s
+JOIN signals sig ON sig.workflow_id = s.workflow_id
+    AND sig.signal_name = 'gate-reject-' || s.name
     AND sig.consumed = false
 WHERE s.status = 'waiting' AND s.exec_type = 'gate'
 LIMIT 50;

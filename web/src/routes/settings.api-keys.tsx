@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useState, useEffect, useRef } from 'react'
-import { Key, Calendar, Clock, AlertTriangle, Plus, Trash2, Copy, Check, ChevronDown } from 'lucide-react'
+import { useState } from 'react'
+import { Key, Calendar, Clock, AlertTriangle, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 import { ScopeBadges } from '#/components/ScopeBadges'
@@ -71,7 +71,7 @@ function ApiKeysPage() {
 
                     <div className="flex items-center gap-2 shrink-0">
                       {isExpired && (
-                        <span className="island-kicker !text-[0.55rem] bg-warning/10 text-warning border-warning/20 flex items-center gap-1">
+                        <span className="island-kicker !text-[11px] bg-warning/10 text-warning border-warning/20 flex items-center gap-1">
                           <AlertTriangle size={10} />
                           Expired
                         </span>
@@ -88,7 +88,7 @@ function ApiKeysPage() {
 
                   {/* Role + scope */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                    <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                       role?.isSystem
                         ? 'bg-primary/10 text-primary border border-primary/20'
                         : 'bg-secondary text-foreground border border-border'
@@ -98,11 +98,11 @@ function ApiKeysPage() {
 
                     {(apiKey.workspaces.length > 0 || apiKey.environments.length > 0) ? (
                       <>
-                        <span className="text-[0.6rem] text-muted-foreground opacity-40">restricted to</span>
+                        <span className="text-[11px] text-muted-foreground opacity-40">restricted to</span>
                         <ScopeBadges workspaces={apiKey.workspaces} environments={apiKey.environments} />
                       </>
                     ) : (
-                      <span className="text-[0.6rem] text-muted-foreground opacity-40">inherits role scope</span>
+                      <span className="text-[11px] text-muted-foreground opacity-40">inherits role scope</span>
                     )}
                   </div>
 
@@ -211,7 +211,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
         <div className="px-5 py-5 space-y-4">
           <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
             <p className="text-xs font-semibold text-success">Key created successfully</p>
-            <p className="text-[0.65rem] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Copy this token now. It will not be shown again.
             </p>
             <div className="flex items-center gap-2 mt-2">
@@ -287,7 +287,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                 {scopeMode === 'restrict' && (
                   <div className="space-y-3 rounded-lg border border-border p-3">
                     <div className="space-y-1.5">
-                      <label className="text-[0.65rem] font-medium text-muted-foreground">Workspaces</label>
+                      <label className="text-[12px] font-medium text-muted-foreground">Workspaces</label>
                       <div className="flex flex-wrap gap-1.5">
                         {availableWs.map((ws) => (
                           <button key={ws.slug} type="button" onClick={() => toggleSet(selectedWs, setSelectedWs, ws.slug)}
@@ -302,7 +302,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[0.65rem] font-medium text-muted-foreground">Environments</label>
+                      <label className="text-[12px] font-medium text-muted-foreground">Environments</label>
                       <div className="flex flex-wrap gap-1.5">
                         {availableEnv.map((env) => (
                           <button key={env.name} type="button" onClick={() => toggleSet(selectedEnv, setSelectedEnv, env.name)}

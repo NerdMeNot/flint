@@ -11,7 +11,7 @@ import (
 func testSessionConfig() auth.SessionConfig {
 	return auth.SessionConfig{
 		SigningKey:      []byte("test-secret-key-32-bytes-long!!!"),
-		Issuer:         "https://flint.test",
+		Issuer:          "https://flint.test",
 		SessionDuration: 1 * time.Hour,
 		RefreshDuration: 24 * time.Hour,
 	}

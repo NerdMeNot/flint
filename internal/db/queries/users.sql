@@ -18,3 +18,52 @@ RETURNING id;
 -- name: GetUserByEmail :one
 SELECT id, email, external_id, name FROM users
 WHERE org_id = $1 AND email = $2;
+
+-- name: GetUserByID :one
+SELECT id, email, external_id, name, is_active FROM users
+WHERE id = $1;
+
+-- name: GetUserForAuth :one
+SELECT id, org_id, email, external_id, name, password_hash,
+       totp_secret_enc, totp_verified, mfa_required_override, is_active,
+       force_password_change
+FROM users
+WHERE org_id = $1 AND email = $2;
+
+-- name: CreateLocalUser :one
+INSERT INTO users (org_id, email, external_id, name, password_hash, password_changed_at)
+VALUES ($1, $2, $2, $3, $4, now())
+RETURNING id;
+
+-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2, password_changed_at = now()
+WHERE id = $1;
+
+-- name: SetUserTOTPSecret :exec
+UPDATE users SET totp_secret_enc = $2 WHERE id = $1;
+
+-- name: VerifyUserTOTP :exec
+UPDATE users SET totp_verified = true WHERE id = $1;
+
+-- name: ClearUserTOTP :exec
+UPDATE users SET totp_secret_enc = NULL, totp_verified = false, recovery_codes = NULL
+WHERE id = $1;
+
+-- name: SetUserRecoveryCodes :exec
+UPDATE users SET recovery_codes = $2 WHERE id = $1;
+
+-- name: GetUserRecoveryCodes :one
+SELECT recovery_codes FROM users WHERE id = $1;
+
+-- name: CheckMFARequiredForUser :one
+SELECT EXISTS(
+    SELECT 1 FROM role_assignments ra
+    JOIN roles r ON r.id = ra.role_id
+    WHERE ra.subject = $1 AND r.require_mfa = true
+) AS required;
+
+-- name: CountUsers :one
+SELECT COUNT(*) FROM users WHERE org_id = $1;
+
+-- name: ClearForcePasswordChange :exec
+UPDATE users SET force_password_change = false WHERE id = $1;

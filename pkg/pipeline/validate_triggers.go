@@ -107,7 +107,7 @@ func validateTriggers(p *Pipeline, result *ValidationResult, opts ValidateOption
 					Code:       CodeInvalidValue,
 					Field:      field + ".type",
 					Message:    fmt.Sprintf("invalid input type %q", input.Type),
-					Suggestion: "Valid types: string, boolean, choice",
+					Suggestion: enumSuggestion(input.Type, validInputTypes),
 					Severity:   SeverityError,
 				})
 			}
@@ -118,6 +118,15 @@ func validateTriggers(p *Pipeline, result *ValidationResult, opts ValidateOption
 					Field:    field + ".options",
 					Message:  "choice input must have at least one option",
 					Severity: SeverityError,
+				})
+			}
+			// Input name should not shadow a built-in context variable.
+			if reservedContextVars[input.Name] {
+				result.Issues = append(result.Issues, ValidationIssue{
+					Code:     CodeInvalidValue,
+					Field:    field + ".name",
+					Message:  fmt.Sprintf("manual input %q shadows a built-in context variable", input.Name),
+					Severity: SeverityWarning,
 				})
 			}
 		}

@@ -1,10 +1,40 @@
 package pipeline
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// exprValidationContext returns a context with every runtime variable present
+// (as zero values) plus hashFiles, so expressions can be compile-checked without
+// triggering false "unknown variable" errors.
+func exprValidationContext() ExprContext {
+	return ExprContext{
+		"branch": "", "commitSha": "", "shortSha": "", "tag": "",
+		"environment": "", "triggeredBy": "", "triggerType": "", "status": "",
+		"project":   map[string]any{"name": "", "repo": ""},
+		"run":       map[string]any{"id": ""},
+		"inputs":    map[string]any{},
+		"env":       map[string]any{},
+		"secrets":   map[string]any{},
+		"matrix":    map[string]any{},
+		"steps":     map[string]any{},
+		"webhook":   map[string]any{},
+		"hashFiles": func(string) string { return "" },
+	}
+}
+
+// enumSuggestion builds a suggestion for an invalid enum value: it lists the
+// valid values and, when the input is a near-miss, prepends a "did you mean".
+func enumSuggestion(got string, valid []string) string {
+	list := "Valid values: " + strings.Join(valid, ", ")
+	if closest := findClosest(got, toSet(valid)); closest != "" {
+		return fmt.Sprintf("Did you mean %q? %s", closest, list)
+	}
+	return list
+}
 
 // Valid-value lists used across validation functions.
 var (
@@ -20,6 +50,18 @@ func collectStepNames(p *Pipeline) map[string]bool {
 		names[s.Name] = true
 	}
 	return names
+}
+
+// collectStepsWithOutputs returns the set of top-level step names that declare
+// at least one artifact output (only top-level steps may declare outputs).
+func collectStepsWithOutputs(p *Pipeline) map[string]bool {
+	withOutputs := make(map[string]bool)
+	for _, s := range p.Steps {
+		if len(s.Outputs) > 0 {
+			withOutputs[s.Name] = true
+		}
+	}
+	return withOutputs
 }
 
 // findClosest finds the closest match in a set using Levenshtein distance.

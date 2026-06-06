@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
+	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -33,39 +34,33 @@ type envVariableValueResponse struct {
 
 func (s *Server) handleListEnvVariables(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT id, name, description, scope, is_secret, created_at
-		 FROM env_variables WHERE org_id = $1 ORDER BY name`, claims.OrgID)
+	rows, err := s.deps.Q.ListEnvVariables(ctx, claims.OrgID)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list env variables")
 		return
 	}
-	defer rows.Close()
 
-	var result []envVariableResponse
-	for rows.Next() {
-		var v envVariableResponse
-		var desc *string
-		if err := rows.Scan(&v.ID, &v.Name, &desc, &v.Scope, &v.IsSecret, &v.CreatedAt); err != nil {
-			apiInternal(ctx, c, "failed to scan env variable")
-			return
+	result := make([]envVariableResponse, 0, len(rows))
+	for _, row := range rows {
+		v := envVariableResponse{
+			ID:          row.ID,
+			Name:        row.Name,
+			Description: row.Description,
+			Scope:       row.Scope,
+			IsSecret:    row.IsSecret,
+			CreatedAt:   row.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		}
-		v.Description = desc
 
 		// For global variables, load the single value.
 		if v.Scope == "global" && !v.IsSecret {
-			var val *string
-			_ = s.deps.DB.QueryRow(ctx,
-				`SELECT value FROM env_variable_values
-				 WHERE variable_id = $1 AND environment_id IS NULL`, v.ID).Scan(&val)
-			v.Value = val
+			val, err := s.deps.Q.GetGlobalVariableValue(ctx, v.ID)
+			if err == nil {
+				v.Value = &val
+			}
 		} else if v.Scope == "global" && v.IsSecret {
 			// Indicate a value exists without revealing it.
-			var exists bool
-			_ = s.deps.DB.QueryRow(ctx,
-				`SELECT EXISTS(SELECT 1 FROM env_variable_values
-				  WHERE variable_id = $1 AND environment_id IS NULL)`, v.ID).Scan(&exists)
-			if exists {
+			exists, err := s.deps.Q.GlobalVariableValueExists(ctx, v.ID)
+			if err == nil && exists {
 				masked := "••••••••"
 				v.Value = &masked
 			}
@@ -74,46 +69,34 @@ func (s *Server) handleListEnvVariables(ctx context.Context, c *app.RequestConte
 		result = append(result, v)
 	}
 
-	if result == nil {
-		result = []envVariableResponse{}
-	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
 func (s *Server) handleListEnvVariableValues(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT evv.variable_id, evv.environment_id::text, evv.value, evv.updated_at,
-		        ev.is_secret
-		 FROM env_variable_values evv
-		 JOIN env_variables ev ON ev.id = evv.variable_id
-		 WHERE ev.org_id = $1
-		 ORDER BY ev.name, evv.environment_id`, claims.OrgID)
+	rows, err := s.deps.Q.ListEnvVariableValues(ctx, claims.OrgID)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list env variable values")
 		return
 	}
-	defer rows.Close()
 
-	var result []envVariableValueResponse
-	for rows.Next() {
-		var v envVariableValueResponse
-		var envID *string
-		var isSecret bool
-		if err := rows.Scan(&v.VariableID, &envID, &v.Value, &v.UpdatedAt, &isSecret); err != nil {
-			apiInternal(ctx, c, "failed to scan env variable value")
-			return
+	result := make([]envVariableValueResponse, 0, len(rows))
+	for _, row := range rows {
+		v := envVariableValueResponse{
+			VariableID: row.VariableID,
+			Value:      row.Value,
+			UpdatedAt:  row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		}
-		v.EnvironmentID = envID
-		if isSecret {
+		if row.EnvironmentID != "" {
+			envID := row.EnvironmentID
+			v.EnvironmentID = &envID
+		}
+		if row.IsSecret {
 			v.Value = "••••••••"
 		}
 		result = append(result, v)
 	}
 
-	if result == nil {
-		result = []envVariableValueResponse{}
-	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
@@ -136,12 +119,13 @@ func (s *Server) handleCreateEnvVariable(ctx context.Context, c *app.RequestCont
 
 	claims := claimsFromCtx(ctx)
 
-	var id string
-	err := s.deps.DB.QueryRow(ctx,
-		`INSERT INTO env_variables (org_id, name, description, scope, is_secret)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		claims.OrgID, req.Name, req.Description, req.Scope, req.IsSecret,
-	).Scan(&id)
+	id, err := s.deps.Q.CreateEnvVariable(ctx, db.CreateEnvVariableParams{
+		OrgID:       claims.OrgID,
+		Name:        req.Name,
+		Description: req.Description,
+		Scope:       req.Scope,
+		IsSecret:    req.IsSecret,
+	})
 	if err != nil {
 		apiConflict(ctx, c, "variable already exists")
 		return
@@ -154,10 +138,11 @@ func (s *Server) handleCreateEnvVariable(ctx context.Context, c *app.RequestCont
 			// TODO: encrypt with secret store
 			_ = val
 		}
-		_, _ = s.deps.DB.Exec(ctx,
-			`INSERT INTO env_variable_values (variable_id, environment_id, value)
-			 VALUES ($1, NULL, $2) ON CONFLICT (variable_id, environment_id) DO UPDATE SET value = $2, updated_at = now()`,
-			id, val)
+		_ = s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
+			VariableID:    id,
+			EnvironmentID: nil,
+			Value:         val,
+		})
 	}
 
 	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "scope": req.Scope})
@@ -175,9 +160,7 @@ func (s *Server) handleSetEnvVariableValue(ctx context.Context, c *app.RequestCo
 	}
 
 	// Check if the variable is a secret — if so, encrypt.
-	var isSecret bool
-	err := s.deps.DB.QueryRow(ctx,
-		`SELECT is_secret FROM env_variables WHERE id = $1`, req.VariableID).Scan(&isSecret)
+	isSecret, err := s.deps.Q.IsEnvVariableSecret(ctx, req.VariableID)
 	if err != nil {
 		apiNotFound(ctx, c, "variable not found")
 		return
@@ -189,11 +172,11 @@ func (s *Server) handleSetEnvVariableValue(ctx context.Context, c *app.RequestCo
 		_ = val
 	}
 
-	_, err = s.deps.DB.Exec(ctx,
-		`INSERT INTO env_variable_values (variable_id, environment_id, value, updated_at)
-		 VALUES ($1, $2, $3, now())
-		 ON CONFLICT (variable_id, environment_id) DO UPDATE SET value = $3, updated_at = now()`,
-		req.VariableID, req.EnvironmentID, val)
+	err = s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
+		VariableID:    req.VariableID,
+		EnvironmentID: req.EnvironmentID,
+		Value:         val,
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to set variable value")
 		return
@@ -209,13 +192,13 @@ func (s *Server) handleDeleteEnvVariable(ctx context.Context, c *app.RequestCont
 		return
 	}
 
-	_, err := s.deps.DB.Exec(ctx, `DELETE FROM env_variables WHERE id = $1`, id)
+	err := s.deps.Q.DeleteEnvVariable(ctx, id)
 	if err != nil {
 		apiInternal(ctx, c, "failed to delete variable")
 		return
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Simplified Environments ──────────────────────────────────
@@ -229,28 +212,22 @@ type environmentResponse struct {
 
 func (s *Server) handleListEnvironments(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT id, name, slug, created_at FROM environments WHERE org_id = $1 ORDER BY name`,
-		claims.OrgID)
+	rows, err := s.deps.Q.ListEnvironments(ctx, claims.OrgID)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list environments")
 		return
 	}
-	defer rows.Close()
 
-	var result []environmentResponse
-	for rows.Next() {
-		var e environmentResponse
-		if err := rows.Scan(&e.ID, &e.Name, &e.Slug, &e.CreatedAt); err != nil {
-			apiInternal(ctx, c, "failed to scan environment")
-			return
-		}
-		result = append(result, e)
+	result := make([]environmentResponse, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, environmentResponse{
+			ID:        row.ID,
+			Name:      row.Name,
+			Slug:      row.Slug,
+			CreatedAt: row.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		})
 	}
 
-	if result == nil {
-		result = []environmentResponse{}
-	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
@@ -265,11 +242,11 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, c *app.RequestCont
 	}
 
 	claims := claimsFromCtx(ctx)
-	var id string
-	err := s.deps.DB.QueryRow(ctx,
-		`INSERT INTO environments (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id`,
-		claims.OrgID, req.Name, req.Slug,
-	).Scan(&id)
+	id, err := s.deps.Q.CreateEnvironment(ctx, db.CreateEnvironmentParams{
+		OrgID: claims.OrgID,
+		Name:  req.Name,
+		Slug:  req.Slug,
+	})
 	if err != nil {
 		apiConflict(ctx, c, "environment already exists")
 		return
@@ -285,13 +262,13 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, c *app.RequestCont
 		return
 	}
 
-	_, err := s.deps.DB.Exec(ctx, `DELETE FROM environments WHERE id = $1`, id)
+	err := s.deps.Q.DeleteEnvironment(ctx, id)
 	if err != nil {
 		apiInternal(ctx, c, "failed to delete environment")
 		return
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 func generateToken(prefix string) (string, error) {

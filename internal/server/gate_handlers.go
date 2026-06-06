@@ -159,4 +159,3 @@ func (s *Server) handleListGates(ctx context.Context, c *app.RequestContext) {
 	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
-

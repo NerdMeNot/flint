@@ -14,22 +14,22 @@ func TestSchemeRegistration(t *testing.T) {
 	}
 
 	// Verify all types are registered.
-	gvk := v1.SchemeGroupVersion.WithKind("ForgeConnection")
+	gvk := v1.SchemeGroupVersion.WithKind("StepTemplate")
 	obj, err := scheme.New(gvk)
 	if err != nil {
-		t.Fatalf("scheme.New(ForgeConnection) error: %v", err)
+		t.Fatalf("scheme.New(StepTemplate) error: %v", err)
 	}
-	if _, ok := obj.(*v1.ForgeConnection); !ok {
-		t.Errorf("expected *ForgeConnection, got %T", obj)
+	if _, ok := obj.(*v1.StepTemplate); !ok {
+		t.Errorf("expected *StepTemplate, got %T", obj)
 	}
 
-	gvk = v1.SchemeGroupVersion.WithKind("Pipeline")
+	gvk = v1.SchemeGroupVersion.WithKind("Project")
 	obj, err = scheme.New(gvk)
 	if err != nil {
-		t.Fatalf("scheme.New(Pipeline) error: %v", err)
+		t.Fatalf("scheme.New(Project) error: %v", err)
 	}
-	if _, ok := obj.(*v1.Pipeline); !ok {
-		t.Errorf("expected *Pipeline, got %T", obj)
+	if _, ok := obj.(*v1.Project); !ok {
+		t.Errorf("expected *Project, got %T", obj)
 	}
 
 	gvk = v1.SchemeGroupVersion.WithKind("RunnerPool")
@@ -43,25 +43,25 @@ func TestSchemeRegistration(t *testing.T) {
 }
 
 func TestDeepCopy(t *testing.T) {
-	fc := &v1.ForgeConnection{
-		Spec: v1.ForgeConnectionSpec{
-			Type: "github",
-			GitHub: &v1.GitHubConnectionSpec{
-				AppID:          "123",
-				InstallationID: "456",
-				PrivateKeyRef:  v1.SecretKeyRef{Name: "secret", Key: "key"},
-				WebhookSecretRef: v1.SecretKeyRef{Name: "secret", Key: "webhook"},
-			},
+	p := &v1.Project{
+		Spec: v1.ProjectSpec{
+			Repo:           "acme/svc",
+			Tags:           []string{"a", "b"},
+			PipelineSource: &v1.PipelineSourceSpec{Type: "self", Path: ".flint/"},
 		},
 	}
 
-	copy := fc.DeepCopyObject().(*v1.ForgeConnection)
+	cp := p.DeepCopyObject().(*v1.Project)
 
-	// Modify original — copy should be unaffected.
-	fc.Spec.GitHub.AppID = "changed"
+	// Modify original — copy should be unaffected (slice + pointer independence).
+	p.Spec.Tags[0] = "changed"
+	p.Spec.PipelineSource.Path = "changed"
 
-	if copy.Spec.GitHub.AppID != "123" {
-		t.Error("DeepCopy is not independent — modifying original affected copy")
+	if cp.Spec.Tags[0] != "a" {
+		t.Error("DeepCopy Tags slice is not independent")
+	}
+	if cp.Spec.PipelineSource.Path != ".flint/" {
+		t.Error("DeepCopy PipelineSource pointer is not independent")
 	}
 }
 

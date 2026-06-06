@@ -12,17 +12,16 @@ import (
 )
 
 // DeepCopyObject implements runtime.Object.
-func (in *ForgeConnection) DeepCopyObject() runtime.Object {
+func (in *Project) DeepCopyObject() runtime.Object {
 	if in == nil {
 		return nil
 	}
-	out := new(ForgeConnection)
+	out := new(Project)
 	in.DeepCopyInto(out)
 	return out
 }
 
-// DeepCopyInto copies all fields into another ForgeConnection.
-func (in *ForgeConnection) DeepCopyInto(out *ForgeConnection) {
+func (in *Project) DeepCopyInto(out *Project) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
@@ -30,76 +29,7 @@ func (in *ForgeConnection) DeepCopyInto(out *ForgeConnection) {
 	in.Status.DeepCopyInto(&out.Status)
 }
 
-func (in *ForgeConnectionSpec) DeepCopyInto(out *ForgeConnectionSpec) {
-	*out = *in
-	if in.GitHub != nil {
-		out.GitHub = new(GitHubConnectionSpec)
-		*out.GitHub = *in.GitHub
-	}
-	if in.GitLab != nil {
-		out.GitLab = new(GitLabConnectionSpec)
-		*out.GitLab = *in.GitLab
-	}
-	if in.Bitbucket != nil {
-		out.Bitbucket = new(BitbucketConnectionSpec)
-		*out.Bitbucket = *in.Bitbucket
-	}
-}
-
-func (in *ForgeConnectionStatus) DeepCopyInto(out *ForgeConnectionStatus) {
-	*out = *in
-	if in.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(in.Conditions))
-		for i := range in.Conditions {
-			in.Conditions[i].DeepCopyInto(&out.Conditions[i])
-		}
-	}
-	if in.LastVerifiedAt != nil {
-		out.LastVerifiedAt = in.LastVerifiedAt.DeepCopy()
-	}
-}
-
-// DeepCopyObject implements runtime.Object.
-func (in *ForgeConnectionList) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(ForgeConnectionList)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *ForgeConnectionList) DeepCopyInto(out *ForgeConnectionList) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
-	if in.Items != nil {
-		out.Items = make([]ForgeConnection, len(in.Items))
-		for i := range in.Items {
-			in.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
-// DeepCopyObject implements runtime.Object.
-func (in *Pipeline) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(Pipeline)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *Pipeline) DeepCopyInto(out *Pipeline) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	in.Spec.DeepCopyInto(&out.Spec)
-	in.Status.DeepCopyInto(&out.Status)
-}
-
-func (in *PipelineSpec) DeepCopyInto(out *PipelineSpec) {
+func (in *ProjectSpec) DeepCopyInto(out *ProjectSpec) {
 	*out = *in
 	if in.Tags != nil {
 		out.Tags = make([]string, len(in.Tags))
@@ -111,7 +41,7 @@ func (in *PipelineSpec) DeepCopyInto(out *PipelineSpec) {
 	}
 }
 
-func (in *PipelineStatus) DeepCopyInto(out *PipelineStatus) {
+func (in *ProjectStatus) DeepCopyInto(out *ProjectStatus) {
 	*out = *in
 	if in.Conditions != nil {
 		out.Conditions = make([]metav1.Condition, len(in.Conditions))
@@ -125,21 +55,21 @@ func (in *PipelineStatus) DeepCopyInto(out *PipelineStatus) {
 }
 
 // DeepCopyObject implements runtime.Object.
-func (in *PipelineList) DeepCopyObject() runtime.Object {
+func (in *ProjectList) DeepCopyObject() runtime.Object {
 	if in == nil {
 		return nil
 	}
-	out := new(PipelineList)
+	out := new(ProjectList)
 	in.DeepCopyInto(out)
 	return out
 }
 
-func (in *PipelineList) DeepCopyInto(out *PipelineList) {
+func (in *ProjectList) DeepCopyInto(out *ProjectList) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
-		out.Items = make([]Pipeline, len(in.Items))
+		out.Items = make([]Project, len(in.Items))
 		for i := range in.Items {
 			in.Items[i].DeepCopyInto(&out.Items[i])
 		}
@@ -175,6 +105,14 @@ func (in *RunnerPoolSpec) DeepCopyInto(out *RunnerPoolSpec) {
 		out.Spot = new(SpotSpec)
 		*out.Spot = *in.Spot
 	}
+	if in.Workspace != nil {
+		out.Workspace = new(WorkspaceSpec)
+		*out.Workspace = *in.Workspace
+	}
+}
+
+func (in *WorkspaceSpec) DeepCopyInto(out *WorkspaceSpec) {
+	*out = *in
 }
 
 func (in *ResourceProfileSpec) DeepCopyInto(out *ResourceProfileSpec) {
@@ -231,91 +169,6 @@ func (in *RunnerPoolList) DeepCopyInto(out *RunnerPoolList) {
 	}
 }
 
-// ── AuthProvider ────────────────────────────────────────────
-
-func (in *AuthProvider) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(AuthProvider)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *AuthProvider) DeepCopyInto(out *AuthProvider) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	in.Spec.DeepCopyInto(&out.Spec)
-	in.Status.DeepCopyInto(&out.Status)
-}
-
-func (in *AuthProviderSpec) DeepCopyInto(out *AuthProviderSpec) {
-	*out = *in
-	if in.OIDC != nil {
-		out.OIDC = new(OIDCProviderSpec)
-		in.OIDC.DeepCopyInto(out.OIDC)
-	}
-	if in.SAML != nil {
-		out.SAML = new(SAMLProviderSpec)
-		in.SAML.DeepCopyInto(out.SAML)
-	}
-}
-
-func (in *OIDCProviderSpec) DeepCopyInto(out *OIDCProviderSpec) {
-	*out = *in
-	if in.Scopes != nil {
-		out.Scopes = make([]string, len(in.Scopes))
-		copy(out.Scopes, in.Scopes)
-	}
-}
-
-func (in *SAMLProviderSpec) DeepCopyInto(out *SAMLProviderSpec) {
-	*out = *in
-	if in.CertificateRef != nil {
-		out.CertificateRef = new(SecretKeyRef)
-		*out.CertificateRef = *in.CertificateRef
-	}
-	if in.PrivateKeyRef != nil {
-		out.PrivateKeyRef = new(SecretKeyRef)
-		*out.PrivateKeyRef = *in.PrivateKeyRef
-	}
-}
-
-func (in *AuthProviderStatus) DeepCopyInto(out *AuthProviderStatus) {
-	*out = *in
-	if in.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(in.Conditions))
-		for i := range in.Conditions {
-			in.Conditions[i].DeepCopyInto(&out.Conditions[i])
-		}
-	}
-	if in.LastVerifiedAt != nil {
-		out.LastVerifiedAt = in.LastVerifiedAt.DeepCopy()
-	}
-}
-
-func (in *AuthProviderList) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(AuthProviderList)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *AuthProviderList) DeepCopyInto(out *AuthProviderList) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
-	if in.Items != nil {
-		out.Items = make([]AuthProvider, len(in.Items))
-		for i := range in.Items {
-			in.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
 // ── StepTemplate ────────────────────────────────────────────
 
 func (in *StepTemplate) DeepCopyObject() runtime.Object {
@@ -338,7 +191,17 @@ func (in *StepTemplateSpec) DeepCopyInto(out *StepTemplateSpec) {
 	*out = *in
 	if in.Inputs != nil {
 		out.Inputs = make([]StepTemplateInput, len(in.Inputs))
-		copy(out.Inputs, in.Inputs)
+		for i := range in.Inputs {
+			in.Inputs[i].DeepCopyInto(&out.Inputs[i])
+		}
+	}
+}
+
+func (in *StepTemplateInput) DeepCopyInto(out *StepTemplateInput) {
+	*out = *in
+	if in.Options != nil {
+		out.Options = make([]string, len(in.Options))
+		copy(out.Options, in.Options)
 	}
 }
 
@@ -357,53 +220,6 @@ func (in *StepTemplateList) DeepCopyInto(out *StepTemplateList) {
 	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		out.Items = make([]StepTemplate, len(in.Items))
-		for i := range in.Items {
-			in.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
-// ── ImagePreset ────────────────────────────────────────────
-
-func (in *ImagePreset) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(ImagePreset)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *ImagePreset) DeepCopyInto(out *ImagePreset) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	in.Spec.DeepCopyInto(&out.Spec)
-}
-
-func (in *ImagePresetSpec) DeepCopyInto(out *ImagePresetSpec) {
-	*out = *in
-	if in.Tags != nil {
-		out.Tags = make([]string, len(in.Tags))
-		copy(out.Tags, in.Tags)
-	}
-}
-
-func (in *ImagePresetList) DeepCopyObject() runtime.Object {
-	if in == nil {
-		return nil
-	}
-	out := new(ImagePresetList)
-	in.DeepCopyInto(out)
-	return out
-}
-
-func (in *ImagePresetList) DeepCopyInto(out *ImagePresetList) {
-	*out = *in
-	out.TypeMeta = in.TypeMeta
-	in.ListMeta.DeepCopyInto(&out.ListMeta)
-	if in.Items != nil {
-		out.Items = make([]ImagePreset, len(in.Items))
 		for i := range in.Items {
 			in.Items[i].DeepCopyInto(&out.Items[i])
 		}

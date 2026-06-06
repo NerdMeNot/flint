@@ -10,11 +10,13 @@ import { ScopeSelector } from '#/components/ScopeSelector'
 import { ScopeProvider } from '#/lib/scope-context'
 import ThemeToggle from '#/components/ThemeToggle'
 import { ThemeSwitcher } from '#/components/ThemeSwitcher'
+import { DensityToggle } from '#/components/DensityToggle'
+import { ScopeChips } from '#/components/ScopeChips'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
 import { Search } from 'lucide-react'
 import appCss from '../styles.css?url'
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;if(!stored){resolved='dark'}var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;if(!stored){resolved='dark'}var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;var d=window.localStorage.getItem('density');if(d==='compact'){root.setAttribute('data-density','compact')}else{root.removeAttribute('data-density')}}catch(e){}})();`
 
 export const Route = createRootRoute({
   head: () => ({
@@ -47,7 +49,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootLayout() {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const isAdmin = path.startsWith('/settings')
+  const isAuth = path === '/login'
   const palette = useCommandPalette()
+
+  // Auth pages render without any shell (no sidebar, no header).
+  if (isAuth) {
+    return <Outlet />
+  }
 
   if (isAdmin) {
     return (
@@ -78,10 +86,10 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
 
   return (
     <div className={`min-h-screen transition-all duration-200 ease-out ${
-      collapsed ? 'lg:ml-[60px]' : 'lg:ml-[220px]'
+      collapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]'
     }`}>
       <header
-        className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6"
+        className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
       >
         <MobileMenuButton />
@@ -91,7 +99,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
             style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
             F
           </div>
-          <span className="display-title font-bold text-foreground text-sm tracking-tight">
+          <span className="display-title font-bold text-foreground text-base tracking-tight">
             Flint
           </span>
         </div>
@@ -104,10 +112,12 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
           <SearchTrigger onClick={onSearchClick} />
           <div className="hidden sm:block w-px h-5 bg-border shrink-0" />
           <div className="hidden sm:block"><ThemeSwitcher /></div>
+          <div className="hidden lg:block"><DensityToggle /></div>
           <ThemeToggle />
         </div>
       </header>
-      <main className="px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <ScopeChips />
+      <main className="mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8 xl:px-12">
         <Outlet />
       </main>
     </div>
@@ -122,15 +132,15 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
   return (
     <div className="min-h-screen">
       <header
-        className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6"
+        className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
       >
         <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded font-bold text-xs"
+          <div className="flex h-6 w-6 lg:h-7 lg:w-7 items-center justify-center rounded font-bold text-xs lg:text-sm"
             style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
             F
           </div>
-          <span className="display-title font-bold text-foreground text-sm tracking-tight">
+          <span className="display-title font-bold text-foreground text-base lg:text-lg tracking-tight">
             Flint
           </span>
           <span className="text-xs font-medium text-muted-foreground opacity-60 ml-1">Admin</span>
@@ -138,10 +148,11 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <SearchTrigger onClick={onSearchClick} />
           <div className="hidden sm:block"><ThemeSwitcher /></div>
+          <div className="hidden lg:block"><DensityToggle /></div>
           <ThemeToggle />
         </div>
       </header>
-      <main className="px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <main className="mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8 xl:px-12">
         <Outlet />
       </main>
     </div>
@@ -172,7 +183,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
       >
         <Search size={13} />
         <span>Search</span>
-        <kbd className="ml-1 px-1.5 py-0.5 text-[0.55rem] font-medium border border-border rounded bg-transparent">
+        <kbd className="ml-1 px-1.5 py-0.5 text-[11px] font-medium border border-border rounded bg-transparent">
           {typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '\u2318' : 'Ctrl'}K
         </kbd>
       </button>

@@ -31,13 +31,13 @@ function MetadataExpander({ metadata }: { metadata: unknown }) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[0.65rem] text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
       >
         {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         metadata
       </button>
       {expanded && (
-        <pre className="mt-1.5 text-[0.6rem] leading-relaxed bg-muted/50 border border-border rounded-md p-2.5 overflow-x-auto text-muted-foreground font-mono">
+        <pre className="mt-1.5 text-[11px] leading-relaxed bg-muted/50 border border-border rounded-md p-2.5 overflow-x-auto text-muted-foreground font-mono">
           {JSON.stringify(metadata, null, 2)}
         </pre>
       )}
@@ -70,7 +70,7 @@ function AuditLogPage() {
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
           {/* Header */}
-          <div className="hidden sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[0.65rem] font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="hidden sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
             <span>Timestamp</span>
             <span>Action</span>
             <span>Resource</span>
@@ -94,7 +94,7 @@ function AuditLogPage() {
                 {/* Action */}
                 <div>
                   <span
-                    className={`island-kicker !text-[0.55rem] ${actionColor(entry.action)}`}
+                    className={`island-kicker !text-[11px] ${actionColor(entry.action)}`}
                   >
                     {entry.action}
                   </span>

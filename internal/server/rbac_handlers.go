@@ -124,18 +124,18 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 
 	// Store workspace scope rows.
 	for _, wsSlug := range req.Workspaces {
-		_, _ = s.deps.DB.Exec(ctx,
-			`INSERT INTO role_workspace_scope (role_id, workspace_id)
-			 SELECT $1, w.id FROM workspaces w WHERE w.slug = $2`,
-			id, wsSlug)
+		_ = s.deps.Q.InsertRoleWorkspaceScope(ctx, db.InsertRoleWorkspaceScopeParams{
+			RoleID: id,
+			Slug:   wsSlug,
+		})
 	}
 
 	// Store environment scope rows.
 	for _, envSlug := range req.Environments {
-		_, _ = s.deps.DB.Exec(ctx,
-			`INSERT INTO role_environment_scope (role_id, environment_id)
-			 SELECT $1, e.id FROM environments e WHERE e.slug = $2`,
-			id, envSlug)
+		_ = s.deps.Q.InsertRoleEnvironmentScope(ctx, db.InsertRoleEnvironmentScopeParams{
+			RoleID: id,
+			Slug:   envSlug,
+		})
 	}
 
 	c.JSON(consts.StatusCreated, utils.H{"id": id, "slug": req.Slug})
@@ -151,7 +151,7 @@ func (s *Server) handleDeleteRole(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Role Assignments ──────────────────────────────────────
@@ -244,7 +244,7 @@ func (s *Server) handleDeleteAssignment(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Environments moved to env_variable_handlers.go ───────────
@@ -306,7 +306,7 @@ func (s *Server) handleCreateWorkspace(ctx context.Context, c *app.RequestContex
 		return
 	}
 
-	c.JSON(consts.StatusCreated, utils.H{"id": id, "slug": req.Slug})
+	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "slug": req.Slug})
 }
 
 func (s *Server) handleDeleteWorkspace(ctx context.Context, c *app.RequestContext) {
@@ -316,7 +316,7 @@ func (s *Server) handleDeleteWorkspace(ctx context.Context, c *app.RequestContex
 		apiNotFound(ctx, c, "workspace not found")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"status": "deleted"})
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Helpers ────────────────────────────────────────────────
@@ -344,46 +344,24 @@ func (s *Server) getPermissionsForRole(roleSlug string) []auth.Permission {
 
 // getWorkspaceScopesForRole loads workspace slugs scoped to a role.
 func (s *Server) getWorkspaceScopesForRole(ctx context.Context, roleID string) []string {
-	result := []string{}
-	if s.deps.DB == nil {
-		return result
+	if s.deps.Q == nil {
+		return []string{}
 	}
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT w.slug FROM role_workspace_scope rws
-		 JOIN workspaces w ON w.id = rws.workspace_id
-		 WHERE rws.role_id = $1`, roleID)
+	slugs, err := s.deps.Q.ListRoleWorkspaceSlugs(ctx, roleID)
 	if err != nil {
-		return result
+		return []string{}
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var slug string
-		if rows.Scan(&slug) == nil {
-			result = append(result, slug)
-		}
-	}
-	return result
+	return slugs
 }
 
-// getEnvironmentScopesForRole loads environment slugs scoped to a role.
+// getEnvironmentScopesForRole loads environment names scoped to a role.
 func (s *Server) getEnvironmentScopesForRole(ctx context.Context, roleID string) []string {
-	result := []string{}
-	if s.deps.DB == nil {
-		return result
+	if s.deps.Q == nil {
+		return []string{}
 	}
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT e.slug FROM role_environment_scope res
-		 JOIN environments e ON e.id = res.environment_id
-		 WHERE res.role_id = $1`, roleID)
+	names, err := s.deps.Q.ListRoleEnvironmentNames(ctx, roleID)
 	if err != nil {
-		return result
+		return []string{}
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var slug string
-		if rows.Scan(&slug) == nil {
-			result = append(result, slug)
-		}
-	}
-	return result
+	return names
 }

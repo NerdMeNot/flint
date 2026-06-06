@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -381,6 +382,168 @@ steps:
 	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
 	require.False(t, result.Valid())
 	assert.Contains(t, result.Errors()[0].Message, "absolute")
+}
+
+func TestValidate_CacheKeyExpression(t *testing.T) {
+	// A cache key referencing built-in vars (branch) AND hashFiles must NOT be
+	// flagged — it's a valid expression.
+	ok := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: build
+    run: make
+    cache:
+      key: "go-${{ branch }}-${{ hashFiles('go.sum') }}"
+      paths: [/root/go/pkg/mod]
+`
+	assert.True(t, pipeline.Validate([]byte(ok), pipeline.ValidateOptions{}).Valid(),
+		"valid cache key expression should not be flagged")
+
+	// A syntactically broken expression must be flagged.
+	bad := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: build
+    run: make
+    cache:
+      key: "go-${{ hashFiles( }}"
+      paths: [/root/go/pkg/mod]
+`
+	result := pipeline.Validate([]byte(bad), pipeline.ValidateOptions{})
+	require.False(t, result.Valid())
+	var found bool
+	for _, e := range result.Errors() {
+		if e.Field == "steps[0].cache.key" && e.Code == pipeline.CodeInvalidExpression {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected invalid cache-key expression error")
+}
+
+func TestValidate_EnumDidYouMean(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: test
+    run: echo
+    when: onSucess
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	require.False(t, result.Valid())
+	var found bool
+	for _, e := range result.Errors() {
+		if e.Field == "steps[0].when" {
+			assert.Contains(t, e.Suggestion, "Did you mean")
+			assert.Contains(t, e.Suggestion, "onSuccess")
+			found = true
+		}
+	}
+	assert.True(t, found, "expected did-you-mean suggestion on invalid when")
+}
+
+func TestValidate_InputFromStepWithoutOutputs(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: build
+    run: make
+  - name: package
+    run: tar czf out.tgz .
+    dependsOn: [build]
+    inputs:
+      - from: build
+        path: /workspace/bin
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	var found bool
+	for _, w := range result.Warnings() {
+		if w.Field == "steps[1].inputs[0].from" {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected warning: 'build' declares no outputs")
+}
+
+func TestValidate_OutputPathNoDotDot(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: build
+    run: make
+    outputs:
+      - path: /workspace/../etc/passwd
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	require.False(t, result.Valid())
+	var found bool
+	for _, e := range result.Errors() {
+		if e.Field == "steps[0].outputs[0].path" && strings.Contains(e.Message, "..") {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected '..' rejection on output path")
+}
+
+func TestValidate_ReservedNameShadowing(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+  manual:
+    inputs:
+      - name: env
+        type: string
+        default: dev
+steps:
+  - name: test
+    run: echo
+    matrix:
+      branch: ["a", "b"]
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	var inputWarn, matrixWarn bool
+	for _, w := range result.Warnings() {
+		if w.Field == "triggers.manual.inputs[0].name" {
+			inputWarn = true
+		}
+		if w.Field == "steps[0].matrix.branch" {
+			matrixWarn = true
+		}
+	}
+	assert.True(t, inputWarn, "expected manual input shadowing warning")
+	assert.True(t, matrixWarn, "expected matrix dimension shadowing warning")
+}
+
+func TestValidate_MalformedCrossRepoUse(t *testing.T) {
+	for _, ref := range []string{"org/@v1", "//path@", "acme/repo/file@"} {
+		yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: setup
+    use: "` + ref + `"
+`
+		result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+		require.False(t, result.Valid(), "ref %q should be invalid", ref)
+		found := false
+		for _, e := range result.Errors() {
+			if e.Field == "steps[0].use" && e.Code == pipeline.CodeInvalidValue {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected malformed cross-repo error for %q", ref)
+	}
 }
 
 func TestValidate_ErrorCodes(t *testing.T) {

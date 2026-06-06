@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { ShieldCheck, Plus, Trash2 } from 'lucide-react'
-import { orpc, client } from '#/lib/orpc'
+import { ShieldCheck } from 'lucide-react'
+import { orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 
 export const Route = createFileRoute('/settings/environments/')({

@@ -21,6 +21,11 @@ WHERE tm.user_id = $1;
 -- name: ListUserTeamIDs :many
 SELECT team_id FROM team_members WHERE user_id = $1;
 
+-- name: ListUserIdpTeams :many
+SELECT t.id, t.slug FROM teams t
+JOIN team_members tm ON tm.team_id = t.id
+WHERE tm.user_id = $1 AND t.source = 'idp';
+
 -- name: IsUserInTeamBySlug :one
 SELECT EXISTS(
     SELECT 1 FROM team_members tm

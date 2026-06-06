@@ -15,7 +15,6 @@ import {
   ExternalLink,
   AlertTriangle,
   Play,
-  X,
   ChevronDown,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
@@ -65,17 +64,17 @@ function ProjectDetailPage() {
   return (
     <div className="rise-in space-y-5">
       {/* Project header */}
-      <div className="island-shell p-4 sm:p-5">
+      <div className="island-shell p-4 sm:p-5 lg:p-6">
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1.5 min-w-0">
+          <div className="space-y-1.5 lg:space-y-2 min-w-0">
             <div className="flex items-center gap-2.5">
-              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
-              <h1 className="display-title text-xl font-bold text-foreground truncate">
+              <div className="w-2.5 h-2.5 lg:w-3 lg:h-3 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
+              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate">
                 {project.name}
               </h1>
-              <span className="island-kicker !text-[0.55rem] shrink-0">{project.workspace}</span>
+              <span className="island-kicker !text-[11px] shrink-0">{project.workspace}</span>
             </div>
-            <p className="text-sm text-muted-foreground font-mono">{project.repo}</p>
+            <p className="text-sm lg:text-base text-muted-foreground font-mono">{project.repo}</p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
@@ -105,7 +104,7 @@ function ProjectDetailPage() {
         {project.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3">
             {project.tags.map((tag) => (
-              <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
+              <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
                 {tag}
               </span>
             ))}
@@ -137,13 +136,13 @@ function ProjectDetailPage() {
                   {p.filename}
                 </span>
                 {p.status === 'invalid' && (
-                  <span className="flex items-center gap-0.5 text-[0.6rem] font-semibold text-destructive">
+                  <span className="flex items-center gap-0.5 text-[11px] font-semibold text-destructive">
                     <AlertTriangle size={10} />
                     invalid
                   </span>
                 )}
               </div>
-              <span className="text-[0.65rem] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground">
                 {p.steps.length} steps
               </span>
             </div>
@@ -172,7 +171,7 @@ function ProjectDetailPage() {
             <t.icon size={13} />
             {t.label}
             {'count' in t && t.count !== undefined && (
-              <span className="ml-0.5 text-[0.6rem] opacity-60">{t.count}</span>
+              <span className="ml-0.5 text-[11px] opacity-60">{t.count}</span>
             )}
           </button>
         ))}
@@ -322,7 +321,7 @@ function TriggerOverlay({
                         {input.required && <span className="text-destructive ml-0.5">*</span>}
                       </label>
                       {input.description && (
-                        <p className="text-[0.65rem] text-muted-foreground">{input.description}</p>
+                        <p className="text-[12px] text-muted-foreground">{input.description}</p>
                       )}
                       {input.type === 'choice' && input.options ? (
                         <FormSelect
@@ -513,7 +512,7 @@ function PipelineTab({ steps, filename }: { steps: Array<{ name: string; status:
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${step.execType === 'gate' ? 'bg-warning' : 'bg-muted-foreground opacity-40'}`} />
             <span className={`font-mono font-medium ${step.execType === 'gate' ? 'text-warning' : 'text-foreground'}`}>{step.name}</span>
             {step.dependsOn && step.dependsOn.length > 0 && (
-              <span className="text-muted-foreground opacity-40 text-[0.6rem] truncate max-w-[200px]">
+              <span className="text-muted-foreground opacity-40 text-[11px] truncate max-w-[200px]">
                 ← {step.dependsOn.join(', ')}
               </span>
             )}
@@ -528,16 +527,20 @@ function PipelineTab({ steps, filename }: { steps: Array<{ name: string; status:
 // YAML tab
 // ---------------------------------------------------------------------------
 
-// Singleton highlighter — loads only YAML grammar + one theme (~50 KB vs ~8 MB full bundle)
-let highlighterPromise: Promise<import('shiki').Highlighter> | null = null
+// Singleton highlighter — loads only YAML grammar + one theme
+let highlighterPromise: Promise<any> | null = null
 function getHighlighter() {
   if (!highlighterPromise) {
-    highlighterPromise = import('shiki/core').then(({ createHighlighter }) =>
+    highlighterPromise = import('shiki').then(({ createHighlighter }) =>
       createHighlighter({
-        themes: [import('shiki/themes/github-dark')],
-        langs: [import('shiki/langs/yaml')],
+        themes: ['github-dark'],
+        langs: ['yaml'],
       }),
-    )
+    ).catch((err) => {
+      console.warn('Shiki failed to load, falling back to plain text:', err)
+      highlighterPromise = null
+      return null
+    })
   }
   return highlighterPromise
 }
@@ -549,12 +552,14 @@ function YamlTab({ yaml }: { yaml: string }) {
   useEffect(() => {
     let cancelled = false
     getHighlighter()
-      .then((highlighter) =>
-        highlighter.codeToHtml(yaml, { lang: 'yaml', theme: 'github-dark' }),
-      )
-      .then((result) => {
-        if (!cancelled) setHtml(result)
+      .then((highlighter) => {
+        if (!highlighter) return null
+        return highlighter.codeToHtml(yaml, { lang: 'yaml', theme: 'github-dark' })
       })
+      .then((result) => {
+        if (!cancelled && result) setHtml(result)
+      })
+      .catch(() => {}) // fallback to plain text
     return () => { cancelled = true }
   }, [yaml])
 
@@ -567,11 +572,11 @@ function YamlTab({ yaml }: { yaml: string }) {
       </div>
       {html ? (
         <div
-          className="[&_pre]:!bg-[#0d1117] [&_pre]:p-4 [&_pre]:sm:p-5 [&_pre]:max-h-[75vh] [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:sm:text-[0.82rem] [&_pre]:leading-relaxed [&_code]:font-mono"
+          className="[&_pre]:!bg-[#0d1117] [&_pre]:p-4 [&_pre]:sm:p-5 [&_pre]:lg:p-6 [&_pre]:max-h-[75vh] [&_pre]:overflow-auto [&_pre]:text-[13px] [&_pre]:lg:text-[14px] [&_pre]:leading-[1.65] [&_code]:font-mono"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <div className="bg-[#0d1117] p-4 sm:p-5 font-mono text-xs leading-relaxed text-[#c9d1d9] whitespace-pre max-h-[75vh] overflow-auto">
+        <div className="bg-[#0d1117] p-4 sm:p-5 lg:p-6 font-mono text-[13px] lg:text-[14px] leading-[1.65] text-[#c9d1d9] whitespace-pre max-h-[75vh] overflow-auto">
           {yaml}
         </div>
       )}
@@ -593,7 +598,7 @@ function StatusBadge({ status }: { status: string }) {
   }
 
   return (
-    <span className={`inline-flex rounded-full border px-1.5 py-px text-[0.6rem] font-semibold ${styles[status] ?? styles.pending}`}>
+    <span className={`inline-flex rounded-full border px-1.5 py-px text-[11px] font-semibold ${styles[status] ?? styles.pending}`}>
       {status}
     </span>
   )

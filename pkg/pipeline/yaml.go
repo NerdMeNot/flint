@@ -1,10 +1,105 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// RunCommand represents a step's run field. It accepts either a single string
+// or a list of strings in YAML/JSON:
+//
+//	run: echo hello            # single command
+//	run:                       # multiple commands
+//	  - npm install
+//	  - npm run build
+//	  - npm test
+//
+// When multiple commands are given, they are joined with " && " so that the
+// step fails fast on the first non-zero exit.
+type RunCommand struct {
+	Commands []string
+}
+
+// Cmd creates a RunCommand from a single string. Convenience for Go callers
+// and tests (pipeline YAML goes through UnmarshalYAML instead).
+func Cmd(s string) RunCommand {
+	if s == "" {
+		return RunCommand{}
+	}
+	return RunCommand{Commands: []string{s}}
+}
+
+// String returns the shell command(s) as a single string.
+func (r RunCommand) String() string {
+	return strings.Join(r.Commands, " && ")
+}
+
+// IsEmpty reports whether no commands are set.
+func (r RunCommand) IsEmpty() bool {
+	return len(r.Commands) == 0
+}
+
+// UnmarshalYAML handles both string and sequence forms.
+func (r *RunCommand) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := node.Decode(&s); err != nil {
+			return err
+		}
+		if s != "" {
+			r.Commands = []string{s}
+		}
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := node.Decode(&list); err != nil {
+			return err
+		}
+		r.Commands = list
+		return nil
+	default:
+		return fmt.Errorf("run must be a string or list of strings, got %v", node.Kind)
+	}
+}
+
+// MarshalYAML emits a scalar when there's one command, a sequence when many.
+func (r RunCommand) MarshalYAML() (interface{}, error) {
+	if len(r.Commands) == 1 {
+		return r.Commands[0], nil
+	}
+	return r.Commands, nil
+}
+
+// UnmarshalJSON handles both string and array forms.
+func (r *RunCommand) UnmarshalJSON(data []byte) error {
+	// Try string first.
+	var s string
+	if json.Unmarshal(data, &s) == nil {
+		if s != "" {
+			r.Commands = []string{s}
+		}
+		return nil
+	}
+	// Try array.
+	var list []string
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("run must be a string or array of strings")
+	}
+	r.Commands = list
+	return nil
+}
+
+// MarshalJSON emits a string when there's one command, an array when many.
+func (r RunCommand) MarshalJSON() ([]byte, error) {
+	if len(r.Commands) == 1 {
+		return json.Marshal(r.Commands[0])
+	}
+	return json.Marshal(r.Commands)
+}
 
 // PullRequestTrigger supports a shorthand form:
 //

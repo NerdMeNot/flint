@@ -3,6 +3,13 @@ _reference/
 
 # Binaries
 bin/
+# Root-level compiled binaries (built without -o bin/)
+/server
+/worker
+/agent
+/controller
+/syncd
+/flint
 *.exe
 *.exe~
 *.dll

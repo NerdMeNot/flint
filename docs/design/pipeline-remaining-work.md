@@ -1,5 +1,43 @@
 # Pipeline Framework — Remaining Work for Production Grade
 
+## Status — RESOLVED (reconciled 2026-06-06)
+
+An audit found this list was stale: ~12 items were already implemented when written.
+The remaining gaps (and two latent bugs the list undersold) have now been addressed.
+All items below are **done**; the notes record how.
+
+| Item | Status | Note |
+|------|--------|------|
+| P1.1 | ✅ done | File templates already covered; CRD path now substitutes `Image` too (`resolve.go`) |
+| P1.2 | ✅ done | `validateInputValue` enforces boolean/choice (now tested) |
+| P1.3 | ✅ fixed | **Bug:** `StepTemplateInput.Options` was shallow-copied — added `DeepCopyInto` (`zz_deepcopy.go`) |
+| P1.4 | ✅ done | Empty file template errors (now tested) |
+| P1.5 | ✅ done | Malformed cross-repo `use:` now flagged via `malformedCrossRepoRef` |
+| P1.6 | ✅ done | Duplicate promotion `from` rejected |
+| P1.7 | ✅ done | Approver format tightened |
+| P2.1 | ✅ done | Dup-`from` + PR/promotion warning present; same-type dups are structurally impossible (single pointers) |
+| P2.2 | ✅ done | Env var name warning present |
+| P2.3 | ✅ added | Reserved-name shadowing warning for manual inputs + matrix keys (`reservedContextVars`) |
+| P2.4 | ✅ improved | Replaced fragile `strings.Contains(err,"compile")` with compile-only `compileExpr`; fixed a cache-key false-positive (full context) |
+| P2.5 | ✅ added | `inputs[].from` referencing an output-less step now warns (`collectStepsWithOutputs`) |
+| P2.6 | ✅ done | `outputs[].path` now also rejects `..` |
+| P2.7 | ✅ done | `MaxStepNameLength` enforced |
+| P2.8 | ✅ done | `StepStatus.MatrixCombinations` populated |
+| P3.1 | ✅ done | Types documented; added `Example*` functions (`example_test.go`) |
+| P3.2 | ✅ done | `ValidationIssue.Code` + 11 code constants exist |
+| P3.3 | ✅ added | Did-you-mean suggestions on `when`/`shell`/input-type (`enumSuggestion`) |
+| P3.4 | ✅ done | Webhook body/headers in expression context |
+| P3.5 | ✅ done | Helpers unexported |
+| P4.1–P4.5 | ✅ done | Edge-case tests added (matrix-max, unicode/oversized inputs, input types, empty template, large/matrix DAG, env simulation) |
+| P5.1 | ✅ done | Added `MaxEnvValueSize` (per-value byte cap) |
+| P5.2 | ✅ added | `checkYAMLComplexity` guards against anchor/alias bombs |
+| P5.3 | ✅ added | `EvalExpr` bounded by `exprEvalTimeout` (expr-lang `WithContext` + goroutine) |
+| P5.4 | ✅ fixed | **Bug:** depth now threaded through `use:`→`use:` chains in `resolveFileTemplate` |
+
+The original analysis is preserved below for reference.
+
+---
+
 ## Priority 1: Correctness (Must Fix)
 
 These are bugs or missing validations that would cause incorrect behavior or confusing failures.

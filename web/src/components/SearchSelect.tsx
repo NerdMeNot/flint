@@ -114,7 +114,7 @@ export function SearchSelect({ items, selected, onChange, placeholder }: SearchS
               </button>
             ))}
             {filtered.length > 10 && (
-              <p className="px-3 py-2 text-[0.65rem] text-muted-foreground text-center">
+              <p className="px-3 py-2 text-[12px] text-muted-foreground text-center">
                 {filtered.length - 10} more — refine your search
               </p>
             )}

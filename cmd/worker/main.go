@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/NerdMeNot/flint/internal/config"
 	"github.com/NerdMeNot/flint/internal/dbkit"
@@ -14,6 +15,9 @@ import (
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
@@ -80,28 +84,36 @@ func run(cmd *cobra.Command, args []string) error {
 	// Forge provider.
 	forgeProvider := forge.NewGitHub("", nil)
 
-	// Engine.
-	eng := engine.New(pool, forgeProvider)
+	// Engine. The JWT secret signs/verifies task tokens (must match the server;
+	// never injected into step pods, unlike the internal token).
+	eng := engine.New(pool, forgeProvider, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
 	// Runner pool registry.
 	registry := runner.NewRegistry()
 
-	// K8s client — initialized in-cluster at runtime.
-	// For now nil — the loop handles nil k8s gracefully.
-	// In production: k8s := kubernetes.NewForConfigOrDie(rest.InClusterConfig())
+	// K8s client — try in-cluster first, fall back to kubeconfig for local dev.
+	k8sClient, err := buildK8sClient()
+	if err != nil {
+		log.Warn().Err(err).Msg("K8s client unavailable — Jobs will not be dispatched (DB-only mode)")
+	} else {
+		log.Info().Msg("K8s client initialized")
+	}
 
 	// Worker loop — polls Postgres, creates K8s Jobs, fires timers.
-	loop := engine.NewLoop(eng, nil, registry, engine.LoopConfig{
+	loop := engine.NewLoop(eng, k8sClient, registry, engine.LoopConfig{
 		SweepInterval: cfg.Worker.SweepIntervalOrDefault(),
+		InternalToken: cfg.Server.InternalToken,
+		SigningKey:    []byte(cfg.Auth.JWT.Secret),
 	}, cfg.Worker.AgentImage, cfg.Worker.JobNamespaceOrDefault(),
 		fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault()),
 	)
 
 	// Start K8s informer in background.
+	// Detects Job completions/failures in seconds instead of waiting for the
+	// 2-hour sweep deadline.
 	go func() {
-		// Informer now calls engine.CompleteStep directly instead of Temporal signals.
-		watcher := workerinformer.New(nil, nil, workerinformer.Config{
+		watcher := workerinformer.New(k8sClient, eng, pool, workerinformer.Config{
 			Namespace: cfg.Worker.JobNamespaceOrDefault(),
 		})
 		if err := watcher.Run(ctx); err != nil {
@@ -111,4 +123,33 @@ func run(cmd *cobra.Command, args []string) error {
 
 	log.Info().Msg("flint-worker ready, starting engine loop")
 	return loop.Run(ctx)
+}
+
+// buildK8sClient creates a kubernetes.Interface using in-cluster config when
+// running inside a pod, or falls back to the user's kubeconfig for local
+// development. Returns (nil, err) when neither is available.
+func buildK8sClient() (kubernetes.Interface, error) {
+	// In-cluster: service account token + CA cert are mounted automatically.
+	cfg, err := rest.InClusterConfig()
+	if err == nil {
+		return kubernetes.NewForConfig(cfg)
+	}
+
+	// Local dev: try $KUBECONFIG, then ~/.kube/config.
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			kubeconfig = filepath.Join(home, ".kube", "config")
+		}
+	}
+	if kubeconfig == "" {
+		return nil, fmt.Errorf("no in-cluster config and no kubeconfig found")
+	}
+
+	cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("build kubeconfig: %w", err)
+	}
+	return kubernetes.NewForConfig(cfg)
 }

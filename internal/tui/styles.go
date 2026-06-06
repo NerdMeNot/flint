@@ -21,10 +21,10 @@ var (
 	ColorSkipped = lipgloss.Color("#9ca3af") // light gray
 
 	// Structural.
-	ColorBorder  = lipgloss.Color("#374151")
-	ColorHeader  = lipgloss.Color("#e5e7eb")
-	ColorDim     = lipgloss.Color("#6b7280")
-	ColorAccent  = FlintPurple
+	ColorBorder = lipgloss.Color("#374151")
+	ColorHeader = lipgloss.Color("#e5e7eb")
+	ColorDim    = lipgloss.Color("#6b7280")
+	ColorAccent = FlintPurple
 
 	// Styles.
 	BorderStyle = lipgloss.NewStyle().

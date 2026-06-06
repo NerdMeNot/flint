@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
 	"github.com/NerdMeNot/flint/internal/config"
 	"github.com/NerdMeNot/flint/internal/controller"
+	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/dbkit"
 	"github.com/NerdMeNot/flint/internal/observe"
@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -35,7 +36,7 @@ func init() {
 func main() {
 	root := &cobra.Command{
 		Use:     "flint-controller",
-		Short:   "Flint CI controller — CRD reconciler for Pipeline, RunnerPool, ForgeConnection",
+		Short:   "Flint CI controller — CRD reconciler for Project and RunnerPool",
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		RunE:    run,
 	}
@@ -98,38 +99,31 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating controller manager: %w", err)
 	}
 
+	// Build typed K8s client for storage class validation.
+	k8sClient, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return fmt.Errorf("creating K8s clientset: %w", err)
+	}
+
 	// Register reconcilers.
 	registry := runner.NewRegistry()
 
 	q := db.New(pool)
 
 	if err := (&controller.RunnerPoolReconciler{
-		Client:   mgr.GetClient(),
-		Q:        q,
-		Registry: registry,
+		Client:    mgr.GetClient(),
+		K8sClient: k8sClient,
+		Q:         q,
+		Registry:  registry,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setting up RunnerPool controller: %w", err)
 	}
 
-	if err := (&controller.PipelineReconciler{
+	if err := (&controller.ProjectReconciler{
 		Client: mgr.GetClient(),
 		Q:      q,
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setting up Pipeline controller: %w", err)
-	}
-
-	if err := (&controller.ForgeConnectionReconciler{
-		Client: mgr.GetClient(),
-		Q:      q,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setting up ForgeConnection controller: %w", err)
-	}
-
-	if err := (&controller.AuthProviderReconciler{
-		Client: mgr.GetClient(),
-		Q:      q,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setting up AuthProvider controller: %w", err)
+		return fmt.Errorf("setting up Project controller: %w", err)
 	}
 
 	// Start orphan detection in background.

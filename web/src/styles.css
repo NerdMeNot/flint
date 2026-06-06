@@ -121,6 +121,8 @@ body {
   margin: 0;
   color: var(--foreground);
   font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.9375rem;     /* 15px — matches new --text-sm */
+  line-height: 1.5;
   background-color: var(--background);
   background:
     radial-gradient(1100px 620px at -8% -10%, var(--hero-a), transparent 58%),
@@ -138,7 +140,7 @@ body::before {
   inset: 0;
   pointer-events: none;
   z-index: -1;
-  opacity: 0.28;
+  opacity: 0.18;             /* was 0.28 — softer so dense tables don't fight the wash */
   background:
     radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.8), transparent 34%),
     radial-gradient(circle at 78% 26%, rgba(79, 184, 178, 0.2), transparent 42%),
@@ -151,7 +153,7 @@ body::after {
   inset: 0;
   pointer-events: none;
   z-index: -1;
-  opacity: 0.14;
+  opacity: 0.07;             /* was 0.14 — grid texture is decorative, not load-bearing */
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
@@ -212,10 +214,10 @@ button, .island-shell, .feature-card, a {
 }
 
 .island-kicker {
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 700;
-  font-size: 0.69rem;
+  font-size: 0.6875rem;     /* 11px — was 0.69rem */
   color: var(--kicker);
 }
 
@@ -265,9 +267,52 @@ button, .island-shell, .feature-card, a {
   100% { left: 160%; }
 }
 
+/* Type ramp — desktop-first. Uses non-inline @theme so the values are
+   emitted as CSS variables and can be overridden at runtime by the
+   [data-density="compact"] selector below. */
+@theme {
+  --text-xs: 0.8125rem;       /* 13px (was 12) */
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.9375rem;       /* 15px (was 14) */
+  --text-sm--line-height: 1.5;
+  --text-base: 1rem;          /* 16px — keep for inputs (no iOS zoom) */
+  --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;        /* 18px */
+  --text-lg--line-height: 1.5;
+  --text-xl: 1.375rem;        /* 22px (was 20) */
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.75rem;        /* 28px (was 24) */
+  --text-2xl--line-height: 1.25;
+  --text-3xl: 2.125rem;       /* 34px */
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 2.625rem;       /* 42px */
+  --text-4xl--line-height: 1.15;
+  --text-5xl: 3.25rem;        /* 52px */
+  --text-5xl--line-height: 1.1;
+}
+
+/* Compact density — used by power users with very dense run lists.
+   Shifts the entire ramp ~1 step down. Body font also tightens.
+   Activated by setting data-density="compact" on <html>. */
+:root[data-density="compact"] {
+  --text-xs: 0.75rem;         /* 12px */
+  --text-sm: 0.8125rem;       /* 13px */
+  --text-base: 0.9375rem;     /* 15px */
+  --text-lg: 1.0625rem;       /* 17px */
+  --text-xl: 1.25rem;         /* 20px */
+  --text-2xl: 1.5rem;         /* 24px */
+  --text-3xl: 1.875rem;       /* 30px */
+  --text-4xl: 2.25rem;        /* 36px */
+  --text-5xl: 2.75rem;        /* 44px */
+}
+:root[data-density="compact"] body {
+  font-size: 0.8125rem;       /* 13px */
+}
+
 @theme inline {
   --font-heading: "Fraunces", Georgia, serif;
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

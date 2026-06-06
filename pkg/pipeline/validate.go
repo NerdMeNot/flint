@@ -16,6 +16,14 @@ type ValidateOptions struct {
 	PresetsOnly bool
 	// TemplateResolver for checking use: references. Optional.
 	Resolver TemplateResolver
+	// RequireImage, when true, flags run: steps that have no image and no
+	// pipeline-level default image as an error. Enable this in environments where
+	// every step must declare an explicit image.
+	RequireImage bool
+
+	// pipelineImage is the pipeline-level default image, propagated internally
+	// during step validation so steps can inherit it.
+	pipelineImage string
 }
 
 // Validate performs rich validation of pipeline YAML with line-level errors.
@@ -79,14 +87,19 @@ func Validate(data []byte, opts ValidateOptions) *ValidationResult {
 
 	// Collect all step names for suggestion matching.
 	stepNames := collectStepNames(p)
+	stepsWithOutputs := collectStepsWithOutputs(p)
 
 	// --- Trigger validation ---
 	validateTriggers(p, result, opts)
 
 	// --- Step validation ---
+	// Propagate pipeline-level image into options so step validation can check
+	// whether a run: step has at least one image source.
+	stepOpts := opts
+	stepOpts.pipelineImage = p.Image
 	for i, s := range p.Steps {
 		field := fmt.Sprintf("steps[%d]", i)
-		validateStepSemantics(&s, field, stepNames, result, opts)
+		validateStepSemantics(&s, field, stepNames, stepsWithOutputs, result, stepOpts)
 	}
 
 	// --- DAG validation ---

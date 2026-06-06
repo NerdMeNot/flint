@@ -120,4 +120,9 @@ func MergeIntoJob(spec *PoolSpec, job *batchv1.Job) {
 	if len(spec.Tolerations) > 0 {
 		podSpec.Tolerations = append(podSpec.Tolerations, spec.Tolerations...)
 	}
+
+	// Service account — enables IAM role-based auth (IRSA, Workload Identity).
+	if spec.ServiceAccountName != "" {
+		podSpec.ServiceAccountName = spec.ServiceAccountName
+	}
 }

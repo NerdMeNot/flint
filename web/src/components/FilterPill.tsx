@@ -74,7 +74,7 @@ export function FilterPill({ icon, label, active, onClear, items, onSelect }: Fi
               }`}
             >
               <span>{item.label}</span>
-              {item.detail && <span className="text-[0.6rem] opacity-50">{item.detail}</span>}
+              {item.detail && <span className="text-[11px] opacity-50">{item.detail}</span>}
             </button>
           ))}
         </div>

@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ func TestParse_Minimal(t *testing.T) {
 
 	require.Len(t, p.Steps, 1)
 	assert.Equal(t, "hello", p.Steps[0].Name)
-	assert.Equal(t, "echo hello", p.Steps[0].Run)
+	assert.Equal(t, "echo hello", p.Steps[0].Run.String())
 	assert.Equal(t, "run", p.Steps[0].ExecType())
 	assert.NotNil(t, p.Triggers.Push)
 	assert.Equal(t, []string{"main"}, p.Triggers.Push.Branches)
@@ -264,4 +265,59 @@ steps:
 	p, err := pipeline.Parse([]byte(yaml))
 	require.NoError(t, err)
 	assert.Len(t, p.Steps, 1)
+}
+
+func TestParse_RejectsAnchorBomb(t *testing.T) {
+	// Classic "billion laughs": each level references the previous nine times.
+	bomb := `
+a: &a ["x","x","x","x","x","x","x","x","x"]
+b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+d: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c]
+e: &e [*d,*d,*d,*d,*d,*d,*d,*d,*d]
+f: &f [*e,*e,*e,*e,*e,*e,*e,*e,*e]
+g: [*f,*f,*f,*f,*f,*f,*f,*f,*f]
+`
+	_, err := pipeline.Parse([]byte(bomb))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nodes")
+}
+
+func TestParse_RejectsOversizedEnvValue(t *testing.T) {
+	big := strings.Repeat("x", pipeline.MaxEnvValueSize+1)
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: test
+    run: echo
+    env:
+      BIG: "` + big + `"
+`
+	_, err := pipeline.Parse([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env value")
+}
+
+func TestParse_MatrixExceedsMaxCombinations(t *testing.T) {
+	vals := strings.TrimSuffix(strings.Repeat(`"x",`, 257), ",")
+	yaml := "triggers:\n  push:\n    branches: [main]\nsteps:\n  - name: test\n    run: echo\n    matrix:\n      a: [" + vals + "]\n"
+	_, err := pipeline.Parse([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "combinations")
+}
+
+func TestParse_UnicodeStepName(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: "tëst-ünïcode"
+    run: echo
+`
+	p, err := pipeline.Parse([]byte(yaml))
+	require.NoError(t, err)
+	assert.Equal(t, "tëst-ünïcode", p.Steps[0].Name)
 }

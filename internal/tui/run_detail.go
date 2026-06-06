@@ -11,12 +11,12 @@ import (
 
 // RunDetailView shows a single run with DAG visualization.
 type RunDetailView struct {
-	client       *Client
-	runID        string
-	run          *Run
-	state        *WorkflowState
-	selectedStep int
-	loading      bool
+	client        *Client
+	runID         string
+	run           *Run
+	state         *WorkflowState
+	selectedStep  int
+	loading       bool
 	width, height int
 }
 

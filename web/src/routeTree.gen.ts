@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProjectsRouteImport } from './routes/projects'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as GatesRouteImport } from './routes/gates'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -21,6 +22,9 @@ import { Route as SettingsWorkspacesRouteImport } from './routes/settings.worksp
 import { Route as SettingsVariablesRouteImport } from './routes/settings.variables'
 import { Route as SettingsUsersRouteImport } from './routes/settings.users'
 import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
+import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
+import { Route as SettingsSessionsRouteImport } from './routes/settings.sessions'
+import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
 import { Route as SettingsRunnersRouteImport } from './routes/settings.runners'
 import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
@@ -50,6 +54,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const ProjectsRoute = ProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GatesRoute = GatesRouteImport.update({
@@ -95,6 +104,21 @@ const SettingsUsersRoute = SettingsUsersRouteImport.update({
 const SettingsTeamsRoute = SettingsTeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSsoRoute = SettingsSsoRouteImport.update({
+  id: '/sso',
+  path: '/sso',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSessionsRoute = SettingsSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsRunnersRoute = SettingsRunnersRouteImport.update({
@@ -177,6 +201,7 @@ const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/login': typeof LoginRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
@@ -188,6 +213,9 @@ export interface FileRoutesByFullPath {
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
+  '/settings/security': typeof SettingsSecurityRoute
+  '/settings/sessions': typeof SettingsSessionsRoute
+  '/settings/sso': typeof SettingsSsoRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
@@ -206,6 +234,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/login': typeof LoginRoute
   '/teams': typeof TeamsRoute
   '/projects/$id': typeof ProjectsIdRoute
   '/runs/$id': typeof RunsIdRoute
@@ -214,6 +243,9 @@ export interface FileRoutesByTo {
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
+  '/settings/security': typeof SettingsSecurityRoute
+  '/settings/sessions': typeof SettingsSessionsRoute
+  '/settings/sso': typeof SettingsSsoRoute
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/projects': typeof ProjectsIndexRoute
@@ -231,6 +263,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/login': typeof LoginRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
@@ -242,6 +275,9 @@ export interface FileRoutesById {
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
+  '/settings/security': typeof SettingsSecurityRoute
+  '/settings/sessions': typeof SettingsSessionsRoute
+  '/settings/sso': typeof SettingsSsoRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
@@ -262,6 +298,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/gates'
+    | '/login'
     | '/projects'
     | '/settings'
     | '/teams'
@@ -273,6 +310,9 @@ export interface FileRouteTypes {
     | '/settings/environments'
     | '/settings/roles'
     | '/settings/runners'
+    | '/settings/security'
+    | '/settings/sessions'
+    | '/settings/sso'
     | '/settings/teams'
     | '/settings/users'
     | '/settings/variables'
@@ -291,6 +331,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/gates'
+    | '/login'
     | '/teams'
     | '/projects/$id'
     | '/runs/$id'
@@ -299,6 +340,9 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/roles'
     | '/settings/runners'
+    | '/settings/security'
+    | '/settings/sessions'
+    | '/settings/sso'
     | '/settings/variables'
     | '/settings/workspaces'
     | '/projects'
@@ -315,6 +359,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/gates'
+    | '/login'
     | '/projects'
     | '/settings'
     | '/teams'
@@ -326,6 +371,9 @@ export interface FileRouteTypes {
     | '/settings/environments'
     | '/settings/roles'
     | '/settings/runners'
+    | '/settings/security'
+    | '/settings/sessions'
+    | '/settings/sso'
     | '/settings/teams'
     | '/settings/users'
     | '/settings/variables'
@@ -345,6 +393,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GatesRoute: typeof GatesRoute
+  LoginRoute: typeof LoginRoute
   ProjectsRoute: typeof ProjectsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
@@ -374,6 +423,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/projects'
       preLoaderRoute: typeof ProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gates': {
@@ -437,6 +493,27 @@ declare module '@tanstack/react-router' {
       path: '/teams'
       fullPath: '/settings/teams'
       preLoaderRoute: typeof SettingsTeamsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/sso': {
+      id: '/settings/sso'
+      path: '/sso'
+      fullPath: '/settings/sso'
+      preLoaderRoute: typeof SettingsSsoRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/sessions': {
+      id: '/settings/sessions'
+      path: '/sessions'
+      fullPath: '/settings/sessions'
+      preLoaderRoute: typeof SettingsSessionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/security': {
+      id: '/settings/security'
+      path: '/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof SettingsSecurityRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/runners': {
@@ -609,6 +686,9 @@ interface SettingsRouteChildren {
   SettingsEnvironmentsRoute: typeof SettingsEnvironmentsRouteWithChildren
   SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsRunnersRoute: typeof SettingsRunnersRoute
+  SettingsSecurityRoute: typeof SettingsSecurityRoute
+  SettingsSessionsRoute: typeof SettingsSessionsRoute
+  SettingsSsoRoute: typeof SettingsSsoRoute
   SettingsTeamsRoute: typeof SettingsTeamsRouteWithChildren
   SettingsUsersRoute: typeof SettingsUsersRouteWithChildren
   SettingsVariablesRoute: typeof SettingsVariablesRoute
@@ -623,6 +703,9 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsEnvironmentsRoute: SettingsEnvironmentsRouteWithChildren,
   SettingsRolesRoute: SettingsRolesRoute,
   SettingsRunnersRoute: SettingsRunnersRoute,
+  SettingsSecurityRoute: SettingsSecurityRoute,
+  SettingsSessionsRoute: SettingsSessionsRoute,
+  SettingsSsoRoute: SettingsSsoRoute,
   SettingsTeamsRoute: SettingsTeamsRouteWithChildren,
   SettingsUsersRoute: SettingsUsersRouteWithChildren,
   SettingsVariablesRoute: SettingsVariablesRoute,
@@ -637,6 +720,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GatesRoute: GatesRoute,
+  LoginRoute: LoginRoute,
   ProjectsRoute: ProjectsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,

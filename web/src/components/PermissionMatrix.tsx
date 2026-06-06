@@ -118,7 +118,7 @@ export function PermissionMatrix({ permissions, editable, onChange }: Permission
     <div className="space-y-4">
       {showAdmin && (
         <div>
-          <h4 className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h4 className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Admin Resources
           </h4>
           <PermissionGrid
@@ -134,7 +134,7 @@ export function PermissionMatrix({ permissions, editable, onChange }: Permission
       )}
       {showCI && (
         <div>
-          <h4 className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h4 className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             CI Resources
           </h4>
           <PermissionGrid
@@ -190,7 +190,7 @@ function PermissionGrid({
       <tbody>
         {objects.map((object) => (
           <tr key={object} className="border-t border-border/30">
-            <td className="py-1.5 pr-3 font-mono font-medium text-foreground text-[0.7rem]">{object}</td>
+            <td className="py-1.5 pr-3 font-mono font-medium text-foreground text-[12px]">{object}</td>
             {actions.map((action) => {
               const key = `${object}:${action}`
               const valid = catalog[object]?.includes(action) ?? false

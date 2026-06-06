@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Lock, Variable, Plus, Trash2, ChevronDown, ChevronRight, AlertTriangle, Globe, Pencil, Check, X, Eye, EyeOff } from 'lucide-react'
+import { Lock, Variable, Plus, Trash2, ChevronDown, ChevronRight, AlertTriangle, Globe, Pencil, Eye, EyeOff } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { Modal } from '#/components/Modal'
 
@@ -53,7 +53,7 @@ function VariablesPage() {
         <div className="flex items-center gap-2">
           <Globe size={13} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Global</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{globalVars.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{globalVars.length}</span>
         </div>
 
         {globalVars.length === 0 ? (
@@ -72,7 +72,7 @@ function VariablesPage() {
         <div className="flex items-center gap-2">
           <Variable size={13} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Per-environment</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{envVars.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{envVars.length}</span>
         </div>
 
         {envVars.length === 0 ? (
@@ -105,14 +105,14 @@ function VariablesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-semibold text-sm text-foreground">{variable.name}</span>
-                        {variable.isSecret && <span className="text-[0.55rem] font-medium text-warning">SECRET</span>}
+                        {variable.isSecret && <span className="text-[11px] font-medium text-warning">SECRET</span>}
                       </div>
                       {variable.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{variable.description}</p>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0 text-[0.65rem] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-3 shrink-0 text-[12px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
                       <span>{setCount}/{environments.length} set</span>
                       {missingCount > 0 && (
                         <span className="flex items-center gap-0.5 text-destructive">
@@ -186,10 +186,10 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono font-semibold text-sm text-foreground">{variable.name}</span>
-          {variable.isSecret && <span className="text-[0.55rem] font-medium text-warning">SECRET</span>}
+          {variable.isSecret && <span className="text-[11px] font-medium text-warning">SECRET</span>}
         </div>
         {variable.description && (
-          <p className="text-[0.65rem] text-muted-foreground truncate">{variable.description}</p>
+          <p className="text-[12px] text-muted-foreground truncate">{variable.description}</p>
         )}
       </div>
 
@@ -393,7 +393,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
                     <Globe size={13} className={scope === 'global' ? 'text-primary' : 'text-muted-foreground'} />
                     <span className={`text-xs font-medium ${scope === 'global' ? 'text-primary' : 'text-foreground'}`}>Global</span>
                   </div>
-                  <p className="text-[0.6rem] text-muted-foreground">Single value, same everywhere</p>
+                  <p className="text-[11px] text-muted-foreground">Single value, same everywhere</p>
                 </button>
                 <button
                   type="button"
@@ -408,7 +408,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
                     <Variable size={13} className={scope === 'environment' ? 'text-primary' : 'text-muted-foreground'} />
                     <span className={`text-xs font-medium ${scope === 'environment' ? 'text-primary' : 'text-foreground'}`}>Per-environment</span>
                   </div>
-                  <p className="text-[0.6rem] text-muted-foreground">Different value per environment</p>
+                  <p className="text-[11px] text-muted-foreground">Different value per environment</p>
                 </button>
               </div>
             </div>
@@ -418,7 +418,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
               <input type="checkbox" checked={isSecret} onChange={(e) => setIsSecret(e.target.checked)} className="rounded border-border" />
               <div>
                 <span className="text-xs font-medium text-foreground">Secret</span>
-                <p className="text-[0.65rem] text-muted-foreground">Encrypted, never displayed after creation</p>
+                <p className="text-[12px] text-muted-foreground">Encrypted, never displayed after creation</p>
               </div>
             </label>
 

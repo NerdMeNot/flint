@@ -41,8 +41,36 @@ type Config struct {
 	// Server
 	ServerURL string // internal flint-server URL for secret fetching
 
+	// Project/environment context (for scoped secret lookups)
+	ProjectID   string // project owning this pipeline
+	Environment string // target environment (e.g. "production")
+
+	// Matrix
+	MatrixKey string // e.g. "node=16,os=ubuntu" (empty for non-matrix steps)
+
 	// Secrets
-	SecretNames []string // secrets to fetch and inject as env vars
+	SecretNames   []string          // legacy: flat list of secret names
+	SecretMapping map[string]string // env var name → secret store name
+
+	// Artifacts (JSON deserialized from FLINT_ARTIFACT_INPUTS/OUTPUTS env vars)
+	ArtifactInputs  []ArtifactInput  `json:"artifactInputs"`
+	ArtifactOutputs []ArtifactOutput `json:"artifactOutputs"`
+
+	// Cache
+	CacheKey   string   // unevaluated expression (e.g. "npm-${{ hashFiles('package-lock.json') }}")
+	CachePaths []string // paths to cache (e.g. ["/workspace/node_modules"])
+
+	// Workspace configuration.
+	// WorkspaceMode controls how workspace sync works:
+	//   "agent" (default) — gRPC workspace agent pod
+	//   "s3"              — S3-backed sync (bucket/region from S3Bucket/S3Region)
+	//   "pvc"             — shared PVC, no sync needed
+	WorkspaceMode  string
+	WorkspaceAddr  string // gRPC address (agent mode only)
+	WorkspaceToken string // per-run auth token (agent mode only)
+
+	// Internal auth — shared secret for /internal endpoints.
+	InternalToken string
 
 	// Log sink
 	LogSinkMode string // "filesystem" or "s3"
@@ -56,21 +84,39 @@ type Config struct {
 }
 
 // LoadFromEnv reads all agent config from environment variables.
+// ArtifactInput declares an artifact to download before step execution.
+type ArtifactInput struct {
+	From string `json:"from"` // source step name
+	Path string `json:"path"` // local path / artifact name
+}
+
+// ArtifactOutput declares an artifact to upload after step execution.
+type ArtifactOutput struct {
+	Path string `json:"path"` // local path to compress
+}
+
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{
-		TaskToken:         os.Getenv("FLINT_TASK_TOKEN"),
-		RunID:             os.Getenv("FLINT_RUN_ID"),
-		StepName:          os.Getenv("FLINT_STEP_NAME"),
-		OrgID:             os.Getenv("FLINT_ORG_ID"),
-		GitRepo:           os.Getenv("FLINT_GIT_REPO"),
-		GitRef:            os.Getenv("FLINT_GIT_REF"),
-		GitSHA:            os.Getenv("FLINT_GIT_SHA"),
-		Workspace:         os.Getenv("FLINT_WORKSPACE"),
-		ServerURL:         os.Getenv("FLINT_SERVER_URL"),
-		LogSinkMode:       os.Getenv("FLINT_LOG_SINK"),
-		S3Bucket:          os.Getenv("FLINT_S3_BUCKET"),
-		S3Region:          os.Getenv("FLINT_S3_REGION"),
-		FSLogPath:         os.Getenv("FLINT_FS_LOG_PATH"),
+		TaskToken:      os.Getenv("FLINT_TASK_TOKEN"),
+		RunID:          os.Getenv("FLINT_RUN_ID"),
+		StepName:       os.Getenv("FLINT_STEP_NAME"),
+		OrgID:          os.Getenv("FLINT_ORG_ID"),
+		GitRepo:        os.Getenv("FLINT_GIT_REPO"),
+		GitRef:         os.Getenv("FLINT_GIT_REF"),
+		GitSHA:         os.Getenv("FLINT_GIT_SHA"),
+		Workspace:      os.Getenv("FLINT_WORKSPACE"),
+		ServerURL:      os.Getenv("FLINT_SERVER_URL"),
+		ProjectID:      os.Getenv("FLINT_PROJECT_ID"),
+		Environment:    os.Getenv("FLINT_ENVIRONMENT"),
+		MatrixKey:      os.Getenv("FLINT_MATRIX_KEY"),
+		WorkspaceMode:  os.Getenv("FLINT_WS_MODE"), // "agent", "s3", "pvc", or empty (= agent)
+		WorkspaceAddr:  os.Getenv("FLINT_WS_ADDR"),
+		WorkspaceToken: os.Getenv("FLINT_WS_TOKEN"),
+		InternalToken:  os.Getenv("FLINT_INTERNAL_TOKEN"),
+		LogSinkMode:    os.Getenv("FLINT_LOG_SINK"),
+		S3Bucket:       os.Getenv("FLINT_S3_BUCKET"),
+		S3Region:       os.Getenv("FLINT_S3_REGION"),
+		FSLogPath:      os.Getenv("FLINT_FS_LOG_PATH"),
 	}
 
 	// SecretNames are JSON-encoded by the worker (e.g., ["SECRET_A","SECRET_B"]).
@@ -78,6 +124,35 @@ func LoadFromEnv() (*Config, error) {
 		if err := json.Unmarshal([]byte(raw), &cfg.SecretNames); err != nil {
 			return nil, fmt.Errorf("agent: FLINT_SECRET_NAMES is not valid JSON: %w", err)
 		}
+	}
+
+	// SecretMapping maps env var names to secret store names (e.g., {"API_KEY":"api-key-name"}).
+	if raw := os.Getenv("FLINT_SECRET_MAPPING"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.SecretMapping); err != nil {
+			return nil, fmt.Errorf("agent: FLINT_SECRET_MAPPING is not valid JSON: %w", err)
+		}
+	}
+
+	// Backward compat: convert legacy FLINT_SECRET_NAMES to identity mapping.
+	if len(cfg.SecretMapping) == 0 && len(cfg.SecretNames) > 0 {
+		cfg.SecretMapping = make(map[string]string, len(cfg.SecretNames))
+		for _, name := range cfg.SecretNames {
+			cfg.SecretMapping[name] = name
+		}
+	}
+
+	// Artifact inputs/outputs (JSON arrays set by dispatch).
+	if raw := os.Getenv("FLINT_ARTIFACT_INPUTS"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg.ArtifactInputs)
+	}
+	if raw := os.Getenv("FLINT_ARTIFACT_OUTPUTS"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg.ArtifactOutputs)
+	}
+
+	// Cache config.
+	cfg.CacheKey = os.Getenv("FLINT_CACHE_KEY")
+	if raw := os.Getenv("FLINT_CACHE_PATHS"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg.CachePaths)
 	}
 
 	// Parse timeouts with defaults.

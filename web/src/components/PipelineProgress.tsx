@@ -66,7 +66,7 @@ export function PipelineProgress({ steps, compact }: PipelineProgressProps) {
         })}
       </div>
 
-      <span className={`shrink-0 font-mono ${compact ? 'text-[0.55rem]' : 'text-[0.65rem]'} text-muted-foreground`}>
+      <span className={`shrink-0 font-mono ${compact ? 'text-[11px]' : 'text-[12px]'} text-muted-foreground`}>
         {failed > 0 ? (
           <span className="text-destructive">{completed}/{steps.length}</span>
         ) : running > 0 ? (

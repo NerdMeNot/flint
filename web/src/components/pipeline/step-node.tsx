@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import type { PipelineStep } from '#/lib/api/types'
 
-export function StepNode({ data }: NodeProps) {
+export function StepNode({ data, sourcePosition, targetPosition }: NodeProps) {
   const step = data as PipelineStep
   const isGate = step.execType === 'gate'
 
@@ -20,33 +20,33 @@ export function StepNode({ data }: NodeProps) {
     <>
       <Handle
         type="target"
-        position={Position.Left}
+        position={targetPosition ?? Position.Left}
         className="!bg-border !w-2 !h-2"
       />
       {isGate ? (
         <div
-          className="flex items-center gap-2 rounded-md px-3 py-2 min-w-[130px] shadow-sm cursor-pointer"
+          className="flex items-center gap-3.5 rounded-xl px-6 py-5 w-[300px] shadow-md cursor-pointer"
           style={{
             background: 'color-mix(in oklab, var(--warning) 8%, var(--card))',
             color: 'var(--card-foreground)',
             border: '1.5px dashed var(--warning)',
           }}
         >
-          <ShieldCheck size={14} className="text-warning shrink-0" />
-          <span className="text-xs font-semibold truncate text-warning">{step.name}</span>
+          <ShieldCheck size={22} className="text-warning shrink-0" />
+          <span className="text-base lg:text-lg font-semibold truncate text-warning">{step.name}</span>
         </div>
       ) : (
         <div
-          className={`flex items-center gap-2 rounded-md px-3 py-2 min-w-[130px] shadow-sm transition-colors cursor-pointer ${borderClass(step.status)}`}
+          className={`flex items-center gap-3.5 rounded-xl px-6 py-5 w-[300px] shadow-md transition-colors cursor-pointer ${borderClass(step.status)}`}
           style={{ background: 'var(--card)', color: 'var(--card-foreground)', border: '1px solid var(--border)' }}
         >
           <StatusIcon status={step.status} />
-          <span className="text-xs font-medium truncate">{step.name}</span>
+          <span className="text-base lg:text-lg font-medium truncate">{step.name}</span>
         </div>
       )}
       <Handle
         type="source"
-        position={Position.Right}
+        position={sourcePosition ?? Position.Right}
         className="!bg-border !w-2 !h-2"
       />
     </>
@@ -54,7 +54,7 @@ export function StepNode({ data }: NodeProps) {
 }
 
 function StatusIcon({ status }: { status: PipelineStep['status'] }) {
-  const size = 14
+  const size = 22
   switch (status) {
     case 'succeeded':
       return <CheckCircle size={size} className="text-success shrink-0" />

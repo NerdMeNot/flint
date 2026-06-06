@@ -36,7 +36,7 @@ function WorkspacesPage() {
                   <h3 className="font-semibold text-sm text-foreground truncate">{ws.name}</h3>
                   <p className="text-xs text-muted-foreground font-mono truncate">{ws.slug}</p>
                 </div>
-                <span className="island-kicker !text-[0.55rem]">{ws.id}</span>
+                <span className="island-kicker !text-[11px]">{ws.id}</span>
               </div>
 
               {ws.description && (

@@ -9,10 +9,13 @@ import (
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/engine"
 	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/cloudwego/hertz/pkg/route"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server wraps the Hertz HTTP server with Flint's routes and middleware.
@@ -29,6 +32,7 @@ func New(deps Deps) *Server {
 		server.WithHostPorts(addr),
 		server.WithMaxRequestBodySize(2<<20),
 		server.WithExitWaitTime(10*time.Second),
+		server.WithStreamBody(true), // required for SSE log streaming
 	)
 
 	s := &Server{hertz: h, deps: deps}
@@ -39,6 +43,12 @@ func New(deps Deps) *Server {
 	s.registerRoutes()
 
 	return s
+}
+
+// Engine returns the underlying Hertz route engine for unit testing.
+// Use with ut.PerformRequest to test handlers without network.
+func (s *Server) Engine() *route.Engine {
+	return s.hertz.Engine
 }
 
 // Run starts the HTTP server.
@@ -67,9 +77,10 @@ func (s *Server) registerRoutes() {
 		mode = "all"
 	}
 
-	// Health — always registered.
+	// Health + metrics — always registered.
 	s.hertz.GET("/health/live", s.handleLive)
 	s.hertz.GET("/health/ready", s.handleReady)
+	s.hertz.GET("/metrics", s.handleMetrics)
 
 	// Auth routes — no JWT required (used to obtain JWT).
 	s.registerAuthRoutes()
@@ -83,7 +94,7 @@ func (s *Server) registerRoutes() {
 
 	// Internal agent endpoints + API — internal/user-facing.
 	if mode == "all" || mode == "api" {
-		internal := s.hertz.Group("/internal")
+		internal := s.hertz.Group("/internal", s.internalAuthMiddleware())
 		internal.GET("/secrets", s.handleAgentSecrets)
 		internal.GET("/clone-token", s.handleAgentCloneToken)
 		internal.POST("/complete", s.handleAgentComplete)
@@ -197,57 +208,107 @@ func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	// Build trigger event for matching.
+	triggerEvent := pipeline.TriggerEvent{
+		Kind:       string(event.Kind),
+		Branch:     event.Branch,
+		BaseBranch: event.BaseBranch,
+		Tag:        event.Tag,
+	}
+
 	baseRunID := observe.RequestID(ctx)
 	var runIDs []string
+	runCounter := 0
 
 	for _, workflowFile := range workflowFiles {
-		runID := baseRunID
-		if len(workflowFiles) > 1 {
-			runID = fmt.Sprintf("%s-%s", baseRunID, workflowFile[:len(workflowFile)-5])
-		}
-
-		// Create pipeline_run record.
-		err = s.deps.Q.InsertPipelineRun(ctx, db.InsertPipelineRunParams{
-			ID:            runID,
-			ProjectID:     projectID,
-			OrgID:         orgID,
-			WorkflowFile:  workflowFile,
-			TriggerType:   string(event.Kind),
-			TriggerRef:    &event.Branch,
-			CommitSha:     &event.CommitSHA,
-			CommitMessage: &event.Message,
-			TriggeredBy:   &event.Sender,
-		})
-		if err != nil {
-			logger.Error().Err(err).Str("workflow", workflowFile).Msg("failed to insert pipeline run")
+		// Fetch and parse pipeline YAML to evaluate triggers.
+		filePath := pipelinePath + workflowFile
+		rawYAML, fetchErr := s.deps.Forge.GetFile(ctx, event.Repo, event.CommitSHA, filePath)
+		if fetchErr != nil {
+			logger.Warn().Err(fetchErr).Str("file", filePath).Msg("failed to fetch pipeline (skipping)")
 			continue
 		}
 
-		// Start workflow — single call, handles everything.
-		if s.deps.Engine != nil {
-			_, startErr := s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
-				RunID:        runID,
-				OrgID:        orgID,
-				ProjectID:    projectID,
-				Repo:         event.Repo,
-				Ref:          event.Branch,
-				CommitSHA:    event.CommitSHA,
-				TriggerType:  string(event.Kind),
-				TriggeredBy:  event.Sender,
-				WorkflowFile: workflowFile,
-				PipelinePath: pipelinePath,
-			})
-			if startErr != nil {
-				logger.Error().Err(startErr).Str("workflow", workflowFile).Msg("engine.StartWorkflow failed")
-				// Update pipeline_run to failed.
-				_ = s.deps.Q.UpdateRunStatus(ctx, db.UpdateRunStatusParams{
-					ID: runID, Status: "failed",
-				})
-			}
+		p, parseErr := pipeline.Parse(rawYAML)
+		if parseErr != nil {
+			logger.Warn().Err(parseErr).Str("file", filePath).Msg("failed to parse pipeline (skipping)")
+			continue
 		}
 
-		runIDs = append(runIDs, runID)
-		logger.Info().Str("runID", runID).Str("workflow", workflowFile).Msg("pipeline run created")
+		// Evaluate triggers — skip if no trigger matches this event.
+		matches := pipeline.MatchTriggers(p, triggerEvent)
+		if len(matches) == 0 {
+			logger.Debug().Str("workflow", workflowFile).Msg("no matching trigger, skipping")
+			continue
+		}
+
+		// Collect unique environments from matching triggers.
+		environments := pipeline.CollectEnvironments(matches)
+
+		// Create one run per environment.
+		ref := event.Branch
+		if event.Tag != "" {
+			ref = event.Tag
+		}
+
+		for _, env := range environments {
+			runCounter++
+			runID := baseRunID
+			if runCounter > 1 {
+				runID = fmt.Sprintf("%s-%d", baseRunID, runCounter)
+			}
+
+			var envPtr *string
+			if env != "" {
+				envPtr = &env
+			}
+
+			err = s.deps.Q.InsertPipelineRun(ctx, db.InsertPipelineRunParams{
+				ID:            runID,
+				ProjectID:     projectID,
+				OrgID:         orgID,
+				WorkflowFile:  workflowFile,
+				TriggerType:   string(event.Kind),
+				TriggerRef:    &ref,
+				CommitSha:     &event.CommitSHA,
+				CommitMessage: &event.Message,
+				TriggeredBy:   &event.Sender,
+				Environment:   envPtr,
+			})
+			if err != nil {
+				logger.Error().Err(err).Str("workflow", workflowFile).Msg("failed to insert pipeline run")
+				continue
+			}
+
+			if s.deps.Engine != nil {
+				_, startErr := s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
+					RunID:        runID,
+					OrgID:        orgID,
+					ProjectID:    projectID,
+					Repo:         event.Repo,
+					Ref:          ref,
+					CommitSHA:    event.CommitSHA,
+					TriggerType:  string(event.Kind),
+					TriggeredBy:  event.Sender,
+					WorkflowFile: workflowFile,
+					PipelinePath: pipelinePath,
+					Environment:  env,
+				})
+				if startErr != nil {
+					logger.Error().Err(startErr).Str("workflow", workflowFile).Str("env", env).
+						Msg("engine.StartWorkflow failed")
+					errMsg := startErr.Error()
+					_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
+						ID:           runID,
+						ErrorMessage: &errMsg,
+					})
+				}
+			}
+
+			runIDs = append(runIDs, runID)
+			logger.Info().Str("runID", runID).Str("workflow", workflowFile).Str("env", env).
+				Msg("pipeline run created")
+		}
 	}
 
 	c.JSON(consts.StatusAccepted, utils.H{
@@ -261,7 +322,7 @@ func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 // Replaces the agent dialing Temporal directly.
 func (s *Server) handleAgentComplete(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		TaskToken string           `json:"taskToken"`
+		TaskToken string            `json:"taskToken"`
 		Result    engine.StepResult `json:"result"`
 	}
 	if err := c.BindJSON(&req); err != nil {
@@ -280,6 +341,33 @@ func (s *Server) handleAgentComplete(ctx context.Context, c *app.RequestContext)
 
 	c.JSON(consts.StatusOK, utils.H{"status": "ok"})
 }
+
+// handleMetrics serves Prometheus-format metrics via the OTel exporter.
+func (s *Server) handleMetrics(_ context.Context, c *app.RequestContext) {
+	// The OTel Prometheus exporter registers with the default Prometheus
+	// gatherer, so promhttp.Handler() picks up all OTel metrics.
+	c.Response.Header.SetContentType("text/plain; version=0.0.4; charset=utf-8")
+	// Use the prometheus client_golang handler via an adapter.
+	promHandler := promhttp.Handler()
+	writer := &hertzResponseWriter{ctx: c}
+	promHandler.ServeHTTP(writer, nil)
+}
+
+// hertzResponseWriter adapts Hertz's RequestContext to http.ResponseWriter
+// for serving Prometheus metrics.
+type hertzResponseWriter struct {
+	ctx *app.RequestContext
+}
+
+func (w *hertzResponseWriter) Header() http.Header {
+	return make(http.Header) // promhttp only sets Content-Type, which we set above
+}
+
+func (w *hertzResponseWriter) Write(b []byte) (int, error) {
+	return w.ctx.Write(b)
+}
+
+func (w *hertzResponseWriter) WriteHeader(int) {} // not needed
 
 func boolToStatus(ok bool) string {
 	if ok {

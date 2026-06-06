@@ -62,7 +62,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     localStorage.setItem('flint-sidebar-collapsed', String(collapsed))
-    document.documentElement.style.setProperty('--sidebar-width', collapsed ? '60px' : '220px')
+    document.documentElement.style.setProperty('--sidebar-width', collapsed ? '64px' : '240px')
   }, [collapsed])
 
   // Close mobile drawer on route change
@@ -99,19 +99,19 @@ export function Sidebar() {
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
 
-  const sidebarWidth = collapsed ? 'w-[60px]' : 'w-[220px]'
+  const sidebarWidth = collapsed ? 'w-[64px]' : 'w-[240px]'
 
   const navContent = (
     <>
       {/* Brand + collapse toggle */}
-      <div className={`flex h-14 items-center border-b border-border ${collapsed ? 'flex-col justify-center gap-1 px-2' : 'gap-2.5 px-5'}`}>
+      <div className={`flex h-14 lg:h-16 items-center border-b border-border ${collapsed ? 'flex-col justify-center gap-1 px-2' : 'gap-2.5 px-5'}`}>
         <Link to="/" className="flex items-center gap-2.5 min-w-0" title="Home">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
+          <div className="flex h-7 w-7 lg:h-8 lg:w-8 items-center justify-center rounded-md font-bold text-sm lg:text-base shrink-0"
             style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
             F
           </div>
           {!collapsed && (
-            <span className="display-title font-bold text-foreground text-base tracking-tight">
+            <span className="display-title font-bold text-foreground text-lg tracking-tight">
               Flint
             </span>
           )}
@@ -150,7 +150,7 @@ export function Sidebar() {
               key={item.label}
               to={item.to}
               title={collapsed ? item.label : undefined}
-              className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 ${
+              className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 ${
                 collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
               } ${
                 isActive
@@ -177,7 +177,7 @@ export function Sidebar() {
               key={item.label}
               to={item.to}
               title={collapsed ? item.label : undefined}
-              className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 ${
+              className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 ${
                 collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
               } ${
                 isActive
@@ -238,12 +238,12 @@ export function Sidebar() {
             style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
             F
           </div>
-          <span className="display-title font-bold text-foreground text-base tracking-tight">Flint</span>
-          <span className="ml-auto island-kicker !text-[0.6rem] !tracking-[0.12em] opacity-60">CI</span>
+          <span className="display-title font-bold text-foreground text-lg tracking-tight">Flint</span>
+          <span className="ml-auto island-kicker !text-[11px] !tracking-[0.12em] opacity-60">CI</span>
         </div>
         {/* Scope filters — mobile only */}
         <div className="px-3 py-2.5 border-b border-border">
-          <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2 px-1">Scope</p>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2 px-1">Scope</p>
           <ScopeSelector />
         </div>
         {/* Nav */}
@@ -256,7 +256,7 @@ export function Sidebar() {
               <Link
                 key={item.label}
                 to={item.to}
-                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 gap-2.5 px-3 ${
+                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
                   isActive
                     ? 'text-white shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
@@ -279,7 +279,7 @@ export function Sidebar() {
               <Link
                 key={item.label}
                 to={item.to}
-                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-[0.82rem] font-medium transition-all duration-150 gap-2.5 px-3 ${
+                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
                   isActive
                     ? 'text-white shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
@@ -320,7 +320,7 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
           className="flex items-center justify-center w-full rounded-lg py-1.5 hover:bg-[var(--link-bg-hover)] transition-colors"
         >
           <div
-            className="flex h-7 w-7 items-center justify-center rounded-full text-[0.6rem] font-bold shrink-0"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold shrink-0"
             style={{ background: 'color-mix(in oklab, var(--primary) 25%, var(--muted))', color: 'var(--foreground)' }}
           >
             {initials}
@@ -338,14 +338,14 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
           className="flex items-center gap-2.5 flex-1 min-w-0 rounded-lg px-1 py-1.5 -ml-1 hover:bg-[var(--link-bg-hover)] transition-colors"
         >
           <div
-            className="flex h-7 w-7 items-center justify-center rounded-full text-[0.6rem] font-bold shrink-0"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold shrink-0"
             style={{ background: 'color-mix(in oklab, var(--primary) 25%, var(--muted))', color: 'var(--foreground)' }}
           >
             {initials}
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium text-foreground truncate">{user.name}</p>
-            <p className="text-[0.65rem] text-muted-foreground truncate">{user.email}</p>
+            <p className="text-[12px] text-muted-foreground truncate">{user.email}</p>
           </div>
         </Link>
         <button

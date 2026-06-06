@@ -10,7 +10,7 @@ import (
 // Step semantic validation
 // ---------------------------------------------------------------------------
 
-func validateStepSemantics(s *Step, field string, stepNames map[string]bool, result *ValidationResult, opts ValidateOptions) {
+func validateStepSemantics(s *Step, field string, stepNames, stepsWithOutputs map[string]bool, result *ValidationResult, opts ValidateOptions) {
 	// Gate steps should not have container/execution-related fields.
 	if s.Gate != nil {
 		gateRestricted := []struct {
@@ -55,6 +55,20 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 		}
 	}
 
+	// use: catch malformed cross-repo references that would otherwise be
+	// silently treated as a (nonexistent) CRD template name.
+	if s.Use != "" {
+		if msg := malformedCrossRepoRef(s.Use); msg != "" {
+			result.Issues = append(result.Issues, ValidationIssue{
+				Code:       CodeInvalidValue,
+				Field:      field + ".use",
+				Message:    msg,
+				Suggestion: "Cross-repo refs are org/repo/path@ref; local files start with ./; otherwise it's a StepTemplate name",
+				Severity:   SeverityError,
+			})
+		}
+	}
+
 	// when: must be a valid value.
 	if s.When != "" {
 		if !slices.Contains(validWhenValues, s.When) {
@@ -62,7 +76,7 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 				Code:       CodeInvalidValue,
 				Field:      field + ".when",
 				Message:    fmt.Sprintf("invalid when value %q", s.When),
-				Suggestion: "Valid values: onSuccess, onFailure, always",
+				Suggestion: enumSuggestion(s.When, validWhenValues),
 				Severity:   SeverityError,
 			})
 		}
@@ -75,7 +89,7 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 				Code:       CodeInvalidValue,
 				Field:      field + ".shell",
 				Message:    fmt.Sprintf("invalid shell %q", s.Shell),
-				Suggestion: "Valid values: sh, bash, python",
+				Suggestion: enumSuggestion(s.Shell, validShells),
 				Severity:   SeverityError,
 			})
 		}
@@ -95,6 +109,20 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 				issue.Suggestion = fmt.Sprintf("Did you mean %q?", suggestion)
 			}
 			result.Issues = append(result.Issues, issue)
+		}
+	}
+
+	// image: when RequireImage is set, run: steps must have an image somewhere
+	// in the inheritance chain (step-level or pipeline-level default).
+	if opts.RequireImage && s.Gate == nil && len(s.Steps) == 0 && !s.Run.IsEmpty() {
+		if s.Image == "" && opts.pipelineImage == "" {
+			result.Issues = append(result.Issues, ValidationIssue{
+				Code:       CodeMissingField,
+				Field:      field + ".image",
+				Message:    "run steps must specify an image (no pipeline-level default is set)",
+				Suggestion: "Add `image:` to this step or set a top-level `image:` default on the pipeline",
+				Severity:   SeverityError,
+			})
 		}
 	}
 
@@ -198,6 +226,18 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 		}
 	}
 
+	// Matrix dimension keys should not shadow built-in context variables.
+	for key := range s.Matrix {
+		if reservedContextVars[key] {
+			result.Issues = append(result.Issues, ValidationIssue{
+				Code:     CodeInvalidValue,
+				Field:    field + ".matrix." + key,
+				Message:  fmt.Sprintf("matrix dimension %q shadows a built-in context variable", key),
+				Severity: SeverityWarning,
+			})
+		}
+	}
+
 	// Step name length.
 	if len(s.Name) > MaxStepNameLength {
 		result.Issues = append(result.Issues, ValidationIssue{
@@ -236,24 +276,31 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 				Severity: SeverityError,
 			})
 		}
-	}
-
-	// Artifact from: should reference a step that has outputs.
-	for j, input := range s.Inputs {
-		if stepNames[input.From] {
-			// Check if referenced step has outputs (best-effort — we only have names here).
-			// This would need the full step list to check properly.
-			_ = j // future: add cross-reference check
+		if strings.Contains(output.Path, "..") {
+			result.Issues = append(result.Issues, ValidationIssue{
+				Code:     CodeInvalidValue,
+				Field:    fmt.Sprintf("%s.outputs[%d].path", field, j),
+				Message:  "artifact path must not contain '..'",
+				Severity: SeverityError,
+			})
 		}
 	}
 
-	// Cache key expression validation.
+	// Artifact from: a referenced step should actually declare outputs.
+	for j, input := range s.Inputs {
+		if stepNames[input.From] && !stepsWithOutputs[input.From] {
+			result.Issues = append(result.Issues, ValidationIssue{
+				Code:     CodeUnknownRef,
+				Field:    fmt.Sprintf("%s.inputs[%d].from", field, j),
+				Message:  fmt.Sprintf("step %q declares no outputs to consume", input.From),
+				Severity: SeverityWarning,
+			})
+		}
+	}
+
+	// Cache key expression validation (compile-only — never evaluated here).
 	if s.Cache != nil && s.Cache.Key != "" && strings.Contains(s.Cache.Key, "${{") {
-		// Try to compile the cache key as an expression.
-		_, err := EvalExpr(s.Cache.Key, ExprContext{
-			"hashFiles": func(pattern string) string { return "placeholder" },
-		})
-		if err != nil && strings.Contains(err.Error(), "compile") {
+		if err := compileExpr(s.Cache.Key, exprValidationContext()); err != nil {
 			result.Issues = append(result.Issues, ValidationIssue{
 				Code:     CodeInvalidExpression,
 				Field:    field + ".cache.key",
@@ -263,27 +310,9 @@ func validateStepSemantics(s *Step, field string, stepNames map[string]bool, res
 		}
 	}
 
-	// Validate if: expression syntax.
+	// Validate if: expression syntax (compile-only).
 	if s.If != "" {
-		_, err := EvalExpr(s.If, ExprContext{
-			"branch":      "",
-			"commitSha":   "",
-			"shortSha":    "",
-			"tag":         "",
-			"environment": "",
-			"triggeredBy": "",
-			"triggerType": "",
-			"status":      "",
-			"project":     map[string]any{"name": "", "repo": ""},
-			"run":         map[string]any{"id": ""},
-			"inputs":      map[string]any{},
-			"env":         map[string]any{},
-			"secrets":     map[string]any{},
-			"matrix":      map[string]any{},
-			"steps":       map[string]any{},
-		})
-		// Only flag compile errors, not runtime errors (vars won't resolve at validate time).
-		if err != nil && strings.Contains(err.Error(), "compile") {
+		if err := compileExpr(s.If, exprValidationContext()); err != nil {
 			result.Issues = append(result.Issues, ValidationIssue{
 				Code:     CodeInvalidExpression,
 				Field:    field + ".if",

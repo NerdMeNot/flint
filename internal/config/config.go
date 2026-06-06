@@ -15,15 +15,37 @@ type Config struct {
 	Controller ControllerConfig `mapstructure:"controller"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	Auth       AuthConfig       `mapstructure:"auth"`
+	Bootstrap  BootstrapConfig  `mapstructure:"bootstrap"`
+	Sync       SyncConfig       `mapstructure:"sync"`
 	Storage    StorageConfig    `mapstructure:"storage"`
 	Forge      ForgeConfig      `mapstructure:"forge"`
 	Encryption EncryptionConfig `mapstructure:"encryption"`
 }
 
+// SyncConfig configures the IdP sync daemon.
+type SyncConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Interval string `mapstructure:"interval"` // Go duration, default "15m"
+}
+
+// BootstrapConfig configures the initial admin user created on first run.
+type BootstrapConfig struct {
+	Email    string `mapstructure:"email"`    // default: admin@flint.local
+	Password string `mapstructure:"password"` // auto-generated if empty
+}
+
+func (b *BootstrapConfig) EmailOrDefault() string {
+	if b.Email != "" {
+		return b.Email
+	}
+	return "admin@flint.local"
+}
+
 // ServerConfig configures the flint-server HTTP API.
 type ServerConfig struct {
-	Port    int    `mapstructure:"port"`
-	BaseURL string `mapstructure:"baseUrl"`
+	Port          int    `mapstructure:"port"`
+	BaseURL       string `mapstructure:"baseUrl"`
+	InternalToken string `mapstructure:"internalToken"` // shared secret for /internal agent endpoints
 }
 
 func (c *ServerConfig) PortOrDefault() int {
@@ -145,9 +167,9 @@ type JWTConfig struct {
 
 // StorageConfig configures object storage for logs, artifacts, and cache.
 type StorageConfig struct {
-	Mode string       `mapstructure:"mode"` // "s3" or "filesystem"
-	S3   S3Config     `mapstructure:"s3"`
-	FS   FSConfig     `mapstructure:"filesystem"`
+	Mode string   `mapstructure:"mode"` // "s3" or "filesystem"
+	S3   S3Config `mapstructure:"s3"`
+	FS   FSConfig `mapstructure:"filesystem"`
 }
 
 type S3Config struct {

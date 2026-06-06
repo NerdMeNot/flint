@@ -18,18 +18,12 @@ var (
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
-		&ForgeConnection{},
-		&ForgeConnectionList{},
-		&Pipeline{},
-		&PipelineList{},
+		&Project{},
+		&ProjectList{},
 		&RunnerPool{},
 		&RunnerPoolList{},
-		&AuthProvider{},
-		&AuthProviderList{},
 		&StepTemplate{},
 		&StepTemplateList{},
-		&ImagePreset{},
-		&ImagePresetList{},
 	)
 	return nil
 }

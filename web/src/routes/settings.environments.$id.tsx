@@ -80,7 +80,7 @@ function EnvironmentDetailPage() {
         <div className="flex items-center gap-2">
           <Variable size={14} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-foreground">Variables</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">
+          <span className="text-[11px] text-muted-foreground opacity-50">
             {envVars.filter((v) => valueMap.has(v.id)).length}/{envVars.length} set
           </span>
         </div>
@@ -112,7 +112,7 @@ function EnvironmentDetailPage() {
         <div className="flex items-center gap-2">
           <FolderGit2 size={14} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-foreground">Projects</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{envProjects.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{envProjects.length}</span>
         </div>
 
         {envProjects.length === 0 ? (
@@ -142,7 +142,7 @@ function EnvironmentDetailPage() {
         <div className="flex items-center gap-2">
           <KeyRound size={14} className="text-muted-foreground" />
           <h3 className="text-xs font-semibold text-foreground">Scoped Roles</h3>
-          <span className="text-[0.6rem] text-muted-foreground opacity-50">{scopedRoles.length}</span>
+          <span className="text-[11px] text-muted-foreground opacity-50">{scopedRoles.length}</span>
         </div>
 
         {scopedRoles.length === 0 ? (
@@ -154,7 +154,7 @@ function EnvironmentDetailPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-foreground">{role.name}</span>
                   {role.isSystem && (
-                    <span className="island-kicker !text-[0.5rem] bg-primary/10 text-primary border-primary/20">System</span>
+                    <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
                   )}
                 </div>
                 <ScopeBadges workspaces={role.workspaces} environments={role.environments} />
@@ -184,7 +184,7 @@ function EnvVarRow({ name, description, isSecret, value }: {
 
       <div className="w-[160px] shrink-0 min-w-0">
         <span className="text-xs font-mono font-medium text-foreground truncate block">{name}</span>
-        {description && <p className="text-[0.55rem] text-muted-foreground truncate">{description}</p>}
+        {description && <p className="text-[11px] text-muted-foreground truncate">{description}</p>}
       </div>
 
       {value ? (
