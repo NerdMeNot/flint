@@ -51,17 +51,28 @@ func seedOrgAndProject(t *testing.T, pool *pgxpool.Pool) (orgID, projectID strin
 	ctx := context.Background()
 	orgID = uuid.NewString()
 	projectID = uuid.NewString()
+	forgeID := uuid.NewString()
 
+	// orgs.name and .slug are both UNIQUE — make them per-test so repeated seeds
+	// in the same test DB don't collide and silently skip via ON CONFLICT.
 	_, err := pool.Exec(ctx,
-		`INSERT INTO orgs (id, name, slug) VALUES ($1, 'test-org', $2) ON CONFLICT DO NOTHING`,
-		orgID, "test-"+orgID[:8])
+		`INSERT INTO orgs (id, name, slug) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		orgID, "test-org-"+orgID[:8], "test-"+orgID[:8])
 	require.NoError(t, err)
 
+	// projects.forge_id is a NOT NULL FK to forge_connections, so seed one first.
 	_, err = pool.Exec(ctx,
-		`INSERT INTO projects (id, org_id, display_name, repo_path, pipeline_path)
-		 VALUES ($1, $2, 'test-project', 'acme/test', '.flint')
+		`INSERT INTO forge_connections (id, org_id, forge_type, display_name, webhook_secret, credentials_enc)
+		 VALUES ($1, $2, 'github', 'test-forge', 'test-secret', $3) ON CONFLICT DO NOTHING`,
+		forgeID, orgID, []byte{})
+	require.NoError(t, err)
+
+	// Pipeline location now lives in pipeline_source jsonb (defaults to .flint/).
+	_, err = pool.Exec(ctx,
+		`INSERT INTO projects (id, org_id, forge_id, display_name, repo_path, repo_url)
+		 VALUES ($1, $2, $3, 'test-project', 'acme/test', 'https://example.com/acme/test')
 		 ON CONFLICT DO NOTHING`,
-		projectID, orgID)
+		projectID, orgID, forgeID)
 	require.NoError(t, err)
 
 	return orgID, projectID
@@ -126,6 +137,9 @@ func TestEngine_HappyPath_LinearPipeline(t *testing.T) {
 
 	pipelineYAML := `
 image: alpine:3.19
+triggers:
+  push:
+    branches: [main]
 steps:
   - name: build
     run: echo building
@@ -218,6 +232,9 @@ func TestEngine_WhenOnFailure(t *testing.T) {
 
 	pipelineYAML := `
 image: alpine:3.19
+triggers:
+  push:
+    branches: [main]
 steps:
   - name: build
     run: echo building
@@ -281,6 +298,9 @@ func TestEngine_WhenOnSuccess_Skipped(t *testing.T) {
 
 	pipelineYAML := `
 image: alpine:3.19
+triggers:
+  push:
+    branches: [main]
 steps:
   - name: build
     run: echo building
@@ -342,6 +362,9 @@ func TestEngine_IdempotentCompleteStep(t *testing.T) {
 
 	pipelineYAML := `
 image: alpine:3.19
+triggers:
+  push:
+    branches: [main]
 steps:
   - name: build
     run: echo building
