@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: flint
+          POSTGRES_USER: flint
+          POSTGRES_PASSWORD: flint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flint"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Integration tests use this Postgres; without it they'd self-provision a
+      # throwaway instance (see internal/engine TestMain). The container e2e
+      # (dockerExecutor) stays opt-in via FLINT_TEST_DOCKER and is not set here.
+      FLINT_TEST_DSN: postgres://flint:flint@localhost:5432/flint?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '^web/'))
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
