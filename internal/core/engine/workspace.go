@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/runner"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"

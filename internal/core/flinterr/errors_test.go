@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 )
 
 func TestError_Error(t *testing.T) {

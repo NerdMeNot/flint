@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/NerdMeNot/flint/internal/agent"
-	"github.com/NerdMeNot/flint/internal/wsagent"
+	"github.com/NerdMeNot/flint/internal/core/agent"
+	"github.com/NerdMeNot/flint/internal/core/wsagent"
 	"github.com/NerdMeNot/flint/pkg/artifact"
 	pkgcache "github.com/NerdMeNot/flint/pkg/cache"
 	"github.com/NerdMeNot/flint/pkg/checkout"

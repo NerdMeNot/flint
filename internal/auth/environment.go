@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/db"
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // DeployWindow defines when deployments are allowed.

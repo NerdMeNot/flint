@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/observe"
-	"github.com/NerdMeNot/flint/internal/runner"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/api/meta"

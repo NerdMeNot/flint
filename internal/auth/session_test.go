@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/auth"
-	"github.com/NerdMeNot/flint/internal/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 )
 
 func testSessionConfig() auth.SessionConfig {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 )
 
 func TestRealClock(t *testing.T) {

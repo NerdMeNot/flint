@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

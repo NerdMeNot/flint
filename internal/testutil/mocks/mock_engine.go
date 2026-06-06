@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	engine "github.com/NerdMeNot/flint/internal/engine"
+	engine "github.com/NerdMeNot/flint/internal/core/engine"
 	mock "github.com/stretchr/testify/mock"
 )
 

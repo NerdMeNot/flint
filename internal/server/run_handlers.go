@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/NerdMeNot/flint/internal/auth"
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/engine"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"

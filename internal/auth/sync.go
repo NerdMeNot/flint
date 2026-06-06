@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/db"
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/casbin/casbin/v2"
 )
 

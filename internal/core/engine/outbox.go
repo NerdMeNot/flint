@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/rs/zerolog/log"
 )
 

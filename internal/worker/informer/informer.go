@@ -8,8 +8,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 	batchv1 "k8s.io/api/batch/v1"

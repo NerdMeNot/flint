@@ -8,8 +8,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"

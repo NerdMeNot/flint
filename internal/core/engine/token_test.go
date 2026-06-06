@@ -3,7 +3,7 @@ package engine_test
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 )
 
 func TestTaskToken_RoundTrip(t *testing.T) {

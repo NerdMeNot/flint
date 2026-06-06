@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/NerdMeNot/flint/internal/auth"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"golang.org/x/crypto/bcrypt"

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/runner"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

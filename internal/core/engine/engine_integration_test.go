@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/dbkit"
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/dbkit"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"

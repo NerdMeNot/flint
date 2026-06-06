@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	"github.com/golang-jwt/jwt/v5"
 )
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/db"
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/rs/zerolog/log"
 )

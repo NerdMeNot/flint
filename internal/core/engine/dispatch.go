@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/runner"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/rs/zerolog/log"
 	"github.com/zeebo/xxh3"

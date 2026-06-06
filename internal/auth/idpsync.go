@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/db"
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/casbin/casbin/v2"
 	"github.com/rs/zerolog/log"

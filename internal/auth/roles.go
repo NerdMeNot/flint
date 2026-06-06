@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/db"
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // SystemRoleDefinition describes a system role to be seeded on boot.

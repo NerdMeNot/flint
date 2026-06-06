@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 )
 
 func TestInit_NoEndpoint(t *testing.T) {

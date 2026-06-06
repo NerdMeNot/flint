@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/rs/zerolog/log"
 )
 

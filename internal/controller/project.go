@@ -6,8 +6,8 @@ import (
 	"time"
 
 	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

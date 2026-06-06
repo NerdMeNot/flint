@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	db "github.com/NerdMeNot/flint/internal/db"
+	db "github.com/NerdMeNot/flint/internal/core/db"
 	mock "github.com/stretchr/testify/mock"
 
 	netip "net/netip"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/NerdMeNot/flint/internal/engine"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"

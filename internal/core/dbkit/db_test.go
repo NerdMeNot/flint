@@ -3,7 +3,7 @@ package dbkit_test
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/dbkit"
+	"github.com/NerdMeNot/flint/internal/core/dbkit"
 )
 
 func TestConfig_DSN(t *testing.T) {

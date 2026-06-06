@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/testutil"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/cloudwego/hertz/pkg/common/ut"

@@ -4,8 +4,8 @@ package server
 import (
 	"github.com/NerdMeNot/flint/internal/auth"
 	"github.com/NerdMeNot/flint/internal/config"
-	"github.com/NerdMeNot/flint/internal/db"
-	"github.com/NerdMeNot/flint/internal/engine"
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/NerdMeNot/flint/pkg/secret"

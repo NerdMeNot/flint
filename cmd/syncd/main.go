@@ -14,8 +14,8 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/auth"
 	"github.com/NerdMeNot/flint/internal/config"
-	"github.com/NerdMeNot/flint/internal/dbkit"
-	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/internal/core/dbkit"
+	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

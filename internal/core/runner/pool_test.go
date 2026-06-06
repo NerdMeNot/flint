@@ -3,8 +3,8 @@ package runner_test
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/flinterr"
-	"github.com/NerdMeNot/flint/internal/runner"
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
