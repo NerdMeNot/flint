@@ -11,6 +11,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/pkg/forge"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -232,6 +233,70 @@ steps:
 	state, err = eng.QueryWorkflow(ctx, wfID)
 	require.NoError(t, err)
 	assert.Equal(t, "succeeded", state.Status)
+}
+
+// TestEngine_StartWorkflowWithWaves_NoForge proves the product-neutral entry
+// point: a workflow built from raw waves runs through the engine end-to-end with
+// no forge and no pipeline YAML (engine.New is given a nil FileGetter). This is
+// the foundation Flint Workflows builds on.
+func TestEngine_StartWorkflowWithWaves_NoForge(t *testing.T) {
+	pool, q := setupTestDB(t)
+	ctx := context.Background()
+	orgID, projectID := seedOrgAndProject(t, pool)
+	runID := uuid.NewString()
+	insertTestRun(t, q, runID, projectID, orgID)
+
+	eng := engine.New(pool, nil, nil) // nil FileGetter — no forge involved at all
+	defer eng.Close()
+
+	waves := [][]pipeline.Step{
+		{{Name: "a", Run: pipeline.Cmd("echo a")}},
+		{{Name: "b", Run: pipeline.Cmd("echo b"), DependsOn: []string{"a"}}},
+	}
+
+	wfID, err := eng.StartWorkflowWithWaves(ctx, engine.StartWorkflowInput{
+		RunID: runID, OrgID: orgID, ProjectID: projectID, Kind: "workflow",
+	}, waves)
+	require.NoError(t, err)
+	require.NotEmpty(t, wfID)
+
+	status := func(name string) string {
+		s, qerr := eng.QueryWorkflow(ctx, wfID)
+		require.NoError(t, qerr)
+		for _, st := range s.Steps {
+			if st.Name == name {
+				return st.Status
+			}
+		}
+		t.Fatalf("step %q not found", name)
+		return ""
+	}
+
+	require.Len(t, mustQuery(t, eng, wfID).Steps, 2)
+	assert.Equal(t, "queued", status("a"), "wave 0 should be queued")
+	assert.Equal(t, "pending", status("b"), "wave 1 should be pending")
+
+	complete := func(name string) {
+		tok := engine.EncodeTaskToken(engine.TaskToken{WorkflowID: wfID, StepName: name, Attempt: 0})
+		_, eerr := pool.Exec(ctx,
+			"UPDATE steps SET status='running', started_at=now(), task_token=$1 WHERE workflow_id=$2 AND name=$3",
+			&tok, wfID, name)
+		require.NoError(t, eerr)
+		require.NoError(t, eng.CompleteStep(ctx, tok, engine.StepResult{StepName: name, Success: true}))
+	}
+
+	complete("a")
+	assert.Equal(t, "queued", status("b"), "completing a should queue b")
+	complete("b")
+
+	assert.Equal(t, "succeeded", mustQuery(t, eng, wfID).Status)
+}
+
+func mustQuery(t *testing.T, eng engine.Engine, wfID string) *engine.WorkflowState {
+	t.Helper()
+	s, err := eng.QueryWorkflow(context.Background(), wfID)
+	require.NoError(t, err)
+	return s
 }
 
 func TestEngine_WhenOnFailure(t *testing.T) {
