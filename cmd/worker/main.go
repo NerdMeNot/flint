@@ -100,14 +100,20 @@ func run(cmd *cobra.Command, args []string) error {
 		log.Info().Msg("K8s client initialized")
 	}
 
-	// Worker loop — polls Postgres, creates K8s Jobs, fires timers.
-	loop := engine.NewLoop(eng, k8sClient, registry, engine.LoopConfig{
+	// Step executor. When no cluster is reachable, leave it nil so the loop runs
+	// in DB-only mode (steps stay queued) — same behaviour as before.
+	var executor engine.StepExecutor
+	if k8sClient != nil {
+		serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
+		executor = engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
+			cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
+	}
+
+	// Worker loop — polls Postgres, dispatches steps via the executor, fires timers.
+	loop := engine.NewLoop(eng, executor, engine.LoopConfig{
 		SweepInterval: cfg.Worker.SweepIntervalOrDefault(),
-		InternalToken: cfg.Server.InternalToken,
 		SigningKey:    []byte(cfg.Auth.JWT.Secret),
-	}, cfg.Worker.AgentImage, cfg.Worker.JobNamespaceOrDefault(),
-		fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault()),
-	)
+	})
 
 	// Start K8s informer in background.
 	// Detects Job completions/failures in seconds instead of waiting for the

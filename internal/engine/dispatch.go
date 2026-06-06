@@ -17,30 +17,50 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// dispatchStep handles a newly claimed step based on its exec type.
-func dispatchStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Registry,
-	step claimedStep, agentImage, jobNamespace, serverURL, internalToken string) error {
+// k8sExecutor runs steps as Kubernetes Jobs. It is the default StepExecutor and
+// the only execution model for CI: an init container (flint-agent init), the
+// step container, and a flint-agent sidecar, sharing a workspace volume.
+type k8sExecutor struct {
+	k8s           kubernetes.Interface
+	reg           *runner.Registry
+	agentImage    string
+	jobNamespace  string
+	serverURL     string
+	internalToken string
+}
 
-	switch step.execType {
-	case "run", "use", "steps":
-		return dispatchRunStep(ctx, k8s, reg, step, agentImage, jobNamespace, serverURL, internalToken)
-	case "gate":
-		// Gate steps transition to "waiting" — no K8s Job needed.
-		// The timer (gate_timeout) was already created by the loop.
-		log.Info().Str("step", step.name).Msg("engine: gate step waiting for approval")
-		return nil
-	default:
-		return fmt.Errorf("engine: unknown step type %q", step.execType)
+// NewK8sExecutor builds the Kubernetes Job executor.
+func NewK8sExecutor(k8s kubernetes.Interface, reg *runner.Registry, agentImage, jobNamespace, serverURL, internalToken string) *k8sExecutor {
+	return &k8sExecutor{
+		k8s:           k8s,
+		reg:           reg,
+		agentImage:    agentImage,
+		jobNamespace:  jobNamespace,
+		serverURL:     serverURL,
+		internalToken: internalToken,
 	}
 }
 
-// dispatchRunStep creates a K8s Job for a run/use/steps step.
-func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.Registry,
-	step claimedStep, agentImage, jobNamespace, serverURL, internalToken string) error {
+func (e *k8sExecutor) Kind() string { return "k8s" }
 
+// CleanupRun tears down the workspace pod and any leftover Jobs for a finished
+// run. Completed Jobs are reaped by TTLSecondsAfterFinished; this also catches
+// cancelled runs whose step containers may still be running.
+func (e *k8sExecutor) CleanupRun(ctx context.Context, runID string) error {
+	if err := TeardownWorkspace(ctx, e.k8s, runID, e.jobNamespace); err != nil {
+		log.Warn().Err(err).Str("runID", runID).Msg("engine: workspace teardown failed")
+	}
+	if err := deleteRunJobs(ctx, e.k8s, runID, e.jobNamespace); err != nil {
+		log.Warn().Err(err).Str("runID", runID).Msg("engine: job cleanup failed")
+	}
+	return nil
+}
+
+// Dispatch creates a K8s Job for a run/use/steps step and returns the Job name.
+func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, error) {
 	var stepDef pipeline.Step
 	if err := json.Unmarshal(step.stepDef, &stepDef); err != nil {
-		return fmt.Errorf("engine: unmarshal step def: %w", err)
+		return "", fmt.Errorf("engine: unmarshal step def: %w", err)
 	}
 
 	// Resolve container image. Step image takes priority; fall back to the
@@ -49,7 +69,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 		stepDef.Image = step.pipelineImage
 	}
 	if stepDef.Image == "" && stepDef.ExecType() != "steps" {
-		return fmt.Errorf("engine: step %q has no container image (set image: on the step or at pipeline level)", step.name)
+		return "", fmt.Errorf("engine: step %q has no container image (set image: on the step or at pipeline level)", step.name)
 	}
 
 	// Resolve runner pool.
@@ -57,7 +77,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 	if stepDef.Runner != "" {
 		poolName = stepDef.Runner
 	}
-	poolSpec, err := reg.Resolve(poolName)
+	poolSpec, err := e.reg.Resolve(poolName)
 	if err != nil {
 		log.Warn().Str("pool", poolName).Msg("engine: runner pool not found, using defaults")
 		poolSpec = &runner.PoolSpec{
@@ -81,13 +101,13 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 
 	if usePVC {
 		// Ensure the per-run PVC exists. Idempotent.
-		if err := ensureWorkspacePVC(ctx, k8s, step.runID, poolSpec, jobNamespace); err != nil {
-			return fmt.Errorf("engine: create workspace PVC: %w", err)
+		if err := ensureWorkspacePVC(ctx, e.k8s, step.runID, poolSpec, e.jobNamespace); err != nil {
+			return "", fmt.Errorf("engine: create workspace PVC: %w", err)
 		}
 	} else {
 		// Agent mode: ensure per-run workspace agent pod is running.
 		var wsErr error
-		wsAddr, wsErr = EnsureWorkspace(ctx, k8s, step.runID, step.orgID, agentImage, jobNamespace)
+		wsAddr, wsErr = EnsureWorkspace(ctx, e.k8s, step.runID, step.orgID, e.agentImage, e.jobNamespace)
 		if wsErr != nil {
 			log.Warn().Err(wsErr).Str("runID", step.runID).Msg("engine: workspace unavailable, falling back to S3 artifacts")
 		}
@@ -96,7 +116,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 	// Build env vars.
 	agentEnv := []corev1.EnvVar{
 		{Name: "FLINT_TASK_TOKEN", Value: step.taskToken},
-		{Name: "FLINT_SERVER_URL", Value: serverURL},
+		{Name: "FLINT_SERVER_URL", Value: e.serverURL},
 		{Name: "FLINT_RUN_ID", Value: step.runID},
 		{Name: "FLINT_STEP_NAME", Value: step.name},
 		{Name: "FLINT_ORG_ID", Value: step.orgID},
@@ -109,9 +129,9 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 	}
 
 	// Inject internal token for /internal endpoint auth.
-	if internalToken != "" {
+	if e.internalToken != "" {
 		agentEnv = append(agentEnv,
-			corev1.EnvVar{Name: "FLINT_INTERNAL_TOKEN", Value: internalToken},
+			corev1.EnvVar{Name: "FLINT_INTERNAL_TOKEN", Value: e.internalToken},
 		)
 	}
 
@@ -211,7 +231,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: jobNamespace,
+			Namespace: e.jobNamespace,
 			Labels:    labels,
 		},
 		Spec: batchv1.JobSpec{
@@ -224,7 +244,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 					InitContainers: []corev1.Container{
 						{
 							Name:    "flint-init",
-							Image:   agentImage,
+							Image:   e.agentImage,
 							Command: []string{"/flint-agent", "init"},
 							Env:     agentEnv,
 							VolumeMounts: []corev1.VolumeMount{
@@ -262,7 +282,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 						},
 						{
 							Name:    "flint-agent",
-							Image:   agentImage,
+							Image:   e.agentImage,
 							Command: []string{"/flint-agent", "watch"},
 							Env:     agentEnv,
 							VolumeMounts: []corev1.VolumeMount{
@@ -307,9 +327,9 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 		job.Spec.Template.Spec.ServiceAccountName = sa
 	}
 
-	created, err := k8s.BatchV1().Jobs(jobNamespace).Create(ctx, job, metav1.CreateOptions{})
+	created, err := e.k8s.BatchV1().Jobs(e.jobNamespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("engine: create K8s Job: %w", err)
+		return "", fmt.Errorf("engine: create K8s Job: %w", err)
 	}
 
 	log.Info().
@@ -318,7 +338,7 @@ func dispatchRunStep(ctx context.Context, k8s kubernetes.Interface, reg *runner.
 		Str("image", stepDef.Image).
 		Msg("engine: K8s Job created")
 
-	return nil
+	return created.Name, nil
 }
 
 // claimedStep holds the data needed to dispatch a step after claiming.

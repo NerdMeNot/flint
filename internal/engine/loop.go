@@ -3,46 +3,34 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/observe"
-	"github.com/NerdMeNot/flint/internal/runner"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"k8s.io/client-go/kubernetes"
 )
 
 // Loop is the worker main loop. It polls Postgres for queued steps,
-// fires timers, dispatches K8s Jobs, and sweeps for stale state.
+// fires timers, dispatches steps via a StepExecutor, and sweeps for stale state.
 type Loop struct {
-	pool         db.Pool
-	engine       *PgEngine
-	k8s          kubernetes.Interface
-	registry     *runner.Registry
-	config       LoopConfig
-	agentImage   string
-	jobNamespace string
-	serverURL    string
-	wake         chan struct{}
+	pool     db.Pool
+	engine   *PgEngine
+	executor StepExecutor
+	config   LoopConfig
+	wake     chan struct{}
 }
 
 // NewLoop creates a worker loop.
-func NewLoop(engine *PgEngine, k8s kubernetes.Interface, reg *runner.Registry, cfg LoopConfig,
-	agentImage, jobNamespace, serverURL string) *Loop {
+func NewLoop(engine *PgEngine, executor StepExecutor, cfg LoopConfig) *Loop {
 	return &Loop{
-		pool:         engine.pool,
-		engine:       engine,
-		k8s:          k8s,
-		registry:     reg,
-		config:       cfg,
-		agentImage:   agentImage,
-		jobNamespace: jobNamespace,
-		serverURL:    serverURL,
-		wake:         make(chan struct{}, 1),
+		pool:     engine.pool,
+		engine:   engine,
+		executor: executor,
+		config:   cfg,
+		wake:     make(chan struct{}, 1),
 	}
 }
 
@@ -145,7 +133,7 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 		}
 
 		// Dispatch run/use/steps steps as K8s Jobs.
-		if c.Status == "running" && l.k8s != nil {
+		if c.Status == "running" && l.executor != nil {
 			// Enforce per-org concurrency limit: if the org already has too
 			// many running steps, push this one back to 'queued'. It'll be
 			// picked up on the next tick when a slot opens.
@@ -178,7 +166,8 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 				env:                    merged,
 				secretMapping:          stepDef.Secrets,
 			}
-			if err := dispatchStep(ctx, l.k8s, l.registry, step, l.agentImage, l.jobNamespace, l.serverURL, l.config.InternalToken); err != nil {
+			handle, err := dispatchStep(ctx, l.executor, step)
+			if err != nil {
 				log.Error().Err(err).Str("step", c.Name).Msg("engine: dispatch failed")
 				observe.DispatchErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("step", c.Name)))
 				if failErr := q.UpdateStepResult(ctx, db.UpdateStepResultParams{
@@ -190,12 +179,14 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 				}
 			} else {
 				observe.StepsDispatched.Add(ctx, 1)
-				jobName := fmt.Sprintf("flint-%s-%s", input.RunID[:8], sanitizeK8sName(c.Name))
-				if err := q.SetStepK8sJobName(ctx, db.SetStepK8sJobNameParams{
-					ID:         c.ID,
-					K8sJobName: &jobName,
-				}); err != nil {
-					log.Warn().Err(err).Str("step", c.Name).Msg("engine: failed to record K8s job name")
+				// Record the executor's handle (e.g. k8s Job name) for correlation.
+				if handle != "" {
+					if err := q.SetStepK8sJobName(ctx, db.SetStepK8sJobNameParams{
+						ID:         c.ID,
+						K8sJobName: &handle,
+					}); err != nil {
+						log.Warn().Err(err).Str("step", c.Name).Msg("engine: failed to record step handle")
+					}
 				}
 			}
 		}
@@ -370,20 +361,13 @@ func (l *Loop) sweep(ctx context.Context) {
 		log.Warn().Err(err).Msg("engine: cleanup fired timers failed")
 	}
 
-	// 4. Tear down workspace pods and K8s Jobs for recently finished runs.
-	if l.k8s != nil {
+	// 4. Tear down resources for recently finished runs, if the executor needs
+	// it (e.g. the k8s executor removes the workspace pod and leftover Jobs).
+	if cleaner, ok := l.executor.(stepCleaner); ok {
 		runIDs, err := q.RecentlyFinishedRunIDs(ctx)
 		if err == nil {
 			for _, runID := range runIDs {
-				if err := TeardownWorkspace(ctx, l.k8s, runID, l.jobNamespace); err != nil {
-					log.Warn().Err(err).Str("runID", runID).Msg("engine: workspace teardown failed")
-				}
-				// Delete K8s Jobs for this run — important for cancelled runs where
-				// step containers may still be running. Completed/succeeded jobs are
-				// cleaned by TTLSecondsAfterFinished but cancelled ones are not.
-				if err := deleteRunJobs(ctx, l.k8s, runID, l.jobNamespace); err != nil {
-					log.Warn().Err(err).Str("runID", runID).Msg("engine: job cleanup failed")
-				}
+				_ = cleaner.CleanupRun(ctx, runID)
 			}
 		}
 	}

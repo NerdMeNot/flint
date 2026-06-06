@@ -10,7 +10,6 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/observe"
-	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
@@ -21,15 +20,16 @@ import (
 // PgEngine is the Postgres-backed implementation of Engine.
 type PgEngine struct {
 	pool       db.Pool
-	forge      forge.ForgeProvider
-	signingKey []byte // HMAC key for task tokens; empty = unsigned (dev/test)
+	files      FileGetter // fetches pipeline + template files
+	signingKey []byte     // HMAC key for task tokens; empty = unsigned (dev/test)
 }
 
-// New creates a new PgEngine. signingKey signs/verifies task tokens — it must
-// match the key the worker loop uses to mint them, and must NOT be a value
-// exposed to step pods (use the server-side JWT secret, not the internal token).
-func New(pool db.Pool, forge forge.ForgeProvider, signingKey []byte) *PgEngine {
-	return &PgEngine{pool: pool, forge: forge, signingKey: signingKey}
+// New creates a new PgEngine. files supplies pipeline + template fetching;
+// signingKey signs/verifies task tokens — it must match the key the worker loop
+// uses to mint them, and must NOT be a value exposed to step pods (use the
+// server-side JWT secret, not the internal token).
+func New(pool db.Pool, files FileGetter, signingKey []byte) *PgEngine {
+	return &PgEngine{pool: pool, files: files, signingKey: signingKey}
 }
 
 func (e *PgEngine) Close() {}
@@ -63,7 +63,9 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 		}
 	}
 
-	// Create workflow row.
+	// Create workflow row. Synthesize the generic Inputs namespaces (git/run)
+	// so the engine's expression context reads from Inputs, not typed fields.
+	input.normalizeInputs()
 	inputJSON := mustJSON(input)
 	var parentID, parentStep *string
 	if input.ParentWorkflowID != "" {
@@ -83,7 +85,7 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 
 	// Fetch pipeline YAML — on failure, rollback entirely (don't pollute DB).
 	filePath := path.Join(input.PipelinePath, input.WorkflowFile)
-	rawYAML, err := e.forge.GetFile(ctx, input.Repo, input.CommitSHA, filePath)
+	rawYAML, err := e.files.GetFile(ctx, input.Repo, input.CommitSHA, filePath)
 	if err != nil {
 		logger.Error().Err(err).Str("file", filePath).Msg("engine: failed to fetch pipeline")
 		return "", fmt.Errorf("engine: fetch pipeline: %w", err)
@@ -100,8 +102,8 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 	input.PipelineServiceAccount = p.ServiceAccount
 
 	// Resolve templates (use: → run/steps).
-	resolver := &forgeResolver{
-		forge:        e.forge,
+	resolver := &fileResolver{
+		files:        e.files,
 		repo:         input.Repo,
 		ref:          input.CommitSHA,
 		pipelinePath: input.PipelinePath,
@@ -219,8 +221,6 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
 
 	logger.Info().Str("workflowID", workflowID).Int("steps", len(p.Steps)).Msg("engine: workflow started")
-
-	go e.postStatus(context.Background(), input, forge.StatusPending)
 
 	return workflowID, nil
 }
@@ -421,33 +421,6 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 		result.Steps = append(result.Steps, s)
 	}
 	return result, nil
-}
-
-func (e *PgEngine) postStatus(ctx context.Context, input StartWorkflowInput, status forge.StatusState) {
-	if e.forge == nil || input.CommitSHA == "" {
-		return
-	}
-	_ = e.forge.PostCommitStatus(ctx, input.Repo, input.CommitSHA, forge.CommitStatus{
-		State:       status,
-		Context:     fmt.Sprintf("flint/%s", input.WorkflowFile),
-		Description: statusDescription(status),
-		TargetURL:   input.RunURL,
-	})
-}
-
-func statusDescription(s forge.StatusState) string {
-	switch s {
-	case forge.StatusPending:
-		return "Flint pipeline queued"
-	case forge.StatusRunning:
-		return "Flint pipeline running"
-	case forge.StatusSuccess:
-		return "Flint pipeline passed"
-	case forge.StatusFailure:
-		return "Flint pipeline failed"
-	default:
-		return "Flint pipeline"
-	}
 }
 
 func finishWorkflow(ctx context.Context, qtx *db.Queries, workflowID, status string) {
