@@ -18,15 +18,24 @@ import (
 )
 
 // testDSN returns the Postgres connection string for integration tests.
-// Set FLINT_TEST_DSN to a real Postgres URL to run these tests.
-// Example: FLINT_TEST_DSN=postgres://flint:flint@localhost:5432/flint_test?sslmode=disable
+//
+// Resolution order: skip under -short; FLINT_TEST_DSN if set (used by CI's
+// Postgres service container); otherwise the throwaway instance TestMain spins
+// up from local initdb/pg_ctl. If none is available, the test is skipped with a
+// clear message — never a hard failure.
 func testDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("FLINT_TEST_DSN not set — skipping integration tests")
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
 	}
-	return dsn
+	if dsn := os.Getenv("FLINT_TEST_DSN"); dsn != "" {
+		return dsn
+	}
+	if autoDSN != "" {
+		return autoDSN
+	}
+	t.Skip("no FLINT_TEST_DSN and no local postgres (initdb/pg_ctl) available")
+	return ""
 }
 
 // setupTestDB creates a pool, runs migrations, and returns cleanup functions.
