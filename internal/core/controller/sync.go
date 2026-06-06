@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
+	flintv1 "github.com/NerdMeNot/flint/internal/core/crd/v1"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/rs/zerolog/log"
 	"sigs.k8s.io/controller-runtime/pkg/client"

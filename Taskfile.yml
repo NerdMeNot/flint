@@ -144,7 +144,7 @@ tasks:
     desc: Generate CRD YAML manifests from Go types
     cmds:
       - mkdir -p helm/crds
-      - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/crd/..." output:crd:artifacts:config=helm/crds
+      - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/core/crd/..." output:crd:artifacts:config=helm/crds
 
   # --- Frontend ---
 

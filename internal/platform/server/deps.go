@@ -2,10 +2,10 @@
 package server
 
 import (
-	"github.com/NerdMeNot/flint/internal/platform/auth"
-	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/NerdMeNot/flint/pkg/secret"

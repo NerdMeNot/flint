@@ -3,7 +3,7 @@ package v1_test
 import (
 	"testing"
 
-	v1 "github.com/NerdMeNot/flint/internal/crd/v1"
+	v1 "github.com/NerdMeNot/flint/internal/core/crd/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 

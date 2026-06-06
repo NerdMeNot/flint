@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/core/flinterr"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 func testSessionConfig() auth.SessionConfig {

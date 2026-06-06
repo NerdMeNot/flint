@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
+	flintv1 "github.com/NerdMeNot/flint/internal/core/crd/v1"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/core/runner"
