@@ -92,38 +92,48 @@ func run(cmd *cobra.Command, args []string) error {
 	// Runner pool registry.
 	registry := runner.NewRegistry()
 
-	// Build the step executor selected by config. local/docker need no cluster
-	// and report completion in-process via eng.CompleteStep; only the k8s
-	// executor uses a Kubernetes client and the informer.
-	var executor engine.StepExecutor
+	// Build the executor registry (step exec type → executor). The container
+	// backend (k8s/local/docker) handles run/use/steps; the http executor runs
+	// in-process for any backend. local/docker/http report completion via
+	// eng.CompleteStep and need no cluster; only the k8s backend uses a
+	// Kubernetes client and the informer.
+	executors := engine.ExecutorRegistry{}
 	var k8sClient kubernetes.Interface
+	var container engine.StepExecutor
 
 	switch cfg.Worker.ExecutorOrDefault() {
 	case "local":
-		executor = engine.NewLocalExecutor(cfg.Worker.WorkspaceRoot, eng.CompleteStep)
-		log.Info().Msg("step executor: local subprocess (cluster-free)")
+		container = engine.NewLocalExecutor(cfg.Worker.WorkspaceRoot, eng.CompleteStep)
+		log.Info().Msg("container executor: local subprocess (cluster-free)")
 	case "docker":
 		runtime, derr := engine.DetectContainerRuntime()
 		if derr != nil {
 			return fmt.Errorf("docker executor: %w", derr)
 		}
-		executor = engine.NewDockerExecutor(runtime, cfg.Worker.WorkspaceRoot, eng.CompleteStep)
-		log.Info().Str("runtime", runtime).Msg("step executor: local containers (cluster-free)")
+		container = engine.NewDockerExecutor(runtime, cfg.Worker.WorkspaceRoot, eng.CompleteStep)
+		log.Info().Str("runtime", runtime).Msg("container executor: local containers (cluster-free)")
 	default: // "k8s"
 		var kerr error
 		k8sClient, kerr = buildK8sClient()
 		if kerr != nil {
-			log.Warn().Err(kerr).Msg("K8s client unavailable — Jobs will not be dispatched (DB-only mode)")
+			log.Warn().Err(kerr).Msg("K8s client unavailable — container steps will not be dispatched (DB-only mode)")
 		} else {
 			serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
-			executor = engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
+			container = engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
 				cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
-			log.Info().Msg("step executor: kubernetes")
+			log.Info().Msg("container executor: kubernetes")
 		}
 	}
+	if container != nil {
+		executors["run"] = container
+		executors["use"] = container
+		executors["steps"] = container
+	}
+	// http steps run in-process regardless of the container backend.
+	executors["http"] = engine.NewHTTPExecutor(eng.CompleteStep)
 
-	// Worker loop — polls Postgres, dispatches steps via the executor, fires timers.
-	loop := engine.NewLoop(eng, executor, engine.LoopConfig{
+	// Worker loop — polls Postgres, dispatches steps via the registry, fires timers.
+	loop := engine.NewLoop(eng, executors, engine.LoopConfig{
 		SweepInterval: cfg.Worker.SweepIntervalOrDefault(),
 		SigningKey:    []byte(cfg.Auth.JWT.Secret),
 	})

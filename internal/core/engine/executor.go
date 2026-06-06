@@ -2,10 +2,15 @@ package engine
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/rs/zerolog/log"
 )
+
+// errNoExecutor means no executor is registered for a step's exec type. The loop
+// treats it as "leave the step running" (e.g. DB-only mode) rather than a
+// failure.
+var errNoExecutor = errors.New("engine: no executor registered for step type")
 
 // StepExecutor starts execution of a claimed step. Implementations are
 // fire-and-forget: step completion is reported out-of-band via the
@@ -25,23 +30,49 @@ type StepExecutor interface {
 
 // stepCleaner is an optional StepExecutor capability: release any resources
 // associated with a finished run (e.g. a k8s workspace pod and leftover Jobs).
-// Executors with nothing to clean up (e.g. local processes) simply don't
+// Executors with nothing to clean up (e.g. local processes, http) simply don't
 // implement it, and the sweep skips cleanup for them.
 type stepCleaner interface {
 	CleanupRun(ctx context.Context, runID string) error
 }
 
-// dispatchStep routes a claimed step to the executor by exec type. Gates don't
-// execute — they wait for an approval signal (and are claimed as "waiting", so
-// they don't reach here in practice); unknown types are an error.
-func dispatchStep(ctx context.Context, exec StepExecutor, step claimedStep) (string, error) {
+// ExecutorRegistry maps a step's exec type to the executor that runs it (e.g.
+// "run"/"use"/"steps" → a container executor, "http" → the http executor). This
+// is what makes the engine execution-model-agnostic: products register the
+// executors they need.
+type ExecutorRegistry map[string]StepExecutor
+
+// cleaners returns the distinct executors in the registry that need per-run
+// cleanup (deduped, since one executor may be registered under several types).
+func (r ExecutorRegistry) cleaners() []stepCleaner {
+	seen := make(map[StepExecutor]bool, len(r))
+	var out []stepCleaner
+	for _, ex := range r {
+		if seen[ex] {
+			continue
+		}
+		seen[ex] = true
+		if c, ok := ex.(stepCleaner); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// dispatchStep routes a claimed step to the registered executor by exec type.
+// Gates/approvals don't execute — they wait for a signal (and are claimed as
+// "waiting", so they don't reach here in practice). A step type with no
+// registered executor returns errNoExecutor, which the loop treats as "leave
+// running" rather than a failure.
+func dispatchStep(ctx context.Context, registry ExecutorRegistry, step claimedStep) (string, error) {
 	switch step.execType {
-	case "run", "use", "steps":
-		return exec.Dispatch(ctx, step)
-	case "gate":
+	case "gate", "approval":
 		log.Info().Str("step", step.name).Msg("engine: gate step waiting for approval")
 		return "", nil
-	default:
-		return "", fmt.Errorf("engine: unknown step type %q", step.execType)
 	}
+	exec, ok := registry[step.execType]
+	if !ok {
+		return "", errNoExecutor
+	}
+	return exec.Dispatch(ctx, step)
 }

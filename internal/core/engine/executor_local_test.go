@@ -71,16 +71,23 @@ func TestLocalExecutor_Kind(t *testing.T) {
 	assert.Equal(t, "local", NewLocalExecutor("", nil).Kind())
 }
 
-// dispatchStep routes by exec type independently of the executor implementation.
+// dispatchStep routes by exec type via the registry, independently of executor
+// implementation.
 func TestDispatchStep_Routing(t *testing.T) {
 	exec := NewLocalExecutor(t.TempDir(), func(context.Context, string, StepResult) error { return nil })
+	registry := ExecutorRegistry{"run": exec}
 
-	// Gates don't execute — no handle, no error, executor not invoked.
-	handle, err := dispatchStep(context.Background(), exec, claimedStep{name: "approve", execType: "gate"})
+	// Gates/approvals don't execute — no handle, no error, executor not invoked.
+	handle, err := dispatchStep(context.Background(), registry, claimedStep{name: "approve", execType: "gate"})
 	require.NoError(t, err)
 	assert.Empty(t, handle)
 
-	// Unknown exec types are an error.
-	_, err = dispatchStep(context.Background(), exec, claimedStep{name: "weird", execType: "nope"})
-	require.Error(t, err)
+	// A registered type dispatches.
+	h, err := dispatchStep(context.Background(), registry, stepWithRun("r", "true"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, h)
+
+	// An unregistered type returns errNoExecutor (the loop leaves it running).
+	_, err = dispatchStep(context.Background(), registry, claimedStep{name: "weird", execType: "nope"})
+	require.ErrorIs(t, err, errNoExecutor)
 }
