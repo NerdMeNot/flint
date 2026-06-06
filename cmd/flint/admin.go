@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/auth"
-	"github.com/NerdMeNot/flint/internal/config"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/spf13/cobra"

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/auth"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 func TestMiddleware_ValidToken(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/auth"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/core/flinterr"
 )
 

@@ -5,7 +5,7 @@ package testutil
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/config"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 )
 

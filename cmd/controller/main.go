@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/config"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/controller"
 	flintv1 "github.com/NerdMeNot/flint/internal/crd/v1"
 	"github.com/NerdMeNot/flint/internal/core/db"

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/config"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 )
 
 func validServerConfig() *config.Config {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/auth"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"

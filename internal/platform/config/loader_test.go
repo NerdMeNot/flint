@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/config"
+	"github.com/NerdMeNot/flint/internal/platform/config"
 )
 
 func TestLoad_Defaults(t *testing.T) {
