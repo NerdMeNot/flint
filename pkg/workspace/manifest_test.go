@@ -46,9 +46,9 @@ func TestDiff(t *testing.T) {
 		"new.go": {Hash: "nnn", Size: 5},
 	}
 	remote := Manifest{
-		"a.go":       {Hash: "aaa", Size: 10},      // same
-		"b.go":       {Hash: "old-bbb", Size: 20},   // changed
-		"deleted.go": {Hash: "ddd", Size: 15},        // deleted locally
+		"a.go":       {Hash: "aaa", Size: 10},     // same
+		"b.go":       {Hash: "old-bbb", Size: 20}, // changed
+		"deleted.go": {Hash: "ddd", Size: 15},     // deleted locally
 	}
 
 	upload, download, remove := Diff(local, remote)

@@ -62,6 +62,23 @@ type WorkerConfig struct {
 	AgentImage        string        `mapstructure:"agentImage"`
 	DefaultRunnerPool string        `mapstructure:"defaultRunnerPool"`
 	SweepInterval     time.Duration `mapstructure:"sweepInterval"`
+
+	// Executor selects how steps run: "k8s" (default, Kubernetes Jobs), "local"
+	// (subprocess — cluster-free dev/test), or "docker" (local containers via
+	// docker/podman). local/docker need no cluster and report completion
+	// in-process.
+	Executor string `mapstructure:"executor"`
+	// WorkspaceRoot is the host base dir for per-run workspaces used by the
+	// local/docker executors. Empty => the OS temp dir.
+	WorkspaceRoot string `mapstructure:"workspaceRoot"`
+}
+
+// ExecutorOrDefault returns the configured executor kind, defaulting to "k8s".
+func (c *WorkerConfig) ExecutorOrDefault() string {
+	if c.Executor != "" {
+		return c.Executor
+	}
+	return "k8s"
 }
 
 // SweepIntervalOrDefault returns the observer sweep interval.

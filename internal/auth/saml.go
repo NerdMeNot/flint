@@ -8,9 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
-	"strings"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/crewjam/saml"

@@ -68,14 +68,7 @@ func (e *localExecutor) run(step claimedStep, command, wsDir string) {
 	cmd.Env = append(os.Environ(), localStepEnv(step)...)
 	out, runErr := cmd.CombinedOutput()
 
-	result := StepResult{StepName: step.name, Success: runErr == nil}
-	if runErr != nil {
-		result.Error = runErr.Error()
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
-		}
-	}
+	result := resultFromExit(step.name, runErr)
 
 	log.Info().Str("step", step.name).Str("kind", "local").
 		Bool("ok", result.Success).Int("exit", result.ExitCode).
@@ -87,6 +80,21 @@ func (e *localExecutor) run(step claimedStep, command, wsDir string) {
 			log.Error().Err(err).Str("step", step.name).Msg("engine: local completion callback failed")
 		}
 	}
+}
+
+// resultFromExit builds a StepResult from a command's run error (nil => success).
+// Shared by the local and docker executors, which both run a process and report
+// its terminal status via a CompleteFunc.
+func resultFromExit(stepName string, runErr error) StepResult {
+	res := StepResult{StepName: stepName, Success: runErr == nil}
+	if runErr != nil {
+		res.Error = runErr.Error()
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			res.ExitCode = exitErr.ExitCode()
+		}
+	}
+	return res
 }
 
 // localStepEnv renders the step's merged env map as KEY=VALUE entries.

@@ -14,11 +14,11 @@ import (
 // Argon2id parameters — tuned for server-side hashing.
 // These match OWASP recommendations for Argon2id.
 const (
-	argonTime    = 3           // iterations
-	argonMemory  = 64 * 1024  // 64 MB
-	argonThreads = 4          // parallelism
-	argonKeyLen  = 32         // output key length
-	argonSaltLen = 16         // salt length
+	argonTime    = 3         // iterations
+	argonMemory  = 64 * 1024 // 64 MB
+	argonThreads = 4         // parallelism
+	argonKeyLen  = 32        // output key length
+	argonSaltLen = 16        // salt length
 )
 
 // HashPassword hashes a password using Argon2id.

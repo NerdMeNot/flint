@@ -1,0 +1,44 @@
+# Local development config — cluster-free. Used by `task dev-local`.
+# Runs steps with the local subprocess executor; no Kubernetes required.
+# Dev-only values: do NOT use this file in production.
+
+server:
+  port: 8080
+  baseUrl: http://localhost:8080
+  internalToken: dev-internal-token-0123456789
+
+database:
+  host: localhost
+  port: 5432
+  database: flint
+  user: flint
+  password: flint
+  sslMode: disable
+  maxConns: 10
+  minConns: 2
+
+worker:
+  executor: local        # subprocess executor — no cluster, no agent
+  workspaceRoot: ""      # empty => OS temp dir
+  defaultRunnerPool: standard
+  sweepInterval: 1m
+
+controller:
+  enabled: false
+
+auth:
+  adminUsers: []
+  defaultRole: viewer
+  jwt:
+    secret: "dev-only-jwt-secret-do-not-use-in-prod!!"
+    sessionDuration: 24h
+
+storage:
+  mode: filesystem
+  filesystem:
+    path: /tmp/flint-logs
+
+encryption:
+  # All-zero dev key (hex, 32 bytes). Generate a real one with: openssl rand -hex 32
+  masterKey: "0000000000000000000000000000000000000000000000000000000000000000"
+  masterKeyVersion: 1
