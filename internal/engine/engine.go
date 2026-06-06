@@ -54,16 +54,34 @@ type WorkerLoop interface {
 
 // StartWorkflowInput contains everything needed to create a workflow.
 type StartWorkflowInput struct {
-	RunID                  string
-	OrgID                  string
-	ProjectID              string
-	Repo                   string
-	Ref                    string
-	CommitSHA              string
-	TriggerType            string
-	TriggeredBy            string
-	WorkflowFile           string
-	PipelinePath           string
+	RunID     string
+	OrgID     string
+	ProjectID string
+
+	// Kind discriminates the run type. Empty is treated as "ci". It drives
+	// product-specific behaviour (e.g. whether a git namespace is synthesized
+	// into Inputs). Non-CI kinds populate Inputs themselves.
+	Kind string
+
+	// Inputs is the generic, product-neutral context bag the engine reads from
+	// during expression evaluation. The engine itself never reaches for typed
+	// git fields — it reads namespaces out of this map (git, run, …). CI runs
+	// have the git/run namespaces synthesized from the typed fields below by
+	// normalizeInputs; other products populate it directly.
+	Inputs map[string]any
+
+	// Git/trigger fields below are CI-specific inputs consumed by the pipeline
+	// fetch (forge.GetFile) and commit-status reporting. They are slated to move
+	// out of the engine in PR3 (FileGetter) and PR4 (triggers); the engine's
+	// generic surface no longer depends on them.
+	Repo         string
+	Ref          string
+	CommitSHA    string
+	TriggerType  string
+	TriggeredBy  string
+	WorkflowFile string
+	PipelinePath string
+
 	RunnerPool             string
 	JobNamespace           string
 	Environment            string // target environment (empty = no env filtering)
@@ -75,6 +93,55 @@ type StartWorkflowInput struct {
 	// For child workflows (invoke steps).
 	ParentWorkflowID string
 	ParentStepName   string
+}
+
+// GitContext is the "git" namespace exposed to expressions (git.sha, git.branch,
+// git.repoUrl). It is a CI concept; non-CI runs omit it.
+type GitContext struct {
+	SHA     string
+	Branch  string
+	RepoURL string
+}
+
+// namespace renders the git context as the bag/expression shape. The expr-facing
+// key names live here, the single source of truth.
+func (g GitContext) namespace() map[string]any {
+	return map[string]any{"sha": g.SHA, "branch": g.Branch, "repoUrl": g.RepoURL}
+}
+
+// RunContext is the "run" namespace exposed to expressions (run.id, run.trigger).
+type RunContext struct {
+	ID      string
+	Trigger string
+}
+
+// namespace renders the run context as the bag/expression shape.
+func (r RunContext) namespace() map[string]any {
+	return map[string]any{"id": r.ID, "trigger": r.Trigger}
+}
+
+// isCI reports whether this run uses CI semantics (the default).
+func (in *StartWorkflowInput) isCI() bool {
+	return in.Kind == "" || in.Kind == "ci"
+}
+
+// normalizeInputs ensures Inputs carries the generic namespaces the engine's
+// expression context reads from. For CI runs it synthesizes the git/run
+// namespaces from the typed fields so expression evaluation (git.sha,
+// run.trigger, …) is unchanged. Callers that already populate a namespace win;
+// this only fills gaps. Called before the input is persisted.
+func (in *StartWorkflowInput) normalizeInputs() {
+	if in.Inputs == nil {
+		in.Inputs = map[string]any{}
+	}
+	if _, ok := in.Inputs["run"]; !ok {
+		in.Inputs["run"] = RunContext{ID: in.RunID, Trigger: in.TriggerType}.namespace()
+	}
+	if in.isCI() {
+		if _, ok := in.Inputs["git"]; !ok {
+			in.Inputs["git"] = GitContext{SHA: in.CommitSHA, Branch: in.Ref, RepoURL: in.Repo}.namespace()
+		}
+	}
 }
 
 // StepResult is the result of a completed step.

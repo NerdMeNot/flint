@@ -359,12 +359,10 @@ func allWavesComplete(waves [][]string, stepByName map[string]stepRow) bool {
 
 func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult) pipeline.ExprContext {
 	ctx := pipeline.ExprContext{
-		"git": map[string]any{
-			"sha": input.CommitSHA, "branch": input.Ref, "repoUrl": input.Repo,
-		},
-		"run": map[string]any{
-			"id": input.RunID, "trigger": input.TriggerType,
-		},
+		// git/run come from the generic Inputs bag (populated by normalizeInputs
+		// for CI runs), not from typed fields — the engine is product-neutral here.
+		"git":    exprNamespace(input.Inputs, "git"),
+		"run":    exprNamespace(input.Inputs, "run"),
 		"env":    input.Env,
 		"inputs": input.Env,
 	}
@@ -383,4 +381,18 @@ func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]Ste
 	ctx["steps"] = steps
 
 	return ctx
+}
+
+// exprNamespace returns the named namespace (e.g. "git", "run") from the generic
+// Inputs bag as a map for expression evaluation. After JSON round-tripping the
+// persisted input, nested objects are map[string]interface{}; an absent or
+// wrongly-typed namespace yields an empty map so expressions degrade to empty
+// values rather than erroring.
+func exprNamespace(inputs map[string]any, key string) map[string]any {
+	if inputs != nil {
+		if ns, ok := inputs[key].(map[string]any); ok {
+			return ns
+		}
+	}
+	return map[string]any{}
 }

@@ -63,7 +63,9 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 		}
 	}
 
-	// Create workflow row.
+	// Create workflow row. Synthesize the generic Inputs namespaces (git/run)
+	// so the engine's expression context reads from Inputs, not typed fields.
+	input.normalizeInputs()
 	inputJSON := mustJSON(input)
 	var parentID, parentStep *string
 	if input.ParentWorkflowID != "" {
