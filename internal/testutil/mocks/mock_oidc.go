@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	auth "github.com/NerdMeNot/flint/internal/auth"
+	auth "github.com/NerdMeNot/flint/internal/platform/auth"
 
 	mock "github.com/stretchr/testify/mock"
 

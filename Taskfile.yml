@@ -144,7 +144,7 @@ tasks:
     desc: Generate CRD YAML manifests from Go types
     cmds:
       - mkdir -p helm/crds
-      - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/crd/..." output:crd:artifacts:config=helm/crds
+      - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/core/crd/..." output:crd:artifacts:config=helm/crds
 
   # --- Frontend ---
 
@@ -177,28 +177,28 @@ tasks:
   migrate-up:
     desc: Run database migrations
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/dbkit/migrations postgres "{{.DATABASE_URL}}" up
+      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" up
     requires:
       vars: [DATABASE_URL]
 
   migrate-down:
     desc: Roll back last migration
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/dbkit/migrations postgres "{{.DATABASE_URL}}" down
+      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" down
     requires:
       vars: [DATABASE_URL]
 
   migrate-create:
     desc: "Create a new migration (usage: task migrate-create NAME=add_widgets)"
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/dbkit/migrations create {{.NAME}} sql
+      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations create {{.NAME}} sql
     requires:
       vars: [NAME]
 
   migrate-status:
     desc: Show migration status
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/dbkit/migrations postgres "{{.DATABASE_URL}}" status
+      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" status
     requires:
       vars: [DATABASE_URL]
 
