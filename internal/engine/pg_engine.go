@@ -10,7 +10,6 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/observe"
-	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
@@ -21,24 +20,16 @@ import (
 // PgEngine is the Postgres-backed implementation of Engine.
 type PgEngine struct {
 	pool       db.Pool
-	files      FileGetter           // fetches pipeline + template files
-	status     commitStatusReporter // posts commit status; removed in PR4
-	signingKey []byte               // HMAC key for task tokens; empty = unsigned (dev/test)
+	files      FileGetter // fetches pipeline + template files
+	signingKey []byte     // HMAC key for task tokens; empty = unsigned (dev/test)
 }
 
-// commitStatusReporter posts pipeline status back to a forge. This is a
-// CI-specific concern; the engine's use of it (postStatus) moves to the CI
-// product in PR4, at which point this field and method go away.
-type commitStatusReporter interface {
-	PostCommitStatus(ctx context.Context, repo, sha string, status forge.CommitStatus) error
-}
-
-// New creates a new PgEngine. The forge supplies both file fetching (FileGetter)
-// and commit-status reporting. signingKey signs/verifies task tokens — it must
-// match the key the worker loop uses to mint them, and must NOT be a value
-// exposed to step pods (use the server-side JWT secret, not the internal token).
-func New(pool db.Pool, forge forge.ForgeProvider, signingKey []byte) *PgEngine {
-	return &PgEngine{pool: pool, files: forge, status: forge, signingKey: signingKey}
+// New creates a new PgEngine. files supplies pipeline + template fetching;
+// signingKey signs/verifies task tokens — it must match the key the worker loop
+// uses to mint them, and must NOT be a value exposed to step pods (use the
+// server-side JWT secret, not the internal token).
+func New(pool db.Pool, files FileGetter, signingKey []byte) *PgEngine {
+	return &PgEngine{pool: pool, files: files, signingKey: signingKey}
 }
 
 func (e *PgEngine) Close() {}
@@ -230,8 +221,6 @@ func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) 
 	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
 
 	logger.Info().Str("workflowID", workflowID).Int("steps", len(p.Steps)).Msg("engine: workflow started")
-
-	go e.postStatus(context.Background(), input, forge.StatusPending)
 
 	return workflowID, nil
 }
@@ -432,33 +421,6 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 		result.Steps = append(result.Steps, s)
 	}
 	return result, nil
-}
-
-func (e *PgEngine) postStatus(ctx context.Context, input StartWorkflowInput, status forge.StatusState) {
-	if e.status == nil || input.CommitSHA == "" {
-		return
-	}
-	_ = e.status.PostCommitStatus(ctx, input.Repo, input.CommitSHA, forge.CommitStatus{
-		State:       status,
-		Context:     fmt.Sprintf("flint/%s", input.WorkflowFile),
-		Description: statusDescription(status),
-		TargetURL:   input.RunURL,
-	})
-}
-
-func statusDescription(s forge.StatusState) string {
-	switch s {
-	case forge.StatusPending:
-		return "Flint pipeline queued"
-	case forge.StatusRunning:
-		return "Flint pipeline running"
-	case forge.StatusSuccess:
-		return "Flint pipeline passed"
-	case forge.StatusFailure:
-		return "Flint pipeline failed"
-	default:
-		return "Flint pipeline"
-	}
 }
 
 func finishWorkflow(ctx context.Context, qtx *db.Queries, workflowID, status string) {

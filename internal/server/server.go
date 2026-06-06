@@ -9,6 +9,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/db"
 	"github.com/NerdMeNot/flint/internal/engine"
 	"github.com/NerdMeNot/flint/internal/observe"
+	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -302,6 +303,17 @@ func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 						ID:           runID,
 						ErrorMessage: &errMsg,
 					})
+				} else if s.deps.Forge != nil && event.CommitSHA != "" {
+					// Report queued status to the forge. This used to live in the
+					// engine; it's relocated here so the engine stays product-neutral.
+					// Best-effort and async, matching the engine's prior behaviour.
+					go func(repo, sha, wf string) {
+						_ = s.deps.Forge.PostCommitStatus(context.Background(), repo, sha, forge.CommitStatus{
+							State:       forge.StatusPending,
+							Context:     fmt.Sprintf("flint/%s", wf),
+							Description: "Flint pipeline queued",
+						})
+					}(event.Repo, event.CommitSHA, workflowFile)
 				}
 			}
 

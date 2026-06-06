@@ -70,10 +70,11 @@ type StartWorkflowInput struct {
 	// normalizeInputs; other products populate it directly.
 	Inputs map[string]any
 
-	// Git/trigger fields below are CI-specific inputs consumed by the pipeline
-	// fetch (forge.GetFile) and commit-status reporting. They are slated to move
-	// out of the engine in PR3 (FileGetter) and PR4 (triggers); the engine's
-	// generic surface no longer depends on them.
+	// Git/trigger fields below are CI-specific inputs. Repo/CommitSHA/WorkflowFile/
+	// PipelinePath drive pipeline + template fetching via the FileGetter, and the
+	// git fields are surfaced to the step agent's environment. The engine's
+	// generic surface (expression context, run identity) reads only the Inputs
+	// bag above — not these fields.
 	Repo         string
 	Ref          string
 	CommitSHA    string
