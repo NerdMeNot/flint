@@ -140,6 +140,9 @@ seam generalizes *before* the Workflows product is built around it.
 **Acceptance bar for every PR:** the existing CI test suite passes unchanged, with zero behavior
 change for CI. The full Flint Workflows product is the next epic, after these four land.
 
+The ordered, phase-by-phase execution plan — including the cluster-free local dev/test loop and the
+Flint Workflows milestone — lives in [`flint-family-roadmap.md`](./flint-family-roadmap.md).
+
 ## Load Testing: control plane vs. data plane
 
 Load testing is the one product that must not be forced through the DAG executor.
