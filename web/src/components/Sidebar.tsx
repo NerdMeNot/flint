@@ -14,6 +14,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { orpc } from '#/lib/orpc'
 import { ScopeSelector } from './ScopeSelector'
+import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
 
 const navItems = [
   { to: '/' as const, icon: LayoutDashboard, label: 'Dashboard', match: '' },
@@ -98,6 +99,7 @@ export function Sidebar() {
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen } = useSidebar()
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
+  const inCI = activeCapabilityID(currentPath) === 'ci'
 
   const sidebarWidth = collapsed ? 'w-[64px]' : 'w-[240px]'
 
@@ -139,32 +141,42 @@ export function Sidebar() {
         </button>
       )}
 
-      {/* Main Nav */}
-      <nav className={`flex-1 overflow-y-auto py-3 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
-        {navItems.map((item) => {
-          const isActive = item.match
-            ? currentPath.startsWith(item.match)
-            : currentPath === item.to
-          return (
-            <Link
-              key={item.label}
-              to={item.to}
-              title={collapsed ? item.label : undefined}
-              className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 ${
-                collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
-              } ${
-                isActive
-                  ? 'text-white shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
-              }`}
-              style={isActive ? activeStyle : undefined}
-            >
-              <item.icon size={16} strokeWidth={isActive ? 2.2 : 1.8} className="shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          )
-        })}
-      </nav>
+      {/* Product switcher */}
+      <CapabilitySwitcher collapsed={collapsed} />
+
+      {/* Section nav — shown for the active product (CI today). */}
+      {inCI ? (
+        <nav className={`flex-1 overflow-y-auto pb-3 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
+          {!collapsed && (
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">CI</p>
+          )}
+          {navItems.map((item) => {
+            const isActive = item.match
+              ? currentPath.startsWith(item.match)
+              : currentPath === item.to
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                title={collapsed ? item.label : undefined}
+                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 ${
+                  collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
+                } ${
+                  isActive
+                    ? 'text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
+                }`}
+                style={isActive ? activeStyle : undefined}
+              >
+                <item.icon size={16} strokeWidth={isActive ? 2.2 : 1.8} className="shrink-0" />
+                {!collapsed && item.label}
+              </Link>
+            )
+          })}
+        </nav>
+      ) : (
+        <div className="flex-1" />
+      )}
 
       {/* Bottom — Admin nav */}
       <div className={`border-t border-border pt-3 pb-1 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
@@ -246,29 +258,36 @@ export function Sidebar() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2 px-1">Scope</p>
           <ScopeSelector />
         </div>
-        {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-3">
-          {navItems.map((item) => {
-            const isActive = item.match
-              ? currentPath.startsWith(item.match)
-              : currentPath === item.to
-            return (
-              <Link
-                key={item.label}
-                to={item.to}
-                className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
-                  isActive
-                    ? 'text-white shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
-                }`}
-                style={isActive ? activeStyle : undefined}
-              >
-                <item.icon size={16} strokeWidth={isActive ? 2.2 : 1.8} className="shrink-0" />
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+        {/* Product switcher */}
+        <CapabilitySwitcher />
+        {/* Section nav */}
+        {inCI ? (
+          <nav className="flex-1 overflow-y-auto pb-3 space-y-0.5 px-3">
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">CI</p>
+            {navItems.map((item) => {
+              const isActive = item.match
+                ? currentPath.startsWith(item.match)
+                : currentPath === item.to
+              return (
+                <Link
+                  key={item.label}
+                  to={item.to}
+                  className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
+                    isActive
+                      ? 'text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
+                  }`}
+                  style={isActive ? activeStyle : undefined}
+                >
+                  <item.icon size={16} strokeWidth={isActive ? 2.2 : 1.8} className="shrink-0" />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+        ) : (
+          <div className="flex-1" />
+        )}
         {/* Bottom — Admin nav */}
         <div className="border-t border-border pt-3 pb-1 space-y-0.5 px-3">
           {bottomItems.map((item) => {

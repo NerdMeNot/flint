@@ -9,10 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LoadtestRouteImport } from './routes/loadtest'
 import { Route as GatesRouteImport } from './routes/gates'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -41,6 +43,11 @@ import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id
 import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
 
+const WorkflowsRoute = WorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TeamsRoute = TeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
@@ -59,6 +66,11 @@ const ProjectsRoute = ProjectsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoadtestRoute = LoadtestRouteImport.update({
+  id: '/loadtest',
+  path: '/loadtest',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GatesRoute = GatesRouteImport.update({
@@ -201,10 +213,12 @@ const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
+  '/workflows': typeof WorkflowsRoute
   '/projects/$id': typeof ProjectsIdRoute
   '/runs/$id': typeof RunsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -234,8 +248,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
   '/teams': typeof TeamsRoute
+  '/workflows': typeof WorkflowsRoute
   '/projects/$id': typeof ProjectsIdRoute
   '/runs/$id': typeof RunsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -263,10 +279,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/gates': typeof GatesRoute
+  '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
+  '/workflows': typeof WorkflowsRoute
   '/projects/$id': typeof ProjectsIdRoute
   '/runs/$id': typeof RunsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -298,10 +316,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/gates'
+    | '/loadtest'
     | '/login'
     | '/projects'
     | '/settings'
     | '/teams'
+    | '/workflows'
     | '/projects/$id'
     | '/runs/$id'
     | '/settings/api-keys'
@@ -331,8 +351,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/gates'
+    | '/loadtest'
     | '/login'
     | '/teams'
+    | '/workflows'
     | '/projects/$id'
     | '/runs/$id'
     | '/settings/api-keys'
@@ -359,10 +381,12 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/gates'
+    | '/loadtest'
     | '/login'
     | '/projects'
     | '/settings'
     | '/teams'
+    | '/workflows'
     | '/projects/$id'
     | '/runs/$id'
     | '/settings/api-keys'
@@ -393,10 +417,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GatesRoute: typeof GatesRoute
+  LoadtestRoute: typeof LoadtestRoute
   LoginRoute: typeof LoginRoute
   ProjectsRoute: typeof ProjectsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
+  WorkflowsRoute: typeof WorkflowsRoute
   RunsIdRoute: typeof RunsIdRoute
   RunsIndexRoute: typeof RunsIndexRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
@@ -404,6 +430,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workflows': {
+      id: '/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/teams': {
       id: '/teams'
       path: '/teams'
@@ -430,6 +463,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/loadtest': {
+      id: '/loadtest'
+      path: '/loadtest'
+      fullPath: '/loadtest'
+      preLoaderRoute: typeof LoadtestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gates': {
@@ -720,10 +760,12 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GatesRoute: GatesRoute,
+  LoadtestRoute: LoadtestRoute,
   LoginRoute: LoginRoute,
   ProjectsRoute: ProjectsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,
+  WorkflowsRoute: WorkflowsRoute,
   RunsIdRoute: RunsIdRoute,
   RunsIndexRoute: RunsIndexRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,

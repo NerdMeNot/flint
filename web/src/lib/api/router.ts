@@ -91,6 +91,32 @@ const stats = {
 }
 
 // ---------------------------------------------------------------------------
+// Capabilities — which product sections the unified UI should render.
+// ---------------------------------------------------------------------------
+
+type Capability = {
+  id: string
+  name: string
+  enabled: boolean
+  status: 'enabled' | 'coming_soon' | 'disabled'
+}
+
+const capabilities = {
+  get: os.handler(async () => {
+    return withFallback(
+      () => backendGet<{ products: Capability[] }>('/capabilities'),
+      () => ({
+        products: [
+          { id: 'ci', name: 'CI', enabled: true, status: 'enabled' as const },
+          { id: 'workflows', name: 'Workflows', enabled: true, status: 'enabled' as const },
+          { id: 'loadtest', name: 'Load Testing', enabled: false, status: 'coming_soon' as const },
+        ],
+      }),
+    )
+  }),
+}
+
+// ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
 
@@ -660,6 +686,7 @@ const search = {
 
 export const appRouter = os.router({
   stats,
+  capabilities,
   projects,
   runs,
   gates,
