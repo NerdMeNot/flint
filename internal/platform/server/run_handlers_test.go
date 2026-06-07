@@ -171,9 +171,21 @@ func TestHandleRetryRun_Success(t *testing.T) {
 			p.WorkflowFile != nil && *p.WorkflowFile == "ci.yaml"
 	})).Return(nil)
 
-	m.Engine.On("StartWorkflow", mock.Anything, mock.MatchedBy(func(inp engine.StartWorkflowInput) bool {
+	// The CI service re-fetches the pipeline from the forge, compiles it, and
+	// starts it on the engine via StartWorkflowWithWaves.
+	m.Forge.On("GetFile", mock.Anything, "org/repo", mock.Anything, mock.Anything).Return([]byte(`
+triggers:
+  push: { branches: [main] }
+jobs:
+  build:
+    image: alpine
+    steps:
+      - run: echo hi
+`), nil)
+
+	m.Engine.On("StartWorkflowWithWaves", mock.Anything, mock.MatchedBy(func(inp engine.StartWorkflowInput) bool {
 		return inp.ProjectID == "proj-1" && inp.TriggerType == "retry" && inp.Repo == "org/repo"
-	})).Return("wf-retry-1", nil)
+	}), mock.Anything).Return("wf-retry-1", nil)
 
 	w := ut.PerformRequest(srv.Engine(), "POST", "/api/v1/runs/run-retry/retry", nil,
 		authHeaders()...,

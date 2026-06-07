@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/products/ci"
 	"github.com/NerdMeNot/flint/internal/testutil"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/cloudwego/hertz/pkg/common/ut"
@@ -27,6 +28,9 @@ func testServer(t *testing.T) (*Server, *testutil.Mocks) {
 		Logs:         m.Logs,
 		LogBroadcast: m.LogStream,
 		Sessions:     m.Sessions,
+		// Wire the CI product as the composition root would, so handlers that
+		// create runs (webhook / manual / retry) exercise the real service.
+		Runs: ci.NewService(m.Engine, m.Forge, m.Querier),
 	}
 	srv := New(deps)
 	return srv, m

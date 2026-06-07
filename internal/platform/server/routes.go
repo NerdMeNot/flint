@@ -2,10 +2,9 @@ package server
 
 import (
 	"context"
+	"strings"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
@@ -625,63 +624,20 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 		apiBadRequest(ctx, c, "projectId is required")
 		return
 	}
-	if req.WorkflowFile == "" {
-		req.WorkflowFile = "ci.yaml"
-	}
-	if req.Branch == "" {
-		req.Branch = "main"
-	}
-
-	info, err := s.deps.Q.GetProjectRepoInfo(ctx, req.ProjectID)
-	if err != nil {
-		apiNotFound(ctx, c, "project not found")
+	if s.deps.Runs == nil {
+		apiInternal(ctx, c, "run creation unavailable")
 		return
 	}
-
-	pipelinePath := info.PipelinePath
-	if pipelinePath == "" {
-		pipelinePath = ".flint/"
-	}
-
-	runID := observe.RequestID(ctx)
-
-	var env *string
-	if req.Environment != "" {
-		env = &req.Environment
-	}
-
-	err = s.deps.Q.InsertManualRun(ctx, db.InsertManualRunParams{
-		ID: runID, ProjectID: &req.ProjectID, OrgID: info.OrgID,
-		WorkflowFile: &req.WorkflowFile, TriggerRef: &req.Branch,
-		Environment: env,
-	})
+	runID, workflowID, err := s.deps.Runs.TriggerManual(ctx, req.ProjectID, req.Branch, req.WorkflowFile, req.Environment)
 	if err != nil {
-		apiInternal(ctx, c, "failed to create run")
-		return
-	}
-
-	var workflowID string
-	if s.deps.Engine != nil {
-		var startErr error
-		workflowID, startErr = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
-			RunID: runID, OrgID: info.OrgID, ProjectID: req.ProjectID,
-			Repo: info.RepoPath, Ref: req.Branch,
-			TriggerType: "manual", TriggeredBy: "api",
-			WorkflowFile: req.WorkflowFile, PipelinePath: pipelinePath,
-			Environment: req.Environment,
-		})
-		if startErr != nil {
-			errMsg := startErr.Error()
-			_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
-				ID:           runID,
-				ErrorMessage: &errMsg,
-			})
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiInternal(ctx, c, err.Error())
 		}
+		return
 	}
-
-	c.JSON(consts.StatusAccepted, utils.H{
-		"id": runID, "workflowId": workflowID, "status": "pending",
-	})
+	c.JSON(consts.StatusAccepted, utils.H{"id": runID, "workflowId": workflowID, "status": "pending"})
 }
 
 // ── Secrets (legacy -- to be replaced by env variables) ──────

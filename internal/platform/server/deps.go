@@ -2,6 +2,9 @@
 package server
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -17,6 +20,16 @@ import (
 // group. Product packages provide registrars and the composition root wires them
 // via Deps.APIRoutes, so the platform server never imports product packages.
 type APIRouteRegistrar func(rg *route.RouterGroup)
+
+// RunCreator turns CI triggers into runs. It is implemented by the CI product
+// (internal/products/ci) and injected by the composition root, so the platform
+// server depends on the behaviour, not the product package — the same pattern as
+// Engine and Forge.
+type RunCreator interface {
+	HandleWebhook(ctx context.Context, headers http.Header, body []byte, forgeType string) ([]string, error)
+	TriggerManual(ctx context.Context, projectID, branch, workflowFile, environment string) (runID, workflowID string, err error)
+	Rerun(ctx context.Context, runID string) (newRunID, workflowID string, err error)
+}
 
 // Deps holds all dependencies for the HTTP server.
 type Deps struct {
@@ -37,4 +50,8 @@ type Deps struct {
 	// APIRoutes are product route registrars mounted under the authenticated
 	// /api/v1 group (e.g. Flint Workflows). Wired by the composition root.
 	APIRoutes []APIRouteRegistrar
+
+	// Runs creates CI runs (webhook / manual / re-run). Implemented by the CI
+	// product, injected by the composition root.
+	Runs RunCreator
 }

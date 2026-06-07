@@ -12,6 +12,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	flintserver "github.com/NerdMeNot/flint/internal/platform/server"
+	"github.com/NerdMeNot/flint/internal/products/ci"
 	"github.com/NerdMeNot/flint/internal/products/workflows"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
@@ -209,7 +210,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// Engine — replaces Temporal. Embedded, Postgres-backed.
 	// The JWT secret signs/verifies task tokens (server-side only, never injected
 	// into step pods — unlike the internal token).
-	eng := engine.New(pool, forgeProvider, []byte(cfg.Auth.JWT.Secret))
+	eng := engine.New(pool, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
 	deps := flintserver.Deps{
@@ -230,8 +231,12 @@ func run(cmd *cobra.Command, args []string) error {
 		Enforcer:     enforcer,
 	}
 
-	// Mount product route surfaces here (composition root), so the platform
-	// server never imports product packages.
+	// Mount product surfaces here (composition root), so the platform server
+	// never imports product packages.
+	if cfg.Products.CIEnabled() {
+		deps.Runs = ci.NewService(eng, forgeProvider, q)
+		log.Info().Msg("product enabled: ci")
+	}
 	if cfg.Products.WorkflowsEnabled() {
 		deps.APIRoutes = append(deps.APIRoutes, workflows.NewAPI(eng, q).Register)
 		log.Info().Msg("product enabled: workflows")

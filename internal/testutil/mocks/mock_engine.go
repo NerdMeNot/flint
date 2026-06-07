@@ -104,34 +104,6 @@ func (_m *Engine) QueryWorkflow(ctx context.Context, workflowID string) (*engine
 	return r0, r1
 }
 
-// StartWorkflow provides a mock function with given fields: ctx, input
-func (_m *Engine) StartWorkflow(ctx context.Context, input engine.StartWorkflowInput) (string, error) {
-	ret := _m.Called(ctx, input)
-
-	if len(ret) == 0 {
-		panic("no return value specified for StartWorkflow")
-	}
-
-	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput) (string, error)); ok {
-		return rf(ctx, input)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput) string); ok {
-		r0 = rf(ctx, input)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, engine.StartWorkflowInput) error); ok {
-		r1 = rf(ctx, input)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // StartWorkflowWithWaves provides a mock function with given fields: ctx, input, waves
 func (_m *Engine) StartWorkflowWithWaves(ctx context.Context, input engine.StartWorkflowInput, waves [][]pipeline.Step) (string, error) {
 	ret := _m.Called(ctx, input, waves)
