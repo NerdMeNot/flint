@@ -1,9 +1,8 @@
 # Pipeline YAML Specification
 
-> **Status:** canonical. This supersedes the earlier flat-`steps` + auto-coalescing
-> model. A pipeline is now **jobs → steps**: a job is a pod, a step is a command
-> inside that pod. The old design (every top-level step a potential pod, implicit
-> coalescing, per-step workspace sync) is retired.
+> **Status:** canonical. A pipeline is **jobs → steps**: a job is a pod, a step is
+> a command inside that pod. Supersedes the earlier flat-`steps` + auto-coalescing
+> model.
 
 ## Overview
 
@@ -16,15 +15,13 @@ each other through two explicit channels — `outputs` (values) and `artifacts`
 ### Design principles
 
 - **Infra-lite, scale-to-zero.** Between runs, only the control plane exists. A
-  run brings up exactly the pods it needs and tears them down. The only
-  dependency that grows with you is an object store (S3-compatible).
-- **The pod boundary is explicit in the YAML.** A job *is* the unit of
-  isolation. You read pod boundaries straight off the page — different image or
-  different disk needs ⇒ a different job.
-- **Cross-pod state has exactly two named doors.** `outputs` and `artifacts`.
-  Nothing else crosses a job boundary implicitly.
-- **One way to do each thing.** No alternative storage backends or coalescing
-  heuristics surfaced to the user.
+  run brings up exactly the pods it needs and tears them down. The only growing
+  dependency is an object store (S3-compatible).
+- **The pod boundary is explicit in the YAML.** A job *is* the unit of isolation
+  — different image or disk needs ⇒ a different job.
+- **Cross-pod state has exactly two named doors:** `outputs` and `artifacts`.
+- **One way to do each thing.** No alternative storage backends, coalescing
+  heuristics, or redundant conditional mechanisms surfaced to the user.
 
 ---
 
@@ -40,26 +37,22 @@ across jobs    →  `needs:` + `outputs:` + `artifacts:` (via the object store)
 ```
 
 A simple pipeline is **one job with several steps** = one pod = no object store,
-nothing persistent. Complexity (a second pod, the object store) appears only when
-you add a second job.
+nothing persistent. Complexity appears only when you add a second job.
 
-> **Terminology.** The user-facing language is **pipeline → jobs → steps**. The
-> engine underneath is product-neutral and speaks **workflow → waves → steps**; a
-> CI *job* compiles to an engine step-group (one pod) and `needs:` compiles to the
-> engine's wave/dependency graph. Keep these vocabularies distinct in code and docs.
+> **Terminology.** User-facing: **pipeline → jobs → steps**. The engine underneath
+> is product-neutral and speaks **workflow → waves → steps**; a CI *job* compiles
+> to an engine step-group (one pod) and `needs:` to the engine's dependency graph.
 
 ---
 
-## Minimal examples
+## Minimal example
 
 ```yaml
 # .flint/ci.yaml — plain CI, single job, single pod
 image: golang:1.26
 triggers:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
 jobs:
   build-test:
     steps:
@@ -67,520 +60,556 @@ jobs:
       - run: go test ./...
 ```
 
-```yaml
-# .flint/deploy.yaml — multi-job CD with explicit handoff
-image: golang:1.26
-environments: [staging, production]
-triggers:
-  push:
-    branches: [main]
-    environments: [staging]
-  promotion:
-    from: staging
-    environments: [production]
-jobs:
-  build:
-    disk: 20Gi
-    steps:
-      - run: go build -o bin/app ./...
-      - run: echo "version=$(git rev-parse --short HEAD)" >> "$FLINT_OUTPUT"
-    outputs:
-      version: ${{ steps.outputs.version }}
-    artifacts:
-      - bin/
-
-  approve:
-    needs: [build]
-    environments: [production]      # gate only on production promotions
-    gate:
-      approvers: [role:release-manager]
-      minApprovals: 1
-
-  deploy:
-    needs: [build, approve]
-    image: gcr.io/kaniko-project/executor
-    steps:
-      - run: /kaniko/executor --destination repo/app:${{ needs.build.outputs.version }}
-```
+A larger, full-lifecycle example lives at
+[`examples/release.yaml`](examples/release.yaml) (see [Worked example](#worked-example)).
 
 ---
 
 ## Top-level schema
 
 ```yaml
-# Optional defaults applied to every job that doesn't override them.
-image: golang:1.26              # default base image
-runner: standard               # default runner pool
-serviceAccount: ci-deployer     # default K8s ServiceAccount
+# Defaults applied to every job that doesn't override them.
+image: golang:1.26
+runner: standard
+serviceAccount: ci-deployer
 
-# Optional: restrict which environments this pipeline can target.
-environments: [staging, production]
+env:                            # pipeline-wide env (merged into every step)
+  GOFLAGS: -mod=readonly
+secrets:                        # pipeline-wide secrets (see Secrets)
+  - { name: registry-creds, env: REGISTRY_AUTH }
 
-# Required: at least one trigger.
-triggers: { ... }
+environments: [staging, production]   # restrict targetable environments (optional)
 
-# Required: at least one job.
-jobs: { ... }
+concurrency:                    # run-level concurrency (optional, see Concurrency)
+  group: ${{ project }}-${{ branch }}
+  cancelInProgress: true
+
+triggers: { ... }               # required: at least one
+jobs: { ... }                   # required: at least one
 ```
 
 | Key | Required | Meaning |
 |-----|----------|---------|
-| `image` | no | Default base image for jobs without their own `image`. |
-| `runner` | no | Default runner pool. |
-| `serviceAccount` | no | Default K8s ServiceAccount for job pods. |
-| `environments` | no | If set, the pipeline can only target these environments (the narrowing funnel, below). Default: any. |
-| `triggers` | yes | At least one trigger. |
+| `image`, `runner`, `serviceAccount` | no | Defaults for jobs. |
+| `env`, `secrets` | no | Pipeline-wide env / secrets (merged into all jobs; see those sections). |
+| `environments` | no | If set, the pipeline can only target these. Default: any. |
+| `concurrency` | no | Run-level concurrency group. |
+| `triggers` | yes | At least one. |
 | `jobs` | yes | Map of job-name → job. At least one. |
 
 ---
 
 ## Jobs
 
-A job is a map keyed by job name. The name is the identity used in `needs:` and in
-`needs.<job>.outputs.*`.
-
 ```yaml
 jobs:
   <job-name>:
     # — Isolation (per-pod) —
     image: node:22               # base image (default: top-level image)
-    disk: 20Gi                   # scratch size for this pod (default: sane platform default)
-    runner: gpu-pool             # runner pool (default: top-level runner)
-    serviceAccount: deployer      # K8s SA override
+    disk: 20Gi                   # this pod's scratch (default: platform default)
+    runner: gpu-pool
+    serviceAccount: deployer
 
     # — Graph —
-    needs: [build]               # job dependencies (the ONLY cross-pod edges)
+    needs: [build]               # job dependencies (the only cross-pod edges)
 
-    # — Scoping —
-    environments: [production]   # run this job only for these target environments
-    if: ${{ branch == 'main' }}  # conditional execution (expression)
-    when: onSuccess              # onSuccess (default) | onFailure | always
+    # — Scoping / conditions —
+    environments: [production]   # run only for these target environments
+    if: ${{ branch == 'main' }}  # condition (expression + status functions)
 
     # — Body (exactly one of: steps | gate) —
-    steps: [ ... ]               # sequential commands in the pod
-    gate: { ... }                # OR an approval checkpoint (non-pod job)
+    steps: [ ... ]
+    gate: { ... }
+
+    # — Env / secrets (merged with pipeline-level) —
+    env: { LOG_LEVEL: debug }
+    secrets:
+      - { name: db-password, env: DB_PASSWORD }
 
     # — Handoff out —
-    outputs:                     # values exported to downstream jobs
-      version: ${{ steps.outputs.version }}
-    artifacts:                   # files exported to downstream jobs (that `needs:` this)
-      - bin/
-      - dist/**/*.js
+    outputs: { version: ${{ steps.outputs.version }} }
+    artifacts: [bin/, dist/**/*.js]
 
-    # — Optional pod features —
-    services:                    # sidecar containers for the job's pod (e.g. a DB)
-      - name: postgres
-        image: postgres:16
-        env: { POSTGRES_PASSWORD: test }
-    cache:                       # cross-run dependency cache for this job
+    # — Pod features —
+    services:
+      - { name: postgres, image: postgres:16, env: { POSTGRES_PASSWORD: test } }
+    cache:
       key: deps-${{ hashFiles('go.sum') }}
+      restoreKeys: [deps-]       # partial-hit fallbacks, tried in order
       paths: [/go/pkg/mod]
-    matrix:                      # expand this job into N parallel pods
-      go: ["1.25", "1.26"]
-    timeout: 30m                 # whole-job timeout (default: 1h)
+
+    # — Matrix / fan-out —
+    matrix: { go: ["1.25", "1.26"] }
+    failFast: true               # cancel sibling variants on first failure (default true)
+    maxParallel: 2               # cap concurrent variants
+
+    # — Limits —
+    timeout: 30m                 # whole-job budget (default 1h)
+    concurrency: { group: deploy-${{ environment }}, cancelInProgress: false }
 ```
 
-### Job fields
+Key job rules:
 
-- **`image`** — the pod's base image. One image per job. *If a step needs a
-  different image, that is a different job.* (Sidecars are the exception — see
-  `services`.)
-- **`disk`** — scratch for this pod. Each job pod gets its **own** disposable
-  volume sized to this, independent of every other job. Default is a sensible
-  platform value; bump it for big builds (image builds, large dependency trees).
-- **`needs`** — the job DAG. This is the only place a pod boundary is crossed.
-  A job runs once all jobs in `needs` have completed (subject to `when`).
-- **`environments`** — restricts the job to the listed target environments. In a
-  CD run targeting an environment not in this list, the job is skipped and its
-  edges are bypassed.
-- **`if` / `when`** — `if` is a boolean expression evaluated against run context
-  (including `needs.*.outputs`); `when` controls failure-state behavior
-  (`onSuccess` default / `onFailure` / `always`).
-- **`steps` | `gate`** — exactly one. `steps` makes it a container (pod) job;
-  `gate` makes it a non-pod approval job.
-- **`outputs` / `artifacts`** — the two handoff channels (below).
-- **`services`** — sidecar containers in the job's pod (databases, emulators).
-- **`cache`** — cross-run cache restored at job start, saved at job end.
-- **`matrix`** — expands the job into one pod per combination (below).
-- **`timeout`** — the whole job's wall-clock budget.
+- **`image`** — one image per job. *If a step needs a different image, that's a
+  different job.* (`services` sidecars are the exception.)
+- **`disk`** — this pod's scratch, independent of every other job.
+- **`steps` | `gate`** — exactly one. `steps` ⇒ a container (pod) job; `gate` ⇒ a
+  non-pod approval job.
 
 ### `needs` semantics
 
 - **Direct-only output scope.** A job may read `${{ needs.<X>.outputs.* }}` only
-  if `<X>` is in *its own* `needs`. Transitive dependencies are not in scope — to
-  read a job's outputs, list it in `needs` even if you already depend on it
-  indirectly. (No spooky-action; explicit, like GitHub Actions.)
-- **A skipped need is satisfied, not blocking.** If a needed job is skipped —
-  its `if:` was false, or its `environments` excluded the target — downstream
-  jobs **still run**; the skipped job is treated as neutral. Only a *failed*
-  need blocks downstream jobs, unless the downstream declares `when: onFailure`
-  or `when: always`. This is what lets one pipeline serve PR, staging, and
-  production from the same graph (e.g. `deploy` runs on staging even though the
-  production-only `approve` gate and the conditional `migrate` job are skipped).
+  if `<X>` is in its own `needs` — list it explicitly even if you depend on it
+  indirectly.
+- **A skipped need is satisfied, not blocking.** If a needed job is skipped (its
+  `if:` was false, or `environments` excluded the target), downstream jobs still
+  run. Only a *failed* need blocks downstream jobs — and you can still run on
+  failure with `if: ${{ failure() }}` / `${{ always() }}`. This lets one pipeline
+  serve PR, staging, and production from the same graph.
+
+### Conditions: `if:` + status functions
+
+A job (or step) runs when its `if:` evaluates true. **Default `if:` is
+`success()`** — run only if all dependencies (for a job) / prior steps (for a
+step) succeeded and the run wasn't cancelled.
+
+Status functions, available in any `if:`:
+
+| Function | True when |
+|---|---|
+| `success()` | nothing it depends on failed (the implicit default) |
+| `failure()` | at least one dependency/prior step failed |
+| `cancelled()` | the run was cancelled |
+| `always()` | always — runs even on failure/cancel |
+
+Plus `${{ needs.<job>.result }}` (`success` \| `failure` \| `skipped` \|
+`cancelled`) to target a specific upstream:
+
+```yaml
+rollback:
+  needs: [deploy]
+  if: ${{ failure() }}                    # or: needs.deploy.result == 'failure'
+  steps:
+    - run: kubectl -n ${{ environment }} rollout undo deploy/orders-api
+```
+
+> There is no `when:` field. `if:` + status functions is the single conditional
+> mechanism (this replaces the old `when: onSuccess|onFailure|always`).
 
 ### Steps (inside a job)
 
-Steps run **sequentially** in the job's pod, sharing its disk and image. Steps do
-not have pods, `needs`, `environments`, or `matrix` — those are job concerns.
+Steps run **sequentially** in the job's pod, sharing its disk and image. Steps
+have no pods, `needs`, `environments`, or `matrix` — those are job concerns.
 
 ```yaml
 steps:
-  - run: npm ci                  # shell command(s); string or list
-  - name: build                  # optional human label
-    run:
-      - npm run build
-      - npm run bundle
+  - run: npm ci
+  - name: build
+    run: [npm run build, npm run bundle]
     env: { NODE_ENV: production }
+    secrets: [{ name: npm-token, env: NPM_TOKEN }]
     workingDir: ./web
     shell: bash                  # sh (default) | bash | python
-    secrets: { NPM_TOKEN: npm-token }   # inject secret as env var
-    timeout: 10m                 # per-step timeout
+    timeout: 10m
     continueOnError: true        # don't fail the job if this step fails
     retry: { attempts: 3, delay: 5s }
     if: ${{ inputs.run_bundle == 'true' }}
-  - use: ecr-login               # reuse a step template (see Reuse)
+  - use: ecr-login               # reuse a step template
     with: { registry: ${{ env.ECR_REGISTRY }} }
 ```
 
-Step fields: `name`, `run` | `use`, `with` (for `use`), `shell`, `workingDir`,
-`env`, `secrets`, `timeout`, `continueOnError`, `retry`, `if`, `when`. (`image` is
-**not** a step field — image is the job's.)
+Step fields: `name`, `run` | `use`, `with`, `env`, `secrets`, `shell`,
+`workingDir`, `timeout`, `continueOnError`, `retry`, `if`. (`image` is the job's.)
 
 #### Step outputs within a job
 
-A step writes `key=value` lines to the file at `$FLINT_OUTPUT`. Later steps in the
-**same job** read them via `${{ steps.outputs.<key> }}`. To expose a value to
-**other jobs**, surface it under the job's `outputs:` map.
+A step writes `key=value` lines to `$FLINT_OUTPUT`; later steps in the **same
+job** read `${{ steps.outputs.<key> }}`. To expose a value to other jobs, surface
+it under the job's `outputs:`.
+
+---
+
+## Environment variables
+
+`env:` (name → value, plain or `${{ }}`) may be set at **pipeline, job, and step**
+level. Merge order is **pipeline < job < step** — the narrower scope wins. `env`
+is for non-sensitive values; sensitive values go through `secrets` (brokered and
+masked).
+
+---
+
+## Secrets
+
+Secrets are a first-class subsystem. They are resolved by the **agent sidecar**
+(which alone holds provider credentials), delivered to the step as **environment
+variables or files**, kept on a **tmpfs** (never written to scratch, artifacts, or
+the object store), and **masked in logs**. They may be declared at **pipeline,
+job, or step** level (merged; narrower wins — prefer the narrowest scope).
+
+A secret binding has a **source** and a **target**:
+
+```yaml
+secrets:
+  # built-in store (default source), auto-scoped to the run's environment, as env var
+  - { name: npm-token, env: NPM_TOKEN }
+
+  # built-in store, mounted as a FILE (for tools that read files)
+  - { name: kubeconfig, file: ~/.kube/config, mode: "0400" }
+
+  # external provider, mounted as a file
+  - name: gcp-deployer
+    from: gcp-sm:projects/acme/secrets/deployer/versions/latest
+    file: /secrets/gcp.json
+    mode: "0400"
+
+  # external provider (Vault), as env var
+  - { name: db-password, from: "vault:secret/data/orders/db#password", env: DB_PASSWORD }
+```
+
+**Source** (where the value comes from):
+
+- `name:` alone → Flint's **built-in store** (envelope-encrypted), resolved for the
+  run's target **environment** automatically (the staging vs production value).
+- `from: <provider>:<ref>` → an **external provider** configured per org by an
+  admin; the pipeline only names it. Providers:
+  - `vault:` (HashiCorp Vault), `aws-sm:` (AWS Secrets Manager),
+    `gcp-sm:` (GCP Secret Manager), `azure-kv:` (Azure Key Vault),
+    `k8s:` (a Kubernetes Secret in the run namespace).
+  - Provider endpoints/auth live in platform config, never in the pipeline.
+    `${{ environment }}` may appear in `<ref>` for per-env paths.
+
+**Target** (exactly one per binding):
+
+- `env: NAME` → injected into the step process by the sidecar. *Not* placed in the
+  pod spec, so it never appears in `kubectl describe`/the API.
+- `file: PATH` (+ optional `mode:`) → written to a tmpfs file for tools that read
+  files (kubeconfig, cloud SA JSON, TLS certs, `.npmrc`, Docker config).
+
+**Levels & masking.** Pipeline secrets apply to all jobs; job secrets to all its
+steps; step secrets to that step. The sidecar scrubs known secret values from the
+log stream regardless of how they're surfaced.
+
+> This is why the agent is a **sidecar**: provider credentials and resolved secret
+> material live only in the sidecar's container, never in the user (step)
+> container — the safe default for running untrusted / fork-PR code.
+
+---
+
+## Concurrency
+
+Bound how many runs/jobs in the same logical group run at once.
+
+```yaml
+concurrency:
+  group: ${{ project }}-${{ branch }}
+  cancelInProgress: true        # cancel an in-flight member of this group
+```
+
+- **`cancelInProgress: true`** — a newer run cancels the running one in the same
+  group. Typical for PR pushes (cancel superseded runs → save spend).
+- **`cancelInProgress: false`** — newer runs queue behind the current one.
+  Typical for serializing deploys.
+
+Allowed at **pipeline** level (the whole run) and **job** level (so one pipeline
+can both cancel superseded PR runs *and* serialize prod deploys):
+
+```yaml
+deploy:
+  concurrency: { group: deploy-${{ environment }}, cancelInProgress: false }
+```
 
 ---
 
 ## Data flow
 
-There are exactly two scopes, and they have different mechanics by design:
-
 ### Within a job — implicit, free, fast
 
-Steps share the pod's disk. Files written by step 1 are present for step 2. Step
-outputs flow via `$FLINT_OUTPUT` → `steps.outputs.*`. No declaration, no transfer.
+Steps share the pod's disk; files from step 1 are present for step 2. Outputs flow
+via `$FLINT_OUTPUT` → `steps.outputs.*`.
 
 ### Across jobs — explicit, via the object store
 
-Two channels, both declared at the job level:
-
-1. **`outputs`** (small values). The producing job declares
-   `outputs: { version: ${{ steps.outputs.version }} }`; a consumer with
-   `needs: [build]` reads `${{ needs.build.outputs.version }}`. Resolved when the
-   consumer pod is dispatched — safe, because the producer is fully done by then.
-   This is the clean place output→command interpolation happens.
-2. **`artifacts`** (files). The producing job declares `artifacts: [bin/]`; any
-   job that `needs:` it has those artifacts materialized into its workspace at
-   start. Stored as one compressed object per job in the object store.
+1. **`outputs`** (values). Producer declares `outputs: { version: ... }`; a
+   consumer with `needs: [build]` reads `${{ needs.build.outputs.version }}`.
+   Resolved at consumer dispatch (producer is done) — the clean place
+   output→command interpolation happens.
+2. **`artifacts`** (files). Producer declares `artifacts: [bin/]`; any job that
+   `needs:` it has them materialized at start. One compressed object per job.
 
 ### Source / checkout
 
-**Each job checks out the source independently** (auto-clone into every container
-job's workspace at start, unless the job opts out). Source is *not* implicitly
-shared across jobs — that would re-introduce hidden cross-pod state. Re-checkout
-is cheap (shallow/partial) and cacheable; large trees that must be reused can be
-passed as an artifact instead.
+**Each job checks out source independently** (auto-clone into every container job).
+Source is not implicitly shared — that would be hidden cross-pod state. Re-checkout
+is cheap/cacheable; large reused trees go through an artifact.
 
 ---
 
 ## Execution model
 
-This is how the pipeline maps to pods, disk, and the agent. It is part of the
-canonical contract — the YAML model and the execution model are co-designed.
+The YAML model and the execution model are co-designed; this is part of the
+canonical contract.
 
 ### Jobs are pods; steps are in-pod
 
-A container job becomes **one Kubernetes pod** that runs its steps in sequence.
-`needs:` becomes the engine's dependency graph; independent jobs run as parallel
-pods. Gate and HTTP jobs are **not pods** — they execute in the control plane
-(an approval wait, an in-process HTTP call). Precisely:
+A container job is **one pod** running its steps in sequence; `needs:` is the
+dependency graph; independent jobs are parallel pods. Gate and HTTP jobs are
+**not pods** — they run in the control plane.
 
 > A job is the unit of isolation. Container jobs are pods; gate/http jobs run in
 > the control plane.
 
-### The agent: a per-job sidecar (not an entrypoint, not per-run)
+### The agent: a per-job sidecar
 
 Each container job is **one pod with three parts**:
 
 ```
 JOB POD   (one per job — not per step)
-├── initContainer  (flint agent image)
-│     • checkout source + download `needs` artifacts + restore cache → shared volume
-│     • copy a static busybox into the shared volume (gives any image a shell)
-│
-├── container: <the job's image>          ← runs the steps; holds NO credentials
-│     • command: /flint/busybox sh -ec '<steps, each wrapped with markers>'
-│     • reads/writes the shared workspace volume
-│     • emits per-step log / exit / $FLINT_OUTPUT markers to the shared volume
-│
-└── sidecar  (native sidecar, flint agent image)   ← the job's "brain"
-      • owns credentials (registry push tokens, run/task token, object-store creds)
-      • ships logs to the log sink in real time
-      • observes step markers/exit via the shared volume
-      • on completion: push declared artifacts + outputs + save cache to object store
+├── initContainer (flint agent image)
+│     • checkout + download `needs` artifacts + restore cache → shared volume
+│     • copy a static busybox into the shared volume (a shell for any image)
+├── container: <job image>          ← runs the steps; holds NO credentials
+│     • runs each step; emits per-step log/exit/$FLINT_OUTPUT markers
+└── sidecar (native sidecar, flint agent image)   ← the job's "brain"
+      • SECRET BROKER: fetches from the built-in store / external providers,
+        exposes to the step as env or tmpfs files, masks values in logs
+      • ships logs to the log sink
+      • on completion: push artifacts + outputs + save cache
 ```
 
-**Why a sidecar (and not the alternatives):**
-
-- **Sidecar, not entrypoint.** The agent runs in its **own container**, isolated
-  from the step code, so orchestration credentials live only in the sidecar and
-  never enter the user container. This is the safe default for an OSS CI that will
-  run **untrusted / fork-PR code**. The old "a sidecar per *step* multiplies"
-  objection is gone — under the jobs model this is **one sidecar per job**, so a
-  pipeline has a handful, not dozens.
-- **Not a single per-run agent.** A separate per-run pod can't see a job pod's
-  disk (the pod boundary) and would be a per-run single point of failure; the
-  shared channel between jobs is the object store, not a shared pod.
-- **Completion is observed control-plane.** The worker watches the K8s Job for
-  terminal state; the sidecar's push lands outputs in the object store, which the
-  worker reads to advance the DAG. No inbound `/complete` callback from the pod.
-
-**Image contract:** job images must be **Linux** and match the cluster's **CPU
-arch**. `run:` steps get a shell on any image — including `distroless`/`scratch`
-— via the injected static busybox; the user's own tools must still exist in the
-image.
-
-**Requirement:** Kubernetes **≥ 1.28** (native sidecar containers). The agent
-sidecar and `services:` sidecars (databases, emulators) use the same pod-sidecar
-mechanism.
+- **Sidecar, not entrypoint, not per-run.** Credentials (secret-provider creds,
+  push tokens, run token) live only in the sidecar, isolated from step code — the
+  safe default for untrusted/fork-PR CI. One sidecar per *job* (not per step).
+- **Completion is observed control-plane:** the worker watches the K8s Job; no
+  `/complete` callback.
+- **Per-step fidelity via markers.** Because steps share one pod, the agent emits
+  structured boundary markers (step name, start, end, exit, duration) into the log
+  stream, so the UI renders **collapsible per-step sections** with status/timing.
+- **Image contract:** job images must be **Linux** and match the cluster **CPU
+  arch**. `run:` gets a shell on any image (incl. distroless/scratch) via the
+  injected static busybox; the user's own tools must exist in the image.
+- **Requires K8s ≥ 1.28** (native sidecars). `services:` sidecars use the same
+  mechanism.
 
 ### Scratch: per-job disposable disk
 
-Each job pod gets its own scratch sized by `disk:`, shared by the pod's containers
-(init, user, sidecar) and independent of other jobs:
+Sized by `disk:`, shared by the pod's containers, independent per job:
 
-- Default / small: a node-backed `emptyDir` with an `ephemeral-storage` request so
-  the scheduler accounts for it. Instant, free, capped by node disk.
-- Large (declared `disk:` above a threshold — e.g. image builds): a **generic
-  ephemeral volume** (`volumeClaimTemplate`) — a fresh RWO block volume created
-  *with* the pod and deleted *with* it. Sized, safe (no node disk-pressure), still
-  ephemeral and scale-to-zero. RWO suffices because only this one pod mounts it.
-  ~10–30s attach is paid once per job (parallel jobs attach concurrently).
+- Default/small: node `emptyDir` + `ephemeral-storage` request. Instant, free,
+  node-capped.
+- Large: **generic ephemeral volume** (`volumeClaimTemplate`) — a fresh RWO block
+  volume created/deleted with the pod. Sized, safe, still scale-to-zero. RWO
+  suffices (one pod). ~10–30s attach once per job (parallel jobs attach
+  concurrently).
 
-### Handoff: the object store
+### Handoff & footprint
 
-Artifacts, job outputs, and cross-run cache live in an S3-compatible object store
-(one compressed object per job for artifacts). A purely sequential single-job
-pipeline never touches it. Same-region transfer is free; one-object-per-job keeps
-request counts low.
-
-### Footprint summary
-
-| Pipeline shape | Pods spun up | Persistent infra |
-|---|---|---|
-| Single job (sequential) | 1 pod (init + user + agent sidecar) + its scratch | none — no object store |
-| Multiple jobs / parallel | one pod per job + scratch each | object store only |
-| Gate / HTTP jobs | none (control plane) | none |
-
-Between runs: **zero** Flint workload pods. Setup floor: a default StorageClass
-(present on every managed K8s) plus, once you use artifacts/parallelism/cache, an
-object-store bucket. Local/dev (Podman) maps scratch to a host temp dir and
-handoff to a host dir — none of the cluster machinery applies.
+Artifacts/outputs/cache live in an S3-compatible object store (one object per job
+for artifacts). A sequential single-job pipeline never touches it. Between runs:
+**zero** Flint workload pods. Setup floor: a default StorageClass + (once you use
+artifacts/parallelism/cache) a bucket.
 
 ---
 
 ## Triggers
 
-At least one trigger is required. Multiple may coexist.
-
 ```yaml
 triggers:
   push:
     branches: [main, "release/*"]
-    paths: ["src/**"]            # optional path filter
-    environments: [staging]      # optional (CD)
-  pull_request:
+    paths: ["src/**"]
+    environments: [staging]
+  pull_request:                    # never has environments — always plain CI
     branches: [main]
     paths: ["src/**"]
-    # pull_request can NEVER have environments — always plain CI
   manual:
     environments: [staging, production]
     inputs:
       - { name: reason, type: string, required: true }
       - { name: dry_run, type: boolean, default: "false" }
       - { name: region, type: choice, options: [us, eu], default: us }
-  schedule:
-    cron: "0 2 * * *"
-    environments: [staging]
-  tag:
-    patterns: ["v*"]
-    environments: [production]
-  promotion:
-    from: staging                # run after a staging run succeeds
-    environments: [production]
-    requireStatus: succeeded     # default
-  webhook:
-    secret: ${{ secrets.hook_secret }}
-    environments: [staging]
+  schedule: { cron: "0 2 * * *", environments: [staging] }   # UTC
+  tag: { patterns: ["v*"], environments: [production] }
+  promotion: { from: staging, environments: [production], requireStatus: succeeded }
+  webhook: { secret: ${{ secrets.hook_secret }}, environments: [staging] }
 ```
 
-### Trigger compatibility
+Compatibility rules:
 
-Multiple triggers can coexist. Rules:
-
-1. **`pull_request` cannot have `environments`** — it is always plain CI.
-2. **`manual` inputs + any automated trigger** ⇒ every input must have a
-   `default` (automated triggers can't prompt).
-3. **`promotion` requires `environments` and `from`**, and `from` cannot overlap
-   the target `environments`.
-4. **No duplicate triggers of the same type**, except `promotion` (multiple
-   allowed with different `from`).
-5. **Environment consistency** — if top-level `environments` is set, every
-   trigger's environment references must be a subset.
+1. `pull_request` cannot have `environments` — always plain CI.
+2. `manual` inputs + any automated trigger ⇒ every input must have a `default`.
+3. `promotion` requires `environments` and `from`; `from` can't overlap the target.
+4. No duplicate triggers of a type, except `promotion` (multiple with distinct `from`).
+5. If top-level `environments` is set, every trigger's references must be a subset.
 
 ---
 
 ## Environments (CD)
 
 A pipeline is **environment-aware** if any of: a top-level `environments` key; any
-trigger or job has `environments`; or any expression references environment-scoped
-`${{ secrets.* }}`, `${{ env.* }}`, or `$FLINT_ENVIRONMENT`. This is validated
-statically — an environment-aware pipeline whose automated triggers omit
-`environments` fails validation.
+trigger/job has `environments`; or any expression references env-scoped
+`${{ secrets.* }}`, `${{ env.* }}`, or `$FLINT_ENVIRONMENT`. Validated statically.
 
-### The narrowing funnel
+### Narrowing funnel
 
 ```
-top-level environments      → pipeline may target these       (default: any)
-  └─ trigger environments    → this trigger creates runs for these
-      └─ job environments     → this job runs only in these
+top-level environments  → trigger environments  → job environments
 ```
 
 Each level must be a subset of the one above. Environment scoping is a **job**
-property — there is no step-level environment filtering.
+property (no step-level filtering).
 
-### Resolution at runtime
+### Runtime resolution
 
 1. Determine the target environment (trigger config or manual selection).
-2. Jobs whose `environments` exclude the target are **skipped**; their `needs`
-   edges are bypassed.
-3. Env vars and secrets resolve for the target environment.
-4. `$FLINT_ENVIRONMENT` is set to the environment slug.
-5. Gate jobs for the target environment are evaluated.
+2. Jobs whose `environments` exclude the target are skipped; `needs` edges bypass.
+3. Env/secrets resolve for the target; `$FLINT_ENVIRONMENT` is set.
+4. Gate jobs for the target are evaluated.
 
 ---
 
 ## Gates
 
-A gate is a **job** with a `gate:` body instead of `steps:`. It runs in the
-control plane (no pod) and pauses the DAG until approvals arrive.
+A gate is a **job** with a `gate:` body (non-pod, control plane):
 
 ```yaml
-jobs:
-  approve:
-    needs: [build]
-    environments: [production]
-    gate:
-      approvers: [role:release-manager, team:platform, user:alice]
-      minApprovals: 2            # default: 1
+approve:
+  needs: [image]
+  environments: [production]
+  gate: { approvers: [role:release-manager, team:platform], minApprovals: 2 }
 ```
 
-Approver syntax: `role:<name>`, `team:<name>`, or `user:<id>`. Downstream jobs
-`needs: [approve]` wait for the gate to clear.
+Approver syntax: `role:<name>`, `team:<name>`, `user:<id>`.
 
 ---
 
 ## Reuse
 
-Steps may pull in shared step templates with `use:` (local file, cross-repo file,
-or a registered step template). Reuse is at the **step** level, inside a job.
+Steps pull in shared step templates with `use:` (local file, cross-repo file, or a
+registered template). The **black-box rule**: a `use:` block is opaque — its steps
+expand in place, and you never reference a template's internal step names.
 
 ```yaml
-jobs:
-  build:
-    steps:
-      - use: ./fragments/setup.yaml   # inlines the template's steps here, in order
-      - run: npm run build
-      - use: ecr-login                # a registered single-step template
-        with: { registry: ${{ env.ECR_REGISTRY }} }
+steps:
+  - use: ./fragments/setup.yaml
+  - run: npm run build
+  - use: ecr-login
+    with: { registry: ${{ env.ECR_REGISTRY }} }
 ```
-
-**The black-box rule:** a `use:` block is opaque. Since steps within a job are
-sequential, a template simply expands its steps in place — you never reference a
-template's internal step names. If the template author renames internals, nothing
-breaks.
 
 ---
 
 ## Expressions
 
-`${{ ... }}` expressions are evaluated against a typed context. Evaluation is
-sandboxed with a time bound.
+`${{ ... }}` is evaluated against a typed, sandboxed context.
 
 ### Context
 
 | Namespace | Available |
-|-----------|-----------|
+|---|---|
 | `branch`, `commitSha`, `shortSha`, `tag` | git context |
 | `triggeredBy`, `triggerType`, `status` | run context |
 | `environment` | target environment slug (CD) |
 | `project`, `run` | identifiers |
 | `inputs.*` | manual-trigger inputs |
-| `env.*`, `secrets.*` | environment variables / secrets |
+| `env.*`, `secrets.*` | env vars / secrets |
 | `matrix.*` | this job's matrix combination |
-| `needs.<job>.outputs.*` | a dependency job's outputs (cross-job dataflow) |
-| `steps.outputs.*` | earlier steps' outputs (within the same job) |
-| `webhook.*` | webhook trigger payload |
+| `needs.<job>.outputs.*` | a direct dependency's outputs |
+| `needs.<job>.result` | a direct dependency's result (success/failure/skipped/cancelled) |
+| `steps.outputs.*` | earlier steps' outputs (same job) |
+| `webhook.*` | webhook payload |
 
 ### Functions & operators
 
-- Functions: `hashFiles(glob)`, `contains(haystack, needle)`,
-  `startsWith(s, prefix)`.
-- Operators (for `if`): `==`, `!=`, `&&`, `||`, `!`, comparisons, parentheses.
+- Status: `success()`, `failure()`, `cancelled()`, `always()`.
+- Utility: `hashFiles(glob)`, `contains(haystack, needle)`, `startsWith(s, prefix)`.
+- Operators: `==`, `!=`, `&&`, `||`, `!`, comparisons, parentheses.
 
-User-chosen names (manual input names, matrix keys) that collide with a reserved
-context name are flagged by validation.
+User-chosen names (manual inputs, matrix keys) colliding with reserved names are
+flagged by validation.
 
 ---
 
 ## Matrix
 
-`matrix` is a **job** property. It expands the job into one pod per combination,
-running in parallel. `${{ matrix.<key> }}` is available in the job's steps, image,
-env, and cache key.
+`matrix` (job-level) expands the job into one pod per combination, in parallel.
+`${{ matrix.<key> }}` is available in the job's steps, image, env, and cache key.
+Control with the sibling job fields `failFast` (default true — cancel remaining
+variants on first failure) and `maxParallel`.
 
 ```yaml
-jobs:
-  test:
-    matrix:
-      go: ["1.25", "1.26"]
-      os: [linux, darwin]
-    image: golang:${{ matrix.go }}
-    steps:
-      - run: GOOS=${{ matrix.os }} go test ./...
+test:
+  matrix: { go: ["1.25", "1.26"], os: [linux, darwin] }
+  failFast: false
+  maxParallel: 2
+  image: golang:${{ matrix.go }}
+  steps:
+    - run: GOOS=${{ matrix.os }} go test ./...
 ```
 
-Downstream `needs: [test]` waits for **all** matrix variants.
+Downstream `needs: [test]` waits for **all** variants.
 
 ---
 
-## Validation
+## Local execution
 
-`flint validate` runs statically (no cluster, no fetch):
+```
+flint run [--job NAME] [--env ENV] [--input k=v] [--secret k=v]
+```
 
-- Exactly one of `steps` / `gate` per job; at least one job; at least one trigger.
+Runs the same pipeline on your machine via the **local (Podman) executor** — jobs
+as local containers, scratch in a host temp dir, handoff via a host dir, **no
+cluster and no object store**. Secrets come from a local source (`--secret`, env,
+or a gitignored `.flint/secrets.local.yaml`). The inner loop: edit YAML → run a
+job → iterate, without pushing. This is the primary authoring experience.
+
+---
+
+## Editor support & validation
+
+Flint publishes a **JSON Schema** for `.flint/*.yaml`. Add a header for
+autocomplete + inline validation in VS Code / JetBrains:
+
+```yaml
+# yaml-language-server: $schema=https://schema.flint.dev/pipeline.json
+```
+
+`flint validate` is the CLI equivalent (schema and validator are generated from
+the same Go types). Static checks (no cluster, no fetch):
+
+- Exactly one of `steps`/`gate` per job; ≥1 job; ≥1 trigger.
 - `needs` references exist; the job graph is acyclic.
 - Environment narrowing subset rules; environment-awareness consistency.
 - Trigger compatibility rules.
-- Expression parse + reserved-name collision checks.
-- `outputs` reference existing step outputs; `artifacts` globs are well-formed.
-- One image per job; `disk` parses as a quantity; durations parse.
+- Expression parse + reserved-name collisions; `needs.X` referenced in `if:`/
+  `outputs` is a direct need.
+- `outputs` reference existing step outputs; `artifacts` globs well-formed.
+- One image per job; `disk`/durations parse; secret bindings have exactly one target.
 
 `flint simulate --environment <env>` previews which jobs run/skip and how
-environments/secrets resolve, on demand. Validation never caches — always fresh.
+env/secrets resolve. Never caches — always fresh.
+
+---
+
+## Re-runs & debugging
+
+- **Partial re-run.** Re-run a single failed job, or "from job X onward."
+  Successful upstream jobs are **not** re-executed — their artifacts and outputs
+  are restored from the object store (so a failed `deploy` re-runs without
+  rebuilding). Requires run artifacts/outputs to be retained (retention is
+  configurable per project).
+- **Interactive debug.** Re-run a job in debug mode to **hold its pod open** after
+  the steps finish (or on failure) for `kubectl exec` / a web terminal, with a
+  TTL. RBAC-gated; the pod and its secrets are torn down on TTL.
 
 ---
 
 ## Worked example
 
-A single pipeline exercising matrix, parallel/sequential jobs, cross-job
-outputs + artifacts, conditional jobs (on inputs and on an upstream output),
-gates, environments + promotion, service sidecars, cache, per-job disk, secrets,
-retry/timeout/continueOnError, and step-template reuse lives at
-[`examples/release.yaml`](examples/release.yaml). Its job graph:
+[`examples/release.yaml`](examples/release.yaml) exercises matrix,
+parallel/sequential jobs, cross-job outputs+artifacts, conditional jobs (inputs
+and upstream outputs), a `failure()` rollback, gates, environments+promotion,
+service sidecars, cache, per-job disk, concurrency, and file/env secrets. Its job
+graph:
 
 ```
         external inputs:  image_tag · skip_tests · run_load_test
@@ -596,8 +625,8 @@ retry/timeout/continueOnError, and step-template reuse lives at
     ▼               ▼                        ▼                         ▼
 ┌────────┐   ┌────────────┐        ┌──────────────────┐        ┌────────────┐
 │  lint  │   │ unit-test  │        │ integration-test │        │  migrate   │ [CD]
-│        │   │ ⫶ matrix×3 │        │ + postgres svc   │        │ ⊘ if has_  │
-│ (advis)│   │ ⊘ !skip    │        │ ⊘ !skip          │        │ migrations │
+│ (advis)│   │ ⫶ matrix×3 │        │ + postgres svc   │        │ ⊘ if has_  │
+│        │   │ ⊘ !skip    │        │ ⊘ !skip          │        │ migrations │
 └───┬────┘   └─────┬──────┘        └────────┬─────────┘        └─────┬──────┘
     └───────────────┴───────────┬───────────┘                       │
                                 ▼   (needs build + all three)        │
@@ -610,38 +639,47 @@ retry/timeout/continueOnError, and step-template reuse lives at
                         └─────────┬────────┘                         │
                                   ▼                                   │
                         ┌──────────────────┐ ◄───────────────────────┘
-                        │      deploy       │ [CD]  needs build+image+
-                        │ kubectl·SA·secret │        migrate+approve
+                        │      deploy       │ [CD] concurrency: serialize
+                        │ kubeconfig (file) │      per environment
                         └─────────┬────────┘
-                    ┌─────────────┴─────────────┐
-                    ▼                            ▼
-            ┌──────────────┐            ┌──────────────────┐
-            │  load-test   │ [CD]       │     notify        │ [CD]
-            │ ⊘ run_load_  │            │ when: always      │
-            │   test       │            │ use: slack-notify │
-            └──────────────┘            └──────────────────┘
+                ┌─────────────────┼─────────────────┐
+                ▼                 ▼                  ▼
+        ┌────────────┐   ┌──────────────┐   ┌──────────────┐
+        │  rollback  │   │  load-test   │   │   notify     │ [CD]
+        │ ⊘ failure()│   │ ⊘ run_load_  │   │ always()     │
+        │            │   │   test       │   │ use slack    │
+        └────────────┘   └──────────────┘   └──────────────┘
 
   ⊘ conditional (if:)   ⫶ matrix → N pods   ◇ gate   [CD] has environments (skipped on PRs)
-  fan-out below build = parallel jobs; downward chains = sequential.
+  fan-out below build = parallel; downward chains = sequential.
   skipped need = satisfied → deploy runs on staging even with approve/migrate skipped.
 ```
 
-By trigger: a **PR** runs `build → lint · unit-test · integration-test` only
-(every `[CD]` job is skipped); **push→staging** adds `image → deploy → notify`
-(+`migrate` if migrations); **promotion→production** adds the `approve` gate.
+By trigger: a **PR** runs `build → lint · unit-test · integration-test` only;
+**push→staging** adds `image → deploy → notify` (+`migrate` if migrations,
++`rollback` if deploy fails); **promotion→production** adds the `approve` gate.
 
 ---
 
 ## What changed from the previous spec
 
-- Flat `steps:` with auto-coalescing and per-step pods ⇒ **`jobs:` (pods) →
-  `steps:` (in-pod commands)**. Pod boundaries are explicit, not inferred.
-- Step-level `dependsOn`, `environments`, and `matrix` ⇒ **job-level** (`needs`,
-  `environments`, `matrix`). Steps are purely sequential within a pod.
-- Gates move from step-level to **gate jobs**.
-- Cross-pod data is exactly `outputs` + `artifacts` at the job level; within a job
-  it's the shared disk. No per-step workspace sync.
-- Execution: **per-job agent sidecar** (credentials isolated from step code; native
-  sidecar, K8s ≥ 1.28), per-job ephemeral scratch volume, object-store handoff,
-  control-plane completion. Job images must be Linux + matching arch; `run:` gets a
-  shell on any image via an injected static busybox.
+- Flat `steps:` + auto-coalescing ⇒ **`jobs:` (pods) → `steps:` (in-pod)**.
+- Step-level `dependsOn`/`environments`/`matrix` ⇒ **job-level** (`needs`/
+  `environments`/`matrix`). Steps are sequential within a pod. Gates ⇒ gate jobs.
+- Cross-pod data = `outputs` + `artifacts`; within a job = shared disk.
+- **`when:` removed** — unified on `if:` + status functions (`success/failure/
+  cancelled/always`) + `needs.<job>.result`.
+- **`env` and `secrets` at pipeline/job/step** (merged, narrower wins).
+- **Secrets subsystem**: multi-source (built-in store + Vault/AWS/GCP/Azure/K8s),
+  delivered as env or tmpfs files, sidecar-brokered, env-scoped, masked.
+- **`concurrency`** (pipeline + job), **matrix `failFast`/`maxParallel`**, **cache
+  `restoreKeys`**.
+- Execution: per-job agent **sidecar** (secret broker; creds isolated; native
+  sidecar, K8s ≥ 1.28), per-job ephemeral scratch, object-store handoff,
+  control-plane completion, per-step log markers.
+
+### Deferred (to specify when built)
+
+Reusable parameterized **whole-pipeline** templates (org-scale DRY); cross-repo
+reuse mechanics; registered step-template/CRD details; image presets; matrix
+include/exclude.

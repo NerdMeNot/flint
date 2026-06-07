@@ -1,14 +1,25 @@
 # .flint/release.yaml — orders-api, full CI/CD lifecycle in one pipeline.
 #
-# Canonical worked example for docs/design/pipeline-spec.md. Exercises: matrix,
-# parallel vs sequential jobs, cross-job outputs + artifacts, conditional jobs
-# (on inputs and on an upstream job's output), gates, environments + promotion,
-# service sidecars, cache, per-job disk, secrets, retry/timeout/continueOnError,
-# step-template reuse, and always-run.
+# yaml-language-server: $schema=https://schema.flint.dev/pipeline.json
+#
+# Canonical worked example for docs/design/pipeline-spec.md. Exercises: matrix
+# (+failFast), parallel vs sequential jobs, cross-job outputs + artifacts,
+# conditional jobs (on inputs and on an upstream output), a failure() rollback,
+# gates, environments + promotion, service sidecars, cache (+restoreKeys),
+# per-job disk, concurrency (run-level + job-level), pipeline/job env, secrets as
+# env and as files, retry/timeout/continueOnError, step-template reuse, always().
 
 image: golang:1.26                 # default base image for jobs that don't override
 runner: standard
+
+env:                               # pipeline-wide env, merged into every step
+  GOFLAGS: -mod=readonly
+
 environments: [staging, production]
+
+concurrency:                       # cancel superseded PR/branch runs (saves spend)
+  group: ${{ project }}-${{ branch }}
+  cancelInProgress: true
 
 triggers:
   pull_request:                    # CI on PRs — plain, never has environments
@@ -19,19 +30,20 @@ triggers:
   promotion:                       # staging success → production
     from: staging
     environments: [production]
-  manual:                          # external variables enter here (need defaults: paired w/ automated triggers)
+  manual:                          # external variables enter here (need defaults)
     environments: [staging, production]
     inputs:
-      - { name: image_tag,     type: string,  default: "" }      # override the computed tag
+      - { name: image_tag,     type: string,  default: "" }
       - { name: skip_tests,    type: boolean, default: "false" }
       - { name: run_load_test, type: boolean, default: "false" }
 
 jobs:
-  # 1. BUILD — root job. Emits outputs (version, has_migrations) + artifacts (bin/).
+  # 1. BUILD — root. Emits outputs (version, has_migrations) + artifacts (bin/).
   build:
     disk: 10Gi
     cache:
       key: gomod-${{ hashFiles('go.sum') }}
+      restoreKeys: [gomod-]        # partial-hit fallback
       paths: [/go/pkg/mod]
     steps:
       - run: go mod download
@@ -62,8 +74,8 @@ jobs:
   unit-test:
     needs: [build]
     if: ${{ inputs.skip_tests != 'true' }}
-    matrix:                                           # → 3 parallel pods
-      go: ["1.24", "1.25", "1.26"]
+    matrix: { go: ["1.24", "1.25", "1.26"] }          # → 3 parallel pods
+    failFast: false                                   # let all versions report
     image: golang:${{ matrix.go }}
     steps:
       - run: go test -race ./...
@@ -71,26 +83,26 @@ jobs:
   integration-test:
     needs: [build]
     if: ${{ inputs.skip_tests != 'true' }}
-    services:                                         # sidecar DB, reachable on localhost
-      - name: postgres
-        image: postgres:16
-        env: { POSTGRES_PASSWORD: test, POSTGRES_DB: orders }
+    env:                                              # job-level env (all steps)
+      DATABASE_URL: "postgres://postgres:test@localhost:5432/orders"
+    services:                                         # sidecar DB on localhost
+      - { name: postgres, image: postgres:16, env: { POSTGRES_PASSWORD: test, POSTGRES_DB: orders } }
     steps:
       - name: wait-for-db
         run: until pg_isready -h localhost; do sleep 1; done
         timeout: 1m
         retry: { attempts: 5, delay: 3s }
-      - name: test
-        run: go test -tags=integration ./test/integration/...
-        env: { DATABASE_URL: "postgres://postgres:test@localhost:5432/orders" }
+      - run: go test -tags=integration ./test/integration/...
 
   # 3. CONDITIONAL job — runs only if BUILD's output said there are migrations.
   migrate:
     needs: [build]
     environments: [staging, production]
     if: ${{ needs.build.outputs.has_migrations == 'true' }}
+    secrets:
+      - { name: db-url, from: "vault:secret/data/orders/${{ environment }}#url", env: DATABASE_URL }
     steps:
-      - run: ./bin/migrate up --env ${{ environment }}   # bin/ from build's artifacts
+      - run: ./bin/migrate up                         # bin/ from build's artifacts
 
   # 4. IMAGE — sequential: waits for the whole quality gate. Heavy disk, different image.
   image:
@@ -98,6 +110,8 @@ jobs:
     environments: [staging, production]
     image: gcr.io/kaniko-project/executor:latest
     disk: 50Gi
+    secrets:
+      - { name: registry-auth, file: /kaniko/.docker/config.json, mode: "0400" }
     steps:
       - run: >
           /kaniko/executor
@@ -111,29 +125,41 @@ jobs:
       approvers: [role:release-manager, team:platform]
       minApprovals: 2
 
-  # 6. DEPLOY — needs image + (conditionally-skipped) migrate + (prod-only) approve.
+  # 6. DEPLOY — serialized per environment; kubeconfig mounted as a file.
   deploy:
     needs: [build, image, migrate, approve]           # skipped needs count as satisfied
     environments: [staging, production]
     serviceAccount: orders-deployer
+    concurrency: { group: deploy-${{ environment }}, cancelInProgress: false }
+    secrets:
+      - { name: kubeconfig, file: ~/.kube/config, mode: "0400" }   # env-scoped, as a FILE
     steps:
       - name: rollout
         run: |
           kubectl -n ${{ environment }} set image deploy/orders-api \
             api=registry.acme.dev/orders-api:${{ needs.build.outputs.version }}
-        secrets: { KUBECONFIG: kubeconfig-${{ environment }} }
 
-  # 7. OPTIONAL — gated purely by an external boolean input.
+  # 7. ROLLBACK — runs ONLY if deploy failed (status function).
+  rollback:
+    needs: [deploy]
+    environments: [staging, production]
+    if: ${{ failure() }}                              # or: needs.deploy.result == 'failure'
+    secrets:
+      - { name: kubeconfig, file: ~/.kube/config, mode: "0400" }
+    steps:
+      - run: kubectl -n ${{ environment }} rollout undo deploy/orders-api
+
+  # 8. OPTIONAL — gated purely by an external boolean input.
   load-test:
     needs: [deploy]
     if: ${{ inputs.run_load_test == 'true' }}
     steps:
       - run: k6 run --vus 50 --duration 2m ./load/script.js
 
-  # 8. NOTIFY — runs even on failure; reuses a step template.
+  # 9. NOTIFY — runs always, reuses a step template.
   notify:
     needs: [build, deploy]
-    when: always
+    if: ${{ always() }}
     steps:
       - use: slack-notify
         with:
