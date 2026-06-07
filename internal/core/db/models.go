@@ -396,6 +396,19 @@ type Workflow struct {
 	CancelledAt  *time.Time `json:"cancelled_at"`
 }
 
+type WorkflowSchedule struct {
+	ID         string     `json:"id"`
+	OrgID      string     `json:"org_id"`
+	Name       string     `json:"name"`
+	Cron       string     `json:"cron"`
+	Definition string     `json:"definition"`
+	Enabled    bool       `json:"enabled"`
+	NextRunAt  time.Time  `json:"next_run_at"`
+	LastRunAt  *time.Time `json:"last_run_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
 type Workspace struct {
 	ID          string    `json:"id"`
 	OrgID       string    `json:"org_id"`

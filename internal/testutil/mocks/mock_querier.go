@@ -695,6 +695,102 @@ func (_m *Querier) CreateEnvironment(ctx context.Context, arg db.CreateEnvironme
 }
 
 // CreateLocalUser provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreateWorkflowSchedule(ctx context.Context, arg db.CreateWorkflowScheduleParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+	if len(ret) == 0 {
+		panic("no return value specified for CreateWorkflowSchedule")
+	}
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreateWorkflowScheduleParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+func (_m *Querier) AdvanceWorkflowScheduleIfDue(ctx context.Context, arg db.AdvanceWorkflowScheduleIfDueParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+	if len(ret) == 0 {
+		panic("no return value specified for AdvanceWorkflowScheduleIfDue")
+	}
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+func (_m *Querier) ListDueWorkflowSchedules(ctx context.Context) ([]db.ListDueWorkflowSchedulesRow, error) {
+	ret := _m.Called(ctx)
+	if len(ret) == 0 {
+		panic("no return value specified for ListDueWorkflowSchedules")
+	}
+	var r0 []db.ListDueWorkflowSchedulesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListDueWorkflowSchedulesRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListDueWorkflowSchedulesRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListDueWorkflowSchedulesRow)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+func (_m *Querier) ListWorkflowSchedules(ctx context.Context, orgID string) ([]db.ListWorkflowSchedulesRow, error) {
+	ret := _m.Called(ctx, orgID)
+	if len(ret) == 0 {
+		panic("no return value specified for ListWorkflowSchedules")
+	}
+	var r0 []db.ListWorkflowSchedulesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListWorkflowSchedulesRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListWorkflowSchedulesRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListWorkflowSchedulesRow)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
 func (_m *Querier) CreateLocalUser(ctx context.Context, arg db.CreateLocalUserParams) (string, error) {
 	ret := _m.Called(ctx, arg)
 

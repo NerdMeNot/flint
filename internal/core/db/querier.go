@@ -11,6 +11,10 @@ import (
 
 type Querier interface {
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
+	// Atomically claim a due schedule by moving its next_run_at forward. Returns the
+	// number of rows updated (1 = this caller won the claim, 0 = already advanced by
+	// another worker), which makes firing multi-worker safe.
+	AdvanceWorkflowScheduleIfDue(ctx context.Context, arg AdvanceWorkflowScheduleIfDueParams) (int64, error)
 	ArchiveProject(ctx context.Context, id string) error
 	CancelAllWorkflowTimers(ctx context.Context, workflowID string) error
 	CancelChildWorkflows(ctx context.Context, parentID *string) error
@@ -47,6 +51,7 @@ type Querier interface {
 	CreateTeam(ctx context.Context, arg CreateTeamParams) (string, error)
 	CreateTimer(ctx context.Context, arg CreateTimerParams) error
 	CreateWebhook(ctx context.Context, arg CreateWebhookParams) (string, error)
+	CreateWorkflowSchedule(ctx context.Context, arg CreateWorkflowScheduleParams) (string, error)
 	CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (string, error)
 	DeleteAPIKey(ctx context.Context, id string) (int64, error)
 	DeleteAPIKeyEnvironmentScopes(ctx context.Context, apiKeyID string) error
@@ -155,6 +160,7 @@ type Querier interface {
 	ListAllSecrets(ctx context.Context) ([]ListAllSecretsRow, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
+	ListDueWorkflowSchedules(ctx context.Context) ([]ListDueWorkflowSchedulesRow, error)
 	ListEnvVariableValues(ctx context.Context, orgID string) ([]ListEnvVariableValuesRow, error)
 	ListEnvVariables(ctx context.Context, orgID string) ([]ListEnvVariablesRow, error)
 	ListEnvironments(ctx context.Context, orgID string) ([]ListEnvironmentsRow, error)
@@ -199,6 +205,7 @@ type Querier interface {
 	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
 	ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error)
 	ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error)
+	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, orgID string) ([]ListWorkspacesRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)

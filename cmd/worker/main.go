@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/core/runner"
 	workerinformer "github.com/NerdMeNot/flint/internal/core/worker/informer"
 	"github.com/NerdMeNot/flint/internal/platform/config"
+	"github.com/NerdMeNot/flint/internal/products/workflows"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -149,6 +151,13 @@ func run(cmd *cobra.Command, args []string) error {
 				log.Error().Err(err).Msg("K8s informer stopped with error")
 			}
 		}()
+	}
+
+	// Workflow cron scheduler — fires due schedules into the engine. Runs in the
+	// worker (alongside the loop) when the Workflows product is enabled.
+	if cfg.Products.WorkflowsEnabled() {
+		go workflows.NewScheduler(db.New(pool), eng).Run(ctx)
+		log.Info().Msg("workflows: cron scheduler enabled")
 	}
 
 	log.Info().Msg("flint-worker ready, starting engine loop")
