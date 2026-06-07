@@ -13,6 +13,8 @@ import { ThemeSwitcher } from '#/components/ThemeSwitcher'
 import { DensityToggle } from '#/components/DensityToggle'
 import { ScopeChips } from '#/components/ScopeChips'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
+import { TanStackDevtools } from '@tanstack/react-devtools'
+import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { Search } from 'lucide-react'
 import appCss from '../styles.css?url'
 
@@ -40,6 +42,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere]">
         {children}
+        {/* The @tanstack/devtools-vite plugin strips this from production builds. */}
+        <TanStackDevtools
+          config={{ position: 'bottom-right' }}
+          plugins={[
+            { name: 'TanStack Router', render: <TanStackRouterDevtoolsPanel /> },
+          ]}
+        />
         <Scripts />
       </body>
     </html>
