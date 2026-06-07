@@ -15,7 +15,10 @@ export function getRouter() {
   const router = createTanStackRouter({
     routeTree,
     scrollRestoration: true,
-    defaultPreload: false,
+    // Preload on intent (hover/touch); let React Query own data caching
+    // (defaultPreloadStaleTime: 0 defers freshness to the query client).
+    defaultPreload: 'intent',
+    defaultPreloadStaleTime: 0,
     context: { queryClient },
   })
 
