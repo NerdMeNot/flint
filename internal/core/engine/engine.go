@@ -24,15 +24,11 @@ import (
 // Engine is the interface for all workflow operations.
 // The server uses Engine (no loop). The worker uses Engine + WorkerLoop.
 type Engine interface {
-	// StartWorkflow creates a workflow execution: fetches pipeline YAML,
-	// resolves the DAG, creates step rows, and queues wave-0 steps.
-	// All in a single Postgres transaction.
-	StartWorkflow(ctx context.Context, input StartWorkflowInput) (workflowID string, err error)
-
-	// StartWorkflowWithWaves starts a workflow from an already-resolved DAG,
-	// with no forge or pipeline-YAML involvement — the product-neutral entry
-	// point used by non-CI products (Flint Workflows). Same transaction and
-	// idempotency semantics as StartWorkflow.
+	// StartWorkflowWithWaves starts a workflow from an already-resolved DAG.
+	// This is the sole entry point: products (CI, Workflows) parse and resolve
+	// their own definitions into waves and hand them to the engine, which stays
+	// neutral — it never fetches files or knows about a forge. Idempotent for
+	// root workflows, in a single Postgres transaction.
 	StartWorkflowWithWaves(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step) (workflowID string, err error)
 
 	// CompleteStep reports that a step has finished (success or failure).
@@ -78,18 +74,15 @@ type StartWorkflowInput struct {
 	// normalizeInputs; other products populate it directly.
 	Inputs map[string]any
 
-	// Git/trigger fields below are CI-specific inputs. Repo/CommitSHA/WorkflowFile/
-	// PipelinePath drive pipeline + template fetching via the FileGetter, and the
-	// git fields are surfaced to the step agent's environment. The engine's
-	// generic surface (expression context, run identity) reads only the Inputs
-	// bag above — not these fields.
-	Repo         string
-	Ref          string
-	CommitSHA    string
-	TriggerType  string
-	TriggeredBy  string
-	WorkflowFile string
-	PipelinePath string
+	// Git/trigger fields below are CI-supplied run context. The git fields feed
+	// the "git" expression namespace (via normalizeInputs) and the step agent's
+	// environment; non-CI products leave them empty. The engine's generic surface
+	// reads only the Inputs bag above — not these fields.
+	Repo        string
+	Ref         string
+	CommitSHA   string
+	TriggerType string
+	TriggeredBy string
 
 	RunnerPool             string
 	JobNamespace           string

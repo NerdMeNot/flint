@@ -3,10 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
-	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -59,75 +58,20 @@ func (s *Server) handleCancelRun(ctx context.Context, c *app.RequestContext) {
 
 func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 	runID := c.Param("id")
-
-	orig, err := s.deps.Q.GetOriginalRunParams(ctx, runID)
+	if s.deps.Runs == nil {
+		apiInternal(ctx, c, "run creation unavailable")
+		return
+	}
+	newRunID, workflowID, err := s.deps.Runs.Rerun(ctx, runID)
 	if err != nil {
-		apiNotFound(ctx, c, "run not found")
-		return
-	}
-	if orig.ProjectID == nil {
-		apiBadRequest(ctx, c, "run cannot be retried: not a CI run")
-		return
-	}
-	projectID := *orig.ProjectID
-	var workflowFile string
-	if orig.WorkflowFile != nil {
-		workflowFile = *orig.WorkflowFile
-	}
-
-	info, err := s.deps.Q.GetProjectRepoInfo(ctx, projectID)
-	if err != nil {
-		apiInternal(ctx, c, "failed to get project info")
-		return
-	}
-
-	newRunID := observe.RequestID(ctx)
-	err = s.deps.Q.InsertRetryRun(ctx, db.InsertRetryRunParams{
-		ID: newRunID, ProjectID: orig.ProjectID, OrgID: orig.OrgID,
-		WorkflowFile: orig.WorkflowFile, TriggerRef: orig.TriggerRef,
-		CommitSha: orig.CommitSha, Environment: orig.Environment,
-	})
-	if err != nil {
-		apiInternal(ctx, c, "failed to create retry run")
-		return
-	}
-
-	ref := ""
-	if orig.TriggerRef != nil {
-		ref = *orig.TriggerRef
-	}
-	sha := ""
-	if orig.CommitSha != nil {
-		sha = *orig.CommitSha
-	}
-
-	env := ""
-	if orig.Environment != nil {
-		env = *orig.Environment
-	}
-
-	var workflowID string
-	if s.deps.Engine != nil {
-		var startErr error
-		workflowID, startErr = s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
-			RunID: newRunID, OrgID: orig.OrgID, ProjectID: projectID,
-			Repo: info.RepoPath, Ref: ref, CommitSHA: sha,
-			TriggerType: "retry", TriggeredBy: "api",
-			WorkflowFile: workflowFile, PipelinePath: info.PipelinePath,
-			Environment: env,
-		})
-		if startErr != nil {
-			errMsg := startErr.Error()
-			_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
-				ID:           newRunID,
-				ErrorMessage: &errMsg,
-			})
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiBadRequest(ctx, c, err.Error())
 		}
+		return
 	}
-
-	c.JSON(consts.StatusAccepted, utils.H{
-		"id": newRunID, "workflowId": workflowID, "status": "pending",
-	})
+	c.JSON(consts.StatusAccepted, utils.H{"id": newRunID, "workflowId": workflowID, "status": "pending"})
 }
 
 func (s *Server) handleApproveGate(ctx context.Context, c *app.RequestContext) {

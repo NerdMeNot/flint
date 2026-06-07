@@ -6,11 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/NerdMeNot/flint/pkg/forge"
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -141,193 +138,30 @@ func (s *Server) handleReady(ctx context.Context, c *app.RequestContext) {
 // Much simpler now: create pipeline_run → engine.StartWorkflow (one call).
 func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 	ctx = observe.WithRequestID(ctx, "")
-	logger := observe.Logger(ctx)
-
+	if s.deps.Runs == nil {
+		c.JSON(consts.StatusServiceUnavailable, utils.H{"error": "run creation unavailable"})
+		return
+	}
 	body, _ := c.Body()
 	headers := hertzToHTTPHeaders(c)
+	runIDs, err := s.deps.Runs.HandleWebhook(ctx, headers, body, forgeTypeFromPath(string(c.Path())))
+	if err != nil {
+		c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+		return
+	}
+	c.JSON(consts.StatusAccepted, utils.H{"status": "accepted", "runIDs": runIDs})
+}
 
-	// Determine forge type from URL path.
-	urlPath := string(c.Path())
-	var forgeType string
+// forgeTypeFromPath derives the forge type from the webhook URL suffix.
+func forgeTypeFromPath(urlPath string) string {
 	switch {
 	case len(urlPath) > 10 && urlPath[len(urlPath)-6:] == "github":
-		forgeType = "github"
+		return "github"
 	case len(urlPath) > 10 && urlPath[len(urlPath)-6:] == "gitlab":
-		forgeType = "gitlab"
+		return "gitlab"
 	default:
-		forgeType = "bitbucket"
+		return "bitbucket"
 	}
-
-	// Look up webhook secret.
-	webhookSecret, _ := s.deps.Q.GetWebhookSecret(ctx, forgeType)
-	if webhookSecret == "" {
-		c.JSON(consts.StatusNotFound, utils.H{"error": "no forge connection configured"})
-		return
-	}
-
-	event, err := s.deps.Forge.ParseWebhook(headers, body, webhookSecret)
-	if err != nil {
-		observe.WebhooksInvalid.Add(ctx, 1)
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid webhook"})
-		return
-	}
-
-	observe.WebhooksReceived.Add(ctx, 1)
-	logger.Info().
-		Str("kind", string(event.Kind)).
-		Str("repo", event.Repo).
-		Str("sha", event.CommitSHA).
-		Msg("webhook received")
-
-	// Look up project.
-	proj, err := s.deps.Q.GetProjectByRepoPath(ctx, event.Repo)
-	if err != nil {
-		c.JSON(consts.StatusNotFound, utils.H{"error": "no project for this repo"})
-		return
-	}
-	projectID := proj.ID
-	orgID := proj.OrgID
-	pipelinePath := ".flint/"
-	if pp, ok := proj.PipelinePath.(string); ok && pp != "" {
-		pipelinePath = pp
-	}
-
-	// Discover workflow files.
-	workflowFiles := []string{"ci.yaml"}
-	if s.deps.Forge != nil {
-		dir, dirErr := s.deps.Forge.GetDirectory(ctx, event.Repo, event.CommitSHA, pipelinePath)
-		if dirErr == nil && len(dir) > 0 {
-			workflowFiles = workflowFiles[:0]
-			for name := range dir {
-				if len(name) > 4 && (name[len(name)-5:] == ".yaml" || name[len(name)-4:] == ".yml") {
-					workflowFiles = append(workflowFiles, name)
-				}
-			}
-			if len(workflowFiles) == 0 {
-				workflowFiles = []string{"ci.yaml"}
-			}
-		}
-	}
-
-	// Build trigger event for matching.
-	triggerEvent := pipeline.TriggerEvent{
-		Kind:       string(event.Kind),
-		Branch:     event.Branch,
-		BaseBranch: event.BaseBranch,
-		Tag:        event.Tag,
-	}
-
-	baseRunID := observe.RequestID(ctx)
-	var runIDs []string
-	runCounter := 0
-
-	for _, workflowFile := range workflowFiles {
-		// Fetch and parse pipeline YAML to evaluate triggers.
-		filePath := pipelinePath + workflowFile
-		rawYAML, fetchErr := s.deps.Forge.GetFile(ctx, event.Repo, event.CommitSHA, filePath)
-		if fetchErr != nil {
-			logger.Warn().Err(fetchErr).Str("file", filePath).Msg("failed to fetch pipeline (skipping)")
-			continue
-		}
-
-		p, parseErr := pipeline.Parse(rawYAML)
-		if parseErr != nil {
-			logger.Warn().Err(parseErr).Str("file", filePath).Msg("failed to parse pipeline (skipping)")
-			continue
-		}
-
-		// Evaluate triggers — skip if no trigger matches this event.
-		matches := pipeline.MatchTriggers(p, triggerEvent)
-		if len(matches) == 0 {
-			logger.Debug().Str("workflow", workflowFile).Msg("no matching trigger, skipping")
-			continue
-		}
-
-		// Collect unique environments from matching triggers.
-		environments := pipeline.CollectEnvironments(matches)
-
-		// Create one run per environment.
-		ref := event.Branch
-		if event.Tag != "" {
-			ref = event.Tag
-		}
-
-		for _, env := range environments {
-			runCounter++
-			runID := baseRunID
-			if runCounter > 1 {
-				runID = fmt.Sprintf("%s-%d", baseRunID, runCounter)
-			}
-
-			var envPtr *string
-			if env != "" {
-				envPtr = &env
-			}
-
-			err = s.deps.Q.InsertPipelineRun(ctx, db.InsertPipelineRunParams{
-				ID:            runID,
-				ProjectID:     &projectID,
-				OrgID:         orgID,
-				WorkflowFile:  &workflowFile,
-				TriggerType:   string(event.Kind),
-				TriggerRef:    &ref,
-				CommitSha:     &event.CommitSHA,
-				CommitMessage: &event.Message,
-				TriggeredBy:   &event.Sender,
-				Environment:   envPtr,
-			})
-			if err != nil {
-				logger.Error().Err(err).Str("workflow", workflowFile).Msg("failed to insert pipeline run")
-				continue
-			}
-
-			if s.deps.Engine != nil {
-				_, startErr := s.deps.Engine.StartWorkflow(ctx, engine.StartWorkflowInput{
-					RunID:        runID,
-					OrgID:        orgID,
-					ProjectID:    projectID,
-					Repo:         event.Repo,
-					Ref:          ref,
-					CommitSHA:    event.CommitSHA,
-					TriggerType:  string(event.Kind),
-					TriggeredBy:  event.Sender,
-					WorkflowFile: workflowFile,
-					PipelinePath: pipelinePath,
-					Environment:  env,
-				})
-				if startErr != nil {
-					logger.Error().Err(startErr).Str("workflow", workflowFile).Str("env", env).
-						Msg("engine.StartWorkflow failed")
-					errMsg := startErr.Error()
-					_ = s.deps.Q.FailRunWithError(ctx, db.FailRunWithErrorParams{
-						ID:           runID,
-						ErrorMessage: &errMsg,
-					})
-				} else if s.deps.Forge != nil && event.CommitSHA != "" {
-					// Report queued status to the forge. This used to live in the
-					// engine; it's relocated here so the engine stays product-neutral.
-					// Best-effort and async, matching the engine's prior behaviour.
-					go func(repo, sha, wf string) {
-						_ = s.deps.Forge.PostCommitStatus(context.Background(), repo, sha, forge.CommitStatus{
-							State:       forge.StatusPending,
-							Context:     fmt.Sprintf("flint/%s", wf),
-							Description: "Flint pipeline queued",
-						})
-					}(event.Repo, event.CommitSHA, workflowFile)
-				}
-			}
-
-			runIDs = append(runIDs, runID)
-			logger.Info().Str("runID", runID).Str("workflow", workflowFile).Str("env", env).
-				Msg("pipeline run created")
-		}
-	}
-
-	c.JSON(consts.StatusAccepted, utils.H{
-		"status":    "accepted",
-		"runIDs":    runIDs,
-		"workflows": workflowFiles,
-	})
 }
 
 // handleAgentComplete receives step completion from the agent.

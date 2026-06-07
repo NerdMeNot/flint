@@ -2,20 +2,18 @@ package engine_test
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"os"
 	"testing"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/engine"
-	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // testDSN returns the Postgres connection string for integration tests.
@@ -104,39 +102,6 @@ func insertTestRun(t *testing.T, q *db.Queries, runID, projectID, orgID string) 
 }
 
 // ─────────────────────────────────────────────────────────────
-// Mock forge
-// ─────────────────────────────────────────────────────────────
-
-type mockForge struct {
-	files map[string][]byte // path → content
-}
-
-func (m *mockForge) ParseWebhook(http.Header, []byte, string) (*forge.WebhookEvent, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-func (m *mockForge) PostCommitStatus(context.Context, string, string, forge.CommitStatus) error {
-	return nil
-}
-func (m *mockForge) GetFile(_ context.Context, _, _, path string) ([]byte, error) {
-	data, ok := m.files[path]
-	if !ok {
-		return nil, fmt.Errorf("file not found: %s", path)
-	}
-	return data, nil
-}
-func (m *mockForge) GetDirectory(context.Context, string, string, string) (map[string][]byte, error) {
-	return nil, nil
-}
-func (m *mockForge) CreateWebhook(context.Context, string, string, string, []string) (string, error) {
-	return "", nil
-}
-func (m *mockForge) DeleteWebhook(context.Context, string, string) error { return nil }
-func (m *mockForge) CloneURL(repo string) string {
-	return "https://github.com/" + repo + ".git"
-}
-func (m *mockForge) Type() string { return "mock" }
-
-// ─────────────────────────────────────────────────────────────
 // Integration tests
 // ─────────────────────────────────────────────────────────────
 
@@ -157,20 +122,18 @@ steps:
     run: echo testing
     dependsOn: [build]
 `
-	f := &mockForge{files: map[string][]byte{".flint/ci.yaml": []byte(pipelineYAML)}}
-	eng := engine.New(pool, f, nil)
+	eng := engine.New(pool, nil)
 	defer eng.Close()
 
 	runID := uuid.NewString()
 	insertTestRun(t, q, runID, projectID, orgID)
 
 	// Start workflow.
-	wfID, err := eng.StartWorkflow(ctx, engine.StartWorkflowInput{
+	wfID, err := eng.StartWorkflowWithWaves(ctx, engine.StartWorkflowInput{
 		RunID: runID, OrgID: orgID, ProjectID: projectID,
 		Repo: "acme/test", Ref: "main", CommitSHA: "abc123",
 		TriggerType: "manual", TriggeredBy: "test",
-		WorkflowFile: "ci.yaml", PipelinePath: ".flint",
-	})
+	}, wavesFromYAML(t, pipelineYAML))
 	require.NoError(t, err)
 	require.NotEmpty(t, wfID)
 
@@ -246,7 +209,7 @@ func TestEngine_StartWorkflowWithWaves_NoForge(t *testing.T) {
 	runID := uuid.NewString()
 	insertTestRun(t, q, runID, projectID, orgID)
 
-	eng := engine.New(pool, nil, nil) // nil FileGetter — no forge involved at all
+	eng := engine.New(pool, nil)
 	defer eng.Close()
 
 	waves := [][]pipeline.Step{
@@ -321,19 +284,17 @@ steps:
     dependsOn: [build]
     when: always
 `
-	f := &mockForge{files: map[string][]byte{".flint/ci.yaml": []byte(pipelineYAML)}}
-	eng := engine.New(pool, f, nil)
+	eng := engine.New(pool, nil)
 	defer eng.Close()
 
 	runID := uuid.NewString()
 	insertTestRun(t, q, runID, projectID, orgID)
 
-	wfID, err := eng.StartWorkflow(ctx, engine.StartWorkflowInput{
+	wfID, err := eng.StartWorkflowWithWaves(ctx, engine.StartWorkflowInput{
 		RunID: runID, OrgID: orgID, ProjectID: projectID,
 		Repo: "acme/test", Ref: "main", CommitSHA: "abc123",
 		TriggerType: "manual", TriggeredBy: "test",
-		WorkflowFile: "ci.yaml", PipelinePath: ".flint",
-	})
+	}, wavesFromYAML(t, pipelineYAML))
 	require.NoError(t, err)
 
 	// Fail the build step.
@@ -386,19 +347,17 @@ steps:
     dependsOn: [build]
     when: onFailure
 `
-	f := &mockForge{files: map[string][]byte{".flint/ci.yaml": []byte(pipelineYAML)}}
-	eng := engine.New(pool, f, nil)
+	eng := engine.New(pool, nil)
 	defer eng.Close()
 
 	runID := uuid.NewString()
 	insertTestRun(t, q, runID, projectID, orgID)
 
-	wfID, err := eng.StartWorkflow(ctx, engine.StartWorkflowInput{
+	wfID, err := eng.StartWorkflowWithWaves(ctx, engine.StartWorkflowInput{
 		RunID: runID, OrgID: orgID, ProjectID: projectID,
 		Repo: "acme/test", Ref: "main", CommitSHA: "abc123",
 		TriggerType: "manual", TriggeredBy: "test",
-		WorkflowFile: "ci.yaml", PipelinePath: ".flint",
-	})
+	}, wavesFromYAML(t, pipelineYAML))
 	require.NoError(t, err)
 
 	// Succeed the build step.
@@ -443,19 +402,17 @@ steps:
   - name: build
     run: echo building
 `
-	f := &mockForge{files: map[string][]byte{".flint/ci.yaml": []byte(pipelineYAML)}}
-	eng := engine.New(pool, f, nil)
+	eng := engine.New(pool, nil)
 	defer eng.Close()
 
 	runID := uuid.NewString()
 	insertTestRun(t, q, runID, projectID, orgID)
 
-	wfID, err := eng.StartWorkflow(ctx, engine.StartWorkflowInput{
+	wfID, err := eng.StartWorkflowWithWaves(ctx, engine.StartWorkflowInput{
 		RunID: runID, OrgID: orgID, ProjectID: projectID,
 		Repo: "acme/test", Ref: "main", CommitSHA: "abc123",
 		TriggerType: "manual", TriggeredBy: "test",
-		WorkflowFile: "ci.yaml", PipelinePath: ".flint",
-	})
+	}, wavesFromYAML(t, pipelineYAML))
 	require.NoError(t, err)
 
 	token := engine.EncodeTaskToken(engine.TaskToken{
@@ -481,34 +438,19 @@ steps:
 	assert.Equal(t, "succeeded", state.Status)
 }
 
-func TestEngine_ErrorMessageOnParseFailure(t *testing.T) {
-	pool, q := setupTestDB(t)
-	ctx := context.Background()
-	orgID, projectID := seedOrgAndProject(t, pool)
-
-	// Invalid YAML — missing steps.
-	badYAML := `triggers:
-  push:
-    branches: [main]
-`
-	f := &mockForge{files: map[string][]byte{".flint/ci.yaml": []byte(badYAML)}}
-	eng := engine.New(pool, f, nil)
-	defer eng.Close()
-
-	runID := uuid.NewString()
-	insertTestRun(t, q, runID, projectID, orgID)
-
-	_, err := eng.StartWorkflow(ctx, engine.StartWorkflowInput{
-		RunID: runID, OrgID: orgID, ProjectID: projectID,
-		Repo: "acme/test", Ref: "main", CommitSHA: "abc123",
-		TriggerType: "manual", TriggeredBy: "test",
-		WorkflowFile: "ci.yaml", PipelinePath: ".flint",
-	})
-	assert.Error(t, err, "StartWorkflow should fail on invalid pipeline YAML")
-}
-
 // ─────────────────────────────────────────────────────────────
 // helpers
 // ─────────────────────────────────────────────────────────────
+
+// wavesFromYAML resolves a flat-steps test pipeline into engine waves, standing
+// in for what a product (CI) would compile and hand to StartWorkflowWithWaves.
+func wavesFromYAML(t *testing.T, src string) [][]pipeline.Step {
+	t.Helper()
+	var p pipeline.Pipeline
+	require.NoError(t, yaml.Unmarshal([]byte(src), &p))
+	waves, err := pipeline.ResolveDag(&p)
+	require.NoError(t, err)
+	return waves
+}
 
 func strPtr(s string) *string { return &s }

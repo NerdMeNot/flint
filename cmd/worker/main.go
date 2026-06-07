@@ -14,7 +14,6 @@ import (
 	workerinformer "github.com/NerdMeNot/flint/internal/core/worker/informer"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/products/workflows"
-	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
@@ -83,12 +82,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	defer pool.Close()
 
-	// Forge provider.
-	forgeProvider := forge.NewGitHub("", nil)
-
 	// Engine. The JWT secret signs/verifies task tokens (must match the server;
 	// never injected into step pods, unlike the internal token).
-	eng := engine.New(pool, forgeProvider, []byte(cfg.Auth.JWT.Secret))
+	eng := engine.New(pool, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
 	// Runner pool registry.

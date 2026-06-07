@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"path"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -20,164 +19,17 @@ import (
 // PgEngine is the Postgres-backed implementation of Engine.
 type PgEngine struct {
 	pool       db.Pool
-	files      FileGetter // fetches pipeline + template files
-	signingKey []byte     // HMAC key for task tokens; empty = unsigned (dev/test)
+	signingKey []byte // HMAC key for task tokens; empty = unsigned (dev/test)
 }
 
-// New creates a new PgEngine. files supplies pipeline + template fetching;
-// signingKey signs/verifies task tokens — it must match the key the worker loop
-// uses to mint them, and must NOT be a value exposed to step pods (use the
-// server-side JWT secret, not the internal token).
-func New(pool db.Pool, files FileGetter, signingKey []byte) *PgEngine {
-	return &PgEngine{pool: pool, files: files, signingKey: signingKey}
+// New creates a new PgEngine. signingKey signs/verifies task tokens — it must
+// match the key the worker loop uses to mint them, and must NOT be a value
+// exposed to step pods (use the server-side JWT secret, not the internal token).
+func New(pool db.Pool, signingKey []byte) *PgEngine {
+	return &PgEngine{pool: pool, signingKey: signingKey}
 }
 
 func (e *PgEngine) Close() {}
-
-// StartWorkflow creates a complete workflow execution in a single transaction.
-// Idempotent: if a root workflow for this runID already exists, returns its ID.
-func (e *PgEngine) StartWorkflow(ctx context.Context, input StartWorkflowInput) (string, error) {
-	logger := observe.Logger(ctx)
-
-	tx, err := e.pool.Begin(ctx)
-	if err != nil {
-		return "", fmt.Errorf("engine: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := db.New(e.pool).WithTx(tx)
-
-	// Verify pipeline_runs exists.
-	runExists, err := qtx.RunExists(ctx, input.RunID)
-	if err != nil {
-		return "", fmt.Errorf("engine: check run: %w", err)
-	}
-	if !runExists {
-		return "", fmt.Errorf("engine: pipeline_run %s not found", input.RunID)
-	}
-
-	// Duplicate check for root workflows (child workflows can share run_id).
-	if input.ParentWorkflowID == "" {
-		existingID, err := qtx.GetExistingWorkflow(ctx, input.RunID)
-		if err == nil {
-			return existingID, nil // idempotent
-		}
-	}
-
-	// Create workflow row. Synthesize the generic Inputs namespaces (git/run)
-	// so the engine's expression context reads from Inputs, not typed fields.
-	input.normalizeInputs()
-	inputJSON := mustJSON(input)
-	var parentID, parentStep *string
-	if input.ParentWorkflowID != "" {
-		parentID = &input.ParentWorkflowID
-		parentStep = &input.ParentStepName
-	}
-
-	workflowID, err := qtx.InsertWorkflow(ctx, db.InsertWorkflowParams{
-		RunID:      input.RunID,
-		ParentID:   parentID,
-		ParentStep: parentStep,
-		Input:      inputJSON,
-	})
-	if err != nil {
-		return "", fmt.Errorf("engine: insert workflow: %w", err)
-	}
-
-	// Fetch pipeline YAML — on failure, rollback entirely (don't pollute DB).
-	filePath := path.Join(input.PipelinePath, input.WorkflowFile)
-	rawYAML, err := e.files.GetFile(ctx, input.Repo, input.CommitSHA, filePath)
-	if err != nil {
-		logger.Error().Err(err).Str("file", filePath).Msg("engine: failed to fetch pipeline")
-		return "", fmt.Errorf("engine: fetch pipeline: %w", err)
-	}
-
-	p, err := pipeline.Parse(rawYAML)
-	if err != nil {
-		logger.Error().Err(err).Msg("engine: failed to parse pipeline")
-		return "", fmt.Errorf("engine: parse pipeline: %w", err)
-	}
-
-	// Capture pipeline-level defaults for dispatch-time fallback.
-	input.PipelineImage = p.Image
-	input.PipelineServiceAccount = p.ServiceAccount
-
-	// Resolve templates (use: → run/steps).
-	resolver := &fileResolver{
-		files:        e.files,
-		repo:         input.Repo,
-		ref:          input.CommitSHA,
-		pipelinePath: input.PipelinePath,
-	}
-	p, err = pipeline.ResolveTemplates(ctx, p, resolver)
-	if err != nil {
-		logger.Error().Err(err).Msg("engine: failed to resolve templates")
-		return "", fmt.Errorf("engine: resolve templates: %w", err)
-	}
-
-	// Expand matrix steps into individual variants.
-	p = pipeline.ExpandMatrix(p)
-
-	// Coalesce consecutive same-runner steps into shared pods when the pipeline
-	// declares a top-level runner. This eliminates workspace sync overhead for
-	// simple sequential pipelines.
-	p = pipeline.CoalesceSteps(p)
-
-	// Resolve DAG — filter by environment if set.
-	var waves [][]pipeline.Step
-	if input.Environment != "" {
-		waves, err = pipeline.ResolveDagForEnv(p, input.Environment)
-	} else {
-		waves, err = pipeline.ResolveDag(p)
-	}
-	if err != nil {
-		logger.Error().Err(err).Msg("engine: failed to resolve DAG")
-		return "", fmt.Errorf("engine: resolve DAG: %w", err)
-	}
-
-	// Cache parsed pipeline on workflow row.
-	dagWaveNames := wavesToNames(waves)
-	err = qtx.UpdateWorkflowPipeline(ctx, db.UpdateWorkflowPipelineParams{
-		ID:           workflowID,
-		PipelineYaml: rawYAML,
-		PipelineDef:  mustJSON(p),
-		DagWaves:     mustJSON(dagWaveNames),
-	})
-	if err != nil {
-		return "", fmt.Errorf("engine: update workflow: %w", err)
-	}
-
-	// Create step rows and queue wave 0.
-	if err := createStepsAndAdvance(ctx, qtx, workflowID, waves); err != nil {
-		return "", err
-	}
-
-	// Link pipeline_runs to workflow — verify it actually updates.
-	wfID := workflowID
-	ref := input.Ref
-	repo := input.Repo
-	rowsAffected, err := qtx.UpdateRunWorkflow(ctx, db.UpdateRunWorkflowParams{
-		ID:         input.RunID,
-		WorkflowID: &wfID,
-		Branch:     &ref,
-		Repo:       &repo,
-	})
-	if err != nil {
-		return "", fmt.Errorf("engine: link pipeline_run: %w", err)
-	}
-	if rowsAffected == 0 {
-		return "", fmt.Errorf("engine: pipeline_run %s not updated", input.RunID)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("engine: commit: %w", err)
-	}
-
-	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
-
-	logger.Info().Str("workflowID", workflowID).Int("steps", len(p.Steps)).Msg("engine: workflow started")
-
-	return workflowID, nil
-}
 
 // StartWorkflowWithWaves starts a workflow from an already-resolved DAG, with no
 // forge or pipeline-YAML involvement. This is the product-neutral entry point:
