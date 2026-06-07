@@ -17,6 +17,9 @@ func (p *Pipeline) Validate() error {
 	if !p.Triggers.HasAny() {
 		return fmt.Errorf("ci: pipeline must define at least one trigger")
 	}
+	if p.Concurrency != nil && p.Concurrency.Group == "" {
+		return fmt.Errorf("ci: pipeline concurrency requires a group")
+	}
 
 	envSet := toSet(p.Environments)
 
@@ -74,6 +77,9 @@ func (p *Pipeline) validateJob(name string, job Job, pipelineEnvs map[string]boo
 	if job.Resources != nil && job.Resources.Limits != nil &&
 		job.Resources.CPU == "" && job.Resources.Memory == "" {
 		return fmt.Errorf("ci: job %q sets resource limits without requests", name)
+	}
+	if job.Concurrency != nil && job.Concurrency.Group == "" {
+		return fmt.Errorf("ci: job %q concurrency requires a group", name)
 	}
 	return nil
 }
