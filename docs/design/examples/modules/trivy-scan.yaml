@@ -1,0 +1,10 @@
+# Module: trivy-scan  —  kind: action (containerized, with a typed output)
+name: trivy-scan
+kind: action
+inputs:
+  image:    { type: string, required: true }
+  severity: { type: enum, options: [LOW, MEDIUM, HIGH, CRITICAL], default: HIGH }
+outputs:
+  report:   { type: string }            # path to the report the action writes
+run:
+  image: aquasec/trivy:0.55

@@ -1,0 +1,10 @@
+# acme/orders-api  →  .flint/ci.yaml
+# Variant A: extend a whole-pipeline module. The entire CI is a few lines; the
+# platform team owns the logic in go-service-pipeline, the app owns the inputs.
+extends: go-service-pipeline@2.1.0
+with:
+  service: orders-api
+  deploy_target: orders
+triggers:                                 # consumer supplies its own triggers
+  pull_request: { branches: [main] }
+  push:         { branches: [main], environments: [staging] }

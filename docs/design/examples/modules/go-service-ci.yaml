@@ -1,0 +1,22 @@
+# Module: go-service-ci  —  kind: job (inline; pins its OWN image → env-honest)
+# A reusable build/test job with a steps-hole for the caller's project-specific
+# commands, plus a typed output.
+name: go-service-ci
+kind: job
+inputs:
+  go:    { type: string, default: "1.26" }
+  steps: { type: steps }                 # the hole the caller fills
+outputs:
+  version: { type: string, value: ${{ steps.outputs.version }} }
+job:
+  image: golang:${{ inputs.go }}         # owns its environment → never the yum problem
+  cache:
+    key: gomod-${{ hashFiles('go.sum') }}
+    restoreKeys: [gomod-]
+    paths: [/go/pkg/mod]
+  steps:
+    - run: go mod download
+    - name: version
+      run: echo "version=$(git rev-parse --short HEAD)" >> "$FLINT_OUTPUT"
+    - inject: ${{ inputs.steps }}        # caller's steps run here, in this image
+    - run: go test ./...

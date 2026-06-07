@@ -1,0 +1,11 @@
+# Module: apt-install  —  kind: steps (inline; runs in the CALLER's image)
+# Because it runs in the caller's image, it MUST declare an environment contract.
+# `flint validate` rejects using this in a non-debian job before the run.
+name: apt-install
+kind: steps
+requires:
+  family: debian
+inputs:
+  packages: { type: string, required: true }   # space-separated
+steps:
+  - run: apt-get update && apt-get install -y ${{ inputs.packages }}

@@ -1,0 +1,32 @@
+# acme/payments-api  →  .flint/ci.yaml
+# Variant B: compose your own jobs from modules (more control than extends).
+image: golang:1.26
+triggers:
+  pull_request: { branches: [main] }
+  push:         { branches: [main] }
+jobs:
+  ci:
+    use: go-service-ci@2.3.1             # job module + steps-hole
+    with:
+      steps:
+        - run: go build ./...
+        - run: go test -race ./...
+
+  tools:
+    image: ubuntu:24.04
+    steps:
+      - use: apt-install@1.2.0           # inline step template; requires:debian ✓ on ubuntu
+        with: { packages: "jq curl" }
+
+  scan:
+    needs: [ci]
+    steps:
+      - use: trivy-scan@1.6.0            # step-level Action (containerized, portable)
+        with: { image: "payments-api:${{ needs.ci.outputs.version }}", severity: CRITICAL }
+
+  notify:
+    needs: [ci, scan]
+    if: ${{ always() }}
+    steps:
+      - use: slack-notify@stable         # publisher alias (platform repoints it)
+        with: { channel: "#ci", text: "payments-api ${{ status }}" }

@@ -482,19 +482,154 @@ Approver syntax: `role:<name>`, `team:<name>`, `user:<id>`.
 
 ---
 
-## Reuse
+## Reuse: modules
 
-Steps pull in shared step templates with `use:` (local file, cross-repo file, or a
-registered template). The **black-box rule**: a `use:` block is opaque — its steps
-expand in place, and you never reference a template's internal step names.
+Reuse goes through **one keyword, `use:`** (and `extends:` for whole-pipeline
+reuse). The unit of reuse is a **module**: a versioned, parameterized thing with
+typed inputs/outputs and a declared *environment stance*. There are four kinds,
+organized around the one axis that actually matters — **does the unit bring its
+own environment, or run in the caller's?**
+
+| `kind` | Stance | Used at | Environment |
+|---|---|---|---|
+| `action` | **containerized** — brings its own image | a step | portable anywhere (runs in its own image) |
+| `steps` | **inline** — expands into the caller | a step position | runs in the caller's image → **must declare `requires:`** |
+| `job` | **inline** — expands into a job | a job (`use:`) | pins its own image → env-honest by construction |
+| `pipeline` | **inline** — the whole DAG | a pipeline (`extends:`) | composes jobs |
+
+**Composition is by parameterization, never by merge.** The **black-box rule**: a
+module is opaque — you pass `inputs` (and, for the steps-hole, a block of steps);
+you never reach inside or override its keys. No deep-merge, no internal-name
+references. This deletes the biggest reuse footgun (GitLab/Azure-style override
+surprises) by construction.
+
+### Module definition
 
 ```yaml
-steps:
-  - use: ./fragments/setup.yaml
-  - run: npm run build
-  - use: ecr-login
-    with: { registry: ${{ env.ECR_REGISTRY }} }
+name: <module-name>
+kind: action | steps | job | pipeline
+inputs:
+  some_str: { type: string, required: true }
+  count:    { type: number, default: 1 }
+  mode:     { type: enum, options: [a, b], default: a }
+  steps:    { type: steps }                 # the "hole" (job/steps kinds)
+outputs:
+  version:  { type: string, value: ${{ steps.outputs.version }} }
+requires:                                   # env contract (inline kinds that run in caller's image)
+  family: debian                            # debian | rhel | alpine
+  tools: [node>=18]
+# ── body, by kind ──
+run: { image: ... }                         # kind: action  (brings its image)
+steps: [ ... ]                              # kind: steps
+job: { image: ..., steps: [ ... ] }         # kind: job
+jobs: { ... }                               # kind: pipeline
 ```
+
+### Input types
+
+`string`, `number`, `boolean`, `enum` (with `options`), and **`steps`** — a block
+of steps the caller supplies, dropped in with `inject:`:
+
+```yaml
+# in a job/steps module
+steps:
+  - run: setup
+  - inject: ${{ inputs.steps }}             # caller's steps run here, in this image
+  - run: teardown
+```
+
+The `steps` hole covers most real reuse ("wrap my steps in standard setup/
+teardown") without inheritance.
+
+### Environment contracts (static compatibility)
+
+Inline modules that run in the caller's image (`kind: steps`, and any inline body
+that doesn't set its own `image`) **must declare `requires:`**. `flint validate`
+checks it against the consuming job's image and **fails before the run** on a
+mismatch:
+
+```
+✖ job "tools" → module "yum-install@1" requires { family: rhel },
+    but job image "ubuntu:24.04" is { family: debian }
+```
+
+This eliminates the classic footgun (a `yum` step used on Ubuntu) at authoring
+time. `action` and `job` modules bring/own their image, so they're env-honest and
+skip the check.
+
+### References are immutable — there is no lockfile
+
+A reference pins to something that **cannot change underneath you**, so no lockfile
+is needed:
+
+- **Exact version:** `use: go-ci@2.3.1` — registry versions are immutable and
+  content-addressed. The manifest *is* the pin; the bump shows in the PR diff.
+- **Publisher alias:** `use: go-ci@stable` — a moving pointer only the *publisher*
+  (e.g. the platform team) can repoint, for intentional central propagation
+  (push a security patch to all consumers at once).
+- **Local:** `use: ./templates/x.yaml` — pinned by the repo commit.
+- **Cross-repo:** a tag or commit SHA; floating branches are flagged.
+
+**Reproducibility and integrity come from the platform, not a file:** the registry
+guarantees a version is immutable, and every run records the exact module versions
+it used (server-side). So "re-run identically" works with zero repo artifacts, and
+there is nothing to maintain, conflict on, or forget to commit. Non-determinism
+exists only where someone explicitly opts into an alias.
+
+### Where modules live (registry, multi-fed)
+
+The **registry** is the source of truth, populated however a team prefers:
+
+- **GitOps (recommended for shared modules):** a repo whose modules publish to the
+  registry on tag — versioned, reviewed, immutable.
+- **CLI / API / UI:** `flint module publish ./modules/go-ci.yaml --version 2.3.1`.
+- **Local files:** `use: ./...` — no registry at all, zero ceremony, in-repo.
+
+No dedicated `.github`-style repo is required: modules can live in the app repo,
+a shared repo, or nowhere (published directly).
+
+### Safety: two layers
+
+1. **Pre-run, surfaced in the UI / as a PR check:** unknown/yanked/deprecated
+   version, env-compat mismatch, input/output type mismatch, and "a newer version
+   is available." You see breakage *before* merging.
+2. **Runtime, as the backstop:** anything that slips through fails the run with a
+   precise message; you fix-forward (edit the pin).
+
+### Consuming modules
+
+```yaml
+# step-level Action (containerized) and step template (inline)
+jobs:
+  ci:
+    use: go-service-ci@^?  # NO — ranges aren't allowed; pin exact or an alias
+  build:
+    use: go-service-ci@2.3.1        # job module + steps-hole
+    with:
+      steps:
+        - run: go build ./...
+  scan:
+    needs: [build]
+    steps:
+      - use: trivy-scan@1.6.0       # step Action (its own image)
+        with: { image: "app:${{ needs.build.outputs.version }}" }
+  tools:
+    image: ubuntu:24.04
+    steps:
+      - use: apt-install@1.2.0      # step template; requires:debian ✓ on ubuntu
+        with: { packages: "jq curl" }
+```
+
+```yaml
+# whole-pipeline reuse
+extends: go-service-pipeline@2.1.0
+with: { service: orders-api, deploy_target: orders }
+triggers: { push: { branches: [main] } }   # consumer supplies triggers
+```
+
+Worked module + consumer files: [`examples/modules/`](examples/modules/) and
+[`examples/orders-api.ci.yaml`](examples/orders-api.ci.yaml) /
+[`examples/payments-api.ci.yaml`](examples/payments-api.ci.yaml).
 
 ---
 
@@ -677,9 +812,14 @@ By trigger: a **PR** runs `build → lint · unit-test · integration-test` only
 - Execution: per-job agent **sidecar** (secret broker; creds isolated; native
   sidecar, K8s ≥ 1.28), per-job ephemeral scratch, object-store handoff,
   control-plane completion, per-step log markers.
+- **Module reuse system**: one `use:`/`extends:` keyword; four kinds (`action`
+  containerized · `steps`/`job`/`pipeline` inline); typed inputs/outputs + a
+  `steps`-hole (`inject:`); env contracts (`requires:`) with static compat
+  checking; black-box composition (no deep-merge); **immutable refs, no lockfile**
+  (exact version or publisher alias); registry fed by GitOps / API / local files.
 
 ### Deferred (to specify when built)
 
-Reusable parameterized **whole-pipeline** templates (org-scale DRY); cross-repo
-reuse mechanics; registered step-template/CRD details; image presets; matrix
-include/exclude.
+Centralized project registration (`ProjectSet` — a central repo defining many
+projects + target repos); the module **registry** backing store + GitOps sync
+details; image presets; matrix include/exclude.

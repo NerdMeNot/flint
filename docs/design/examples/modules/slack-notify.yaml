@@ -1,0 +1,11 @@
+# Module: slack-notify  —  kind: action (containerized, portable)
+# Brings its own image, so it runs identically in any pipeline regardless of the
+# job's base image. Used at a step position.
+name: slack-notify
+kind: action
+inputs:
+  channel: { type: string, required: true }
+  text:    { type: string, required: true }
+run:
+  image: ghcr.io/acme/flint-actions/slack-notify:1.4
+  # The action's entrypoint reads inputs as env: FLINT_INPUT_CHANNEL, FLINT_INPUT_TEXT.
