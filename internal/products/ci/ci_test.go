@@ -199,6 +199,22 @@ jobs:
 	}
 }
 
+func TestCompile_DiskThreadsToStep(t *testing.T) {
+	p, err := Parse([]byte(`
+image: alpine
+triggers: { push: { branches: [main] } }
+jobs:
+  build:
+    disk: 20Gi
+    steps: [{ run: make }]
+`))
+	require.NoError(t, err)
+	waves, err := Compile(p, "")
+	require.NoError(t, err)
+	require.Equal(t, 0, waveOf(waves, "build"))
+	assert.Equal(t, "20Gi", waves[0][0].Disk)
+}
+
 func TestValidate_GateJobNeedsNoImage(t *testing.T) {
 	_, err := Parse([]byte(`
 triggers: { push: { branches: [main] } }

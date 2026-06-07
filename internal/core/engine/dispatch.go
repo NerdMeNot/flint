@@ -227,6 +227,12 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	jobName := fmt.Sprintf("flint-%s-%s", step.runID[:8], sanitizeK8sName(step.name))
 	ttl := int32(3600)
 	backoffLimit := int32(0)
+	// The agent runs as a native sidecar (K8s >= 1.28): an init container with
+	// restartPolicy Always starts before the step, runs alongside it, and is
+	// torn down by the kubelet once the step container exits — giving the agent
+	// a real lifecycle while keeping orchestration/credentials out of the step
+	// container.
+	sidecarRestart := corev1.ContainerRestartPolicyAlways
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -242,6 +248,8 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					InitContainers: []corev1.Container{
+						// 1. Regular init: pull (checkout, artifacts, cache) → runs to
+						//    completion before the step starts.
 						{
 							Name:    "flint-init",
 							Image:   e.agentImage,
@@ -254,6 +262,24 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
 									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+						// 2. Native sidecar: the agent (logs, sync-out, push, completion)
+						//    runs alongside the step and is reaped when the step exits.
+						{
+							Name:          "flint-agent",
+							Image:         e.agentImage,
+							Command:       []string{"/flint-agent", "watch"},
+							Env:           agentEnv,
+							RestartPolicy: &sidecarRestart,
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "workspace", MountPath: "/workspace"},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
 								},
 							},
 						},
@@ -280,24 +306,9 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 								},
 							},
 						},
-						{
-							Name:    "flint-agent",
-							Image:   e.agentImage,
-							Command: []string{"/flint-agent", "watch"},
-							Env:     agentEnv,
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "workspace", MountPath: "/workspace"},
-							},
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("64Mi"),
-								},
-							},
-						},
 					},
 					Volumes: []corev1.Volume{
-						workspaceVolume(usePVC, step.runID, poolSpec),
+						workspaceVolume(usePVC, step.runID, poolSpec, stepDef.Disk),
 					},
 				},
 			},

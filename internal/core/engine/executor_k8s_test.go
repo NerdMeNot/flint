@@ -83,8 +83,8 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 
 	spec := job.Spec.Template.Spec
 
-	// Init container runs `flint-agent init`.
-	require.Len(t, spec.InitContainers, 1)
+	// Init containers: flint-init (pull) then the flint-agent native sidecar.
+	require.Len(t, spec.InitContainers, 2)
 	initC := spec.InitContainers[0]
 	assert.Equal(t, "flint-agent:v1", initC.Image)
 	assert.Equal(t, []string{"/flint-agent", "init"}, initC.Command)
@@ -96,8 +96,11 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	assert.Equal(t, wrapStepCommand("make build"), stepC.Command)
 	assert.Equal(t, "bar", envMap(stepC.Env)["FOO"])
 
-	// Agent sidecar runs `flint-agent watch` and carries the task/git context.
-	agentC := containerByName(t, spec.Containers, "flint-agent")
+	// The agent is a native sidecar: an init container with restartPolicy Always
+	// running `flint-agent watch`, carrying the task/git context.
+	agentC := containerByName(t, spec.InitContainers, "flint-agent")
+	require.NotNil(t, agentC.RestartPolicy)
+	assert.Equal(t, corev1.ContainerRestartPolicyAlways, *agentC.RestartPolicy)
 	assert.Equal(t, []string{"/flint-agent", "watch"}, agentC.Command)
 	ae := envMap(agentC.Env)
 	assert.Equal(t, "task-token", ae["FLINT_TASK_TOKEN"])
