@@ -151,6 +151,7 @@ type Step struct {
 	// Compute
 	Runner         string `yaml:"runner,omitempty" json:"runner,omitempty"`                 // runner pool name
 	ServiceAccount string `yaml:"serviceAccount,omitempty" json:"serviceAccount,omitempty"` // K8s SA override
+	Disk           string `yaml:"disk,omitempty" json:"disk,omitempty"`                     // per-pod scratch size (e.g. 20Gi)
 
 	// Environment filtering
 	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`

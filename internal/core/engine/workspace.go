@@ -313,7 +313,7 @@ func workspacePVCName(runID string) string {
 }
 
 // workspaceVolume returns the appropriate Volume spec for the workspace.
-func workspaceVolume(usePVC bool, runID string, pool *runner.PoolSpec) corev1.Volume {
+func workspaceVolume(usePVC bool, runID string, pool *runner.PoolSpec, disk string) corev1.Volume {
 	if usePVC {
 		return corev1.Volume{
 			Name: "workspace",
@@ -324,11 +324,19 @@ func workspaceVolume(usePVC bool, runID string, pool *runner.PoolSpec) corev1.Vo
 			},
 		}
 	}
+	// Per-job scratch: a node-backed emptyDir sized to the job's `disk:` (if set).
+	// The scheduler accounts for it via the step container's ephemeral-storage
+	// request (set in dispatch). A sized emptyDir is the infra-light default;
+	// block-backed generic ephemeral volumes are a future opt-in.
+	emptyDir := &corev1.EmptyDirVolumeSource{}
+	if disk != "" {
+		if q, err := resource.ParseQuantity(disk); err == nil {
+			emptyDir.SizeLimit = &q
+		}
+	}
 	return corev1.Volume{
-		Name: "workspace",
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
-		},
+		Name:         "workspace",
+		VolumeSource: corev1.VolumeSource{EmptyDir: emptyDir},
 	}
 }
 

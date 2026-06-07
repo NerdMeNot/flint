@@ -68,6 +68,7 @@ func (p *Pipeline) compileJob(name string, job Job, surviving map[string]bool) p
 		Image:          firstNonEmpty(job.Image, p.Image),
 		Runner:         firstNonEmpty(job.Runner, p.Runner),
 		ServiceAccount: firstNonEmpty(job.ServiceAccount, p.ServiceAccount),
+		Disk:           job.Disk,
 		Environments:   job.Environments,
 		If:             job.If,
 		Timeout:        job.Timeout,
