@@ -23,6 +23,8 @@ import {
   type ForgeConnection,
   type AuditEntry,
   type AuthUser,
+  type WorkflowRun,
+  type WorkflowRunDetail,
 } from './types'
 import {
   backendGet,
@@ -251,6 +253,63 @@ const runs = {
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
       return safe(() => backendPost(`/runs/${input.runId}/retry`), { id: `r-mock-${Date.now()}`, status: 'pending' } as any)
+    }),
+}
+
+// ---------------------------------------------------------------------------
+// Workflows — generic engine runs (no forge/repo). Mock-first: the backend has
+// POST /workflows/runs (trigger) and GET /workflows/runs/:id (detail) but not
+// yet a list endpoint, so `list` falls back to mocks until that's reconciled.
+// ---------------------------------------------------------------------------
+
+const workflows = {
+  list: os
+    .input(
+      z.object({
+        status: z.optional(RunStatus),
+        limit: z.optional(z.number()),
+        cursor: z.optional(z.string()),
+      }),
+    )
+    .handler(async ({ input }) => {
+      return withFallback(
+        () => backendGet<Paginated<WorkflowRun>>('/workflows/runs', {
+          status: input.status, limit: input.limit, cursor: input.cursor,
+        }),
+        () => {
+          let items = mocks.getWorkflowRuns()
+          if (input.status) items = items.filter((r) => r.status === input.status)
+          return paginateMock(items, input)
+        },
+      )
+    }),
+
+  get: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return withFallback(
+        () => backendGet<WorkflowRunDetail>(`/workflows/runs/${input.id}`),
+        () => {
+          const r = mocks.getWorkflowRun(input.id)
+          if (!r) throw new Error('Workflow run not found')
+          return r
+        },
+      )
+    }),
+
+  // trigger posts a workflow definition (YAML) and starts a run. Backend
+  // reconciliation: triggerRun reads a raw YAML body — the real wiring needs to
+  // send `definition` as the body rather than a JSON envelope.
+  trigger: os
+    .input(z.object({ definition: z.string() }))
+    .handler(async ({ input }) => {
+      return safe(
+        () => backendPost<{ runId: string; name: string; status: string }>(
+          '/workflows/runs',
+          { definition: input.definition },
+        ),
+        { runId: `wf-mock-${Date.now()}`, name: 'workflow', status: 'pending' },
+      )
     }),
 }
 
@@ -689,6 +748,7 @@ export const appRouter = os.router({
   capabilities,
   projects,
   runs,
+  workflows,
   gates,
   workspaces,
   environments,

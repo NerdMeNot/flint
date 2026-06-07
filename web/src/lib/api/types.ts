@@ -120,6 +120,33 @@ export const DashboardSummarySchema = z.object({
   avgDuration: z.string(),
 })
 
+// ---------------------------------------------------------------------------
+// Workflows — generic declarative runs on the shared engine (no forge/repo).
+// A run reuses RunStatus and the engine step IR (PipelineStep), so the DAG view
+// and step rendering are shared with CI.
+// ---------------------------------------------------------------------------
+
+export const WorkflowTriggerType = z.enum(['manual', 'schedule', 'api'])
+
+export const WorkflowRunSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: RunStatus,
+  triggerType: WorkflowTriggerType,
+  triggeredBy: z.string(),
+  startedAt: z.string(),
+  finishedAt: z.optional(z.string()),
+  duration: z.string(),
+  stepCount: z.number(),
+})
+
+export const WorkflowRunDetailSchema = WorkflowRunSchema.extend({
+  steps: z.array(PipelineStepSchema),
+})
+
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
+export type WorkflowRunDetail = z.infer<typeof WorkflowRunDetailSchema>
+
 export const GateStatus = z.enum(['pending', 'approved', 'rejected'])
 
 export const GateSchema = z.object({

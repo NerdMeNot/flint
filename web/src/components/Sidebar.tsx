@@ -6,6 +6,7 @@ import {
   Shield,
   Settings,
   ScrollText,
+  Workflow,
   ChevronsLeft,
   Menu,
   X,
@@ -16,11 +17,24 @@ import { orpc } from '#/lib/orpc'
 import { ScopeSelector } from './ScopeSelector'
 import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
 
-const navItems = [
-  { to: '/ci' as const, icon: LayoutDashboard, label: 'Dashboard', match: '' },
-  { to: '/ci/projects' as const, icon: FolderGit2, label: 'Projects', match: '/ci/projects' },
-  { to: '/ci/runs' as const, icon: ScrollText, label: 'Runs', match: '/ci/runs' },
-  { to: '/ci/gates' as const, icon: Shield, label: 'Gates', match: '' },
+// A single NavItem type keeps both section arrays unionable so `section.items`
+// is one array type (not a union of arrays, which breaks .map typing).
+type NavItem = {
+  to: '/ci' | '/ci/projects' | '/ci/runs' | '/ci/gates' | '/workflows'
+  icon: typeof LayoutDashboard
+  label: string
+  match: string
+}
+
+const navItems: NavItem[] = [
+  { to: '/ci', icon: LayoutDashboard, label: 'Dashboard', match: '' },
+  { to: '/ci/projects', icon: FolderGit2, label: 'Projects', match: '/ci/projects' },
+  { to: '/ci/runs', icon: ScrollText, label: 'Runs', match: '/ci/runs' },
+  { to: '/ci/gates', icon: Shield, label: 'Gates', match: '' },
+]
+
+const workflowNavItems: NavItem[] = [
+  { to: '/workflows', icon: Workflow, label: 'Runs', match: '/workflows' },
 ]
 
 const bottomItems = [
@@ -99,7 +113,15 @@ export function Sidebar() {
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen } = useSidebar()
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
-  const inCI = activeCapabilityID(currentPath) === 'ci'
+  // The active product determines which section nav (if any) renders below the
+  // capability switcher. Admin (/settings) has its own shell, so no section here.
+  const activeCap = activeCapabilityID(currentPath)
+  const section =
+    activeCap === 'ci'
+      ? { label: 'CI', items: navItems }
+      : activeCap === 'workflows'
+        ? { label: 'Workflows', items: workflowNavItems }
+        : null
 
   const sidebarWidth = collapsed ? 'w-[64px]' : 'w-[240px]'
 
@@ -144,13 +166,13 @@ export function Sidebar() {
       {/* Product switcher */}
       <CapabilitySwitcher collapsed={collapsed} />
 
-      {/* Section nav — shown for the active product (CI today). */}
-      {inCI ? (
+      {/* Section nav — shown for the active product. */}
+      {section ? (
         <nav className={`flex-1 overflow-y-auto pb-3 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-3'}`}>
           {!collapsed && (
-            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">CI</p>
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">{section.label}</p>
           )}
-          {navItems.map((item) => {
+          {section.items.map((item) => {
             const isActive = item.match
               ? currentPath.startsWith(item.match)
               : currentPath === item.to
@@ -260,10 +282,10 @@ export function Sidebar() {
         {/* Product switcher */}
         <CapabilitySwitcher />
         {/* Section nav */}
-        {inCI ? (
+        {section ? (
           <nav className="flex-1 overflow-y-auto pb-3 space-y-0.5 px-3">
-            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">CI</p>
-            {navItems.map((item) => {
+            <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">{section.label}</p>
+            {section.items.map((item) => {
               const isActive = item.match
                 ? currentPath.startsWith(item.match)
                 : currentPath === item.to
