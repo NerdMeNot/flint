@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import {
   Outlet,
   HeadContent,
@@ -173,6 +174,14 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
 // ---------------------------------------------------------------------------
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
+  // Render the platform-neutral 'Ctrl' on the server and first client render so
+  // SSR markup matches; swap to \u2318 on Mac only after mount to avoid a hydration
+  // mismatch.
+  const [isMac, setIsMac] = useState(false)
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent))
+  }, [])
+
   return (
     <>
       {/* Mobile: icon only */}
@@ -193,7 +202,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
         <Search size={13} />
         <span>Search</span>
         <kbd className="ml-1 px-1.5 py-0.5 text-[11px] font-medium border border-border rounded bg-transparent">
-          {typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '\u2318' : 'Ctrl'}K
+          {isMac ? '\u2318' : 'Ctrl'}K
         </kbd>
       </button>
     </>
