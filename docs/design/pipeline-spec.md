@@ -107,8 +107,13 @@ jobs:
     # — Isolation (per-pod) —
     image: node:22               # base image (default: top-level image)
     disk: 20Gi                   # this pod's scratch (default: platform default)
-    runner: gpu-pool
+    runner: gpu-pool             # pool = node class, arch, GPU capability, resource BOUNDS
     serviceAccount: deployer
+    resources:                   # right-size within the pool's bounds (optional)
+      cpu: "2"                   # request
+      memory: 4Gi
+      limits: { cpu: "3", memory: 6Gi }
+      gpu: 1                     # count, within the pool's GPU allowance
 
     # — Graph —
     needs: [build]               # job dependencies (the only cross-pod edges)
@@ -153,6 +158,15 @@ Key job rules:
 - **`image`** — one image per job. *If a step needs a different image, that's a
   different job.* (`services` sidecars are the exception.)
 - **`disk`** — this pod's scratch, independent of every other job.
+- **`runner`** — selects a platform-managed pool that fixes the **node class,
+  arch, GPU capability, and the resource bounds** the job may request.
+- **`resources`** — *optional* per-job CPU/memory/GPU, **bounded by the pool**.
+  Lets a job right-size itself (e.g. ask for 3 CPU instead of taking a whole
+  8-CPU pool) for less waste, while the platform keeps guardrails. Omitted ⇒ the
+  pool's default profile. Applies to the **user (step) container**; the init and
+  agent-sidecar overhead stays small and platform-fixed. `gpu` is a count granted
+  within the pool's allowance. `validate` rejects a request beyond the pool's
+  bounds before the run.
 - **`steps` | `gate`** — exactly one. `steps` ⇒ a container (pod) job; `gate` ⇒ a
   non-pod approval job.
 
@@ -718,7 +732,8 @@ the same Go types). Static checks (no cluster, no fetch):
 - Expression parse + reserved-name collisions; `needs.X` referenced in `if:`/
   `outputs` is a direct need.
 - `outputs` reference existing step outputs; `artifacts` globs well-formed.
-- One image per job; `disk`/durations parse; secret bindings have exactly one target.
+- One image per job; `disk`/durations/`resources` parse and stay within the
+  selected runner pool's bounds; secret bindings have exactly one target.
 
 `flint simulate --environment <env>` previews which jobs run/skip and how
 env/secrets resolve. Never caches — always fresh.
@@ -809,6 +824,8 @@ By trigger: a **PR** runs `build → lint · unit-test · integration-test` only
   delivered as env or tmpfs files, sidecar-brokered, env-scoped, masked.
 - **`concurrency`** (pipeline + job), **matrix `failFast`/`maxParallel`**, **cache
   `restoreKeys`**.
+- **Job-level `resources`** (cpu/memory/gpu) — right-size within the runner pool's
+  bounds; pool sets node class/arch/GPU + guardrails, job fine-tunes.
 - Execution: per-job agent **sidecar** (secret broker; creds isolated; native
   sidecar, K8s ≥ 1.28), per-job ephemeral scratch, object-store handoff,
   control-plane completion, per-step log markers.

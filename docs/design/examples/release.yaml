@@ -41,6 +41,7 @@ jobs:
   # 1. BUILD — root. Emits outputs (version, has_migrations) + artifacts (bin/).
   build:
     disk: 10Gi
+    resources: { cpu: "2", memory: 4Gi }   # right-size within the runner pool's bounds
     cache:
       key: gomod-${{ hashFiles('go.sum') }}
       restoreKeys: [gomod-]        # partial-hit fallback
