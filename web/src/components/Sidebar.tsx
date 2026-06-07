@@ -17,10 +17,10 @@ import { ScopeSelector } from './ScopeSelector'
 import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
 
 const navItems = [
-  { to: '/' as const, icon: LayoutDashboard, label: 'Dashboard', match: '' },
-  { to: '/projects' as const, icon: FolderGit2, label: 'Projects', match: '' },
-  { to: '/runs' as const, icon: ScrollText, label: 'Runs', match: '/runs' },
-  { to: '/gates' as const, icon: Shield, label: 'Gates', match: '' },
+  { to: '/ci' as const, icon: LayoutDashboard, label: 'Dashboard', match: '' },
+  { to: '/ci/projects' as const, icon: FolderGit2, label: 'Projects', match: '/ci/projects' },
+  { to: '/ci/runs' as const, icon: ScrollText, label: 'Runs', match: '/ci/runs' },
+  { to: '/ci/gates' as const, icon: Shield, label: 'Gates', match: '' },
 ]
 
 const bottomItems = [
@@ -251,7 +251,6 @@ export function Sidebar() {
             F
           </div>
           <span className="display-title font-bold text-foreground text-lg tracking-tight">Flint</span>
-          <span className="ml-auto island-kicker !text-[11px] !tracking-[0.12em] opacity-60">CI</span>
         </div>
         {/* Scope filters — mobile only */}
         <div className="px-3 py-2.5 border-b border-border">

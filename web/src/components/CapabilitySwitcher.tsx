@@ -13,7 +13,7 @@ type Capability = {
 
 // Per-product presentation. `to` is `as const` so the typed router accepts it.
 const META = {
-  ci: { icon: GitMerge, to: '/' as const, tagline: 'Pipelines' },
+  ci: { icon: GitMerge, to: '/ci' as const, tagline: 'Pipelines' },
   workflows: { icon: Workflow, to: '/workflows' as const, tagline: 'Automations' },
   loadtest: { icon: Gauge, to: '/loadtest' as const, tagline: 'Performance' },
 } satisfies Record<string, { icon: ComponentType<{ size?: number; strokeWidth?: number }>; to: string; tagline: string }>
@@ -21,6 +21,7 @@ const META = {
 export function activeCapabilityID(pathname: string): string {
   if (pathname.startsWith('/workflows')) return 'workflows'
   if (pathname.startsWith('/loadtest')) return 'loadtest'
+  if (pathname.startsWith('/settings')) return 'admin'
   return 'ci'
 }
 

@@ -8,7 +8,7 @@ import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
-export const Route = createFileRoute('/gates')({
+export const Route = createFileRoute('/ci/gates')({
   component: GatesPage,
 })
 
@@ -130,7 +130,7 @@ function GatesPage() {
 
               <div className="flex border-t border-border">
                 <Link
-                  to="/runs/$id"
+                  to="/ci/runs/$id"
                   params={{ id: gate.runId }}
                   className={`flex-1 px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-center ${
                     gate.status === 'pending' ? 'border-r border-border' : ''

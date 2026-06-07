@@ -12,14 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LoadtestRouteImport } from './routes/loadtest'
-import { Route as GatesRouteImport } from './routes/gates'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
-import { Route as RunsIndexRouteImport } from './routes/runs.index'
-import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as CiIndexRouteImport } from './routes/ci.index'
 import { Route as SettingsWorkspacesRouteImport } from './routes/settings.workspaces'
 import { Route as SettingsVariablesRouteImport } from './routes/settings.variables'
 import { Route as SettingsUsersRouteImport } from './routes/settings.users'
@@ -33,14 +30,18 @@ import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.envi
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsAuditLogRouteImport } from './routes/settings.audit-log'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings.api-keys'
-import { Route as RunsIdRouteImport } from './routes/runs.$id'
-import { Route as ProjectsIdRouteImport } from './routes/projects.$id'
+import { Route as CiProjectsRouteImport } from './routes/ci.projects'
+import { Route as CiGatesRouteImport } from './routes/ci.gates'
 import { Route as SettingsUsersIndexRouteImport } from './routes/settings.users.index'
 import { Route as SettingsTeamsIndexRouteImport } from './routes/settings.teams.index'
 import { Route as SettingsEnvironmentsIndexRouteImport } from './routes/settings.environments.index'
+import { Route as CiRunsIndexRouteImport } from './routes/ci.runs.index'
+import { Route as CiProjectsIndexRouteImport } from './routes/ci.projects.index'
 import { Route as SettingsUsersIdRouteImport } from './routes/settings.users.$id'
 import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id'
 import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
+import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
+import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
@@ -58,11 +59,6 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProjectsRoute = ProjectsRouteImport.update({
-  id: '/projects',
-  path: '/projects',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -71,11 +67,6 @@ const LoginRoute = LoginRouteImport.update({
 const LoadtestRoute = LoadtestRouteImport.update({
   id: '/loadtest',
   path: '/loadtest',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GatesRoute = GatesRouteImport.update({
-  id: '/gates',
-  path: '/gates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -88,15 +79,10 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
-const RunsIndexRoute = RunsIndexRouteImport.update({
-  id: '/runs/',
-  path: '/runs/',
+const CiIndexRoute = CiIndexRouteImport.update({
+  id: '/ci/',
+  path: '/ci/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ProjectsRoute,
 } as any)
 const SettingsWorkspacesRoute = SettingsWorkspacesRouteImport.update({
   id: '/workspaces',
@@ -163,15 +149,15 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => SettingsRoute,
 } as any)
-const RunsIdRoute = RunsIdRouteImport.update({
-  id: '/runs/$id',
-  path: '/runs/$id',
+const CiProjectsRoute = CiProjectsRouteImport.update({
+  id: '/ci/projects',
+  path: '/ci/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProjectsIdRoute = ProjectsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => ProjectsRoute,
+const CiGatesRoute = CiGatesRouteImport.update({
+  id: '/ci/gates',
+  path: '/ci/gates',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsUsersIndexRoute = SettingsUsersIndexRouteImport.update({
   id: '/',
@@ -189,6 +175,16 @@ const SettingsEnvironmentsIndexRoute =
     path: '/',
     getParentRoute: () => SettingsEnvironmentsRoute,
   } as any)
+const CiRunsIndexRoute = CiRunsIndexRouteImport.update({
+  id: '/ci/runs/',
+  path: '/ci/runs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CiProjectsIndexRoute = CiProjectsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CiProjectsRoute,
+} as any)
 const SettingsUsersIdRoute = SettingsUsersIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -204,6 +200,16 @@ const SettingsEnvironmentsIdRoute = SettingsEnvironmentsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => SettingsEnvironmentsRoute,
 } as any)
+const CiRunsIdRoute = CiRunsIdRouteImport.update({
+  id: '/ci/runs/$id',
+  path: '/ci/runs/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CiProjectsIdRoute = CiProjectsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => CiProjectsRoute,
+} as any)
 const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
   id: '/api/rpc/$',
   path: '/api/rpc/$',
@@ -212,15 +218,13 @@ const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/gates': typeof GatesRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
-  '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/workflows': typeof WorkflowsRoute
-  '/projects/$id': typeof ProjectsIdRoute
-  '/runs/$id': typeof RunsIdRoute
+  '/ci/gates': typeof CiGatesRoute
+  '/ci/projects': typeof CiProjectsRouteWithChildren
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -234,26 +238,27 @@ export interface FileRoutesByFullPath {
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
-  '/projects/': typeof ProjectsIndexRoute
-  '/runs/': typeof RunsIndexRoute
+  '/ci/': typeof CiIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/ci/projects/$id': typeof CiProjectsIdRoute
+  '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
+  '/ci/projects/': typeof CiProjectsIndexRoute
+  '/ci/runs/': typeof CiRunsIndexRoute
   '/settings/environments/': typeof SettingsEnvironmentsIndexRoute
   '/settings/teams/': typeof SettingsTeamsIndexRoute
   '/settings/users/': typeof SettingsUsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/gates': typeof GatesRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
   '/teams': typeof TeamsRoute
   '/workflows': typeof WorkflowsRoute
-  '/projects/$id': typeof ProjectsIdRoute
-  '/runs/$id': typeof RunsIdRoute
+  '/ci/gates': typeof CiGatesRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -264,13 +269,16 @@ export interface FileRoutesByTo {
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
-  '/projects': typeof ProjectsIndexRoute
-  '/runs': typeof RunsIndexRoute
+  '/ci': typeof CiIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/ci/projects/$id': typeof CiProjectsIdRoute
+  '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
+  '/ci/projects': typeof CiProjectsIndexRoute
+  '/ci/runs': typeof CiRunsIndexRoute
   '/settings/environments': typeof SettingsEnvironmentsIndexRoute
   '/settings/teams': typeof SettingsTeamsIndexRoute
   '/settings/users': typeof SettingsUsersIndexRoute
@@ -278,15 +286,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/gates': typeof GatesRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
-  '/projects': typeof ProjectsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/workflows': typeof WorkflowsRoute
-  '/projects/$id': typeof ProjectsIdRoute
-  '/runs/$id': typeof RunsIdRoute
+  '/ci/gates': typeof CiGatesRoute
+  '/ci/projects': typeof CiProjectsRouteWithChildren
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -300,13 +306,16 @@ export interface FileRoutesById {
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
-  '/projects/': typeof ProjectsIndexRoute
-  '/runs/': typeof RunsIndexRoute
+  '/ci/': typeof CiIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/ci/projects/$id': typeof CiProjectsIdRoute
+  '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
+  '/ci/projects/': typeof CiProjectsIndexRoute
+  '/ci/runs/': typeof CiRunsIndexRoute
   '/settings/environments/': typeof SettingsEnvironmentsIndexRoute
   '/settings/teams/': typeof SettingsTeamsIndexRoute
   '/settings/users/': typeof SettingsUsersIndexRoute
@@ -315,15 +324,13 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/gates'
     | '/loadtest'
     | '/login'
-    | '/projects'
     | '/settings'
     | '/teams'
     | '/workflows'
-    | '/projects/$id'
-    | '/runs/$id'
+    | '/ci/gates'
+    | '/ci/projects'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
@@ -337,26 +344,27 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/settings/variables'
     | '/settings/workspaces'
-    | '/projects/'
-    | '/runs/'
+    | '/ci/'
     | '/settings/'
     | '/api/rpc/$'
+    | '/ci/projects/$id'
+    | '/ci/runs/$id'
     | '/settings/environments/$id'
     | '/settings/teams/$id'
     | '/settings/users/$id'
+    | '/ci/projects/'
+    | '/ci/runs/'
     | '/settings/environments/'
     | '/settings/teams/'
     | '/settings/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/gates'
     | '/loadtest'
     | '/login'
     | '/teams'
     | '/workflows'
-    | '/projects/$id'
-    | '/runs/$id'
+    | '/ci/gates'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
@@ -367,28 +375,29 @@ export interface FileRouteTypes {
     | '/settings/sso'
     | '/settings/variables'
     | '/settings/workspaces'
-    | '/projects'
-    | '/runs'
+    | '/ci'
     | '/settings'
     | '/api/rpc/$'
+    | '/ci/projects/$id'
+    | '/ci/runs/$id'
     | '/settings/environments/$id'
     | '/settings/teams/$id'
     | '/settings/users/$id'
+    | '/ci/projects'
+    | '/ci/runs'
     | '/settings/environments'
     | '/settings/teams'
     | '/settings/users'
   id:
     | '__root__'
     | '/'
-    | '/gates'
     | '/loadtest'
     | '/login'
-    | '/projects'
     | '/settings'
     | '/teams'
     | '/workflows'
-    | '/projects/$id'
-    | '/runs/$id'
+    | '/ci/gates'
+    | '/ci/projects'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
@@ -402,13 +411,16 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/settings/variables'
     | '/settings/workspaces'
-    | '/projects/'
-    | '/runs/'
+    | '/ci/'
     | '/settings/'
     | '/api/rpc/$'
+    | '/ci/projects/$id'
+    | '/ci/runs/$id'
     | '/settings/environments/$id'
     | '/settings/teams/$id'
     | '/settings/users/$id'
+    | '/ci/projects/'
+    | '/ci/runs/'
     | '/settings/environments/'
     | '/settings/teams/'
     | '/settings/users/'
@@ -416,16 +428,17 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  GatesRoute: typeof GatesRoute
   LoadtestRoute: typeof LoadtestRoute
   LoginRoute: typeof LoginRoute
-  ProjectsRoute: typeof ProjectsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
   WorkflowsRoute: typeof WorkflowsRoute
-  RunsIdRoute: typeof RunsIdRoute
-  RunsIndexRoute: typeof RunsIndexRoute
+  CiGatesRoute: typeof CiGatesRoute
+  CiProjectsRoute: typeof CiProjectsRouteWithChildren
+  CiIndexRoute: typeof CiIndexRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
+  CiRunsIdRoute: typeof CiRunsIdRoute
+  CiRunsIndexRoute: typeof CiRunsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -451,13 +464,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects': {
-      id: '/projects'
-      path: '/projects'
-      fullPath: '/projects'
-      preLoaderRoute: typeof ProjectsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -470,13 +476,6 @@ declare module '@tanstack/react-router' {
       path: '/loadtest'
       fullPath: '/loadtest'
       preLoaderRoute: typeof LoadtestRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gates': {
-      id: '/gates'
-      path: '/gates'
-      fullPath: '/gates'
-      preLoaderRoute: typeof GatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -493,19 +492,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/runs/': {
-      id: '/runs/'
-      path: '/runs'
-      fullPath: '/runs/'
-      preLoaderRoute: typeof RunsIndexRouteImport
+    '/ci/': {
+      id: '/ci/'
+      path: '/ci'
+      fullPath: '/ci/'
+      preLoaderRoute: typeof CiIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/projects/': {
-      id: '/projects/'
-      path: '/'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof ProjectsIndexRouteImport
-      parentRoute: typeof ProjectsRoute
     }
     '/settings/workspaces': {
       id: '/settings/workspaces'
@@ -598,19 +590,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/runs/$id': {
-      id: '/runs/$id'
-      path: '/runs/$id'
-      fullPath: '/runs/$id'
-      preLoaderRoute: typeof RunsIdRouteImport
+    '/ci/projects': {
+      id: '/ci/projects'
+      path: '/ci/projects'
+      fullPath: '/ci/projects'
+      preLoaderRoute: typeof CiProjectsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/$id': {
-      id: '/projects/$id'
-      path: '/$id'
-      fullPath: '/projects/$id'
-      preLoaderRoute: typeof ProjectsIdRouteImport
-      parentRoute: typeof ProjectsRoute
+    '/ci/gates': {
+      id: '/ci/gates'
+      path: '/ci/gates'
+      fullPath: '/ci/gates'
+      preLoaderRoute: typeof CiGatesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/settings/users/': {
       id: '/settings/users/'
@@ -633,6 +625,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsEnvironmentsIndexRouteImport
       parentRoute: typeof SettingsEnvironmentsRoute
     }
+    '/ci/runs/': {
+      id: '/ci/runs/'
+      path: '/ci/runs'
+      fullPath: '/ci/runs/'
+      preLoaderRoute: typeof CiRunsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ci/projects/': {
+      id: '/ci/projects/'
+      path: '/'
+      fullPath: '/ci/projects/'
+      preLoaderRoute: typeof CiProjectsIndexRouteImport
+      parentRoute: typeof CiProjectsRoute
+    }
     '/settings/users/$id': {
       id: '/settings/users/$id'
       path: '/$id'
@@ -654,6 +660,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsEnvironmentsIdRouteImport
       parentRoute: typeof SettingsEnvironmentsRoute
     }
+    '/ci/runs/$id': {
+      id: '/ci/runs/$id'
+      path: '/ci/runs/$id'
+      fullPath: '/ci/runs/$id'
+      preLoaderRoute: typeof CiRunsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ci/projects/$id': {
+      id: '/ci/projects/$id'
+      path: '/$id'
+      fullPath: '/ci/projects/$id'
+      preLoaderRoute: typeof CiProjectsIdRouteImport
+      parentRoute: typeof CiProjectsRoute
+    }
     '/api/rpc/$': {
       id: '/api/rpc/$'
       path: '/api/rpc/$'
@@ -663,20 +683,6 @@ declare module '@tanstack/react-router' {
     }
   }
 }
-
-interface ProjectsRouteChildren {
-  ProjectsIdRoute: typeof ProjectsIdRoute
-  ProjectsIndexRoute: typeof ProjectsIndexRoute
-}
-
-const ProjectsRouteChildren: ProjectsRouteChildren = {
-  ProjectsIdRoute: ProjectsIdRoute,
-  ProjectsIndexRoute: ProjectsIndexRoute,
-}
-
-const ProjectsRouteWithChildren = ProjectsRoute._addFileChildren(
-  ProjectsRouteChildren,
-)
 
 interface SettingsEnvironmentsRouteChildren {
   SettingsEnvironmentsIdRoute: typeof SettingsEnvironmentsIdRoute
@@ -757,18 +763,33 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
+interface CiProjectsRouteChildren {
+  CiProjectsIdRoute: typeof CiProjectsIdRoute
+  CiProjectsIndexRoute: typeof CiProjectsIndexRoute
+}
+
+const CiProjectsRouteChildren: CiProjectsRouteChildren = {
+  CiProjectsIdRoute: CiProjectsIdRoute,
+  CiProjectsIndexRoute: CiProjectsIndexRoute,
+}
+
+const CiProjectsRouteWithChildren = CiProjectsRoute._addFileChildren(
+  CiProjectsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  GatesRoute: GatesRoute,
   LoadtestRoute: LoadtestRoute,
   LoginRoute: LoginRoute,
-  ProjectsRoute: ProjectsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,
   WorkflowsRoute: WorkflowsRoute,
-  RunsIdRoute: RunsIdRoute,
-  RunsIndexRoute: RunsIndexRoute,
+  CiGatesRoute: CiGatesRoute,
+  CiProjectsRoute: CiProjectsRouteWithChildren,
+  CiIndexRoute: CiIndexRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
+  CiRunsIdRoute: CiRunsIdRoute,
+  CiRunsIndexRoute: CiRunsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

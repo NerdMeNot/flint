@@ -122,7 +122,7 @@ function EnvironmentDetailPage() {
             {envProjects.map((project) => (
               <Link
                 key={project.id}
-                to="/projects/$id"
+                to="/ci/projects/$id"
                 params={{ id: project.id }}
                 className="island-shell p-3 flex items-center gap-3 hover:bg-accent/30 transition-colors group"
               >

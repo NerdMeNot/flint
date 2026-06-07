@@ -11,7 +11,7 @@ import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const DEFAULT_PAGE_SIZE = 15
 
-export const Route = createFileRoute('/runs/')({
+export const Route = createFileRoute('/ci/runs/')({
   component: RunsListPage,
 })
 

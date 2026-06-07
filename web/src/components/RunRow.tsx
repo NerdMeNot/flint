@@ -88,7 +88,7 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
 
   return (
     <Link
-      to="/runs/$id"
+      to="/ci/runs/$id"
       params={{ id: run.id }}
       className="flex hover:bg-accent/50 transition-colors group relative"
     >
