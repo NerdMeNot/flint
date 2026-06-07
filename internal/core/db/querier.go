@@ -134,6 +134,8 @@ type Querier interface {
 	InsertSignal(ctx context.Context, arg InsertSignalParams) error
 	InsertStep(ctx context.Context, arg InsertStepParams) error
 	InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) (string, error)
+	// A non-CI workflow run: no project, no pipeline file. kind marks it 'workflow'.
+	InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunParams) error
 	IsEnvVariableSecret(ctx context.Context, id string) (bool, error)
 	IsUserInTeamBySlug(ctx context.Context, arg IsUserInTeamBySlugParams) (bool, error)
 	LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error)

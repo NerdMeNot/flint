@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	engine "github.com/NerdMeNot/flint/internal/core/engine"
+	pipeline "github.com/NerdMeNot/flint/pkg/pipeline"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -124,6 +125,33 @@ func (_m *Engine) StartWorkflow(ctx context.Context, input engine.StartWorkflowI
 
 	if rf, ok := ret.Get(1).(func(context.Context, engine.StartWorkflowInput) error); ok {
 		r1 = rf(ctx, input)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// StartWorkflowWithWaves provides a mock function with given fields: ctx, input, waves
+func (_m *Engine) StartWorkflowWithWaves(ctx context.Context, input engine.StartWorkflowInput, waves [][]pipeline.Step) (string, error) {
+	ret := _m.Called(ctx, input, waves)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartWorkflowWithWaves")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step) (string, error)); ok {
+		return rf(ctx, input, waves)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step) string); ok {
+		r0 = rf(ctx, input, waves)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step) error); ok {
+		r1 = rf(ctx, input, waves)
 	} else {
 		r1 = ret.Error(1)
 	}

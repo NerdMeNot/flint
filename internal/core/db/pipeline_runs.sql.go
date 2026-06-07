@@ -50,9 +50,9 @@ FROM pipeline_runs WHERE id = $1
 `
 
 type GetOriginalRunParamsRow struct {
-	ProjectID    string  `json:"project_id"`
+	ProjectID    *string `json:"project_id"`
 	OrgID        string  `json:"org_id"`
-	WorkflowFile string  `json:"workflow_file"`
+	WorkflowFile *string `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
 	CommitSha    *string `json:"commit_sha"`
 	Environment  *string `json:"environment"`
@@ -82,8 +82,8 @@ WHERE id = $1
 
 type GetRunRow struct {
 	ID            string      `json:"id"`
-	ProjectID     string      `json:"project_id"`
-	WorkflowFile  string      `json:"workflow_file"`
+	ProjectID     *string     `json:"project_id"`
+	WorkflowFile  *string     `json:"workflow_file"`
 	TriggerType   string      `json:"trigger_type"`
 	TriggerRef    *string     `json:"trigger_ref"`
 	CommitSha     *string     `json:"commit_sha"`
@@ -151,9 +151,9 @@ VALUES ($1, $2, $3, $4, 'manual', $5, 'api', $6, 'pending')
 
 type InsertManualRunParams struct {
 	ID           string  `json:"id"`
-	ProjectID    string  `json:"project_id"`
+	ProjectID    *string `json:"project_id"`
 	OrgID        string  `json:"org_id"`
-	WorkflowFile string  `json:"workflow_file"`
+	WorkflowFile *string `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
 	Environment  *string `json:"environment"`
 }
@@ -179,9 +179,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
 
 type InsertPipelineRunParams struct {
 	ID            string  `json:"id"`
-	ProjectID     string  `json:"project_id"`
+	ProjectID     *string `json:"project_id"`
 	OrgID         string  `json:"org_id"`
-	WorkflowFile  string  `json:"workflow_file"`
+	WorkflowFile  *string `json:"workflow_file"`
 	TriggerType   string  `json:"trigger_type"`
 	TriggerRef    *string `json:"trigger_ref"`
 	CommitSha     *string `json:"commit_sha"`
@@ -214,9 +214,9 @@ VALUES ($1, $2, $3, $4, 'retry', $5, $6, 'api', $7, 'pending')
 
 type InsertRetryRunParams struct {
 	ID           string  `json:"id"`
-	ProjectID    string  `json:"project_id"`
+	ProjectID    *string `json:"project_id"`
 	OrgID        string  `json:"org_id"`
-	WorkflowFile string  `json:"workflow_file"`
+	WorkflowFile *string `json:"workflow_file"`
 	TriggerRef   *string `json:"trigger_ref"`
 	CommitSha    *string `json:"commit_sha"`
 	Environment  *string `json:"environment"`
@@ -235,6 +235,29 @@ func (q *Queries) InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) 
 	return err
 }
 
+const insertWorkflowRun = `-- name: InsertWorkflowRun :exec
+INSERT INTO pipeline_runs (id, org_id, kind, trigger_type, triggered_by, status)
+VALUES ($1, $2, 'workflow', $3, $4, 'pending')
+`
+
+type InsertWorkflowRunParams struct {
+	ID          string  `json:"id"`
+	OrgID       string  `json:"org_id"`
+	TriggerType string  `json:"trigger_type"`
+	TriggeredBy *string `json:"triggered_by"`
+}
+
+// A non-CI workflow run: no project, no pipeline file. kind marks it 'workflow'.
+func (q *Queries) InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunParams) error {
+	_, err := q.db.Exec(ctx, insertWorkflowRun,
+		arg.ID,
+		arg.OrgID,
+		arg.TriggerType,
+		arg.TriggeredBy,
+	)
+	return err
+}
+
 const listRunsAll = `-- name: ListRunsAll :many
 SELECT pr.id, pr.project_id, p.display_name AS project_name, p.colour AS project_colour,
        pr.status, pr.trigger_type, pr.trigger_ref, pr.commit_sha,
@@ -247,7 +270,7 @@ LIMIT $1
 
 type ListRunsAllRow struct {
 	ID            string      `json:"id"`
-	ProjectID     string      `json:"project_id"`
+	ProjectID     *string     `json:"project_id"`
 	ProjectName   *string     `json:"project_name"`
 	ProjectColour string      `json:"project_colour"`
 	Status        string      `json:"status"`
@@ -304,13 +327,13 @@ LIMIT $2
 `
 
 type ListRunsByProjectParams struct {
-	ProjectID string `json:"project_id"`
-	Limit     int32  `json:"limit"`
+	ProjectID *string `json:"project_id"`
+	Limit     int32   `json:"limit"`
 }
 
 type ListRunsByProjectRow struct {
 	ID            string      `json:"id"`
-	WorkflowFile  string      `json:"workflow_file"`
+	WorkflowFile  *string     `json:"workflow_file"`
 	TriggerType   string      `json:"trigger_type"`
 	TriggerRef    *string     `json:"trigger_ref"`
 	CommitSha     *string     `json:"commit_sha"`

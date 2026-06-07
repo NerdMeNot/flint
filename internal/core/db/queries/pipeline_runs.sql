@@ -34,6 +34,11 @@ INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
     trigger_type, trigger_ref, triggered_by, environment, status)
 VALUES ($1, $2, $3, $4, 'manual', $5, 'api', $6, 'pending');
 
+-- name: InsertWorkflowRun :exec
+-- A non-CI workflow run: no project, no pipeline file. kind marks it 'workflow'.
+INSERT INTO pipeline_runs (id, org_id, kind, trigger_type, triggered_by, status)
+VALUES ($1, $2, 'workflow', $3, $4, 'pending');
+
 -- name: InsertRetryRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
     trigger_type, trigger_ref, commit_sha, triggered_by, environment, status)

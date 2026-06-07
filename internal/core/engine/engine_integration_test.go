@@ -93,9 +93,9 @@ func insertTestRun(t *testing.T, q *db.Queries, runID, projectID, orgID string) 
 	t.Helper()
 	err := q.InsertPipelineRun(context.Background(), db.InsertPipelineRunParams{
 		ID:           runID,
-		ProjectID:    projectID,
+		ProjectID:    &projectID,
 		OrgID:        orgID,
-		WorkflowFile: "ci.yaml",
+		WorkflowFile: strPtr("ci.yaml"),
 		TriggerType:  "manual",
 		TriggerRef:   strPtr("main"),
 		TriggeredBy:  strPtr("test"),

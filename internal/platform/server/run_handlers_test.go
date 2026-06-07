@@ -148,10 +148,12 @@ func TestHandleRetryRun_Success(t *testing.T) {
 
 	branch := "main"
 	sha := "abc123"
+	projectID := "proj-1"
+	workflowFile := "ci.yaml"
 	m.Querier.On("GetOriginalRunParams", mock.Anything, "run-retry").Return(db.GetOriginalRunParamsRow{
-		ProjectID:    "proj-1",
+		ProjectID:    &projectID,
 		OrgID:        "org-1",
-		WorkflowFile: "ci.yaml",
+		WorkflowFile: &workflowFile,
 		TriggerRef:   &branch,
 		CommitSha:    &sha,
 	}, nil)
@@ -165,7 +167,8 @@ func TestHandleRetryRun_Success(t *testing.T) {
 	}, nil)
 
 	m.Querier.On("InsertRetryRun", mock.Anything, mock.MatchedBy(func(p db.InsertRetryRunParams) bool {
-		return p.ProjectID == "proj-1" && p.OrgID == "org-1" && p.WorkflowFile == "ci.yaml"
+		return p.ProjectID != nil && *p.ProjectID == "proj-1" && p.OrgID == "org-1" &&
+			p.WorkflowFile != nil && *p.WorkflowFile == "ci.yaml"
 	})).Return(nil)
 
 	m.Engine.On("StartWorkflow", mock.Anything, mock.MatchedBy(func(inp engine.StartWorkflowInput) bool {

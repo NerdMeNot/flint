@@ -17,6 +17,8 @@ package engine
 import (
 	"context"
 	"time"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // Engine is the interface for all workflow operations.
@@ -26,6 +28,12 @@ type Engine interface {
 	// resolves the DAG, creates step rows, and queues wave-0 steps.
 	// All in a single Postgres transaction.
 	StartWorkflow(ctx context.Context, input StartWorkflowInput) (workflowID string, err error)
+
+	// StartWorkflowWithWaves starts a workflow from an already-resolved DAG,
+	// with no forge or pipeline-YAML involvement — the product-neutral entry
+	// point used by non-CI products (Flint Workflows). Same transaction and
+	// idempotency semantics as StartWorkflow.
+	StartWorkflowWithWaves(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step) (workflowID string, err error)
 
 	// CompleteStep reports that a step has finished (success or failure).
 	// Validates the task token, updates step status, handles retries,

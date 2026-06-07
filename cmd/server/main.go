@@ -12,6 +12,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	flintserver "github.com/NerdMeNot/flint/internal/platform/server"
+	"github.com/NerdMeNot/flint/internal/products/workflows"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/rs/zerolog/log"
@@ -227,6 +228,13 @@ func run(cmd *cobra.Command, args []string) error {
 		OIDCProvider: oidcProvider,
 		SAMLProvider: samlProvider,
 		Enforcer:     enforcer,
+	}
+
+	// Mount product route surfaces here (composition root), so the platform
+	// server never imports product packages.
+	if cfg.Products.Workflows.Enabled {
+		deps.APIRoutes = append(deps.APIRoutes, workflows.NewAPI(eng, q).Register)
+		log.Info().Msg("product enabled: workflows")
 	}
 
 	srv := flintserver.New(deps)

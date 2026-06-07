@@ -175,6 +175,12 @@ func (s *Server) registerAPIRoutes() {
 
 	// Auth.
 	// Auth routes (login, callback, device flow) registered separately in server.go.
+
+	// Product routes (e.g. Flint Workflows), wired by the composition root so the
+	// platform server doesn't import product packages.
+	for _, register := range s.deps.APIRoutes {
+		register(v1)
+	}
 }
 
 // ── Stats ─────────────────────────────────────────────────────
@@ -638,8 +644,8 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 	}
 
 	err = s.deps.Q.InsertManualRun(ctx, db.InsertManualRunParams{
-		ID: runID, ProjectID: req.ProjectID, OrgID: info.OrgID,
-		WorkflowFile: req.WorkflowFile, TriggerRef: &req.Branch,
+		ID: runID, ProjectID: &req.ProjectID, OrgID: info.OrgID,
+		WorkflowFile: &req.WorkflowFile, TriggerRef: &req.Branch,
 		Environment: env,
 	})
 	if err != nil {
