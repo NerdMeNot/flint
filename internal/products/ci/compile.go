@@ -90,10 +90,10 @@ func compileSteps(steps []Step) []pipeline.Step {
 	out := make([]pipeline.Step, 0, len(steps))
 	for _, s := range steps {
 		out = append(out, pipeline.Step{
-			Name:            s.Name,
-			Run:             s.Run,
-			Use:             s.Use,
-			With:            s.With,
+			Name: s.Name,
+			Run:  s.Run,
+			// Use/With are resolved away by module expansion before Compile; a
+			// compiled step is always a concrete run/action.
 			Env:             s.Env,
 			Secrets:         compileSecrets(nil, s.Secrets),
 			Shell:           s.Shell,

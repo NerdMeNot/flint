@@ -35,8 +35,8 @@ type Pipeline struct {
 
 	// Extends references a pipeline module to inherit jobs from; With supplies
 	// its inputs. Module resolution happens before parse-into-this-struct.
-	Extends string            `yaml:"extends,omitempty" json:"extends,omitempty"`
-	With    map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
+	Extends string         `yaml:"extends,omitempty" json:"extends,omitempty"`
+	With    map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
 
 	// Triggers defines when runs are created (reuses the engine trigger types).
 	Triggers pipeline.Triggers `yaml:"triggers" json:"triggers"`
@@ -89,8 +89,8 @@ type Job struct {
 	Concurrency *Concurrency `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 
 	// Reuse: a job module reference + its inputs (resolved before validation).
-	Use  string            `yaml:"use,omitempty" json:"use,omitempty"`
-	With map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
+	Use  string         `yaml:"use,omitempty" json:"use,omitempty"`
+	With map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
 }
 
 // Step is a single command inside a job's pod. Steps run sequentially and share
@@ -99,7 +99,7 @@ type Step struct {
 	Name            string              `yaml:"name,omitempty" json:"name,omitempty"`
 	Run             pipeline.RunCommand `yaml:"run,omitempty" json:"run,omitempty"`
 	Use             string              `yaml:"use,omitempty" json:"use,omitempty"`
-	With            map[string]string   `yaml:"with,omitempty" json:"with,omitempty"`
+	With            map[string]any      `yaml:"with,omitempty" json:"with,omitempty"`
 	Inject          string              `yaml:"inject,omitempty" json:"inject,omitempty"` // steps-hole (modules)
 	Env             map[string]string   `yaml:"env,omitempty" json:"env,omitempty"`
 	Secrets         []Secret            `yaml:"secrets,omitempty" json:"secrets,omitempty"`
