@@ -195,6 +195,7 @@ require (
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.4.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/russellhaering/goxmldsig v1.4.0 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sajari/fuzzy v1.0.0 // indirect
