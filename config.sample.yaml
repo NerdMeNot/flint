@@ -62,3 +62,12 @@ storage:
 encryption:
   masterKey: ""  # hex-encoded 32-byte key; generate with: openssl rand -hex 32
   masterKeyVersion: 1
+
+# Products — which top-level sections the unified UI exposes. CI and Workflows
+# default on; Load Testing has no backend yet (shown as "Coming Soon").
+# The UI reads this via GET /api/v1/capabilities.
+products:
+  ci:
+    enabled: true
+  workflows:
+    enabled: true
