@@ -79,6 +79,10 @@ func (s *Server) registerAPIRoutes() {
 		s.authMiddleware(),
 	)
 
+	// Capabilities — which product sections the unified UI should render. Any
+	// authenticated user needs this to build the top-level navigation.
+	v1.GET("/capabilities", s.handleCapabilities)
+
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
 	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
@@ -86,28 +90,31 @@ func (s *Server) registerAPIRoutes() {
 	// Org.
 	v1.GET("/org", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.getOrg)
 
-	// Projects.
-	v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
-	v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
-	v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
-	v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
-	v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
-	v1.DELETE("/projects/:id/webhooks/:webhookId", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
+	// CI product routes — gated by products.ci.enabled (default on).
+	if s.deps.Config.Products.CIEnabled() {
+		// Projects.
+		v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
+		v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
+		v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
+		v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
+		v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
+		v1.DELETE("/projects/:id/webhooks/:webhookId", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
 
-	// Runs (global list + per-run operations).
-	v1.GET("/runs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListRuns)
-	v1.GET("/runs/:id", s.requirePermission(auth.ObjRun, auth.ActRead), s.getRun)
-	v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
-	v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
-	v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
-	v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
-	v1.POST("/runs/:id/cancel", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleCancelRun)
-	v1.POST("/runs/:id/retry", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryRun)
+		// Runs (global list + per-run operations).
+		v1.GET("/runs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListRuns)
+		v1.GET("/runs/:id", s.requirePermission(auth.ObjRun, auth.ActRead), s.getRun)
+		v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
+		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
+		v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
+		v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
+		v1.POST("/runs/:id/cancel", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleCancelRun)
+		v1.POST("/runs/:id/retry", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryRun)
 
-	// Gates.
-	v1.GET("/gates", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListGates)
-	v1.POST("/runs/:id/gates/:step/approve", s.requirePermission(auth.ObjGate, auth.ActApprove), s.handleApproveGate)
-	v1.POST("/runs/:id/gates/:step/reject", s.requirePermission(auth.ObjGate, auth.ActReject), s.handleRejectGate)
+		// Gates.
+		v1.GET("/gates", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListGates)
+		v1.POST("/runs/:id/gates/:step/approve", s.requirePermission(auth.ObjGate, auth.ActApprove), s.handleApproveGate)
+		v1.POST("/runs/:id/gates/:step/reject", s.requirePermission(auth.ObjGate, auth.ActReject), s.handleRejectGate)
+	}
 
 	// Teams.
 	v1.GET("/teams", s.requirePermission(auth.ObjTeam, auth.ActRead), s.handleListTeams)

@@ -23,16 +23,36 @@ type Config struct {
 	Products   ProductsConfig   `mapstructure:"products"`
 }
 
-// ProductsConfig toggles the family's products. CI is always on; other products
-// are opt-in so a deployment only exposes what it runs.
+// ProductsConfig toggles the family's products for a deployment. The unified UI
+// reads these (via /api/v1/capabilities) to decide which top-level sections to
+// render; the server gates each product's routes the same way.
 type ProductsConfig struct {
+	CI        ProductToggle `mapstructure:"ci"`
 	Workflows ProductToggle `mapstructure:"workflows"`
+	LoadTest  ProductToggle `mapstructure:"loadtest"`
 }
 
-// ProductToggle enables a product surface (routes, etc.).
+// ProductToggle enables a product surface (routes, nav). Enabled is a pointer so
+// an unset value can default differently per product (CI and Workflows default
+// on; an explicit `enabled: false` turns one off).
 type ProductToggle struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled *bool `mapstructure:"enabled"`
 }
+
+func (t ProductToggle) enabledOr(def bool) bool {
+	if t.Enabled != nil {
+		return *t.Enabled
+	}
+	return def
+}
+
+// CIEnabled and WorkflowsEnabled default to true — both products ship today.
+func (p ProductsConfig) CIEnabled() bool        { return p.CI.enabledOr(true) }
+func (p ProductsConfig) WorkflowsEnabled() bool { return p.Workflows.enabledOr(true) }
+
+// LoadTestEnabled is always false for now: Load Testing has no backend yet, so
+// the UI shows it as "coming soon" rather than a working section.
+func (p ProductsConfig) LoadTestEnabled() bool { return false }
 
 // SyncConfig configures the IdP sync daemon.
 type SyncConfig struct {
