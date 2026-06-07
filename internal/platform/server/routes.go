@@ -175,6 +175,12 @@ func (s *Server) registerAPIRoutes() {
 
 	// Auth.
 	// Auth routes (login, callback, device flow) registered separately in server.go.
+
+	// Product routes (e.g. Flint Workflows), wired by the composition root so the
+	// platform server doesn't import product packages.
+	for _, register := range s.deps.APIRoutes {
+		register(v1)
+	}
 }
 
 // ── Stats ─────────────────────────────────────────────────────

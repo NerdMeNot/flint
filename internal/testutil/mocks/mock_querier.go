@@ -2878,6 +2878,23 @@ func (_m *Querier) InsertPipelineRun(ctx context.Context, arg db.InsertPipelineR
 	return r0
 }
 
+func (_m *Querier) InsertWorkflowRun(ctx context.Context, arg db.InsertWorkflowRunParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertWorkflowRun")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertWorkflowRunParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // InsertRetryRun provides a mock function with given fields: ctx, arg
 func (_m *Querier) InsertRetryRun(ctx context.Context, arg db.InsertRetryRunParams) error {
 	ret := _m.Called(ctx, arg)

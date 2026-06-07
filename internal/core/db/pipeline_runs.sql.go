@@ -235,6 +235,29 @@ func (q *Queries) InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) 
 	return err
 }
 
+const insertWorkflowRun = `-- name: InsertWorkflowRun :exec
+INSERT INTO pipeline_runs (id, org_id, kind, trigger_type, triggered_by, status)
+VALUES ($1, $2, 'workflow', $3, $4, 'pending')
+`
+
+type InsertWorkflowRunParams struct {
+	ID          string  `json:"id"`
+	OrgID       string  `json:"org_id"`
+	TriggerType string  `json:"trigger_type"`
+	TriggeredBy *string `json:"triggered_by"`
+}
+
+// A non-CI workflow run: no project, no pipeline file. kind marks it 'workflow'.
+func (q *Queries) InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunParams) error {
+	_, err := q.db.Exec(ctx, insertWorkflowRun,
+		arg.ID,
+		arg.OrgID,
+		arg.TriggerType,
+		arg.TriggeredBy,
+	)
+	return err
+}
+
 const listRunsAll = `-- name: ListRunsAll :many
 SELECT pr.id, pr.project_id, p.display_name AS project_name, p.colour AS project_colour,
        pr.status, pr.trigger_type, pr.trigger_ref, pr.commit_sha,

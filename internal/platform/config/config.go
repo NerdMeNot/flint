@@ -20,6 +20,18 @@ type Config struct {
 	Storage    StorageConfig    `mapstructure:"storage"`
 	Forge      ForgeConfig      `mapstructure:"forge"`
 	Encryption EncryptionConfig `mapstructure:"encryption"`
+	Products   ProductsConfig   `mapstructure:"products"`
+}
+
+// ProductsConfig toggles the family's products. CI is always on; other products
+// are opt-in so a deployment only exposes what it runs.
+type ProductsConfig struct {
+	Workflows ProductToggle `mapstructure:"workflows"`
+}
+
+// ProductToggle enables a product surface (routes, etc.).
+type ProductToggle struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // SyncConfig configures the IdP sync daemon.
