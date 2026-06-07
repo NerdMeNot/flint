@@ -1,1747 +1,842 @@
 # Pipeline YAML Specification
 
+> **Status:** canonical. A pipeline is **jobs → steps**: a job is a pod, a step is
+> a command inside that pod. Supersedes the earlier flat-`steps` + auto-coalescing
+> model.
+
 ## Overview
 
-Flint pipelines are declared in YAML files stored in the repository (`.flint/` directory by default). A project can have multiple pipeline files — e.g. `ci.yaml` for pull request checks and `deploy.yaml` for deployments.
+A Flint pipeline is a YAML file under `.flint/` in a repository. It describes a
+DAG of **jobs**. Each job runs in its own isolated environment (a Kubernetes pod
+for container jobs) with its own base image and its own disk. Jobs hand data to
+each other through two explicit channels — `outputs` (values) and `artifacts`
+(files). Inside a job, **steps** run sequentially and share the job's disk.
 
-This is a living document. It defines the full pipeline YAML schema, environment model, trigger system, expression syntax, and validation rules.
+### Design principles
 
-## Minimal Example
+- **Infra-lite, scale-to-zero.** Between runs, only the control plane exists. A
+  run brings up exactly the pods it needs and tears them down. The only growing
+  dependency is an object store (S3-compatible).
+- **The pod boundary is explicit in the YAML.** A job *is* the unit of isolation
+  — different image or disk needs ⇒ a different job.
+- **Cross-pod state has exactly two named doors:** `outputs` and `artifacts`.
+- **One way to do each thing.** No alternative storage backends, coalescing
+  heuristics, or redundant conditional mechanisms surfaced to the user.
 
-```yaml
-# .flint/ci.yaml — plain CI, no environment
-triggers:
-  pull_request: [main]
+---
 
-steps:
-  - name: test
-    run: make test
+## Mental model
+
+```
+pipeline (one .flint/*.yaml file)
+└── jobs                         ← each job is a pod (own image + disk + runner)
+    └── steps                    ← sequential commands inside that pod, shared disk
+
+within a job   →  steps share one disk; fast; no handoff
+across jobs    →  `needs:` + `outputs:` + `artifacts:` (via the object store)
 ```
 
-```yaml
-# .flint/deploy.yaml — CD pipeline with environments
-triggers:
-  push:
-    branches: [main]
-    environments: [staging]
-  promotion:
-    from: staging
-    environments: [production]
+A simple pipeline is **one job with several steps** = one pod = no object store,
+nothing persistent. Complexity appears only when you add a second job.
 
+> **Terminology.** User-facing: **pipeline → jobs → steps**. The engine underneath
+> is product-neutral and speaks **workflow → waves → steps**; a CI *job* compiles
+> to an engine step-group (one pod) and `needs:` to the engine's dependency graph.
+
+---
+
+## Minimal example
+
+```yaml
+# .flint/ci.yaml — plain CI, single job, single pod
+image: golang:1.26
+triggers:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+jobs:
+  build-test:
+    steps:
+      - run: go build ./...
+      - run: go test ./...
+```
+
+A larger, full-lifecycle example lives at
+[`examples/release.yaml`](examples/release.yaml) (see [Worked example](#worked-example)).
+
+---
+
+## Top-level schema
+
+```yaml
+# Defaults applied to every job that doesn't override them.
+image: golang:1.26
+runner: standard
+serviceAccount: ci-deployer
+
+env:                            # pipeline-wide env (merged into every step)
+  GOFLAGS: -mod=readonly
+secrets:                        # pipeline-wide secrets (see Secrets)
+  - { name: registry-creds, env: REGISTRY_AUTH }
+
+environments: [staging, production]   # restrict targetable environments (optional)
+
+concurrency:                    # run-level concurrency (optional, see Concurrency)
+  group: ${{ project }}-${{ branch }}
+  cancelInProgress: true
+
+triggers: { ... }               # required: at least one
+jobs: { ... }                   # required: at least one
+```
+
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `image`, `runner`, `serviceAccount` | no | Defaults for jobs. |
+| `env`, `secrets` | no | Pipeline-wide env / secrets (merged into all jobs; see those sections). |
+| `environments` | no | If set, the pipeline can only target these. Default: any. |
+| `concurrency` | no | Run-level concurrency group. |
+| `triggers` | yes | At least one. |
+| `jobs` | yes | Map of job-name → job. At least one. |
+
+---
+
+## Jobs
+
+```yaml
+jobs:
+  <job-name>:
+    # — Isolation (per-pod) —
+    image: node:22               # base image (default: top-level image)
+    disk: 20Gi                   # this pod's scratch (default: platform default)
+    runner: gpu-pool             # pool = node class, arch, GPU capability, resource BOUNDS
+    serviceAccount: deployer
+    resources:                   # right-size within the pool's bounds (optional)
+      cpu: "2"                   # request
+      memory: 4Gi
+      limits: { cpu: "3", memory: 6Gi }
+      gpu: 1                     # count, within the pool's GPU allowance
+
+    # — Graph —
+    needs: [build]               # job dependencies (the only cross-pod edges)
+
+    # — Scoping / conditions —
+    environments: [production]   # run only for these target environments
+    if: ${{ branch == 'main' }}  # condition (expression + status functions)
+
+    # — Body (exactly one of: steps | gate) —
+    steps: [ ... ]
+    gate: { ... }
+
+    # — Env / secrets (merged with pipeline-level) —
+    env: { LOG_LEVEL: debug }
+    secrets:
+      - { name: db-password, env: DB_PASSWORD }
+
+    # — Handoff out —
+    outputs: { version: ${{ steps.outputs.version }} }
+    artifacts: [bin/, dist/**/*.js]
+
+    # — Pod features —
+    services:
+      - { name: postgres, image: postgres:16, env: { POSTGRES_PASSWORD: test } }
+    cache:
+      key: deps-${{ hashFiles('go.sum') }}
+      restoreKeys: [deps-]       # partial-hit fallbacks, tried in order
+      paths: [/go/pkg/mod]
+
+    # — Matrix / fan-out —
+    matrix: { go: ["1.25", "1.26"] }
+    failFast: true               # cancel sibling variants on first failure (default true)
+    maxParallel: 2               # cap concurrent variants
+
+    # — Limits —
+    timeout: 30m                 # whole-job budget (default 1h)
+    concurrency: { group: deploy-${{ environment }}, cancelInProgress: false }
+```
+
+Key job rules:
+
+- **`image`** — one image per job. *If a step needs a different image, that's a
+  different job.* (`services` sidecars are the exception.)
+- **`disk`** — this pod's scratch, independent of every other job.
+- **`runner`** — selects a platform-managed pool that fixes the **node class,
+  arch, GPU capability, and the resource bounds** the job may request.
+- **`resources`** — *optional* per-job CPU/memory/GPU, **bounded by the pool**.
+  Lets a job right-size itself (e.g. ask for 3 CPU instead of taking a whole
+  8-CPU pool) for less waste, while the platform keeps guardrails. Omitted ⇒ the
+  pool's default profile. Applies to the **user (step) container**; the init and
+  agent-sidecar overhead stays small and platform-fixed. `gpu` is a count granted
+  within the pool's allowance. `validate` rejects a request beyond the pool's
+  bounds before the run.
+- **`steps` | `gate`** — exactly one. `steps` ⇒ a container (pod) job; `gate` ⇒ a
+  non-pod approval job.
+
+### `needs` semantics
+
+- **Direct-only output scope.** A job may read `${{ needs.<X>.outputs.* }}` only
+  if `<X>` is in its own `needs` — list it explicitly even if you depend on it
+  indirectly.
+- **A skipped need is satisfied, not blocking.** If a needed job is skipped (its
+  `if:` was false, or `environments` excluded the target), downstream jobs still
+  run. Only a *failed* need blocks downstream jobs — and you can still run on
+  failure with `if: ${{ failure() }}` / `${{ always() }}`. This lets one pipeline
+  serve PR, staging, and production from the same graph.
+
+### Conditions: `if:` + status functions
+
+A job (or step) runs when its `if:` evaluates true. **Default `if:` is
+`success()`** — run only if all dependencies (for a job) / prior steps (for a
+step) succeeded and the run wasn't cancelled.
+
+Status functions, available in any `if:`:
+
+| Function | True when |
+|---|---|
+| `success()` | nothing it depends on failed (the implicit default) |
+| `failure()` | at least one dependency/prior step failed |
+| `cancelled()` | the run was cancelled |
+| `always()` | always — runs even on failure/cancel |
+
+Plus `${{ needs.<job>.result }}` (`success` \| `failure` \| `skipped` \|
+`cancelled`) to target a specific upstream:
+
+```yaml
+rollback:
+  needs: [deploy]
+  if: ${{ failure() }}                    # or: needs.deploy.result == 'failure'
+  steps:
+    - run: kubectl -n ${{ environment }} rollout undo deploy/orders-api
+```
+
+> There is no `when:` field. `if:` + status functions is the single conditional
+> mechanism (this replaces the old `when: onSuccess|onFailure|always`).
+
+### Steps (inside a job)
+
+Steps run **sequentially** in the job's pod, sharing its disk and image. Steps
+have no pods, `needs`, `environments`, or `matrix` — those are job concerns.
+
+```yaml
 steps:
-  - name: approve
-    gate:
-      approvers: [role:release-manager]
-    environments: [production]
-  - name: test
-    run: make test
-  - name: security-scan
-    environments: [production]
-    run: make security-scan
-  - name: deploy
-    dependsOn: [approve, test]
-    run: make deploy
+  - run: npm ci
+  - name: build
+    run: [npm run build, npm run bundle]
+    env: { NODE_ENV: production }
+    secrets: [{ name: npm-token, env: NPM_TOKEN }]
+    workingDir: ./web
+    shell: bash                  # sh (default) | bash | python
+    timeout: 10m
+    continueOnError: true        # don't fail the job if this step fails
+    retry: { attempts: 3, delay: 5s }
+    if: ${{ inputs.run_bundle == 'true' }}
+  - use: ecr-login               # reuse a step template
+    with: { registry: ${{ env.ECR_REGISTRY }} }
+```
+
+Step fields: `name`, `run` | `use`, `with`, `env`, `secrets`, `shell`,
+`workingDir`, `timeout`, `continueOnError`, `retry`, `if`. (`image` is the job's.)
+
+#### Step outputs within a job
+
+A step writes `key=value` lines to `$FLINT_OUTPUT`; later steps in the **same
+job** read `${{ steps.outputs.<key> }}`. To expose a value to other jobs, surface
+it under the job's `outputs:`.
+
+---
+
+## Environment variables
+
+`env:` (name → value, plain or `${{ }}`) may be set at **pipeline, job, and step**
+level. Merge order is **pipeline < job < step** — the narrower scope wins. `env`
+is for non-sensitive values; sensitive values go through `secrets` (brokered and
+masked).
+
+---
+
+## Secrets
+
+Secrets are a first-class subsystem. They are resolved by the **agent sidecar**
+(which alone holds provider credentials), delivered to the step as **environment
+variables or files**, kept on a **tmpfs** (never written to scratch, artifacts, or
+the object store), and **masked in logs**. They may be declared at **pipeline,
+job, or step** level (merged; narrower wins — prefer the narrowest scope).
+
+A secret binding has a **source** and a **target**:
+
+```yaml
+secrets:
+  # built-in store (default source), auto-scoped to the run's environment, as env var
+  - { name: npm-token, env: NPM_TOKEN }
+
+  # built-in store, mounted as a FILE (for tools that read files)
+  - { name: kubeconfig, file: ~/.kube/config, mode: "0400" }
+
+  # external provider, mounted as a file
+  - name: gcp-deployer
+    from: gcp-sm:projects/acme/secrets/deployer/versions/latest
+    file: /secrets/gcp.json
+    mode: "0400"
+
+  # external provider (Vault), as env var
+  - { name: db-password, from: "vault:secret/data/orders/db#password", env: DB_PASSWORD }
+```
+
+**Source** (where the value comes from):
+
+- `name:` alone → Flint's **built-in store** (envelope-encrypted), resolved for the
+  run's target **environment** automatically (the staging vs production value).
+- `from: <provider>:<ref>` → an **external provider** configured per org by an
+  admin; the pipeline only names it. Providers:
+  - `vault:` (HashiCorp Vault), `aws-sm:` (AWS Secrets Manager),
+    `gcp-sm:` (GCP Secret Manager), `azure-kv:` (Azure Key Vault),
+    `k8s:` (a Kubernetes Secret in the run namespace).
+  - Provider endpoints/auth live in platform config, never in the pipeline.
+    `${{ environment }}` may appear in `<ref>` for per-env paths.
+
+**Target** (exactly one per binding):
+
+- `env: NAME` → injected into the step process by the sidecar. *Not* placed in the
+  pod spec, so it never appears in `kubectl describe`/the API.
+- `file: PATH` (+ optional `mode:`) → written to a tmpfs file for tools that read
+  files (kubeconfig, cloud SA JSON, TLS certs, `.npmrc`, Docker config).
+
+**Levels & masking.** Pipeline secrets apply to all jobs; job secrets to all its
+steps; step secrets to that step. The sidecar scrubs known secret values from the
+log stream regardless of how they're surfaced.
+
+> This is why the agent is a **sidecar**: provider credentials and resolved secret
+> material live only in the sidecar's container, never in the user (step)
+> container — the safe default for running untrusted / fork-PR code.
+
+---
+
+## Concurrency
+
+Bound how many runs/jobs in the same logical group run at once.
+
+```yaml
+concurrency:
+  group: ${{ project }}-${{ branch }}
+  cancelInProgress: true        # cancel an in-flight member of this group
+```
+
+- **`cancelInProgress: true`** — a newer run cancels the running one in the same
+  group. Typical for PR pushes (cancel superseded runs → save spend).
+- **`cancelInProgress: false`** — newer runs queue behind the current one.
+  Typical for serializing deploys.
+
+Allowed at **pipeline** level (the whole run) and **job** level (so one pipeline
+can both cancel superseded PR runs *and* serialize prod deploys):
+
+```yaml
+deploy:
+  concurrency: { group: deploy-${{ environment }}, cancelInProgress: false }
 ```
 
 ---
 
-## Pipeline Types
+## Data flow
 
-A pipeline is either **environment-aware** or **plain**, determined by whether it references environments anywhere.
+### Within a job — implicit, free, fast
 
-### Plain Pipeline (CI)
+Steps share the pod's disk; files from step 1 are present for step 2. Outputs flow
+via `$FLINT_OUTPUT` → `steps.outputs.*`.
 
-No environment references anywhere in the file. Runs without an environment context.
+### Across jobs — explicit, via the object store
 
-- `$FLINT_ENVIRONMENT` is empty
-- Only global variables/secrets are available
-- No gates fire
-- No environment policies apply
+1. **`outputs`** (values). Producer declares `outputs: { version: ... }`; a
+   consumer with `needs: [build]` reads `${{ needs.build.outputs.version }}`.
+   Resolved at consumer dispatch (producer is done) — the clean place
+   output→command interpolation happens.
+2. **`artifacts`** (files). Producer declares `artifacts: [bin/]`; any job that
+   `needs:` it has them materialized at start. One compressed object per job.
 
-Use for: PR checks, linting, tests, build verification.
+### Source / checkout
 
-### Environment-Aware Pipeline (CD)
-
-References environments in any of: top-level `environments`, trigger `environments`, step `environments`, or environment-scoped secrets/variables.
-
-- Every run **must** target an environment
-- Manual triggers show an environment picker in the UI
-- Automated triggers must have `environments` specified
-- `$FLINT_ENVIRONMENT` is set to the target environment's slug
-- Environment-scoped secrets/variables resolve for the target environment
-
-Use for: deployments, releases, environment-specific workflows.
-
-### Detection Rules
-
-Flint determines a pipeline is environment-aware if **any** of these are true:
-
-- Top-level `environments` key is present
-- Any trigger has an `environments` field
-- Any step has an `environments` field
-- Any expression references `${{ secrets.* }}` where the secret is environment-scoped
-- Any expression references `${{ env.* }}` (environment variables)
-- Any expression references `$FLINT_ENVIRONMENT`
-
-This is validated statically by `flint validate`. If a pipeline is environment-aware but a trigger has no `environments` field, validation fails.
+**Each job checks out source independently** (auto-clone into every container job).
+Source is not implicitly shared — that would be hidden cross-pod state. Re-checkout
+is cheap/cacheable; large reused trees go through an artifact.
 
 ---
 
-## Top-Level Schema
+## Execution model
 
-```yaml
-# Optional: restrict which environments this pipeline can target.
-# Default: all environments (if pipeline is environment-aware).
-environments: [string]
+The YAML model and the execution model are co-designed; this is part of the
+canonical contract.
 
-# Required: at least one trigger.
-triggers:
-  <trigger-type>: <trigger-config>
+### Jobs are pods; steps are in-pod
 
-# Required: at least one step.
-steps:
-  - <step-definition>
+A container job is **one pod** running its steps in sequence; `needs:` is the
+dependency graph; independent jobs are parallel pods. Gate and HTTP jobs are
+**not pods** — they run in the control plane.
+
+> A job is the unit of isolation. Container jobs are pods; gate/http jobs run in
+> the control plane.
+
+### The agent: a per-job sidecar
+
+Each container job is **one pod with three parts**:
+
+```
+JOB POD   (one per job — not per step)
+├── initContainer (flint agent image)
+│     • checkout + download `needs` artifacts + restore cache → shared volume
+│     • copy a static busybox into the shared volume (a shell for any image)
+├── container: <job image>          ← runs the steps; holds NO credentials
+│     • runs each step; emits per-step log/exit/$FLINT_OUTPUT markers
+└── sidecar (native sidecar, flint agent image)   ← the job's "brain"
+      • SECRET BROKER: fetches from the built-in store / external providers,
+        exposes to the step as env or tmpfs files, masks values in logs
+      • ships logs to the log sink
+      • on completion: push artifacts + outputs + save cache
 ```
 
-### `environments` (optional)
+- **Sidecar, not entrypoint, not per-run.** Credentials (secret-provider creds,
+  push tokens, run token) live only in the sidecar, isolated from step code — the
+  safe default for untrusted/fork-PR CI. One sidecar per *job* (not per step).
+- **Completion is observed control-plane:** the worker watches the K8s Job; no
+  `/complete` callback.
+- **Per-step fidelity via markers.** Because steps share one pod, the agent emits
+  structured boundary markers (step name, start, end, exit, duration) into the log
+  stream, so the UI renders **collapsible per-step sections** with status/timing.
+- **Image contract:** job images must be **Linux** and match the cluster **CPU
+  arch**. `run:` gets a shell on any image (incl. distroless/scratch) via the
+  injected static busybox; the user's own tools must exist in the image.
+- **Requires K8s ≥ 1.28** (native sidecars). `services:` sidecars use the same
+  mechanism.
 
-Restricts which environments this pipeline can target. If omitted, the pipeline can target any environment (or none, if it's a plain pipeline).
+### Scratch: per-job disposable disk
 
-```yaml
-environments: [staging, production]
-```
+Sized by `disk:`, shared by the pod's containers, independent per job:
 
-Validation: if specified, all trigger-level and step-level environment references must be subsets of this list.
+- Default/small: node `emptyDir` + `ephemeral-storage` request. Instant, free,
+  node-capped.
+- Large: **generic ephemeral volume** (`volumeClaimTemplate`) — a fresh RWO block
+  volume created/deleted with the pod. Sized, safe, still scale-to-zero. RWO
+  suffices (one pod). ~10–30s attach once per job (parallel jobs attach
+  concurrently).
+
+### Handoff & footprint
+
+Artifacts/outputs/cache live in an S3-compatible object store (one object per job
+for artifacts). A sequential single-job pipeline never touches it. Between runs:
+**zero** Flint workload pods. Setup floor: a default StorageClass + (once you use
+artifacts/parallelism/cache) a bucket.
 
 ---
 
 ## Triggers
 
-Triggers define when and how a pipeline run is created. A pipeline must have at least one trigger. Flint supports seven trigger types.
-
-### 1. Push
-
-Runs when commits are pushed to matching branches.
-
 ```yaml
 triggers:
   push:
-    branches: [main, "release/*"]       # required: branch patterns (glob syntax)
-    paths: ["src/**", "Makefile"]       # optional: only trigger on changes to these paths
-    environments: [staging]             # optional: target these environments
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `branches` | yes | Branch name patterns. Glob syntax (`*`, `**`). |
-| `paths` | no | Path patterns. If set, only trigger when matching files change. |
-| `environments` | no | Target environments for the run. |
-
-**Example — deploy to staging on main, ignore docs changes:**
-```yaml
-triggers:
-  push:
-    branches: [main]
-    paths: ["src/**", "cmd/**", "internal/**"]
+    branches: [main, "release/*"]
+    paths: ["src/**"]
     environments: [staging]
-```
-
-### 2. Pull Request
-
-Runs when a pull request is opened, updated, or synchronized against matching base branches.
-
-```yaml
-triggers:
-  pull_request:
-    branches: [main, "release/*"]       # required: target branch patterns
-    paths: ["src/**"]                   # optional: path filter
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `branches` | yes | Target (base) branch patterns. |
-| `paths` | no | Path patterns. If set, only trigger when matching files change. |
-
-Pull request triggers **cannot** have `environments` — they are always plain CI runs. PRs test code, they don't deploy.
-
-**Example — run tests on PRs to main:**
-```yaml
-triggers:
-  pull_request:
+  pull_request:                    # never has environments — always plain CI
     branches: [main]
-```
-
-### 3. Manual
-
-Allows runs to be triggered by a user from the UI or CLI.
-
-```yaml
-triggers:
-  manual:
-    environments: [staging, production] # optional: restrict environment picker
-    inputs:                             # optional: user-provided form inputs
-      - name: version
-        type: string
-        description: "Version tag to deploy"
-        required: true
-      - name: dry_run
-        type: boolean
-        description: "Simulate without deploying"
-        default: "false"
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `environments` | no | Restricts the environment picker in the UI. |
-| `inputs` | no | Form fields shown in the UI. Values available as `${{ inputs.NAME }}`. |
-
-**Input fields:**
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Input identifier. Used in expressions. |
-| `type` | yes | `string`, `boolean`, or `choice`. |
-| `description` | no | Help text shown in the UI. |
-| `required` | no | Whether the field must be filled. Default: `false`. |
-| `default` | no | Default value. **Required** if the pipeline also has automated triggers (see Trigger Compatibility). |
-| `options` | no | List of allowed values (for `type: choice`). |
-
-**Example — deploy with version picker:**
-```yaml
-triggers:
-  manual:
-    environments: [production]
-    inputs:
-      - name: version
-        type: string
-        description: "Git tag or SHA to deploy"
-        required: true
-      - name: region
-        type: choice
-        description: "Target region"
-        options: [us-east-1, eu-west-1, ap-southeast-1]
-        default: us-east-1
-```
-
-### 4. Schedule
-
-Runs on a cron schedule.
-
-```yaml
-triggers:
-  schedule:
-    cron: "0 2 * * 1-5"                # required: cron expression (UTC)
-    environments: [staging]             # optional: target environment
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `cron` | yes | Standard cron expression. All times UTC. |
-| `environments` | no | Target environments for the run. |
-
-The run uses the latest commit on the project's default branch.
-
-**Example — nightly security scan in staging:**
-```yaml
-triggers:
-  schedule:
-    cron: "0 3 * * *"
-    environments: [staging]
-```
-
-### 5. Tag
-
-Runs when a Git tag matching the pattern is pushed.
-
-```yaml
-triggers:
-  tag:
-    patterns: ["v*", "release-*"]       # required: tag name patterns (glob syntax)
-    environments: [production]          # optional: target environment
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `patterns` | yes | Tag name patterns. Glob syntax. |
-| `environments` | no | Target environments for the run. |
-
-The tag value is available as `${{ tag }}` in expressions.
-
-**Example — release to production on version tags:**
-```yaml
-triggers:
-  tag:
-    patterns: ["v*"]
-    environments: [production]
-```
-
-### 6. Promotion
-
-Runs when a previous environment run succeeds, enabling staged rollout flows.
-
-```yaml
-triggers:
-  promotion:
-    from: staging                       # required: source environment
-    environments: [production]          # required: target environment(s)
-    requireStatus: succeeded            # optional: default "succeeded"
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `from` | yes | Source environment whose successful run triggers promotion. |
-| `environments` | yes | Target environment(s) for the promoted run. |
-| `requireStatus` | no | Required status of the source run. Default: `succeeded`. |
-
-Promotion creates a new run for the **same commit** that succeeded in the source environment. The run is created immediately — use a gate step if approval is needed before deployment.
-
-**Example — promote staging to production:**
-```yaml
-triggers:
-  promotion:
-    from: staging
-    environments: [production]
-```
-
-**Example — multi-stage promotion:**
-```yaml
-# In a pipeline with environments: [dev, staging, production]
-triggers:
-  push:
-    branches: [main]
-    environments: [dev]
-
-  promotion:
-    from: dev
-    environments: [staging]
-
-  promotion:
-    from: staging
-    environments: [production]
-```
-
-Note: multiple promotion triggers are allowed if they have different `from` environments.
-
-### 7. Webhook
-
-Runs when an external HTTP request hits the pipeline's webhook endpoint.
-
-```yaml
-triggers:
-  webhook:
-    secret: ${{ secrets.WEBHOOK_SECRET }}   # optional: HMAC validation secret
-    environments: [staging]                 # optional: target environment
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `secret` | no | Shared secret for HMAC signature validation of incoming requests. |
-| `environments` | no | Target environments for the run. |
-
-Flint generates a unique webhook URL per pipeline: `https://flint.example.com/hooks/{projectId}/{pipelineSlug}`. The request body is available in expressions as `${{ webhook.body }}` and headers as `${{ webhook.headers }}`.
-
-Use for: ChatOps (`/deploy` from Slack), external CI systems, custom integrations, third-party event sources.
-
-**Example — Slack ChatOps deploy:**
-```yaml
-triggers:
-  webhook:
-    secret: ${{ secrets.SLACK_SIGNING_SECRET }}
-    environments: [staging, production]
-```
-
-**Example — trigger from external system:**
-```yaml
-triggers:
-  webhook:
-    secret: ${{ secrets.WEBHOOK_SECRET }}
-```
-
-Trigger via:
-```bash
-curl -X POST https://flint.example.com/hooks/proj-123/deploy \
-  -H "X-Flint-Signature: sha256=..." \
-  -H "Content-Type: application/json" \
-  -d '{"ref": "main", "environment": "staging"}'
-```
-
----
-
-### Trigger Summary
-
-| Trigger | Creates env run? | Automatic? | Use case |
-|---------|-----------------|------------|----------|
-| `push` | optional | yes | Deploy on merge, CI on push |
-| `pull_request` | never | yes | PR checks, test suites |
-| `manual` | optional | no | On-demand deploys, ad-hoc runs |
-| `schedule` | optional | yes | Nightly tests, periodic scans |
-| `tag` | optional | yes | Release workflows |
-| `promotion` | always | yes | Staged rollouts (staging → prod) |
-| `webhook` | optional | yes | ChatOps, external integrations |
-
----
-
-### Trigger Compatibility
-
-Multiple triggers can coexist in a single pipeline. Most combinations are valid, with a few constraints.
-
-**Compatibility matrix:**
-
-| Trigger | push | pull_request | manual | schedule | tag | promotion | webhook |
-|---------|------|-------------|--------|----------|-----|-----------|---------|
-| **push** | — | yes | yes | yes | yes | yes | yes |
-| **pull_request** | yes | — | yes | yes | yes | no* | yes |
-| **manual** | yes | yes | — | yes | yes | yes | yes |
-| **schedule** | yes | yes | yes | — | yes | yes | yes |
-| **tag** | yes | yes | yes | yes | — | yes | yes |
-| **promotion** | yes | no* | yes | yes | yes | yes** | yes |
-| **webhook** | yes | yes | yes | yes | yes | yes | — |
-
-\* `pull_request` + `promotion` is technically valid but unusual — PRs are CI, promotions are CD. Not prohibited, just uncommon.
-
-\** Multiple `promotion` triggers are valid only if they have different `from` environments (e.g. dev→staging and staging→production in the same pipeline).
-
-**Rules:**
-
-1. **`pull_request` cannot have `environments`**. It's always a plain CI run. Combining it with environment-aware triggers is fine — the PR trigger creates plain runs, the other triggers create environment runs.
-
-2. **`manual` with `inputs` + automated triggers**: if a pipeline has both `manual` (with inputs) and any automated trigger (push, schedule, tag, promotion, webhook), then all inputs **must have a `default` value**. Automated triggers can't prompt for input — they use the defaults.
-
-3. **`promotion` requires `environments`**. It always creates an environment run.
-
-4. **No duplicate triggers of the same type** except `promotion` (which can appear multiple times with different `from` values).
-
-5. **Environment consistency**: if the pipeline has top-level `environments`, all trigger-level environment references must be subsets.
-
-**Example — full lifecycle pipeline:**
-```yaml
-environments: [staging, production]
-
-triggers:
-  # CI: run tests on every PR
-  pull_request:
-    branches: [main]
-
-  # CD: deploy to staging on merge
-  push:
-    branches: [main]
-    environments: [staging]
-
-  # CD: promote staging to production
-  promotion:
-    from: staging
-    environments: [production]
-
-  # Escape hatch: manual deploy to any environment
+    paths: ["src/**"]
   manual:
     environments: [staging, production]
-
-steps:
-  - name: approve
-    gate:
-      approvers: [role:release-manager]
-    environments: [production]
-
-  - name: test
-    run: make test
-
-  - name: deploy
-    dependsOn: [approve, test]
-    run: make deploy
+    inputs:
+      - { name: reason, type: string, required: true }
+      - { name: dry_run, type: boolean, default: "false" }
+      - { name: region, type: choice, options: [us, eu], default: us }
+  schedule: { cron: "0 2 * * *", environments: [staging] }   # UTC
+  tag: { patterns: ["v*"], environments: [production] }
+  promotion: { from: staging, environments: [production], requireStatus: succeeded }
+  webhook: { secret: ${{ secrets.hook_secret }}, environments: [staging] }
 ```
 
-This pipeline handles four scenarios:
-1. PR opened → plain run: test only (approve skipped, deploy skipped — no environment)
-2. PR merged to main → staging run: test → deploy (approve skipped — not production)
-3. Staging succeeds → production run: approve (waiting) + test in parallel → deploy after both
-4. Manual trigger → user picks environment, runs accordingly
+Compatibility rules:
+
+1. `pull_request` cannot have `environments` — always plain CI.
+2. `manual` inputs + any automated trigger ⇒ every input must have a `default`.
+3. `promotion` requires `environments` and `from`; `from` can't overlap the target.
+4. No duplicate triggers of a type, except `promotion` (multiple with distinct `from`).
+5. If top-level `environments` is set, every trigger's references must be a subset.
 
 ---
 
-## Steps
+## Environments (CD)
 
-A step is the unit of work in a pipeline. Each step runs in its own Kubernetes pod by default. A step has either `run:` (a shell command) or `steps:` (nested sub-steps that share a pod). Never both.
+A pipeline is **environment-aware** if any of: a top-level `environments` key; any
+trigger/job has `environments`; or any expression references env-scoped
+`${{ secrets.* }}`, `${{ env.* }}`, or `$FLINT_ENVIRONMENT`. Validated statically.
 
-### Step Schema
+### Narrowing funnel
 
-```yaml
-steps:
-  # Command step — runs in its own pod
-  - name: string                        # required, unique within pipeline
-    run: string                         # shell command(s) to execute
-    use: string                         # OR: step template name (mutually exclusive with run)
-    with: {}                            # inputs for the step template (when using use)
-    image: string                       # container image (name or preset name)
-    runner: string                      # runner pool name
-    shell: string                       # shell to use: sh (default), bash, python
-    workingDir: string                  # working directory (default: /workspace)
-    dependsOn: [string]                 # step names this depends on
-    environments: [string]              # only run in these environments
-    timeout: string                     # step timeout (default: 1h)
-    if: string                          # conditional expression
-    when: string                        # execution condition: onSuccess (default), onFailure, always
-    continueOnError: boolean            # step failure doesn't fail the pipeline (default: false)
-    retry:                              # retry on failure
-      attempts: number                  # max retry count (default: 1 = no retry)
-      delay: string                     # wait between retries (default: 0s)
-    env: {}                             # environment variables
-    secrets: {}                         # secret references (shorthand for env with secret values)
-    inputs: []                          # artifacts from previous steps
-    outputs: []                         # artifacts to pass to later steps
-    services: []                        # sidecar containers
-    cache:                              # dependency caching
-      key: string                       # cache key (supports expressions)
-      paths: [string]                   # paths to cache
-    matrix:                             # run step across multiple values in parallel
-      key: [values]                     # each key creates a dimension
-
-  # Nested step — sub-steps share a single pod
-  - name: string
-    dependsOn: [string]
-    environments: [string]
-    inputs: []                          # artifacts downloaded once for all sub-steps
-    steps:                              # sub-steps run sequentially in one pod
-      - name: string
-        run: string
-        # ... same fields as command step (except runner, inputs, outputs)
+```
+top-level environments  → trigger environments  → job environments
 ```
 
-### Command Step vs Nested Step
-
-A step is one of two kinds:
-
-| Kind | Has | Runs as | Use when |
-|------|-----|---------|----------|
-| **Command** | `run:` or `use:` | Own pod | Most steps — build, test, deploy |
-| **Nested** | `steps:` | Single shared pod | Steps that need shared process state — Docker daemon, auth tokens, DB connections |
-
-**Rule:** A step has `run:`, `use:`, or `steps:`. Exactly one. Never a combination.
-
-Nested sub-steps:
-- Run sequentially in the order listed (top to bottom)
-- Share the pod's filesystem, network, and sidecar containers
-- Cannot specify their own `runner` (the parent's runner applies to all)
-- Cannot have their own `inputs`/`outputs` (declared on the parent)
-- Can have their own `env`, `if`, `image`, `timeout`
-
-### `name` (required)
-
-Unique identifier within the pipeline. Used for `dependsOn` references, artifact `from` references, and display in the UI. Nested sub-step names are scoped to their parent — referenced as `parent.child` externally.
-
-### `run` (required for command steps)
-
-Shell command(s) to execute. Multi-line commands use YAML block scalars:
-
-```yaml
-- name: build
-  run: |
-    echo "Building..."
-    make build
-    make package
-```
-
-### `use` (alternative to `run`)
-
-References a step template (see Step Templates section). Mutually exclusive with `run`.
-
-```yaml
-- name: ecr-login
-  use: ecr-login
-  with:
-    registry: ${{ env.ECR_REGISTRY }}
-    region: us-east-1
-```
-
-### `image` (optional)
-
-Container image for this step. Can be a full image reference or an image preset name (see Image Presets section).
-
-```yaml
-- name: build-frontend
-  image: node22                         # preset name
-  run: npm ci && npm run build
-
-- name: deploy
-  image: bitnami/kubectl:1.30           # full image reference
-  run: kubectl apply -f manifests/
-```
-
-If omitted, uses the runner pool's default image. When the org has `presetsOnly` enabled, only preset names are allowed.
-
-### `runner` (optional)
-
-Runner pool for this step. Allows different steps to use different node types, architectures, or resource allocations.
-
-```yaml
-- name: test
-  runner: standard
-  run: make test
-
-- name: ml-validate
-  runner: gpu-pool
-  run: python validate.py
-```
-
-If omitted, uses the pipeline's default runner pool (configured at project level or globally).
-
-### `shell` (optional)
-
-Shell interpreter. Default: `sh`.
-
-```yaml
-- name: setup
-  shell: bash
-  run: |
-    shopt -s globstar
-    for f in **/*.go; do echo "$f"; done
-
-- name: analyze
-  shell: python
-  run: |
-    import json
-    with open('results.json') as f:
-        data = json.load(f)
-    print(f"Total: {len(data)}")
-```
-
-Options: `sh`, `bash`, `python`.
-
-### `workingDir` (optional)
-
-Working directory for the step's `run` command. Default: `/workspace`.
-
-```yaml
-- name: build-frontend
-  workingDir: /workspace/frontend
-  run: npm ci && npm run build
-```
-
-### `dependsOn` (optional)
-
-Declares execution order. Steps with no dependencies can run in parallel. Steps with dependencies wait for all listed steps to succeed.
-
-```yaml
-steps:
-  - name: test
-    run: make test
-
-  - name: lint
-    run: make lint
-
-  - name: build
-    dependsOn: [test, lint]
-    run: make build
-
-  - name: deploy
-    dependsOn: [build]
-    run: make deploy
-```
-
-### `environments` (optional)
-
-Restricts this step to only run when the pipeline targets one of the listed environments.
-
-```yaml
-steps:
-  - name: test
-    run: make test
-
-  - name: security-scan
-    environments: [production]
-    run: make security-scan
-
-  - name: deploy
-    dependsOn: [test]
-    run: make deploy
-```
-
-When targeting staging: test → deploy (security-scan skipped).
-When targeting production: test → security-scan → deploy.
-
-Skipped steps are removed from the DAG — dependencies on skipped steps are ignored.
-
-### `timeout` (optional)
-
-Maximum execution time. Default: `1h`.
-
-```yaml
-- name: integration-tests
-  timeout: 30m
-  run: make test-integration
-```
-
-### `if` (optional)
-
-Conditional execution. Expression must evaluate to `true` for the step to run. Evaluated before the step starts.
-
-```yaml
-- name: deploy
-  if: ${{ branch == 'main' }}
-  run: make deploy
-```
-
-### `when` (optional)
-
-Controls when the step runs relative to the pipeline's status. Default: `onSuccess`.
-
-| Value | Meaning |
-|-------|---------|
-| `onSuccess` | Run only if all dependencies succeeded (default) |
-| `onFailure` | Run only if any previous step failed |
-| `always` | Run regardless of pipeline status |
-
-```yaml
-- name: test
-  run: make test
-
-- name: deploy
-  dependsOn: [test]
-  run: make deploy
-
-- name: notify-failure
-  when: onFailure
-  run: |
-    curl -X POST ${{ env.SLACK_WEBHOOK }} \
-      -d '{"text": "Pipeline failed for ${{ project.name }}"}'
-
-- name: cleanup
-  when: always
-  run: make cleanup
-```
-
-### `continueOnError` (optional)
-
-If `true`, the step's failure does not fail the pipeline. Downstream steps that depend on it still run. Default: `false`.
-
-```yaml
-- name: lint
-  continueOnError: true
-  run: make lint
-
-- name: test
-  run: make test
-
-- name: build
-  dependsOn: [lint, test]
-  run: make build                       # runs even if lint failed
-```
-
-### `retry` (optional)
-
-Retry the step on failure.
-
-```yaml
-- name: integration-test
-  retry:
-    attempts: 3                         # total attempts (including first)
-    delay: 10s                          # wait between retries
-  run: make test-integration
-```
-
-`attempts` defaults to 1 (no retry). `delay` defaults to `0s`.
-
-### `env` (optional)
-
-Environment variables injected into the step.
-
-```yaml
-- name: deploy
-  env:
-    CLUSTER: ${{ env.CLUSTER_URL }}
-    VERSION: ${{ inputs.version }}
-    COMMIT: ${{ commitSha }}
-  run: deploy.sh
-```
-
-### `services` (optional)
-
-Sidecar containers that run alongside the step. They start before the step's `run` command and are terminated after it completes. Services are accessible via their name as a hostname.
-
-```yaml
-- name: integration-test
-  services:
-    - name: postgres
-      image: postgres:16
-      env:
-        POSTGRES_DB: testdb
-        POSTGRES_PASSWORD: test
-    - name: redis
-      image: redis:7
-  env:
-    DATABASE_URL: postgres://postgres:test@postgres:5432/testdb
-    REDIS_URL: redis://redis:6379
-  run: make test-integration
-```
-
-Services are implemented as sidecar containers in the step's pod.
-
-### `cache` (optional)
-
-Cache directories between runs to speed up repeated operations. Caches are stored in object storage, keyed by project + key string.
-
-```yaml
-- name: install
-  cache:
-    key: npm-${{ hashFiles('package-lock.json') }}
-    paths: [node_modules]
-  run: npm ci
-
-- name: build
-  cache:
-    key: go-${{ hashFiles('go.sum') }}
-    paths: [/root/go/pkg/mod, /root/.cache/go-build]
-  run: go build ./...
-```
-
-On cache hit: paths are restored before `run` executes. On cache miss: `run` executes, then paths are uploaded. The `hashFiles()` function hashes the listed files to generate a cache-busting key.
-
-### `inputs` / `outputs` (optional)
-
-Artifact passing between steps. Artifacts are stored in object storage (S3).
-
-```yaml
-- name: build
-  run: make build
-  outputs:
-    - path: /workspace/dist
-
-- name: deploy
-  dependsOn: [build]
-  inputs:
-    - from: build
-      path: /workspace/dist
-  run: deploy.sh /workspace/dist
-```
-
-`outputs` are uploaded after the step completes. `inputs` are downloaded before the step starts.
-
-### `matrix` (optional)
-
-Run a step multiple times across a set of values. Each combination runs as a separate parallel pod.
-
-```yaml
-matrix:
-  key: [value1, value2, ...]
-```
-
-Values are available in expressions as `${{ matrix.KEY }}`.
-
-**Single dimension — test across versions:**
-
-```yaml
-- name: test
-  matrix:
-    node: [18, 20, 22]
-  image: node${{ matrix.node }}
-  run: npm test
-```
-
-Creates 3 parallel executions: `test (node=18)`, `test (node=20)`, `test (node=22)`.
-
-**Multi-dimension — cartesian product of all combinations:**
-
-```yaml
-- name: build
-  matrix:
-    service: [api, worker, frontend]
-    arch: [amd64, arm64]
-  run: |
-    docker build --platform linux/${{ matrix.arch }} \
-      -t $REGISTRY/${{ matrix.service }}:${{ shortSha }}-${{ matrix.arch }} \
-      -f services/${{ matrix.service }}/Dockerfile .
-```
-
-Creates 6 parallel executions: api/amd64, api/arm64, worker/amd64, worker/arm64, frontend/amd64, frontend/arm64.
-
-**Skip specific combinations with `if`:**
-
-```yaml
-- name: build
-  matrix:
-    service: [api, worker, frontend]
-    arch: [amd64, arm64]
-  if: ${{ !(matrix.service == 'frontend' && matrix.arch == 'arm64') }}
-  run: docker build --platform linux/${{ matrix.arch }} ...
-```
-
-5 executions — frontend/arm64 skipped. No special `exclude` syntax — use `if`, which is already a known concept.
-
-**`dependsOn` a matrix step waits for ALL executions:**
-
-```yaml
-- name: test
-  matrix:
-    node: [18, 20, 22]
-  run: npm test
-
-- name: deploy
-  dependsOn: [test]           # waits for all 3 to succeed
-  run: make deploy
-```
-
-**Matrix with `use:`:**
-
-```yaml
-- name: deploy
-  matrix:
-    service: [api, worker, frontend]
-  use: helm-deploy
-  with:
-    release: ${{ matrix.service }}
-    chart: ./charts/${{ matrix.service }}
-    namespace: ${{ environment }}
-```
-
-**Matrix with nested steps — each combination gets its own pod:**
-
-```yaml
-- name: push
-  matrix:
-    service: [api, worker, frontend]
-  steps:
-    - use: ecr-login
-      with:
-        registry: ${{ env.ECR_REGISTRY }}
-    - use: docker-build-push
-      with:
-        dockerfile: services/${{ matrix.service }}/Dockerfile
-        tag: ${{ env.ECR_REGISTRY }}/${{ matrix.service }}:${{ shortSha }}
-```
-
-3 pods. Each runs ecr-login then docker-build-push. Within each pod, nested steps share auth.
-
-**Behavior:**
-- All matrix executions run in parallel as separate pods
-- If one execution fails, remaining executions are cancelled (same as any failed step)
-- `dependsOn` a matrix step waits for all executions to complete
-- Matrix works on command steps, `use:` steps, and nested steps
-
-### Nested Steps
-
-When steps need to share process state (Docker daemon, auth tokens, database connections), nest them under a parent step. Sub-steps run sequentially in a single pod.
-
-```yaml
-steps:
-  - name: build-api
-    image: golang122
-    run: go build -o /workspace/api ./cmd/api
-    outputs:
-      - path: /workspace/api
-
-  - name: build-worker
-    image: golang122
-    run: go build -o /workspace/worker ./cmd/worker
-    outputs:
-      - path: /workspace/worker
-
-  - name: build-frontend
-    image: node22
-    run: cd frontend && npm ci && npm run build
-    outputs:
-      - path: /workspace/frontend/dist
-
-  - name: push
-    dependsOn: [build-api, build-worker, build-frontend]
-    inputs:
-      - from: build-api
-        path: /workspace/api
-      - from: build-worker
-        path: /workspace/worker
-      - from: build-frontend
-        path: /workspace/frontend/dist
-    steps:
-      - use: ecr-login
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-      - name: push-api
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.api
-          tag: ${{ env.ECR_REGISTRY }}/api:${{ shortSha }}
-      - name: push-worker
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.worker
-          tag: ${{ env.ECR_REGISTRY }}/worker:${{ shortSha }}
-      - name: push-frontend
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.frontend
-          tag: ${{ env.ECR_REGISTRY }}/frontend:${{ shortSha }}
-
-  - name: deploy
-    dependsOn: [push]
-    run: kubectl apply -f manifests/
-```
-
-Why nested works here:
-- ECR login runs once — all push sub-steps share the auth token
-- `dependsOn` and `inputs` are declared once on the parent
-- Ordering of sub-steps is implicit (top to bottom)
-- The grouping is visually clear from indentation
+Each level must be a subset of the one above. Environment scoping is a **job**
+property (no step-level filtering).
+
+### Runtime resolution
+
+1. Determine the target environment (trigger config or manual selection).
+2. Jobs whose `environments` exclude the target are skipped; `needs` edges bypass.
+3. Env/secrets resolve for the target; `$FLINT_ENVIRONMENT` is set.
+4. Gate jobs for the target are evaluated.
 
 ---
 
 ## Gates
 
-Gates are approval checkpoints declared as steps. A gate step has no `run` command — it pauses the pipeline until the required approvals are received. It appears in the UI as a pending approval with the run details (commit, branch, environment) visible to the approver.
+A gate is a **job** with a `gate:` body (non-pod, control plane):
 
 ```yaml
-steps:
-  - name: approve-deploy
-    gate:
-      approvers: [role:release-manager]
-      minApprovals: 1                   # default: 1
-    environments: [production]          # only gates production runs
-
-  - name: deploy
-    dependsOn: [approve-deploy]
-    run: make deploy
+approve:
+  needs: [image]
+  environments: [production]
+  gate: { approvers: [role:release-manager, team:platform], minApprovals: 2 }
 ```
 
-Gates are step-level only. This means:
-- The run is created immediately (visible in the UI, auditable)
-- Pre-gate steps (tests, scans) can run in parallel while waiting for approval
-- The approver can see the full run context before deciding
-- The same gate step can be environment-conditional (e.g. only gate production, skip in staging)
-
-### Approver Syntax
-
-Approvers can be roles, teams, or individual users:
-
-- `role:slug` — any user with this role
-- `team:slug` — any member of this team
-- `user@email.com` — specific individual
-
-All approver types can be mixed freely. Any approver in the list can satisfy an approval slot.
-
-```yaml
-# Single approver — anyone with the role
-gate:
-  approvers: [role:release-manager]
-
-# Mixed — role, team, or specific person
-gate:
-  approvers: [role:release-manager, "team:security", "alice@acme.dev"]
-  minApprovals: 1       # any one of them is enough
-
-# Stricter — require 2 approvals from the pool
-gate:
-  approvers: ["team:security", "alice@acme.dev", "bob@acme.dev"]
-  minApprovals: 2       # 2 out of the 3 must approve
-```
-
-`minApprovals` defaults to 1. The same person cannot approve twice — each approval must come from a different user.
-
-### Gate with Parallel Pre-work
-
-Gates don't block steps that don't depend on them. This allows tests to run while waiting for approval:
-
-```yaml
-steps:
-  - name: approve
-    gate:
-      approvers: [role:release-manager]
-    environments: [production]
-
-  - name: test
-    run: make test
-
-  - name: security-scan
-    environments: [production]
-    run: make security-scan
-
-  - name: deploy
-    dependsOn: [approve, test, security-scan]
-    run: make deploy
-```
-
-In production: `approve` (waiting) and `test` + `security-scan` run in parallel. Once all three complete, `deploy` runs. If the gate is rejected, the run is cancelled.
+Approver syntax: `role:<name>`, `team:<name>`, `user:<id>`.
 
 ---
 
-## Reuse
+## Reuse: modules
 
-Flint has one keyword for reuse: `use:`. It works the same way everywhere — the format of the string determines where the template comes from.
+Reuse goes through **one keyword, `use:`** (and `extends:` for whole-pipeline
+reuse). The unit of reuse is a **module**: a versioned, parameterized thing with
+typed inputs/outputs and a declared *environment stance*. There are four kinds,
+organized around the one axis that actually matters — **does the unit bring its
+own environment, or run in the caller's?**
 
-### Resolution Rules
+| `kind` | Stance | Used at | Environment |
+|---|---|---|---|
+| `action` | **containerized** — brings its own image | a step | portable anywhere (runs in its own image) |
+| `steps` | **inline** — expands into the caller | a step position | runs in the caller's image → **must declare `requires:`** |
+| `job` | **inline** — expands into a job | a job (`use:`) | pins its own image → env-honest by construction |
+| `pipeline` | **inline** — the whole DAG | a pipeline (`extends:`) | composes jobs |
 
-| Format | Source | Example |
-|--------|--------|---------|
-| Plain name | StepTemplate CRD (org-level) | `use: ecr-login` |
-| Starts with `./` | Local file in the same repo | `use: ./fragments/setup.yaml` |
-| `org/repo/path@ref` | File in another git repo | `use: acme/templates/go-build.yaml@v1` |
+**Composition is by parameterization, never by merge.** The **black-box rule**: a
+module is opaque — you pass `inputs` (and, for the steps-hole, a block of steps);
+you never reach inside or override its keys. No deep-merge, no internal-name
+references. This deletes the biggest reuse footgun (GitLab/Azure-style override
+surprises) by construction.
 
-All three behave identically: they inline one or more steps at that point. All three support `with:` for passing inputs.
-
-### The Black-Box Rule
-
-When `use:` inlines multiple steps, **the parent `name` is the dependency target**. You never reference internal step names — the reusable file is a black box.
-
-```yaml
-steps:
-  - name: setup
-    use: ./fragments/setup.yaml           # may contain checkout, install, etc.
-
-  - name: build
-    dependsOn: [setup]                    # depends on the WHOLE block, not internal steps
-    run: npm run build
-```
-
-`dependsOn: [setup]` means "wait for everything inside setup to finish." You don't need to know what's inside the reusable file. If the template author renames internal steps, nothing breaks.
-
-For single-step CRD templates, the `name` on the step itself serves this purpose:
+### Module definition
 
 ```yaml
-steps:
-  - name: login
-    use: ecr-login
-    with:
-      registry: ${{ env.ECR_REGISTRY }}
-
-  - name: push
-    dependsOn: [login]
-    run: docker push $IMAGE
-```
-
-### Step Templates (CRDs)
-
-Step templates are reusable single-step definitions managed as Kubernetes CRDs. The platform team creates them, pipeline authors use them everywhere.
-
-```yaml
-apiVersion: flint.dev/v1
-kind: StepTemplate
-metadata:
-  name: ecr-login
-spec:
-  description: "Authenticate with AWS ECR"
-  inputs:
-    - name: registry
-      type: string
-      required: true
-      description: "ECR registry URL"
-    - name: region
-      type: string
-      default: us-east-1
-      description: "AWS region"
-  image: amazon/aws-cli:2
-  run: |
-    aws ecr get-login-password --region ${{ inputs.region }} \
-      | docker login --username AWS --password-stdin ${{ inputs.registry }}
-
----
-apiVersion: flint.dev/v1
-kind: StepTemplate
-metadata:
-  name: docker-build-push
-spec:
-  description: "Build and push a Docker image"
-  inputs:
-    - name: dockerfile
-      type: string
-      default: Dockerfile
-    - name: context
-      type: string
-      default: "."
-    - name: tag
-      type: string
-      required: true
-  run: |
-    docker build -t ${{ inputs.tag }} -f ${{ inputs.dockerfile }} ${{ inputs.context }}
-    docker push ${{ inputs.tag }}
-
----
-apiVersion: flint.dev/v1
-kind: StepTemplate
-metadata:
-  name: helm-deploy
-spec:
-  description: "Deploy with Helm"
-  inputs:
-    - name: release
-      type: string
-      required: true
-    - name: chart
-      type: string
-      required: true
-    - name: namespace
-      type: string
-      default: default
-    - name: values
-      type: string
-      description: "Path to values file"
-  image: alpine/helm:3
-  run: |
-    helm upgrade --install ${{ inputs.release }} ${{ inputs.chart }} \
-      --namespace ${{ inputs.namespace }} \
-      ${{ inputs.values && '--values ' + inputs.values }}
-```
-
-Usage:
-
-```yaml
-steps:
-  - name: login
-    use: ecr-login
-    with:
-      registry: 123456789.dkr.ecr.us-east-1.amazonaws.com
-
-  - name: deploy
-    use: helm-deploy
-    with:
-      release: api-gateway
-      chart: ./charts/api
-      namespace: ${{ environment }}
-      values: values/${{ environment }}.yaml
-```
-
-Step templates can be used inside nested steps:
-
-```yaml
-- name: push
-  steps:
-    - use: ecr-login
-      with:
-        registry: ${{ env.ECR_REGISTRY }}
-    - name: push-api
-      use: docker-build-push
-      with:
-        tag: ${{ env.ECR_REGISTRY }}/api:${{ shortSha }}
-```
-
-### Reusable Step Files (local and cross-repo)
-
-For reusing groups of steps — either within a repo or across repos — define them in a YAML file with a `steps:` list and optional `inputs:` for parameterization.
-
-```yaml
-# .flint/fragments/setup.yaml (local) or in a shared repo
+name: <module-name>
+kind: action | steps | job | pipeline
 inputs:
-  - name: node_version
-    type: string
-    default: "22"
-
-steps:
-  - name: checkout
-    run: git clone ${{ project.repo }} /workspace/src
-  - name: install
-    image: node${{ inputs.node_version }}
-    workingDir: /workspace/src
-    cache:
-      key: npm-${{ hashFiles('package-lock.json') }}
-      paths: [node_modules]
-    run: npm ci
+  some_str: { type: string, required: true }
+  count:    { type: number, default: 1 }
+  mode:     { type: enum, options: [a, b], default: a }
+  steps:    { type: steps }                 # the "hole" (job/steps kinds)
+outputs:
+  version:  { type: string, value: ${{ steps.outputs.version }} }
+requires:                                   # env contract (inline kinds that run in caller's image)
+  family: debian                            # debian | rhel | alpine
+  tools: [node>=18]
+# ── body, by kind ──
+run: { image: ... }                         # kind: action  (brings its image)
+steps: [ ... ]                              # kind: steps
+job: { image: ..., steps: [ ... ] }         # kind: job
+jobs: { ... }                               # kind: pipeline
 ```
 
-**Local reuse (same repo):**
+### Input types
+
+`string`, `number`, `boolean`, `enum` (with `options`), and **`steps`** — a block
+of steps the caller supplies, dropped in with `inject:`:
 
 ```yaml
-# .flint/deploy.yaml
+# in a job/steps module
 steps:
-  - name: setup
-    use: ./fragments/setup.yaml
-
-  - name: build
-    dependsOn: [setup]                    # depends on the block, not internal steps
-    run: npm run build
+  - run: setup
+  - inject: ${{ inputs.steps }}             # caller's steps run here, in this image
+  - run: teardown
 ```
 
-**Cross-repo reuse:**
+The `steps` hole covers most real reuse ("wrap my steps in standard setup/
+teardown") without inheritance.
+
+### Environment contracts (static compatibility)
+
+Inline modules that run in the caller's image (`kind: steps`, and any inline body
+that doesn't set its own `image`) **must declare `requires:`**. `flint validate`
+checks it against the consuming job's image and **fails before the run** on a
+mismatch:
+
+```
+✖ job "tools" → module "yum-install@1" requires { family: rhel },
+    but job image "ubuntu:24.04" is { family: debian }
+```
+
+This eliminates the classic footgun (a `yum` step used on Ubuntu) at authoring
+time. `action` and `job` modules bring/own their image, so they're env-honest and
+skip the check.
+
+### References are immutable — there is no lockfile
+
+A reference pins to something that **cannot change underneath you**, so no lockfile
+is needed:
+
+- **Exact version:** `use: go-ci@2.3.1` — registry versions are immutable and
+  content-addressed. The manifest *is* the pin; the bump shows in the PR diff.
+- **Publisher alias:** `use: go-ci@stable` — a moving pointer only the *publisher*
+  (e.g. the platform team) can repoint, for intentional central propagation
+  (push a security patch to all consumers at once).
+- **Local:** `use: ./templates/x.yaml` — pinned by the repo commit.
+- **Cross-repo:** a tag or commit SHA; floating branches are flagged.
+
+**Reproducibility and integrity come from the platform, not a file:** the registry
+guarantees a version is immutable, and every run records the exact module versions
+it used (server-side). So "re-run identically" works with zero repo artifacts, and
+there is nothing to maintain, conflict on, or forget to commit. Non-determinism
+exists only where someone explicitly opts into an alias.
+
+### Where modules live (registry, multi-fed)
+
+The **registry** is the source of truth, populated however a team prefers:
+
+- **GitOps (recommended for shared modules):** a repo whose modules publish to the
+  registry on tag — versioned, reviewed, immutable.
+- **CLI / API / UI:** `flint module publish ./modules/go-ci.yaml --version 2.3.1`.
+- **Local files:** `use: ./...` — no registry at all, zero ceremony, in-repo.
+
+No dedicated `.github`-style repo is required: modules can live in the app repo,
+a shared repo, or nowhere (published directly).
+
+### Safety: two layers
+
+1. **Pre-run, surfaced in the UI / as a PR check:** unknown/yanked/deprecated
+   version, env-compat mismatch, input/output type mismatch, and "a newer version
+   is available." You see breakage *before* merging.
+2. **Runtime, as the backstop:** anything that slips through fails the run with a
+   precise message; you fix-forward (edit the pin).
+
+### Consuming modules
 
 ```yaml
-# .flint/deploy.yaml
-steps:
-  - name: setup
-    use: acme/pipeline-templates/steps/node-setup.yaml@v1
+# step-level Action (containerized) and step template (inline)
+jobs:
+  ci:
+    use: go-service-ci@^?  # NO — ranges aren't allowed; pin exact or an alias
+  build:
+    use: go-service-ci@2.3.1        # job module + steps-hole
     with:
-      node_version: "20"
-
-  - name: build
-    dependsOn: [setup]
-    run: npm run build
-```
-
-Cross-repo references use the format `org/repo/path@ref` where `ref` is a git tag, branch, or SHA. Flint clones the referenced repo (cached) and resolves the file.
-
-### Composing a Full Pipeline from Shared Steps
-
-An org can maintain a templates repository. Individual repos compose their pipelines from shared pieces:
-
-```yaml
-# acme/api-gateway/.flint/deploy.yaml
-environments: [staging, production]
-
-triggers:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-    environments: [staging]
-  promotion:
-    from: staging
-    environments: [production]
-
-steps:
-  - name: approve
-    gate:
-      approvers: [role:release-manager]
-    environments: [production]
-
-  - name: setup
-    use: acme/pipeline-templates/steps/go-setup.yaml@v1
-
-  - name: test
-    dependsOn: [setup]
-    use: acme/pipeline-templates/steps/go-test.yaml@v1
-
-  - name: build
-    dependsOn: [test]
-    use: acme/pipeline-templates/steps/go-build.yaml@v1
-    with:
-      binary: api-gateway
-
-  - name: push
-    dependsOn: [build]
+      steps:
+        - run: go build ./...
+  scan:
+    needs: [build]
     steps:
-      - use: ecr-login
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-      - use: docker-build-push
-        with:
-          tag: ${{ env.ECR_REGISTRY }}/api-gateway:${{ shortSha }}
-
-  - name: deploy
-    dependsOn: [approve, push]
-    use: helm-deploy
-    with:
-      release: api-gateway
-      chart: ./charts/api
-      namespace: ${{ environment }}
-```
-
-Triggers are declared in the repo (explicit, reviewable in PRs). Steps are composed from shared templates. Each `use:` block is a black box — `dependsOn` references the block name, not internal steps.
-
----
-
-## Expression Syntax
-
-Expressions use `${{ }}` delimiters within string values.
-
-### Available Context
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `env.NAME` | Environment variable value | `${{ env.CLUSTER_URL }}` |
-| `secrets.NAME` | Secret value (environment-scoped or global) | `${{ secrets.API_KEY }}` |
-| `inputs.NAME` | Manual trigger input value | `${{ inputs.version }}` |
-| `branch` | Git branch name | `${{ branch }}` |
-| `commitSha` | Full commit SHA | `${{ commitSha }}` |
-| `shortSha` | Short commit SHA (7 chars) | `${{ shortSha }}` |
-| `tag` | Git tag (if tag-triggered) | `${{ tag }}` |
-| `environment` | Target environment slug (empty if plain run) | `${{ environment }}` |
-| `project.name` | Project name | `${{ project.name }}` |
-| `project.repo` | Repository path | `${{ project.repo }}` |
-| `run.id` | Run ID | `${{ run.id }}` |
-| `triggeredBy` | User who triggered the run | `${{ triggeredBy }}` |
-| `triggerType` | Trigger type (push, pull_request, manual, etc.) | `${{ triggerType }}` |
-| `status` | Current run status (for `when` conditions) | `${{ status }}` |
-| `steps.NAME.status` | Status of a specific step | `${{ steps.test.status }}` |
-| `matrix.KEY` | Current matrix value (within a matrix step) | `${{ matrix.node }}` |
-
-### Functions
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `hashFiles(pattern)` | SHA-256 of file(s) matching pattern | `${{ hashFiles('package-lock.json') }}` |
-| `contains(string, search)` | Check if string contains search | `${{ contains(branch, 'release') }}` |
-| `startsWith(string, prefix)` | Check if string starts with prefix | `${{ startsWith(tag, 'v') }}` |
-| `endsWith(string, suffix)` | Check if string ends with suffix | `${{ endsWith(branch, '-hotfix') }}` |
-
-### Operators (for `if` expressions)
-
-| Operator | Example |
-|----------|---------|
-| `==` | `${{ branch == 'main' }}` |
-| `!=` | `${{ environment != 'production' }}` |
-| `&&` | `${{ branch == 'main' && environment == 'staging' }}` |
-| `\|\|` | `${{ triggerType == 'manual' \|\| triggerType == 'promotion' }}` |
-| `!` | `${{ !inputs.dry_run }}` |
-
----
-
-## Environment Interaction Model
-
-### The Narrowing Funnel
-
-Environments can be specified at three levels. Each level narrows the scope:
-
-```
-Top-level environments          → Pipeline can target these environments
-  └─ Trigger-level environments → This trigger creates runs for these environments
-      └─ Step-level environments → This step only runs in these environments
-```
-
-| Level | Meaning | Default |
-|-------|---------|---------|
-| Top-level `environments` | Pipeline can only target these | All environments |
-| Trigger `environments` | Trigger fires for these | All allowed by top-level |
-| Step `environments` | Step runs in these | All allowed by top-level |
-
-### Validation Rules
-
-1. If top-level `environments` is set, all trigger/step environment references must be subsets.
-2. If a pipeline is environment-aware, every automated trigger must have `environments` specified.
-3. Pull request triggers cannot have `environments` — they are always plain CI.
-4. Promotion triggers must have `environments` and `from` (source environment).
-5. A trigger's `environments` and its `from` (for promotion) cannot overlap.
-
-### Resolution at Runtime
-
-When a run is created:
-
-1. Flint determines the target environment (from trigger config or manual selection).
-2. Steps are filtered: steps with `environments` that don't include the target are **skipped**.
-3. Skipped steps are removed from the DAG — dependencies on skipped steps are ignored.
-4. Environment variables and secrets resolve for the target environment.
-5. `$FLINT_ENVIRONMENT` is set to the environment slug.
-6. Gates for the target environment are evaluated.
-
----
-
-## Complete Examples
-
-### Plain CI
-
-```yaml
-# .flint/ci.yaml
-triggers:
-  pull_request:
-    branches: [main]
-
-steps:
-  - name: lint
-    run: make lint
-    continueOnError: true
-
-  - name: test
-    run: make test
-
-  - name: build
-    dependsOn: [test]
-    run: make build
-```
-
-### Multi-service Build and Deploy
-
-```yaml
-# .flint/deploy.yaml
-environments: [staging, production]
-
-triggers:
-  pull_request:
-    branches: [main]
-
-  push:
-    branches: [main]
-    environments: [staging]
-
-  promotion:
-    from: staging
-    environments: [production]
-
-  manual:
-    environments: [staging, production]
-
-steps:
-  # Gate — production only
-  - name: approve
-    gate:
-      approvers: [role:release-manager]
-    environments: [production]
-
-  # Shared setup from org templates repo
-  - name: setup
-    use: acme/pipeline-templates/steps/go-setup.yaml@v1
-
-  # Tests — all environments
-  - name: test
-    image: golang122
-    dependsOn: [setup]
-    run: make test
-
-  - name: lint
-    image: golang122
-    dependsOn: [setup]
-    run: make lint
-    continueOnError: true
-
-  # Security scan — production only
-  - name: security-scan
-    environments: [production]
-    dependsOn: [setup]
-    run: make security-scan
-
-  # Build all services in parallel
-  - name: build-api
-    image: golang122
-    dependsOn: [test]
-    run: go build -o /workspace/api ./cmd/api
-    outputs:
-      - path: /workspace/api
-
-  - name: build-worker
-    image: golang122
-    dependsOn: [test]
-    run: go build -o /workspace/worker ./cmd/worker
-    outputs:
-      - path: /workspace/worker
-
-  - name: build-frontend
-    image: node22
-    run: cd frontend && npm ci && npm run build
-    outputs:
-      - path: /workspace/frontend/dist
-
-  # Push all images — shared pod for ECR auth
-  - name: push
-    dependsOn: [build-api, build-worker, build-frontend]
-    inputs:
-      - from: build-api
-        path: /workspace/api
-      - from: build-worker
-        path: /workspace/worker
-      - from: build-frontend
-        path: /workspace/frontend/dist
+      - use: trivy-scan@1.6.0       # step Action (its own image)
+        with: { image: "app:${{ needs.build.outputs.version }}" }
+  tools:
+    image: ubuntu:24.04
     steps:
-      - use: ecr-login
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-      - name: push-api
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.api
-          tag: ${{ env.ECR_REGISTRY }}/api:${{ shortSha }}
-      - name: push-worker
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.worker
-          tag: ${{ env.ECR_REGISTRY }}/worker:${{ shortSha }}
-      - name: push-frontend
-        use: docker-build-push
-        with:
-          dockerfile: Dockerfile.frontend
-          tag: ${{ env.ECR_REGISTRY }}/frontend:${{ shortSha }}
-
-  # Deploy
-  - name: deploy
-    dependsOn: [approve, push]
-    use: helm-deploy
-    with:
-      release: myapp
-      chart: ./charts/myapp
-      namespace: ${{ environment }}
-      values: values/${{ environment }}.yaml
-
-  # Notifications — always run
-  - name: notify
-    when: always
-    run: |
-      curl -X POST ${{ env.SLACK_WEBHOOK }} \
-        -d '{"text": "${{ project.name }} ${{ environment }} deploy: ${{ status }}"}'
+      - use: apt-install@1.2.0      # step template; requires:debian ✓ on ubuntu
+        with: { packages: "jq curl" }
 ```
-
-### Nightly Tests with Services
 
 ```yaml
-# .flint/nightly.yaml
-triggers:
-  schedule:
-    cron: "0 3 * * *"
-    environments: [staging]
-
-steps:
-  - name: integration-test
-    image: golang122
-    timeout: 45m
-    retry:
-      attempts: 2
-      delay: 30s
-    services:
-      - name: postgres
-        image: postgres:16
-        env:
-          POSTGRES_DB: testdb
-          POSTGRES_PASSWORD: test
-      - name: redis
-        image: redis:7
-    env:
-      DATABASE_URL: postgres://postgres:test@postgres:5432/testdb
-      REDIS_URL: redis://redis:6379
-    cache:
-      key: go-${{ hashFiles('go.sum') }}
-      paths: [/root/go/pkg/mod]
-    run: go test -tags=integration ./...
+# whole-pipeline reuse
+extends: go-service-pipeline@2.1.0
+with: { service: orders-api, deploy_target: orders }
+triggers: { push: { branches: [main] } }   # consumer supplies triggers
 ```
+
+Worked module + consumer files: [`examples/modules/`](examples/modules/) and
+[`examples/orders-api.ci.yaml`](examples/orders-api.ci.yaml) /
+[`examples/payments-api.ci.yaml`](examples/payments-api.ci.yaml).
 
 ---
 
-## File Structure
+## Expressions
 
-Pipelines live in the `.flint/` directory at the repository root:
+`${{ ... }}` is evaluated against a typed, sandboxed context.
 
-```
-.flint/
-  ci.yaml                   # PR checks
-  deploy.yaml               # deployment pipeline
-  nightly.yaml              # scheduled nightly tests
-  fragments/                # reusable step fragments (local to repo)
-    setup.yaml
-    notify.yaml
-```
+### Context
 
-Multiple pipeline files per project are supported. Each is independent — they have their own triggers, steps, and environment configurations. Flint discovers and validates all `.flint/*.yaml` files (not files in subdirectories like `fragments/`).
+| Namespace | Available |
+|---|---|
+| `branch`, `commitSha`, `shortSha`, `tag` | git context |
+| `triggeredBy`, `triggerType`, `status` | run context |
+| `environment` | target environment slug (CD) |
+| `project`, `run` | identifiers |
+| `inputs.*` | manual-trigger inputs |
+| `env.*`, `secrets.*` | env vars / secrets |
+| `matrix.*` | this job's matrix combination |
+| `needs.<job>.outputs.*` | a direct dependency's outputs |
+| `needs.<job>.result` | a direct dependency's result (success/failure/skipped/cancelled) |
+| `steps.outputs.*` | earlier steps' outputs (same job) |
+| `webhook.*` | webhook payload |
 
----
+### Functions & operators
 
-## Validation and Preview
+- Status: `success()`, `failure()`, `cancelled()`, `always()`.
+- Utility: `hashFiles(glob)`, `contains(haystack, needle)`, `startsWith(s, prefix)`.
+- Operators: `==`, `!=`, `&&`, `||`, `!`, comparisons, parentheses.
 
-Pipeline YAML should feel like writing code — crisp errors with line numbers, clear messages, and actionable suggestions. Flint provides two levels: automatic static validation and on-demand environment simulation.
-
-### Static Validation (automatic)
-
-Runs on demand — when a user views a project's pipelines in the UI, runs `flint validate` in the CLI, or triggers a run. Flint fetches the YAML from git, resolves all `use:` references, and validates. Results are not cached — always fresh from git.
-
-**What it checks:**
-
-| Category | Examples |
-|----------|---------|
-| Schema | Missing required fields, wrong types, `run` + `steps` on same step |
-| DAG | Cycles, unknown step in `dependsOn`, unreachable steps |
-| Environment | Unknown environment name, trigger missing `environments` on env-aware pipeline |
-| Expression | Invalid `${{ }}` syntax, unknown context variable, unclosed expression |
-| Template | Unknown step template, missing required input, extra input not in template spec |
-| Image | Unknown preset name (when presetsOnly is enabled) |
-| Trigger | Duplicate triggers, manual inputs without defaults alongside automated triggers |
-| Nested steps | `runner`/`inputs`/`outputs` on sub-steps (not allowed) |
-
-**Error format:**
-
-Each error includes:
-- Line and column number (exact location in the YAML)
-- Clear message (what's wrong)
-- Suggestion when possible ("did you mean `build`?", "available environments: staging, production")
-- Severity: `error` (blocks runs) or `warning` (informational, doesn't block)
-
-**How it displays on the project pipeline tab:**
-
-```
-deploy.yaml          ✓ Valid        3 triggers · 8 steps
-ci.yaml              ✗ 2 errors
-nightly.yaml         ⚠ 1 warning   1 trigger · 3 steps
-```
-
-Click into `ci.yaml` to see:
-
-```
-ci.yaml — 2 errors
-
-  Line 14, col 17: Step "deploy" references unknown step "bild" in dependsOn
-                   Did you mean "build"?
-
-  Line 22, col 21: Environment "prodction" is not defined
-                   Available environments: staging, production
-```
-
-**When validation runs:**
-
-| Event | Action |
-|-------|--------|
-| UI: view project pipelines | Fetch from git, validate, render results |
-| UI: environment simulation | Fetch, resolve templates, validate, render preview |
-| CLI: `flint validate .flint/` | Read local files, resolve templates, validate |
-| Run creation | Fetch at exact commit SHA, resolve all `use:`, validate |
-
-**Blocking behavior:**
-
-A run **cannot be created** if the pipeline has validation errors at the target commit SHA. The UI shows errors and disables the trigger button. Automated triggers (push, promotion) skip the run and surface an alert — "Pipeline validation failed on commit abc123."
-
-Warnings don't block — they show in the UI and run log but the pipeline proceeds.
-
-### Environment Simulation (on-demand)
-
-A user picks an environment from a dropdown on the pipeline detail page and clicks "Preview." Flint resolves the pipeline for that environment and shows exactly what would happen — without running anything.
-
-**What it shows:**
-
-**Triggers** — which triggers are active for this environment:
-```
-Triggers active for production:
-  ✓ promotion (from staging)
-  ✓ manual
-  · pull_request — not applicable (plain CI only)
-  · push — environments: [staging] — not this environment
-```
-
-**Steps** — filtered DAG with active/skipped status:
-```
-Steps (5 active, 2 skipped):
-  ✓ approve          gate · approvers: role:release-manager
-  ✓ test             image: golang122
-  ○ lint             skipped (environments: [staging])
-  ✓ security-scan    environments: [production]
-  ✓ push             nested: ecr-login → push-api → push-worker → push-frontend
-  ○ canary           skipped (environments: [staging])
-  ✓ deploy           depends on: approve, push
-```
-
-**Variables and secrets** — coverage check against the environment's configured values:
-```
-Variables:
-  ✓ ECR_REGISTRY     = 123456789.dkr.ecr.us-east-1.amazonaws.com
-  ✓ CLUSTER_URL      = api.acme.com
-  ✓ SLACK_WEBHOOK    = ●●●●●●
-  ✗ DEPLOY_KEY       ⚠ not set for production
-```
-
-**Templates** — resolved status of all `use:` references:
-```
-Templates:
-  ✓ ecr-login            StepTemplate CRD (v1)
-  ✓ docker-build-push    StepTemplate CRD (v1)
-  ✓ helm-deploy          StepTemplate CRD (v1)
-  ✓ go-setup.yaml        acme/pipeline-templates@v1 — resolved
-```
-
-**Resolved DAG visualization** — the pipeline DAG with only active steps, showing the actual execution graph for that environment.
-
-Switch to a different environment and the entire preview updates — different steps, different variables, different triggers.
-
-### No Caching — Always Fresh
-
-Pipeline YAML is **not stored in the database**. Every time pipeline data is needed, Flint fetches it from git, resolves all `use:` references, and validates. Git is the only source of truth.
-
-| Action | What happens |
-|--------|-------------|
-| UI: view project pipelines | Fetch `.flint/*.yaml` from git, validate, render |
-| UI: environment simulation | Fetch + resolve templates + filter by environment |
-| CLI: `flint validate` | Read local files, resolve templates, validate |
-| Run creation | Fetch at exact commit SHA, resolve all `use:`, validate, then execute |
-
-This means:
-- No `Pipeline` table in the database
-- No sync webhooks for pipeline YAML
-- No staleness — what you see is always what's in git right now
-- No consistency problems with template repo changes or CRD updates
-- The UI shows a loading state while fetching — typically 200-500ms for simple pipelines
-
-Template resolution (CRD lookups, cross-repo git fetches) can be cached briefly in memory for the duration of a single request to avoid redundant fetches within the same page load. But nothing is persisted.
+User-chosen names (manual inputs, matrix keys) colliding with reserved names are
+flagged by validation.
 
 ---
 
-## Open Questions
+## Matrix
 
-_To be resolved as we iterate:_
+`matrix` (job-level) expands the job into one pod per combination, in parallel.
+`${{ matrix.<key> }}` is available in the job's steps, image, env, and cache key.
+Control with the sibling job fields `failFast` (default true — cancel remaining
+variants on first failure) and `maxParallel`.
 
-- **Concurrency**: Pipeline-level or environment-level concurrency limits (e.g., "only one production deploy at a time"). Syntax TBD.
-- **Notifications**: Structured notification routing (Slack, PagerDuty, email) vs. inline `curl` commands. Whether to make this a first-class feature or leave it to step templates.
-- **Secrets masking**: Automatically redacting secret values from step logs.
+```yaml
+test:
+  matrix: { go: ["1.25", "1.26"], os: [linux, darwin] }
+  failFast: false
+  maxParallel: 2
+  image: golang:${{ matrix.go }}
+  steps:
+    - run: GOOS=${{ matrix.os }} go test ./...
+```
 
+Downstream `needs: [test]` waits for **all** variants.
+
+---
+
+## Local execution
+
+```
+flint run [--job NAME] [--env ENV] [--input k=v] [--secret k=v]
+```
+
+Runs the same pipeline on your machine via the **local (Podman) executor** — jobs
+as local containers, scratch in a host temp dir, handoff via a host dir, **no
+cluster and no object store**. Secrets come from a local source (`--secret`, env,
+or a gitignored `.flint/secrets.local.yaml`). The inner loop: edit YAML → run a
+job → iterate, without pushing. This is the primary authoring experience.
+
+---
+
+## Editor support & validation
+
+Flint publishes a **JSON Schema** for `.flint/*.yaml`. Add a header for
+autocomplete + inline validation in VS Code / JetBrains:
+
+```yaml
+# yaml-language-server: $schema=https://schema.flint.dev/pipeline.json
+```
+
+`flint validate` is the CLI equivalent (schema and validator are generated from
+the same Go types). Static checks (no cluster, no fetch):
+
+- Exactly one of `steps`/`gate` per job; ≥1 job; ≥1 trigger.
+- `needs` references exist; the job graph is acyclic.
+- Environment narrowing subset rules; environment-awareness consistency.
+- Trigger compatibility rules.
+- Expression parse + reserved-name collisions; `needs.X` referenced in `if:`/
+  `outputs` is a direct need.
+- `outputs` reference existing step outputs; `artifacts` globs well-formed.
+- One image per job; `disk`/durations/`resources` parse and stay within the
+  selected runner pool's bounds; secret bindings have exactly one target.
+
+`flint simulate --environment <env>` previews which jobs run/skip and how
+env/secrets resolve. Never caches — always fresh.
+
+---
+
+## Re-runs & debugging
+
+- **Partial re-run.** Re-run a single failed job, or "from job X onward."
+  Successful upstream jobs are **not** re-executed — their artifacts and outputs
+  are restored from the object store (so a failed `deploy` re-runs without
+  rebuilding). Requires run artifacts/outputs to be retained (retention is
+  configurable per project).
+- **Interactive debug.** Re-run a job in debug mode to **hold its pod open** after
+  the steps finish (or on failure) for `kubectl exec` / a web terminal, with a
+  TTL. RBAC-gated; the pod and its secrets are torn down on TTL.
+
+---
+
+## Worked example
+
+[`examples/release.yaml`](examples/release.yaml) exercises matrix,
+parallel/sequential jobs, cross-job outputs+artifacts, conditional jobs (inputs
+and upstream outputs), a `failure()` rollback, gates, environments+promotion,
+service sidecars, cache, per-job disk, concurrency, and file/env secrets. Its job
+graph:
+
+```
+        external inputs:  image_tag · skip_tests · run_load_test
+                                    │
+                                    ▼
+                          ┌──────────────────┐
+                          │       build       │  root · cache · disk 10Gi
+                          │ compile · version │
+                          │ detect-migrations │
+                          └─────────┬────────┘
+              outputs: version, has_migrations   ·   artifacts: bin/
+    ┌───────────────┬───────────────────────┬────────────────────────┐
+    ▼               ▼                        ▼                         ▼
+┌────────┐   ┌────────────┐        ┌──────────────────┐        ┌────────────┐
+│  lint  │   │ unit-test  │        │ integration-test │        │  migrate   │ [CD]
+│ (advis)│   │ ⫶ matrix×3 │        │ + postgres svc   │        │ ⊘ if has_  │
+│        │   │ ⊘ !skip    │        │ ⊘ !skip          │        │ migrations │
+└───┬────┘   └─────┬──────┘        └────────┬─────────┘        └─────┬──────┘
+    └───────────────┴───────────┬───────────┘                       │
+                                ▼   (needs build + all three)        │
+                        ┌──────────────────┐                         │
+                        │      image        │ [CD] kaniko · disk 50Gi │
+                        └─────────┬────────┘                         │
+                                  ▼                                   │
+                        ┌──────────────────┐                         │
+                        │    approve   ◇    │ [CD · prod] gate ·2 appr│
+                        └─────────┬────────┘                         │
+                                  ▼                                   │
+                        ┌──────────────────┐ ◄───────────────────────┘
+                        │      deploy       │ [CD] concurrency: serialize
+                        │ kubeconfig (file) │      per environment
+                        └─────────┬────────┘
+                ┌─────────────────┼─────────────────┐
+                ▼                 ▼                  ▼
+        ┌────────────┐   ┌──────────────┐   ┌──────────────┐
+        │  rollback  │   │  load-test   │   │   notify     │ [CD]
+        │ ⊘ failure()│   │ ⊘ run_load_  │   │ always()     │
+        │            │   │   test       │   │ use slack    │
+        └────────────┘   └──────────────┘   └──────────────┘
+
+  ⊘ conditional (if:)   ⫶ matrix → N pods   ◇ gate   [CD] has environments (skipped on PRs)
+  fan-out below build = parallel; downward chains = sequential.
+  skipped need = satisfied → deploy runs on staging even with approve/migrate skipped.
+```
+
+By trigger: a **PR** runs `build → lint · unit-test · integration-test` only;
+**push→staging** adds `image → deploy → notify` (+`migrate` if migrations,
++`rollback` if deploy fails); **promotion→production** adds the `approve` gate.
+
+---
+
+## What changed from the previous spec
+
+- Flat `steps:` + auto-coalescing ⇒ **`jobs:` (pods) → `steps:` (in-pod)**.
+- Step-level `dependsOn`/`environments`/`matrix` ⇒ **job-level** (`needs`/
+  `environments`/`matrix`). Steps are sequential within a pod. Gates ⇒ gate jobs.
+- Cross-pod data = `outputs` + `artifacts`; within a job = shared disk.
+- **`when:` removed** — unified on `if:` + status functions (`success/failure/
+  cancelled/always`) + `needs.<job>.result`.
+- **`env` and `secrets` at pipeline/job/step** (merged, narrower wins).
+- **Secrets subsystem**: multi-source (built-in store + Vault/AWS/GCP/Azure/K8s),
+  delivered as env or tmpfs files, sidecar-brokered, env-scoped, masked.
+- **`concurrency`** (pipeline + job), **matrix `failFast`/`maxParallel`**, **cache
+  `restoreKeys`**.
+- **Job-level `resources`** (cpu/memory/gpu) — right-size within the runner pool's
+  bounds; pool sets node class/arch/GPU + guardrails, job fine-tunes.
+- Execution: per-job agent **sidecar** (secret broker; creds isolated; native
+  sidecar, K8s ≥ 1.28), per-job ephemeral scratch, object-store handoff,
+  control-plane completion, per-step log markers.
+- **Module reuse system**: one `use:`/`extends:` keyword; four kinds (`action`
+  containerized · `steps`/`job`/`pipeline` inline); typed inputs/outputs + a
+  `steps`-hole (`inject:`); env contracts (`requires:`) with static compat
+  checking; black-box composition (no deep-merge); **immutable refs, no lockfile**
+  (exact version or publisher alias); registry fed by GitOps / API / local files.
+
+### Deferred (to specify when built)
+
+Centralized project registration (`ProjectSet` — a central repo defining many
+projects + target repos); the module **registry** backing store + GitOps sync
+details; image presets; matrix include/exclude.

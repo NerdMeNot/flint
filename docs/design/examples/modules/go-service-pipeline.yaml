@@ -1,0 +1,20 @@
+# Module: go-service-pipeline  —  kind: pipeline (the whole DAG, parameterized)
+# Consumed via `extends:`. Itself composes the go-service-ci job module — nested reuse.
+name: go-service-pipeline
+kind: pipeline
+inputs:
+  service:       { type: string, required: true }
+  deploy_target: { type: string, required: true }
+  go:            { type: string, default: "1.26" }
+jobs:
+  build:
+    use: go-service-ci@2.3.1             # nested reuse: pipeline template → job module
+    with:
+      go: ${{ inputs.go }}
+      steps:
+        - run: go build -o bin/${{ inputs.service }} ./cmd/${{ inputs.service }}
+  deploy:
+    needs: [build]
+    environments: [staging, production]
+    steps:
+      - run: deploy ${{ inputs.deploy_target }} ${{ needs.build.outputs.version }}
