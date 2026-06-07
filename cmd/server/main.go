@@ -232,7 +232,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Mount product route surfaces here (composition root), so the platform
 	// server never imports product packages.
-	if cfg.Products.Workflows.Enabled {
+	if cfg.Products.WorkflowsEnabled() {
 		deps.APIRoutes = append(deps.APIRoutes, workflows.NewAPI(eng, q).Register)
 		log.Info().Msg("product enabled: workflows")
 	}
