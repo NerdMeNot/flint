@@ -31,10 +31,13 @@ These are settled and frame everything below:
    load generation and metrics live in a purpose-built data plane on the shared platform.
 4. **Monorepo now, structured for clean extraction later.** Distinct products do not require
    distinct repos. The repo split is a logistics decision deferred until the core stabilizes.
-5. **Unified shell, distinct product apps, products independently installable.** One Flint console
-   (single login, shared org/workspace + product switcher, shared design system) with each product
-   mounted as a distinct application surface inside it — the cloud-console model, not the
-   Argo-separate-UIs model. The shell lights up only the products that are deployed.
+5. **One unified Flint app with capability toggles (revised).** Originally this was a cloud-console
+   of *distinct product apps*; that was simplified to a **single application** whose top-level
+   sections (CI, Workflows, Load Testing) are independent and **enabled per deployment via config**
+   (`products.<name>.enabled`). One login, one deployment; the UI renders only the enabled
+   capabilities and shows the rest as "Coming Soon". Admin (users, teams, SSO, RBAC, runner pools)
+   is a single shared section. The backend already works this way — the engine route seam mounts a
+   product's routes only when its capability is enabled. See *Unified UI* below.
 
 ## The three layers
 
@@ -163,34 +166,34 @@ Two cheap decisions now keep this door open without building it:
 
 ## Repository structure
 
-Monorepo. Distinct products are expressed in `cmd/`, CRD groups, and separate frontend apps — not
-in separate repos. The layout keeps every product cleanly liftable into its own repo later.
+Monorepo, **shared binaries** (capability-gated at runtime) and **one unified frontend app** — not
+separate apps or repos. Products are separated in `internal/products/*`, not by deployment.
 
 ```
 flint/
   cmd/
-    ci-server/  ci-worker/        # Flint CI binaries
-    wf-server/  wf-worker/        # Flint Workflows binaries
-    lt-server/  ...               # Flint Load Testing (later)
-    controller/ flint/            # shared controller + CLI
+    server/ worker/ agent/        # shared binaries; products gated via config
+    controller/ syncd/ flint/     # shared controller, IdP sync, CLI
   internal/
-    core/            # SHARED: engine, dbkit, db, runner, agent, secret, logsink, outbox
-    platform/        # SHARED: auth, rbac, orgs, audit, config, server scaffolding
+    core/            # SHARED: engine, db, dbkit, runner, agent, wsagent, observe,
+                     #         flinterr, secretstore, crd, controller, worker
+    platform/        # SHARED: auth, config, server scaffolding
     products/
-      ci/            # pipeline parser, forge, webhooks, commit status, Pipeline CRD
-      workflows/     # workflow schema, http/approval/subflow executors, Workflow CRD
-      loadtest/      # later: scenario DSL, load-phase executor, data plane
-  apps/
-    ui-kit/          # SHARED unified shell: login, org/product switcher, design system, theming
-    ci/  workflows/  loadtest/    # distinct product apps mounted into the shell
+      workflows/     # workflow schema + API + (http/approval) executors      [exists]
+      ci/            # CI-specific code, extracted as it decouples             [planned]
+      loadtest/      # scenario DSL, load-phase executor, data plane           [later]
+  web/               # ONE unified app (TanStack Start)
+    src/shell/       #   chrome: nav, capability switcher, auth/org context
+    src/sections/    #   ci/  workflows/  loadtest/  — independent top-level sections
+    src/settings/    #   shared Admin (users, teams, SSO, RBAC, runner pools)
 ```
 
-### The one rule that keeps extraction cheap
+### The one rule that keeps products independent
 
-`internal/products/*` may import `internal/core` and `internal/platform`, **never each other.**
-Hold this line and lifting a product (its `internal/products/X`, its `cmd`, its `apps/X`) into a
-standalone repo is mechanical — the import graph already proves there are no hidden cross-product
-dependencies.
+`internal/products/*` may import `internal/core` and `internal/platform`, **never each other.** The
+same convention holds in the frontend: `web/src/sections/*` import `shell` and shared UI, never each
+other. This is what keeps the unified app's sections genuinely independent (and a product cleanly
+liftable later if it ever needs its own repo).
 
 ### When to actually split a repo
 
@@ -207,16 +210,11 @@ so multi-repo only pays off once that engine is stable.
 
 Distinct products need deliberate shared surfaces, or they're just three tools with the same logo.
 
-- **Unified shell** (`apps/ui-kit`): one Flint console — single login, shared org/workspace switcher,
-  product switcher, and design system (navigation, typography, theme) — with each product mounted as
-  a distinct application surface inside it. This is the cloud-console model (AWS/GCP), not the
-  Argo-separate-UIs model. Argo's separation is a *consequence* of its tools being genuinely
-  independent (no shared engine, separate auth); Flint's binding asset is the shared platform, so a
-  fragmented UI would fight the architecture. Distinct tools still feel distinct — the product
-  switcher and per-product app design give distinctness; the shared chrome gives family. Products
-  are independently installable, and the shell renders only the products that are deployed (each
-  registers its nav entry and routes), so an OSS user can run only Flint Workflows. This is most of
-  the "family" perception and the cheapest to get right from a monorepo.
+- **One unified app** (see *Unified UI* below): a single Flint console — one login, one design
+  system, a top-level switcher between independent sections (CI, Workflows, Load Testing). Sections
+  render only when their capability is enabled; the rest show as "Coming Soon". This replaced the
+  earlier "distinct product apps" idea: one app is simpler, the backend already gates capabilities,
+  and the segregated sections still feel like independent tools.
 - **Shared platform**: one identity, one RBAC model, one org/workspace switcher, one set of runner
   pools, one audit log across all three. A user logs into *Flint*, not into three things.
 - **Shared API group**: everything under `flint.dev`; distinct CRD kinds per product (`Pipeline`,
@@ -225,6 +223,29 @@ Distinct products need deliberate shared surfaces, or they're just three tools w
   pipeline triggers a Workflow; a Workflow stage kicks a Load Test; a Load Test result gates a CI
   promotion. Far easier to build and keep working in a monorepo, and the kind of integration that
   made the Argo ecosystem sticky.
+
+## Unified UI
+
+Flint ships as **one application** with capability-gated, segregated sections — not separate apps.
+
+- **Capabilities are deploy-time config.** `products.ci.enabled`, `products.workflows.enabled`,
+  `products.loadtest.enabled` (Load Testing currently `false` → "Coming Soon"). A
+  `GET /api/v1/capabilities` endpoint reflects this and is the UI's single source of truth for what
+  to render; the backend route seam already mounts a product's API only when enabled. (A future
+  iteration could let an admin override these at runtime, stored in the DB — `/capabilities` is
+  designed so that can layer on without UI rework.)
+- **Segregated top-level sections.** `/ci/*`, `/workflows/*`, `/loadtest/*`, and `/settings/*`
+  (Admin). Each section is an independent route tree + components + data hooks under
+  `web/src/sections/*`; they import the shared shell, never each other. CI moves under `/ci/*` so all
+  three are peers (`/` redirects to the first enabled section).
+- **Shared shell + admin.** `web/src/shell` owns navigation, the capability switcher, auth/org
+  context, and theming; `web/src/settings` is the one shared Admin area (users, teams, SSO, RBAC,
+  runner pools) — product-agnostic and always on.
+- **Coming Soon.** Disabled capabilities (today: Load Testing) appear in the switcher as a disabled
+  teaser rather than hidden, so the roadmap stays visible.
+
+This keeps the "completely independent sections" feel while being one login, one deployment, and
+strictly less frontend machinery than a multi-app shell.
 
 ## Open decisions
 
