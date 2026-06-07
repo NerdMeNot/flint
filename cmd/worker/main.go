@@ -155,7 +155,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Workflow cron scheduler — fires due schedules into the engine. Runs in the
 	// worker (alongside the loop) when the Workflows product is enabled.
-	if cfg.Products.Workflows.Enabled {
+	if cfg.Products.WorkflowsEnabled() {
 		go workflows.NewScheduler(db.New(pool), eng).Run(ctx)
 		log.Info().Msg("workflows: cron scheduler enabled")
 	}
