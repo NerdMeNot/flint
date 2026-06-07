@@ -204,6 +204,20 @@ jobs:
 - **`matrix`** — expands the job into one pod per combination (below).
 - **`timeout`** — the whole job's wall-clock budget.
 
+### `needs` semantics
+
+- **Direct-only output scope.** A job may read `${{ needs.<X>.outputs.* }}` only
+  if `<X>` is in *its own* `needs`. Transitive dependencies are not in scope — to
+  read a job's outputs, list it in `needs` even if you already depend on it
+  indirectly. (No spooky-action; explicit, like GitHub Actions.)
+- **A skipped need is satisfied, not blocking.** If a needed job is skipped —
+  its `if:` was false, or its `environments` excluded the target — downstream
+  jobs **still run**; the skipped job is treated as neutral. Only a *failed*
+  need blocks downstream jobs, unless the downstream declares `when: onFailure`
+  or `when: always`. This is what lets one pipeline serve PR, staging, and
+  production from the same graph (e.g. `deploy` runs on staging even though the
+  production-only `approve` gate and the conditional `migrate` job are skipped).
+
 ### Steps (inside a job)
 
 Steps run **sequentially** in the job's pod, sharing its disk and image. Steps do
@@ -557,6 +571,64 @@ Downstream `needs: [test]` waits for **all** matrix variants.
 
 `flint simulate --environment <env>` previews which jobs run/skip and how
 environments/secrets resolve, on demand. Validation never caches — always fresh.
+
+---
+
+## Worked example
+
+A single pipeline exercising matrix, parallel/sequential jobs, cross-job
+outputs + artifacts, conditional jobs (on inputs and on an upstream output),
+gates, environments + promotion, service sidecars, cache, per-job disk, secrets,
+retry/timeout/continueOnError, and step-template reuse lives at
+[`examples/release.yaml`](examples/release.yaml). Its job graph:
+
+```
+        external inputs:  image_tag · skip_tests · run_load_test
+                                    │
+                                    ▼
+                          ┌──────────────────┐
+                          │       build       │  root · cache · disk 10Gi
+                          │ compile · version │
+                          │ detect-migrations │
+                          └─────────┬────────┘
+              outputs: version, has_migrations   ·   artifacts: bin/
+    ┌───────────────┬───────────────────────┬────────────────────────┐
+    ▼               ▼                        ▼                         ▼
+┌────────┐   ┌────────────┐        ┌──────────────────┐        ┌────────────┐
+│  lint  │   │ unit-test  │        │ integration-test │        │  migrate   │ [CD]
+│        │   │ ⫶ matrix×3 │        │ + postgres svc   │        │ ⊘ if has_  │
+│ (advis)│   │ ⊘ !skip    │        │ ⊘ !skip          │        │ migrations │
+└───┬────┘   └─────┬──────┘        └────────┬─────────┘        └─────┬──────┘
+    └───────────────┴───────────┬───────────┘                       │
+                                ▼   (needs build + all three)        │
+                        ┌──────────────────┐                         │
+                        │      image        │ [CD] kaniko · disk 50Gi │
+                        └─────────┬────────┘                         │
+                                  ▼                                   │
+                        ┌──────────────────┐                         │
+                        │    approve   ◇    │ [CD · prod] gate ·2 appr│
+                        └─────────┬────────┘                         │
+                                  ▼                                   │
+                        ┌──────────────────┐ ◄───────────────────────┘
+                        │      deploy       │ [CD]  needs build+image+
+                        │ kubectl·SA·secret │        migrate+approve
+                        └─────────┬────────┘
+                    ┌─────────────┴─────────────┐
+                    ▼                            ▼
+            ┌──────────────┐            ┌──────────────────┐
+            │  load-test   │ [CD]       │     notify        │ [CD]
+            │ ⊘ run_load_  │            │ when: always      │
+            │   test       │            │ use: slack-notify │
+            └──────────────┘            └──────────────────┘
+
+  ⊘ conditional (if:)   ⫶ matrix → N pods   ◇ gate   [CD] has environments (skipped on PRs)
+  fan-out below build = parallel jobs; downward chains = sequential.
+  skipped need = satisfied → deploy runs on staging even with approve/migrate skipped.
+```
+
+By trigger: a **PR** runs `build → lint · unit-test · integration-test` only
+(every `[CD]` job is skipped); **push→staging** adds `image → deploy → notify`
+(+`migrate` if migrations); **promotion→production** adds the `approve` gate.
 
 ---
 
