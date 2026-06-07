@@ -20,6 +20,8 @@ import type {
   ForgeConnection,
   AuthUser,
   PersonalToken,
+  WorkflowRun,
+  WorkflowRunDetail,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -2051,4 +2053,54 @@ const personalTokens: Record<string, PersonalToken[]> = {
 
 export function getPersonalTokens(userId: string): PersonalToken[] {
   return personalTokens[userId] ?? []
+}
+
+// ---------------------------------------------------------------------------
+// Workflows — generic engine runs (no forge/repo). Mock-first per the
+// API-first approach; reconcile with the backend (list endpoint) later.
+// ---------------------------------------------------------------------------
+
+const workflowRuns: WorkflowRun[] = [
+  { id: 'wf-1042', name: 'nightly-data-export', status: 'running', triggerType: 'schedule', triggeredBy: 'cron', startedAt: '2026-06-07T02:00:00Z', duration: '4m 12s', stepCount: 6 },
+  { id: 'wf-1041', name: 'reindex-search', status: 'succeeded', triggerType: 'manual', triggeredBy: 'srinivas', startedAt: '2026-06-06T18:22:00Z', finishedAt: '2026-06-06T18:25:41Z', duration: '3m 41s', stepCount: 4 },
+  { id: 'wf-1040', name: 'rotate-credentials', status: 'succeeded', triggerType: 'schedule', triggeredBy: 'cron', startedAt: '2026-06-06T06:00:00Z', finishedAt: '2026-06-06T06:01:08Z', duration: '1m 08s', stepCount: 3 },
+  { id: 'wf-1039', name: 'nightly-data-export', status: 'failed', triggerType: 'schedule', triggeredBy: 'cron', startedAt: '2026-06-06T02:00:00Z', finishedAt: '2026-06-06T02:03:55Z', duration: '3m 55s', stepCount: 6 },
+  { id: 'wf-1038', name: 'backfill-metrics', status: 'cancelled', triggerType: 'manual', triggeredBy: 'priya', startedAt: '2026-06-05T14:10:00Z', finishedAt: '2026-06-05T14:12:30Z', duration: '2m 30s', stepCount: 5 },
+  { id: 'wf-1037', name: 'reindex-search', status: 'succeeded', triggerType: 'api', triggeredBy: 'api', startedAt: '2026-06-05T09:48:00Z', finishedAt: '2026-06-05T09:51:20Z', duration: '3m 20s', stepCount: 4 },
+]
+
+const workflowSteps: Record<string, PipelineStep[]> = {
+  'nightly-data-export': [
+    { name: 'snapshot-db', status: 'succeeded', execType: 'run', wave: 0, attempt: 1, maxAttempts: 1, startedAt: '2026-06-07T02:00:00Z', finishedAt: '2026-06-07T02:01:10Z' },
+    { name: 'export-orders', status: 'succeeded', execType: 'run', wave: 1, attempt: 1, maxAttempts: 1, dependsOn: ['snapshot-db'], startedAt: '2026-06-07T02:01:10Z', finishedAt: '2026-06-07T02:02:40Z' },
+    { name: 'export-users', status: 'succeeded', execType: 'run', wave: 1, attempt: 1, maxAttempts: 1, dependsOn: ['snapshot-db'], startedAt: '2026-06-07T02:01:10Z', finishedAt: '2026-06-07T02:02:55Z' },
+    { name: 'transform', status: 'running', execType: 'run', wave: 2, attempt: 1, maxAttempts: 1, dependsOn: ['export-orders', 'export-users'], startedAt: '2026-06-07T02:02:55Z' },
+    { name: 'upload-s3', status: 'pending', execType: 'run', wave: 3, attempt: 1, maxAttempts: 1, dependsOn: ['transform'] },
+    { name: 'notify', status: 'pending', execType: 'http', wave: 4, attempt: 1, maxAttempts: 1, dependsOn: ['upload-s3'] },
+  ],
+  'reindex-search': [
+    { name: 'fetch-documents', status: 'succeeded', execType: 'run', wave: 0, attempt: 1, maxAttempts: 1, startedAt: '2026-06-06T18:22:00Z', finishedAt: '2026-06-06T18:23:10Z' },
+    { name: 'build-index', status: 'succeeded', execType: 'run', wave: 1, attempt: 1, maxAttempts: 1, dependsOn: ['fetch-documents'], startedAt: '2026-06-06T18:23:10Z', finishedAt: '2026-06-06T18:25:00Z' },
+    { name: 'swap-alias', status: 'succeeded', execType: 'run', wave: 2, attempt: 1, maxAttempts: 1, dependsOn: ['build-index'], startedAt: '2026-06-06T18:25:00Z', finishedAt: '2026-06-06T18:25:30Z' },
+    { name: 'notify', status: 'succeeded', execType: 'http', wave: 3, attempt: 1, maxAttempts: 1, dependsOn: ['swap-alias'], startedAt: '2026-06-06T18:25:30Z', finishedAt: '2026-06-06T18:25:41Z' },
+  ],
+}
+
+function defaultWorkflowSteps(): PipelineStep[] {
+  return [
+    { name: 'prepare', status: 'succeeded', execType: 'run', wave: 0, attempt: 1, maxAttempts: 1, startedAt: '2026-06-06T06:00:00Z', finishedAt: '2026-06-06T06:00:30Z' },
+    { name: 'execute', status: 'succeeded', execType: 'run', wave: 1, attempt: 1, maxAttempts: 1, dependsOn: ['prepare'], startedAt: '2026-06-06T06:00:30Z', finishedAt: '2026-06-06T06:00:58Z' },
+    { name: 'finalize', status: 'succeeded', execType: 'run', wave: 2, attempt: 1, maxAttempts: 1, dependsOn: ['execute'], startedAt: '2026-06-06T06:00:58Z', finishedAt: '2026-06-06T06:01:08Z' },
+  ]
+}
+
+export function getWorkflowRuns(): WorkflowRun[] {
+  return workflowRuns
+}
+
+export function getWorkflowRun(id: string): WorkflowRunDetail | undefined {
+  const run = workflowRuns.find((r) => r.id === id)
+  if (!run) return undefined
+  const steps = workflowSteps[run.name] ?? defaultWorkflowSteps()
+  return { ...run, steps }
 }
