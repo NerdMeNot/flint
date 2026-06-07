@@ -331,6 +331,10 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	// Apply runner pool scheduling (includes pool-level ServiceAccount).
 	runner.MergeIntoJob(poolSpec, job)
 
+	// Apply per-job resource requests/limits to the step container, overriding the
+	// pool defaults (the pool sets the bounds; enforcement is a follow-up).
+	applyStepResources(job, stepDef.Resources)
+
 	// Override service account: step > pipeline > runner pool.
 	// MergeIntoJob already set the runner pool SA; override if a more specific
 	// scope is configured.
@@ -415,6 +419,43 @@ func extractMatrixKey(name string) string {
 		return name[start+1 : end]
 	}
 	return ""
+}
+
+// applyStepResources sets the step container's compute requests/limits from the
+// job's resources. Quantities are parsed safely (invalid values are skipped, not
+// fatal). The "step" container is the user container (the agent is a sidecar).
+func applyStepResources(job *batchv1.Job, r *pipeline.StepResources) {
+	if r == nil {
+		return
+	}
+	for i := range job.Spec.Template.Spec.Containers {
+		c := &job.Spec.Template.Spec.Containers[i]
+		if c.Name != "step" {
+			continue
+		}
+		if c.Resources.Requests == nil {
+			c.Resources.Requests = corev1.ResourceList{}
+		}
+		if c.Resources.Limits == nil {
+			c.Resources.Limits = corev1.ResourceList{}
+		}
+		setQuantity(c.Resources.Requests, corev1.ResourceCPU, r.CPU)
+		setQuantity(c.Resources.Requests, corev1.ResourceMemory, r.Memory)
+		if r.Limits != nil {
+			setQuantity(c.Resources.Limits, corev1.ResourceCPU, r.Limits.CPU)
+			setQuantity(c.Resources.Limits, corev1.ResourceMemory, r.Limits.Memory)
+		}
+		return
+	}
+}
+
+func setQuantity(list corev1.ResourceList, name corev1.ResourceName, v string) {
+	if v == "" {
+		return
+	}
+	if q, err := resource.ParseQuantity(v); err == nil {
+		list[name] = q
+	}
 }
 
 // resolveServiceAccount returns the most specific service account override.

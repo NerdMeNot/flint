@@ -69,6 +69,7 @@ func (p *Pipeline) compileJob(name string, job Job, surviving map[string]bool) p
 		Runner:         firstNonEmpty(job.Runner, p.Runner),
 		ServiceAccount: firstNonEmpty(job.ServiceAccount, p.ServiceAccount),
 		Disk:           job.Disk,
+		Resources:      compileResources(job.Resources),
 		Environments:   job.Environments,
 		If:             job.If,
 		Timeout:        job.Timeout,
@@ -123,6 +124,17 @@ func compileSecrets(pipelineSecrets, scopeSecrets []Secret) map[string]string {
 	add(scopeSecrets)
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func compileResources(r *Resources) *pipeline.StepResources {
+	if r == nil {
+		return nil
+	}
+	out := &pipeline.StepResources{CPU: r.CPU, Memory: r.Memory, GPU: r.GPU}
+	if r.Limits != nil {
+		out.Limits = &pipeline.StepResourceLimits{CPU: r.Limits.CPU, Memory: r.Limits.Memory}
 	}
 	return out
 }

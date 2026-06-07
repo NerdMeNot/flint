@@ -149,9 +149,10 @@ type Step struct {
 	DependsOn []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 
 	// Compute
-	Runner         string `yaml:"runner,omitempty" json:"runner,omitempty"`                 // runner pool name
-	ServiceAccount string `yaml:"serviceAccount,omitempty" json:"serviceAccount,omitempty"` // K8s SA override
-	Disk           string `yaml:"disk,omitempty" json:"disk,omitempty"`                     // per-pod scratch size (e.g. 20Gi)
+	Runner         string         `yaml:"runner,omitempty" json:"runner,omitempty"`                 // runner pool name
+	ServiceAccount string         `yaml:"serviceAccount,omitempty" json:"serviceAccount,omitempty"` // K8s SA override
+	Disk           string         `yaml:"disk,omitempty" json:"disk,omitempty"`                     // per-pod scratch size (e.g. 20Gi)
+	Resources      *StepResources `yaml:"resources,omitempty" json:"resources,omitempty"`           // per-pod compute requests/limits
 
 	// Environment filtering
 	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
@@ -259,4 +260,20 @@ type Service struct {
 type CacheSpec struct {
 	Key   string   `yaml:"key" json:"key"`     // cache key (supports expressions, e.g. hashFiles)
 	Paths []string `yaml:"paths" json:"paths"` // paths to cache
+}
+
+// StepResources is the per-pod compute request a step-group carries. Requests are
+// applied to the step container; the runner pool sets the bounds (enforced
+// elsewhere). Quantities are K8s resource strings ("2", "500m", "4Gi").
+type StepResources struct {
+	CPU    string              `yaml:"cpu,omitempty" json:"cpu,omitempty"`
+	Memory string              `yaml:"memory,omitempty" json:"memory,omitempty"`
+	GPU    int                 `yaml:"gpu,omitempty" json:"gpu,omitempty"`
+	Limits *StepResourceLimits `yaml:"limits,omitempty" json:"limits,omitempty"`
+}
+
+// StepResourceLimits caps a step's compute (defaults to the requests if omitted).
+type StepResourceLimits struct {
+	CPU    string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
+	Memory string `yaml:"memory,omitempty" json:"memory,omitempty"`
 }

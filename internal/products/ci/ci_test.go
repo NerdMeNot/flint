@@ -190,6 +190,13 @@ jobs:
     image: alpine
     secrets: [{ name: s, env: E, file: /f }]
     steps: [{ run: x }]`,
+		"pipeline concurrency without group": `
+triggers: { push: { branches: [main] } }
+concurrency: { cancelInProgress: true }
+jobs: { j: { image: alpine, steps: [{ run: x }] } }`,
+		"job concurrency without group": `
+triggers: { push: { branches: [main] } }
+jobs: { j: { image: alpine, steps: [{ run: x }], concurrency: { cancelInProgress: true } } }`,
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -213,6 +220,27 @@ jobs:
 	require.NoError(t, err)
 	require.Equal(t, 0, waveOf(waves, "build"))
 	assert.Equal(t, "20Gi", waves[0][0].Disk)
+}
+
+func TestCompile_ResourcesThreadToStep(t *testing.T) {
+	p, err := Parse([]byte(`
+image: alpine
+triggers: { push: { branches: [main] } }
+jobs:
+  build:
+    resources: { cpu: "2", memory: 4Gi, limits: { cpu: "3", memory: 6Gi } }
+    steps: [{ run: make }]
+`))
+	require.NoError(t, err)
+	waves, err := Compile(p, "")
+	require.NoError(t, err)
+	r := waves[0][0].Resources
+	require.NotNil(t, r)
+	assert.Equal(t, "2", r.CPU)
+	assert.Equal(t, "4Gi", r.Memory)
+	require.NotNil(t, r.Limits)
+	assert.Equal(t, "3", r.Limits.CPU)
+	assert.Equal(t, "6Gi", r.Limits.Memory)
 }
 
 func TestValidate_GateJobNeedsNoImage(t *testing.T) {
