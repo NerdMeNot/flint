@@ -32,7 +32,7 @@ const DagView = lazy(() =>
   import('#/components/pipeline/dag-view').then((m) => ({ default: m.DagView }))
 )
 
-export const Route = createFileRoute('/runs/$id')({
+export const Route = createFileRoute('/ci/runs/$id')({
   component: RunDetailPage,
 })
 
@@ -164,7 +164,7 @@ function RunHeader({ run }: { run: any }) {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <StatusBadge status={run.status} />
           <Link
-            to="/projects/$id"
+            to="/ci/projects/$id"
             params={{ id: run.projectId }}
             className="display-title text-xl sm:text-2xl lg:text-3xl font-bold text-foreground hover:text-primary transition-colors truncate"
           >

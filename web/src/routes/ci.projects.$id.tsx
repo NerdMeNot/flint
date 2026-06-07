@@ -22,7 +22,7 @@ import type { PipelineDefinition } from '#/lib/api/types'
 import { Modal } from '#/components/Modal'
 import { DagView } from '#/components/pipeline/dag-view'
 
-export const Route = createFileRoute('/projects/$id')({
+export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
 })
 
@@ -80,7 +80,7 @@ function ProjectDetailPage() {
           <div className="flex items-center gap-3 shrink-0">
             {project.lastRun && (
               <Link
-                to="/runs/$id"
+                to="/ci/runs/$id"
                 params={{ id: project.lastRun.id }}
                 className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
@@ -213,7 +213,7 @@ function RunsTab({ runs }: { runs: Array<{ id: string; projectName: string; proj
         {runs.map((run) => (
           <Link
             key={run.id}
-            to="/runs/$id"
+            to="/ci/runs/$id"
             params={{ id: run.id }}
             className="flex items-center gap-4 px-5 py-3 hover:bg-accent transition-colors group"
           >

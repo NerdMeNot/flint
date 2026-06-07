@@ -9,7 +9,7 @@ import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const PROJECT_PAGE_SIZE = 12
 
-export const Route = createFileRoute('/projects/')({
+export const Route = createFileRoute('/ci/projects/')({
   component: ProjectsPage,
 })
 
@@ -86,7 +86,7 @@ function ProjectsPage() {
             style={{ animationDelay: `${i * 50 + 30}ms` }}
           >
             <Link
-              to="/projects/$id"
+              to="/ci/projects/$id"
               params={{ id: project.id }}
               className="block p-5 space-y-3 hover:bg-accent/50 transition-colors group flex-1"
             >
@@ -114,7 +114,7 @@ function ProjectsPage() {
 
             {project.lastRun ? (
               <Link
-                to="/runs/$id"
+                to="/ci/runs/$id"
                 params={{ id: project.lastRun.id }}
                 className="block px-5 py-2.5 border-t border-border hover:bg-accent transition-colors group"
               >

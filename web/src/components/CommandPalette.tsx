@@ -42,10 +42,10 @@ interface PaletteItem {
 // ---------------------------------------------------------------------------
 
 const pages: PaletteItem[] = [
-  { id: 'nav-dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} />, to: '/', category: 'page' },
-  { id: 'nav-projects', label: 'Projects', icon: <FolderGit2 size={15} />, to: '/projects', category: 'page' },
-  { id: 'nav-runs', label: 'Runs', icon: <ScrollText size={15} />, to: '/runs', category: 'page' },
-  { id: 'nav-gates', label: 'Gates', icon: <Shield size={15} />, to: '/gates', category: 'page' },
+  { id: 'nav-dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} />, to: '/ci', category: 'page' },
+  { id: 'nav-projects', label: 'Projects', icon: <FolderGit2 size={15} />, to: '/ci/projects', category: 'page' },
+  { id: 'nav-runs', label: 'Runs', icon: <ScrollText size={15} />, to: '/ci/runs', category: 'page' },
+  { id: 'nav-gates', label: 'Gates', icon: <Shield size={15} />, to: '/ci/gates', category: 'page' },
   { id: 'nav-settings', label: 'Admin Settings', icon: <Settings size={15} />, to: '/settings', category: 'page' },
   { id: 'nav-workspaces', label: 'Workspaces', sublabel: 'Admin', icon: <Globe size={15} />, to: '/settings/workspaces', category: 'page' },
   { id: 'nav-users', label: 'Users', sublabel: 'Admin', icon: <Users size={15} />, to: '/settings/users', category: 'page' },
@@ -149,7 +149,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         label: p.name,
         sublabel: p.repo,
         icon: <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.colour }} />,
-        to: `/projects/${p.id}`,
+        to: `/ci/projects/${p.id}`,
         category: 'project' as const,
         colour: p.colour,
       })) ?? []
@@ -160,7 +160,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         label: r.commitMessage.length > 50 ? r.commitMessage.slice(0, 50) + '...' : r.commitMessage,
         sublabel: `${r.projectName} / ${r.branch}`,
         icon: <RunStatusDot status={r.status} />,
-        to: `/runs/${r.id}`,
+        to: `/ci/runs/${r.id}`,
         category: 'run' as const,
       })) ?? []
 
