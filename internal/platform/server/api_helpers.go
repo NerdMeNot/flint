@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/core/httpx"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -15,17 +15,10 @@ import (
 
 // ── Error Response ──────────────────────────────────────────
 
-// apiError sends a consistent error response.
-// Format: {"error": {"code": "NOT_FOUND", "message": "...", "requestId": "req_abc"}}
+// apiError sends the consistent error envelope. It delegates to the shared
+// httpx helper so the server and product packages produce identical responses.
 func apiError(ctx context.Context, c *app.RequestContext, status int, code, message string) {
-	requestID := observe.RequestID(ctx)
-	c.JSON(status, utils.H{
-		"error": utils.H{
-			"code":      code,
-			"message":   message,
-			"requestId": requestID,
-		},
-	})
+	httpx.Error(ctx, c, status, code, message)
 }
 
 func apiBadRequest(ctx context.Context, c *app.RequestContext, msg string) {
@@ -149,10 +142,4 @@ func paginatedResponse(c *app.RequestContext, data any, pagination PaginationRes
 // queryString safely extracts a string query param.
 func queryString(c *app.RequestContext, key string) string {
 	return string(c.Query(key))
-}
-
-// queryBool safely extracts a bool query param.
-func queryBool(c *app.RequestContext, key string) bool {
-	v := string(c.Query(key))
-	return v == "true" || v == "1"
 }

@@ -415,22 +415,3 @@ func (s *Server) handleListAuditLog(ctx context.Context, c *app.RequestContext) 
 	}
 	c.JSON(consts.StatusOK, resp)
 }
-
-// ── Modules ───────────────────────────────────────────────
-
-func (s *Server) handleListModules(ctx context.Context, c *app.RequestContext) {
-	modules, err := s.deps.Q.ListModules(ctx)
-	if err != nil {
-		apiInternal(ctx, c, "failed to list modules")
-		return
-	}
-	c.JSON(consts.StatusOK, utils.H{"items": modules})
-}
-
-// ── Org Secrets (deprecated -- replaced by env variables) ──
-
-func (s *Server) handleListOrgSecrets(ctx context.Context, c *app.RequestContext) {
-	// Deprecated: org secrets are replaced by env variables.
-	// Return empty list for backwards compatibility.
-	c.JSON(consts.StatusOK, utils.H{"items": []any{}})
-}

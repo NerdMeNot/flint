@@ -9,6 +9,7 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/core/httpx"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -51,7 +52,7 @@ func (a *API) Register(rg *route.RouterGroup) {
 func (a *API) createSchedule(ctx context.Context, c *app.RequestContext) {
 	orgID := observe.OrgID(ctx)
 	if orgID == "" {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "no organization in context"})
+		httpx.Unauthorized(ctx, c, "no organization in context")
 		return
 	}
 	var req struct {
@@ -60,16 +61,16 @@ func (a *API) createSchedule(ctx context.Context, c *app.RequestContext) {
 		Definition string `json:"definition"`
 	}
 	if c.BindJSON(&req) != nil || req.Name == "" || req.Cron == "" || req.Definition == "" {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "name, cron, and definition are required"})
+		httpx.BadRequest(ctx, c, "name, cron, and definition are required")
 		return
 	}
 	next, err := NextCron(req.Cron, time.Now())
 	if err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid cron: " + err.Error()})
+		httpx.BadRequest(ctx, c, "invalid cron: "+err.Error())
 		return
 	}
 	if _, err := Parse([]byte(req.Definition)); err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+		httpx.BadRequest(ctx, c, err.Error())
 		return
 	}
 
@@ -81,7 +82,7 @@ func (a *API) createSchedule(ctx context.Context, c *app.RequestContext) {
 		NextRunAt:  next,
 	})
 	if err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to create schedule"})
+		httpx.Internal(ctx, c, "failed to create schedule")
 		return
 	}
 	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "cron": req.Cron, "nextRunAt": next})
@@ -91,15 +92,15 @@ func (a *API) createSchedule(ctx context.Context, c *app.RequestContext) {
 func (a *API) listSchedules(ctx context.Context, c *app.RequestContext) {
 	orgID := observe.OrgID(ctx)
 	if orgID == "" {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "no organization in context"})
+		httpx.Unauthorized(ctx, c, "no organization in context")
 		return
 	}
 	schedules, err := a.q.ListWorkflowSchedules(ctx, orgID)
 	if err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to list schedules"})
+		httpx.Internal(ctx, c, "failed to list schedules")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"schedules": schedules})
+	c.JSON(consts.StatusOK, utils.H{"items": schedules})
 }
 
 // triggerRun parses a workflow definition (YAML body), resolves its DAG, creates
@@ -107,18 +108,18 @@ func (a *API) listSchedules(ctx context.Context, c *app.RequestContext) {
 func (a *API) triggerRun(ctx context.Context, c *app.RequestContext) {
 	orgID := observe.OrgID(ctx)
 	if orgID == "" {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "no organization in context"})
+		httpx.Unauthorized(ctx, c, "no organization in context")
 		return
 	}
 
 	def, err := Parse(extractDefinition(c.Request.Body()))
 	if err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+		httpx.BadRequest(ctx, c, err.Error())
 		return
 	}
 	waves, err := def.Resolve()
 	if err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+		httpx.BadRequest(ctx, c, err.Error())
 		return
 	}
 
@@ -130,7 +131,7 @@ func (a *API) triggerRun(ctx context.Context, c *app.RequestContext) {
 		TriggerType: "manual",
 		TriggeredBy: &triggeredBy,
 	}); err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to create run"})
+		httpx.Internal(ctx, c, "failed to create run")
 		return
 	}
 
@@ -140,7 +141,7 @@ func (a *API) triggerRun(ctx context.Context, c *app.RequestContext) {
 		Kind:  "workflow",
 	}, waves)
 	if err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+		httpx.Internal(ctx, c, err.Error())
 		return
 	}
 
@@ -157,12 +158,12 @@ func (a *API) getRun(ctx context.Context, c *app.RequestContext) {
 	runID := c.Param("id")
 	wfID, err := a.q.GetRunWorkflowID(ctx, runID)
 	if err != nil || wfID == nil {
-		c.JSON(consts.StatusNotFound, utils.H{"error": "run not found"})
+		httpx.NotFound(ctx, c, "run not found")
 		return
 	}
 	state, err := a.engine.QueryWorkflow(ctx, *wfID)
 	if err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to query workflow"})
+		httpx.Internal(ctx, c, "failed to query workflow")
 		return
 	}
 	c.JSON(consts.StatusOK, utils.H{
@@ -178,7 +179,7 @@ func (a *API) getRun(ctx context.Context, c *app.RequestContext) {
 func (a *API) listRuns(ctx context.Context, c *app.RequestContext) {
 	orgID := observe.OrgID(ctx)
 	if orgID == "" {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "no organization in context"})
+		httpx.Unauthorized(ctx, c, "no organization in context")
 		return
 	}
 
@@ -197,7 +198,7 @@ func (a *API) listRuns(ctx context.Context, c *app.RequestContext) {
 		Lim:      int32(limit),
 	})
 	if err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to list runs"})
+		httpx.Internal(ctx, c, "failed to list runs")
 		return
 	}
 

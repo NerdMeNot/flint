@@ -43,7 +43,7 @@ func (s *Server) handleListWebhooks(ctx context.Context, c *app.RequestContext) 
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"webhooks": result})
+	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
 // handleCreateWebhook creates a new webhook for a project.
@@ -81,10 +81,10 @@ func (s *Server) handleCreateWebhook(ctx context.Context, c *app.RequestContext)
 }
 
 // handleDeleteWebhook deletes a webhook.
-// DELETE /api/v1/projects/:id/webhooks/:webhookId
+// DELETE /api/v1/projects/:id/webhooks/:webhook
 func (s *Server) handleDeleteWebhook(ctx context.Context, c *app.RequestContext) {
 	projectID := c.Param("id")
-	webhookID := c.Param("webhookId")
+	webhookID := c.Param("webhook")
 
 	err := s.deps.Q.DeleteWebhook(ctx, db.DeleteWebhookParams{
 		ID:        webhookID,

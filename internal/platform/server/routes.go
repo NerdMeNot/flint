@@ -9,7 +9,6 @@ import (
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
-	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -98,7 +97,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
 		v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
 		v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
-		v1.DELETE("/projects/:id/webhooks/:webhookId", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
+		v1.DELETE("/projects/:id/webhooks/:webhook", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
 
 		// Runs (global list + per-run operations).
 		v1.GET("/runs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListRuns)
@@ -658,63 +657,6 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	c.JSON(consts.StatusAccepted, utils.H{"id": runID, "workflowId": workflowID, "status": "pending"})
-}
-
-// ── Secrets (legacy -- to be replaced by env variables) ──────
-
-func (s *Server) listSecrets(ctx context.Context, c *app.RequestContext) {
-	projectID := c.Param("id")
-	secrets, err := s.deps.Q.ListProjectSecrets(ctx, &projectID)
-	if err != nil {
-		apiInternal(ctx, c, "failed to list secrets")
-		return
-	}
-	c.JSON(consts.StatusOK, utils.H{"items": secrets})
-}
-
-func (s *Server) createSecret(ctx context.Context, c *app.RequestContext) {
-	projectID := c.Param("id")
-	var req struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	}
-	if c.BindJSON(&req) != nil || req.Name == "" || req.Value == "" {
-		apiBadRequest(ctx, c, "name and value are required")
-		return
-	}
-	if s.deps.Secrets == nil {
-		apiInternal(ctx, c, "secret store not configured")
-		return
-	}
-
-	orgID, err := s.deps.Q.GetProjectOrgID(ctx, projectID)
-	if err != nil {
-		apiNotFound(ctx, c, "project not found")
-		return
-	}
-
-	if err := s.deps.Secrets.Set(ctx, secret.Ref{OrgID: orgID, ProjectID: projectID, Name: req.Name}, req.Value); err != nil {
-		apiInternal(ctx, c, "failed to store secret")
-		return
-	}
-	c.JSON(consts.StatusCreated, utils.H{"name": req.Name, "status": "created"})
-}
-
-func (s *Server) deleteSecret(ctx context.Context, c *app.RequestContext) {
-	projectID := c.Param("id")
-	name := c.Param("name")
-
-	orgID, err := s.deps.Q.GetProjectOrgID(ctx, projectID)
-	if err != nil {
-		apiNotFound(ctx, c, "project not found")
-		return
-	}
-
-	if err := s.deps.Secrets.Delete(ctx, secret.Ref{OrgID: orgID, ProjectID: projectID, Name: name}); err != nil {
-		apiNotFound(ctx, c, "secret not found")
-		return
-	}
-	c.JSON(consts.StatusOK, utils.H{"status": "ok"})
 }
 
 // ── Runners ──────────────────────────────────────────────────

@@ -24,42 +24,42 @@ func (s *Server) handleAgentSecrets(ctx context.Context, c *app.RequestContext) 
 
 	tokenStr := string(c.GetHeader("X-Flint-Task-Token"))
 	if tokenStr == "" {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "missing task token"})
+		apiUnauthorized(ctx, c, "missing task token")
 		return
 	}
 	tok, err := engine.DecodeTaskToken(tokenStr, []byte(s.deps.Config.Auth.JWT.Secret))
 	if err != nil {
-		c.JSON(consts.StatusUnauthorized, utils.H{"error": "invalid task token"})
+		apiUnauthorized(ctx, c, "invalid task token")
 		return
 	}
 
 	// Derive the run's identity from its workflow input (the trusted source).
 	inputJSON, err := s.deps.Q.GetWorkflowInput(ctx, tok.WorkflowID)
 	if err != nil {
-		c.JSON(consts.StatusNotFound, utils.H{"error": "run not found"})
+		apiNotFound(ctx, c, "run not found")
 		return
 	}
 	var input engine.StartWorkflowInput
 	if err := json.Unmarshal(inputJSON, &input); err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "invalid run input"})
+		apiInternal(ctx, c, "invalid run input")
 		return
 	}
 	orgID, projectID, environment := input.OrgID, input.ProjectID, input.Environment
 
 	namesRaw := string(c.GetHeader("X-Flint-Secret-Names"))
 	if namesRaw == "" {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "missing secret names"})
+		apiBadRequest(ctx, c, "missing secret names")
 		return
 	}
 
 	var names []string
 	if err := json.Unmarshal([]byte(namesRaw), &names); err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid secret names"})
+		apiBadRequest(ctx, c, "invalid secret names")
 		return
 	}
 
 	if s.deps.Secrets == nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "secret store not configured"})
+		apiInternal(ctx, c, "secret store not configured")
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) handleAgentCloneToken(ctx context.Context, c *app.RequestContex
 
 	repo := string(c.GetHeader("X-Flint-Repo"))
 	if repo == "" {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "missing X-Flint-Repo header"})
+		apiBadRequest(ctx, c, "missing X-Flint-Repo header")
 		return
 	}
 
@@ -112,7 +112,7 @@ func (s *Server) handleAgentCloneToken(ctx context.Context, c *app.RequestContex
 	creds, err := s.deps.Q.GetCloneCredentials(ctx, repo)
 	if err != nil {
 		log.Warn().Str("repo", repo).Msg("no forge connection for repo")
-		c.JSON(consts.StatusNotFound, utils.H{"error": "no forge connection for repo"})
+		apiNotFound(ctx, c, "no forge connection for repo")
 		return
 	}
 

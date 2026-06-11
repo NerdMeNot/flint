@@ -531,7 +531,7 @@ func (s *Server) handleSAMLMetadata(ctx context.Context, c *app.RequestContext) 
 	xml, err := s.deps.SAMLProvider.MetadataXML()
 	if err != nil {
 		logErr(ctx, err, "failed to generate SAML metadata")
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "metadata generation failed"})
+		apiInternal(ctx, c, "metadata generation failed")
 		return
 	}
 
