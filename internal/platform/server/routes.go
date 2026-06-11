@@ -193,14 +193,33 @@ func (s *Server) registerAPIRoutes() {
 // ── Stats ─────────────────────────────────────────────────────
 
 func (s *Server) handleStats(ctx context.Context, c *app.RequestContext) {
-	// TODO: implement real stats queries
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		apiInternal(ctx, c, "failed to get org")
+		return
+	}
+
+	stats, err := s.deps.Q.GetRunStats(ctx, org.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to compute run stats")
+		return
+	}
+
+	activeProjects, _ := s.deps.Q.CountActiveProjects(ctx)
+	pendingGates, _ := s.deps.Q.CountPendingGates(ctx)
+
+	successRate := 0.0
+	if stats.TotalRuns > 0 {
+		successRate = float64(stats.SuccessRuns) / float64(stats.TotalRuns)
+	}
+
 	c.JSON(consts.StatusOK, utils.H{
-		"totalRuns":      0,
-		"successRate":    0.0,
-		"pendingGates":   0,
-		"activeProjects": 0,
-		"runsToday":      0,
-		"avgDuration":    "0s",
+		"totalRuns":      stats.TotalRuns,
+		"successRate":    successRate,
+		"pendingGates":   pendingGates,
+		"activeProjects": activeProjects,
+		"runsToday":      stats.RunsToday,
+		"avgDuration":    (time.Duration(stats.AvgDurationMs) * time.Millisecond).String(),
 	})
 }
 

@@ -403,6 +403,74 @@ func (q *Queries) ListRunsByProject(ctx context.Context, arg ListRunsByProjectPa
 	return items, nil
 }
 
+const listWorkflowRuns = `-- name: ListWorkflowRuns :many
+SELECT id, status, trigger_type, triggered_by, started_at, finished_at,
+       duration_ms, error_message
+FROM pipeline_runs
+WHERE org_id = $1 AND kind = 'workflow'
+  AND ( $2::text = ''
+        OR started_at < $2::timestamptz
+        OR (started_at = $2::timestamptz AND id < $3) )
+ORDER BY started_at DESC, id DESC
+LIMIT $4
+`
+
+type ListWorkflowRunsParams struct {
+	OrgID    string `json:"org_id"`
+	CursorTs string `json:"cursor_ts"`
+	CursorID string `json:"cursor_id"`
+	Lim      int32  `json:"lim"`
+}
+
+type ListWorkflowRunsRow struct {
+	ID           string      `json:"id"`
+	Status       string      `json:"status"`
+	TriggerType  string      `json:"trigger_type"`
+	TriggeredBy  *string     `json:"triggered_by"`
+	StartedAt    time.Time   `json:"started_at"`
+	FinishedAt   *time.Time  `json:"finished_at"`
+	DurationMs   pgtype.Int4 `json:"duration_ms"`
+	ErrorMessage *string     `json:"error_message"`
+}
+
+// Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
+// pagination. The cursor is (started_at, id); an empty cursor returns the first
+// page. Project-joining run queries can't serve these — workflow runs have no
+// project.
+func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error) {
+	rows, err := q.db.Query(ctx, listWorkflowRuns,
+		arg.OrgID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkflowRunsRow{}
+	for rows.Next() {
+		var i ListWorkflowRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TriggerType,
+			&i.TriggeredBy,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.DurationMs,
+			&i.ErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const runExists = `-- name: RunExists :one
 SELECT EXISTS(SELECT 1 FROM pipeline_runs WHERE id = $1)
 `

@@ -110,6 +110,8 @@ type Querier interface {
 	// authorization middleware. Workflow runs have no project, so both fall back to
 	// the empty string (the caller treats "" as the global "*" scope).
 	GetRunScope(ctx context.Context, id string) (GetRunScopeRow, error)
+	// Aggregate run counts for the org-level stats endpoint.
+	GetRunStats(ctx context.Context, orgID string) (GetRunStatsRow, error)
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
 	GetSecret(ctx context.Context, arg GetSecretParams) ([]byte, error)
 	GetSecretByEnvironment(ctx context.Context, arg GetSecretByEnvironmentParams) (GetSecretByEnvironmentRow, error)
@@ -215,6 +217,11 @@ type Querier interface {
 	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
 	ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error)
 	ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error)
+	// Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
+	// pagination. The cursor is (started_at, id); an empty cursor returns the first
+	// page. Project-joining run queries can't serve these — workflow runs have no
+	// project.
+	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error)
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, orgID string) ([]ListWorkspacesRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)

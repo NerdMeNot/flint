@@ -63,6 +63,21 @@ WHERE workflow_id = $1;
 -- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1;
 
+-- name: ListWorkflowRuns :many
+-- Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
+-- pagination. The cursor is (started_at, id); an empty cursor returns the first
+-- page. Project-joining run queries can't serve these — workflow runs have no
+-- project.
+SELECT id, status, trigger_type, triggered_by, started_at, finished_at,
+       duration_ms, error_message
+FROM pipeline_runs
+WHERE org_id = sqlc.arg('org_id') AND kind = 'workflow'
+  AND ( sqlc.arg('cursor_ts')::text = ''
+        OR started_at < sqlc.arg('cursor_ts')::timestamptz
+        OR (started_at = sqlc.arg('cursor_ts')::timestamptz AND id < sqlc.arg('cursor_id')) )
+ORDER BY started_at DESC, id DESC
+LIMIT sqlc.arg('lim');
+
 -- name: GetRunScope :one
 -- Resolves the RBAC scope (workspace slug + environment) for a run, used by the
 -- authorization middleware. Workflow runs have no project, so both fall back to
