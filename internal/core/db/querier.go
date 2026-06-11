@@ -102,9 +102,14 @@ type Querier interface {
 	GetProjectRepoInfo(ctx context.Context, id string) (GetProjectRepoInfoRow, error)
 	GetProjectWorkspaceSlug(ctx context.Context, id string) (string, error)
 	GetProtectedEnvironment(ctx context.Context, arg GetProtectedEnvironmentParams) (GetProtectedEnvironmentRow, error)
+	GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, error)
 	GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (GetRoleBySlugRow, error)
 	GetRun(ctx context.Context, id string) (GetRunRow, error)
 	GetRunOrgID(ctx context.Context, id string) (string, error)
+	// Resolves the RBAC scope (workspace slug + environment) for a run, used by the
+	// authorization middleware. Workflow runs have no project, so both fall back to
+	// the empty string (the caller treats "" as the global "*" scope).
+	GetRunScope(ctx context.Context, id string) (GetRunScopeRow, error)
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
 	GetSecret(ctx context.Context, arg GetSecretParams) ([]byte, error)
 	GetSecretByEnvironment(ctx context.Context, arg GetSecretByEnvironmentParams) (GetSecretByEnvironmentRow, error)
@@ -157,6 +162,7 @@ type Querier interface {
 	// Role assignments
 	// ────────────────────────────────────────────────────────────
 	ListAllRoleAssignments(ctx context.Context) ([]ListAllRoleAssignmentsRow, error)
+	ListAllRoleAssignmentsWithRole(ctx context.Context) ([]ListAllRoleAssignmentsWithRoleRow, error)
 	ListAllSecrets(ctx context.Context) ([]ListAllSecretsRow, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
@@ -241,6 +247,7 @@ type Querier interface {
 	TouchAPIKey(ctx context.Context, id string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	UpdateProtectedEnvironment(ctx context.Context, arg UpdateProtectedEnvironmentParams) (int64, error)
+	UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, error)
 	UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams) error
 	UpdateRunWorkflow(ctx context.Context, arg UpdateRunWorkflowParams) (int64, error)
 	UpdateSecretValue(ctx context.Context, arg UpdateSecretValueParams) error

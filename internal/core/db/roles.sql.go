@@ -48,6 +48,34 @@ func (q *Queries) DeleteRole(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const getRoleByID = `-- name: GetRoleByID :one
+SELECT id, name, slug, description, is_system, created_at
+FROM roles WHERE id = $1
+`
+
+type GetRoleByIDRow struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description *string   `json:"description"`
+	IsSystem    bool      `json:"is_system"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, error) {
+	row := q.db.QueryRow(ctx, getRoleByID, id)
+	var i GetRoleByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.Description,
+		&i.IsSystem,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getRoleBySlug = `-- name: GetRoleBySlug :one
 SELECT id, name, slug, description, is_system, created_at
 FROM roles WHERE org_id = $1 AND slug = $2
@@ -136,4 +164,25 @@ func (q *Queries) RoleExists(ctx context.Context, arg RoleExistsParams) (bool, e
 	var role_exists bool
 	err := row.Scan(&role_exists)
 	return role_exists, err
+}
+
+const updateRole = `-- name: UpdateRole :execrows
+UPDATE roles
+SET name = COALESCE($1, name),
+    description = COALESCE($2, description)
+WHERE id = $3 AND is_system = false
+`
+
+type UpdateRoleParams struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	ID          string  `json:"id"`
+}
+
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateRole, arg.Name, arg.Description, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

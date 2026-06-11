@@ -39,6 +39,17 @@ e = some(where (p.eft == allow))
 m = g(r.sub, p.sub) && (p.ws == "*" || p.ws == r.ws) && (p.env == "*" || p.env == r.env) && (p.obj == "*" || p.obj == r.obj) && (p.act == "*" || p.act == r.act)
 `
 
+// NewMemoryEnforcer creates a Casbin enforcer with the Flint RBAC model and no
+// persistence adapter. Policies live only in memory — used in tests and for
+// ephemeral, in-process policy evaluation.
+func NewMemoryEnforcer() (*casbin.Enforcer, error) {
+	m, err := model.NewModelFromString(flintRBACModel)
+	if err != nil {
+		return nil, fmt.Errorf("loading casbin model: %w", err)
+	}
+	return casbin.NewEnforcer(m)
+}
+
 // NewEnforcer creates a Casbin enforcer with the Flint RBAC model and pgx adapter.
 func NewEnforcer(pool db.Pool) (*casbin.Enforcer, error) {
 	m, err := model.NewModelFromString(flintRBACModel)
