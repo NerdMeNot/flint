@@ -139,14 +139,14 @@ func (s *Server) handleReady(ctx context.Context, c *app.RequestContext) {
 func (s *Server) handleWebhook(ctx context.Context, c *app.RequestContext) {
 	ctx = observe.WithRequestID(ctx, "")
 	if s.deps.Runs == nil {
-		c.JSON(consts.StatusServiceUnavailable, utils.H{"error": "run creation unavailable"})
+		apiError(ctx, c, consts.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "run creation unavailable")
 		return
 	}
 	body, _ := c.Body()
 	headers := hertzToHTTPHeaders(c)
 	runIDs, err := s.deps.Runs.HandleWebhook(ctx, headers, body, forgeTypeFromPath(string(c.Path())))
 	if err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": err.Error()})
+		apiBadRequest(ctx, c, err.Error())
 		return
 	}
 	c.JSON(consts.StatusAccepted, utils.H{"status": "accepted", "runIDs": runIDs})
@@ -172,16 +172,16 @@ func (s *Server) handleAgentComplete(ctx context.Context, c *app.RequestContext)
 		Result    engine.StepResult `json:"result"`
 	}
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid request body"})
+		apiBadRequest(ctx, c, "invalid request body")
 		return
 	}
 	if req.TaskToken == "" {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "taskToken is required"})
+		apiBadRequest(ctx, c, "taskToken is required")
 		return
 	}
 
 	if err := s.deps.Engine.CompleteStep(ctx, req.TaskToken, req.Result); err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": err.Error()})
+		apiInternal(ctx, c, err.Error())
 		return
 	}
 

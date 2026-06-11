@@ -75,7 +75,7 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 		Lines     []logsink.LogLine `json:"lines"`
 	}
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(consts.StatusBadRequest, utils.H{"error": "invalid request"})
+		apiBadRequest(ctx, c, "invalid request")
 		return
 	}
 
@@ -92,7 +92,7 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 	}
 
 	if err := s.deps.Logs.Write(ctx, ref, req.Lines); err != nil {
-		c.JSON(consts.StatusInternalServerError, utils.H{"error": "failed to write logs"})
+		apiInternal(ctx, c, "failed to write logs")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (s *Server) handleStreamStepLogs(ctx context.Context, c *app.RequestContext
 	stepName := c.Param("step")
 
 	if s.deps.LogBroadcast == nil {
-		c.JSON(consts.StatusServiceUnavailable, utils.H{"error": "log streaming not enabled"})
+		apiError(ctx, c, consts.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "log streaming not enabled")
 		return
 	}
 

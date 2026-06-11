@@ -50,8 +50,8 @@ func TestHandleListWebhooks_Success(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	resp := parseJSON(t, w)
 
-	webhooks, ok := resp["webhooks"].([]any)
-	assert.True(t, ok, "expected webhooks array")
+	webhooks, ok := resp["items"].([]any)
+	assert.True(t, ok, "expected items array")
 	assert.Len(t, webhooks, 2)
 
 	first := webhooks[0].(map[string]any)
@@ -80,7 +80,7 @@ func TestHandleListWebhooks_Empty(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 	resp := parseJSON(t, w)
-	webhooks := resp["webhooks"].([]any)
+	webhooks := resp["items"].([]any)
 	assert.Empty(t, webhooks)
 }
 
@@ -191,7 +191,7 @@ func TestHandleCreateWebhook_DBError(t *testing.T) {
 	assert.Equal(t, 500, w.Code)
 }
 
-// ── DELETE /api/v1/projects/:id/webhooks/:webhookId ─────────
+// ── DELETE /api/v1/projects/:id/webhooks/:webhook ─────────
 
 func TestHandleDeleteWebhook_Success(t *testing.T) {
 	srv, m := testServer(t)

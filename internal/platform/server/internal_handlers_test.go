@@ -126,7 +126,9 @@ func TestHandleAgentComplete_MissingTaskToken(t *testing.T) {
 
 	assert.Equal(t, 400, w.Code)
 	resp := parseJSON(t, w)
-	assert.Contains(t, resp["error"], "taskToken is required")
+	errObj, ok := resp["error"].(map[string]any)
+	assert.True(t, ok, "expected standard error envelope")
+	assert.Contains(t, errObj["message"], "taskToken is required")
 }
 
 func TestHandleAgentComplete_InvalidBody(t *testing.T) {
