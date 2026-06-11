@@ -1,6 +1,7 @@
 -- name: ListRoles :many
 SELECT id, name, slug, description, is_system, created_at
-FROM roles WHERE org_id = $1 ORDER BY is_system DESC, name;
+FROM roles WHERE org_id = $1 ORDER BY is_system DESC, name
+LIMIT $2 OFFSET $3;
 
 -- name: GetRoleBySlug :one
 SELECT id, name, slug, description, is_system, created_at

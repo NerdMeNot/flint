@@ -34,7 +34,11 @@ type envVariableValueResponse struct {
 
 func (s *Server) handleListEnvVariables(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	rows, err := s.deps.Q.ListEnvVariables(ctx, claims.OrgID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	rows, err := s.deps.Q.ListEnvVariables(ctx, db.ListEnvVariablesParams{
+		OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list env variables")
 		return
@@ -69,7 +73,7 @@ func (s *Server) handleListEnvVariables(ctx context.Context, c *app.RequestConte
 		result = append(result, v)
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(rows))})
 }
 
 func (s *Server) handleListEnvVariableValues(ctx context.Context, c *app.RequestContext) {
@@ -230,7 +234,11 @@ type environmentResponse struct {
 
 func (s *Server) handleListEnvironments(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	rows, err := s.deps.Q.ListEnvironments(ctx, claims.OrgID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	rows, err := s.deps.Q.ListEnvironments(ctx, db.ListEnvironmentsParams{
+		OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list environments")
 		return
@@ -246,7 +254,7 @@ func (s *Server) handleListEnvironments(ctx context.Context, c *app.RequestConte
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(rows))})
 }
 
 func (s *Server) handleCreateEnvironment(ctx context.Context, c *app.RequestContext) {

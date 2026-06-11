@@ -197,8 +197,15 @@ func (q *Queries) GetUserRecoveryCodes(ctx context.Context, id string) ([]string
 const listUsers = `-- name: ListUsers :many
 SELECT id, email, name, avatar_url, created_at
 FROM users WHERE org_id = $1
-ORDER BY name LIMIT 100
+ORDER BY name
+LIMIT $2 OFFSET $3
 `
+
+type ListUsersParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListUsersRow struct {
 	ID        string    `json:"id"`
@@ -208,8 +215,8 @@ type ListUsersRow struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListUsers(ctx context.Context, orgID string) ([]ListUsersRow, error) {
-	rows, err := q.db.Query(ctx, listUsers, orgID)
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

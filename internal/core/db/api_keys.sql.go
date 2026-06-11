@@ -50,8 +50,15 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, id string) (int64, error) {
 
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT id, name, scopes, expires_at, last_used_at, created_at
-FROM api_keys WHERE org_id = $1 ORDER BY created_at
+FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
 `
+
+type ListAPIKeysParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListAPIKeysRow struct {
 	ID         string     `json:"id"`
@@ -62,8 +69,8 @@ type ListAPIKeysRow struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-func (q *Queries) ListAPIKeys(ctx context.Context, orgID string) ([]ListAPIKeysRow, error) {
-	rows, err := q.db.Query(ctx, listAPIKeys, orgID)
+func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error) {
+	rows, err := q.db.Query(ctx, listAPIKeys, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

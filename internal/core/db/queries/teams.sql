@@ -1,5 +1,6 @@
 -- name: ListTeams :many
-SELECT id, name, slug FROM teams ORDER BY name;
+SELECT id, name, slug FROM teams ORDER BY name
+LIMIT $1 OFFSET $2;
 
 -- name: CreateTeam :one
 INSERT INTO teams (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id;

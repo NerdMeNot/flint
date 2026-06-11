@@ -1,7 +1,8 @@
 -- name: ListEnvironments :many
 SELECT id, name, slug, created_at
 FROM environments WHERE org_id = $1
-ORDER BY name;
+ORDER BY name
+LIMIT $2 OFFSET $3;
 
 -- name: GetEnvironment :one
 SELECT id, name, slug, created_at
@@ -18,7 +19,8 @@ DELETE FROM environments WHERE id = $1;
 -- name: ListEnvVariables :many
 SELECT id, name, description, scope, is_secret, created_at
 FROM env_variables WHERE org_id = $1
-ORDER BY name;
+ORDER BY name
+LIMIT $2 OFFSET $3;
 
 -- name: GetEnvVariable :one
 SELECT id, name, description, scope, is_secret, created_at

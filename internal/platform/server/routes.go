@@ -720,19 +720,22 @@ func (s *Server) deleteSecret(ctx context.Context, c *app.RequestContext) {
 // ── Runners ──────────────────────────────────────────────────
 
 func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
 	rows, err := s.deps.DB.Query(ctx, `
 		SELECT id, name, description, cpu, memory, arch,
 		       gpu_vendor, gpu_model, gpu_count, ready, created_at
 		FROM runner_pools
 		ORDER BY name
-	`)
+		LIMIT $1 OFFSET $2
+	`, lim, off)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runners")
 		return
 	}
 	defer rows.Close()
 
-	var result []runnerResponse
+	result := []runnerResponse{}
 	for rows.Next() {
 		var r runnerResponse
 		var createdAt time.Time
@@ -751,10 +754,7 @@ func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 		result = append(result, r)
 	}
 
-	if result == nil {
-		result = []runnerResponse{}
-	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
 }
 
 // ── Org (sqlc) ──────────────────────────────────────────────

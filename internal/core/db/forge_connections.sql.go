@@ -132,8 +132,15 @@ func (q *Queries) ListForgeConnectionNames(ctx context.Context) ([]ListForgeConn
 
 const listForgeConnections = `-- name: ListForgeConnections :many
 SELECT id, forge_type, display_name, app_id, installation_id, created_at
-FROM forge_connections WHERE org_id = $1 ORDER BY created_at
+FROM forge_connections WHERE org_id = $1 ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
 `
+
+type ListForgeConnectionsParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListForgeConnectionsRow struct {
 	ID             string    `json:"id"`
@@ -144,8 +151,8 @@ type ListForgeConnectionsRow struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListForgeConnections(ctx context.Context, orgID string) ([]ListForgeConnectionsRow, error) {
-	rows, err := q.db.Query(ctx, listForgeConnections, orgID)
+func (q *Queries) ListForgeConnections(ctx context.Context, arg ListForgeConnectionsParams) ([]ListForgeConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, listForgeConnections, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

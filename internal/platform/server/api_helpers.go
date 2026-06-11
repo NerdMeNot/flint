@@ -110,6 +110,31 @@ func decodeCursor(cursor string) (id, sortValue string, err error) {
 	return m["id"], m["ts"], nil
 }
 
+// listOffset parses the opaque pagination cursor into a row offset. Admin list
+// endpoints use limit+offset pagination (keyset is reserved for the high-volume
+// runs/audit feeds); the cursor stays opaque to callers either way.
+func listOffset(c *app.RequestContext) int {
+	cur := string(c.Query("cursor"))
+	if cur == "" {
+		return 0
+	}
+	if id, sv, err := decodeCursor(cur); err == nil && id == "offset" {
+		if n, e := strconv.Atoi(sv); e == nil && n >= 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// nextOffsetCursor returns the cursor for the next page, or "" when this was the
+// last page (fewer rows returned than the limit).
+func nextOffsetCursor(offset, limit, returned int) string {
+	if returned < limit {
+		return ""
+	}
+	return encodeCursor("offset", strconv.Itoa(offset+limit))
+}
+
 // paginatedResponse sends a paginated list response using the standard envelope.
 func paginatedResponse(c *app.RequestContext, data any, pagination PaginationResponse) {
 	resp := utils.H{"items": data}
