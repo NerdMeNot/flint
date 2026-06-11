@@ -1,6 +1,7 @@
 -- name: ListWorkspaces :many
 SELECT id, name, slug, description, created_at
-FROM workspaces WHERE org_id = $1 ORDER BY name;
+FROM workspaces WHERE org_id = $1 ORDER BY name
+LIMIT $2 OFFSET $3;
 
 -- name: GetWorkspaceBySlug :one
 SELECT id, name, slug, description, created_at

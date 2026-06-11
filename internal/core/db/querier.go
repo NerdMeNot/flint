@@ -163,7 +163,7 @@ type Querier interface {
 	// API key workspace scope
 	// ────────────────────────────────────────────────────────────
 	ListAPIKeyWorkspaceSlugs(ctx context.Context, apiKeyID string) ([]string, error)
-	ListAPIKeys(ctx context.Context, orgID string) ([]ListAPIKeysRow, error)
+	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
 	// ────────────────────────────────────────────────────────────
 	// Role assignments
 	// ────────────────────────────────────────────────────────────
@@ -174,10 +174,10 @@ type Querier interface {
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
 	ListDueWorkflowSchedules(ctx context.Context) ([]ListDueWorkflowSchedulesRow, error)
 	ListEnvVariableValues(ctx context.Context, orgID string) ([]ListEnvVariableValuesRow, error)
-	ListEnvVariables(ctx context.Context, orgID string) ([]ListEnvVariablesRow, error)
-	ListEnvironments(ctx context.Context, orgID string) ([]ListEnvironmentsRow, error)
+	ListEnvVariables(ctx context.Context, arg ListEnvVariablesParams) ([]ListEnvVariablesRow, error)
+	ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error)
 	ListForgeConnectionNames(ctx context.Context) ([]ListForgeConnectionNamesRow, error)
-	ListForgeConnections(ctx context.Context, orgID string) ([]ListForgeConnectionsRow, error)
+	ListForgeConnections(ctx context.Context, arg ListForgeConnectionsParams) ([]ListForgeConnectionsRow, error)
 	ListModules(ctx context.Context) ([]ListModulesRow, error)
 	ListOrgSecrets(ctx context.Context, orgID string) ([]ListOrgSecretsRow, error)
 	ListPendingGates(ctx context.Context) ([]ListPendingGatesRow, error)
@@ -199,7 +199,7 @@ type Querier interface {
 	// Role workspace scope
 	// ────────────────────────────────────────────────────────────
 	ListRoleWorkspaceSlugs(ctx context.Context, roleID string) ([]string, error)
-	ListRoles(ctx context.Context, orgID string) ([]ListRolesRow, error)
+	ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRolesRow, error)
 	ListRunnerPoolNames(ctx context.Context) ([]string, error)
 	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
@@ -208,12 +208,12 @@ type Querier interface {
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]ListStepsByWorkflowRow, error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]ListTeamMembersRow, error)
-	ListTeams(ctx context.Context) ([]ListTeamsRow, error)
+	ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTeamsRow, error)
 	ListUserIdpTeams(ctx context.Context, userID string) ([]ListUserIdpTeamsRow, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUserTeamIDs(ctx context.Context, userID string) ([]string, error)
 	ListUserTeams(ctx context.Context, userID string) ([]ListUserTeamsRow, error)
-	ListUsers(ctx context.Context, orgID string) ([]ListUsersRow, error)
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
 	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
 	ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error)
 	ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error)
@@ -223,7 +223,7 @@ type Querier interface {
 	// project.
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error)
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
-	ListWorkspaces(ctx context.Context, orgID string) ([]ListWorkspacesRow, error)
+	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	NotifyEngine(ctx context.Context, pgNotify string) error

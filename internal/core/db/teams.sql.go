@@ -59,7 +59,13 @@ func (q *Queries) GetOrCreateTeamBySlug(ctx context.Context, arg GetOrCreateTeam
 
 const listTeams = `-- name: ListTeams :many
 SELECT id, name, slug FROM teams ORDER BY name
+LIMIT $1 OFFSET $2
 `
+
+type ListTeamsParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
 
 type ListTeamsRow struct {
 	ID   string `json:"id"`
@@ -67,8 +73,8 @@ type ListTeamsRow struct {
 	Slug string `json:"slug"`
 }
 
-func (q *Queries) ListTeams(ctx context.Context) ([]ListTeamsRow, error) {
-	rows, err := q.db.Query(ctx, listTeams)
+func (q *Queries) ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTeamsRow, error) {
+	rows, err := q.db.Query(ctx, listTeams, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

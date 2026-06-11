@@ -46,7 +46,11 @@ func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	roles, err := s.deps.Q.ListRoles(ctx, org.ID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	roles, err := s.deps.Q.ListRoles(ctx, db.ListRolesParams{
+		OrgID: org.ID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list roles")
 		return
@@ -74,7 +78,7 @@ func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(roles))})
 }
 
 func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
@@ -186,15 +190,27 @@ func (s *Server) handleListAssignments(ctx context.Context, c *app.RequestContex
 		return
 	}
 
-	assignments := make([]assignmentResponse, 0, len(rows))
-	for _, r := range rows {
+	// Assignments come from a single ordered query; paginate the slice in memory.
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	var page []db.ListAllRoleAssignmentsWithRoleRow
+	if off < len(rows) {
+		end := off + lim
+		if end > len(rows) {
+			end = len(rows)
+		}
+		page = rows[off:end]
+	}
+
+	assignments := make([]assignmentResponse, 0, len(page))
+	for _, r := range page {
 		assignments = append(assignments, assignmentResponse{
 			Subject: r.Subject,
 			Role:    r.Role,
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"items": assignments})
+	paginatedResponse(c, assignments, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(page))})
 }
 
 func (s *Server) handleCreateAssignment(ctx context.Context, c *app.RequestContext) {
@@ -309,7 +325,11 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 		return
 	}
 
-	workspaces, err := s.deps.Q.ListWorkspaces(ctx, org.ID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	workspaces, err := s.deps.Q.ListWorkspaces(ctx, db.ListWorkspacesParams{
+		OrgID: org.ID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list workspaces")
 		return
@@ -325,7 +345,7 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 			CreatedAt:   w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		})
 	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(workspaces))})
 }
 
 func (s *Server) handleCreateWorkspace(ctx context.Context, c *app.RequestContext) {

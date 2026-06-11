@@ -254,7 +254,14 @@ const listEnvVariables = `-- name: ListEnvVariables :many
 SELECT id, name, description, scope, is_secret, created_at
 FROM env_variables WHERE org_id = $1
 ORDER BY name
+LIMIT $2 OFFSET $3
 `
+
+type ListEnvVariablesParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListEnvVariablesRow struct {
 	ID          string    `json:"id"`
@@ -265,8 +272,8 @@ type ListEnvVariablesRow struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListEnvVariables(ctx context.Context, orgID string) ([]ListEnvVariablesRow, error) {
-	rows, err := q.db.Query(ctx, listEnvVariables, orgID)
+func (q *Queries) ListEnvVariables(ctx context.Context, arg ListEnvVariablesParams) ([]ListEnvVariablesRow, error) {
+	rows, err := q.db.Query(ctx, listEnvVariables, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +303,14 @@ const listEnvironments = `-- name: ListEnvironments :many
 SELECT id, name, slug, created_at
 FROM environments WHERE org_id = $1
 ORDER BY name
+LIMIT $2 OFFSET $3
 `
+
+type ListEnvironmentsParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListEnvironmentsRow struct {
 	ID        string    `json:"id"`
@@ -305,8 +319,8 @@ type ListEnvironmentsRow struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListEnvironments(ctx context.Context, orgID string) ([]ListEnvironmentsRow, error) {
-	rows, err := q.db.Query(ctx, listEnvironments, orgID)
+func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error) {
+	rows, err := q.db.Query(ctx, listEnvironments, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

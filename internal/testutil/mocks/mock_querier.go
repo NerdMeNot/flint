@@ -34,6 +34,34 @@ func (_m *Querier) AddTeamMember(ctx context.Context, arg db.AddTeamMemberParams
 	return r0
 }
 
+// AdvanceWorkflowScheduleIfDue provides a mock function with given fields: ctx, arg
+func (_m *Querier) AdvanceWorkflowScheduleIfDue(ctx context.Context, arg db.AdvanceWorkflowScheduleIfDueParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AdvanceWorkflowScheduleIfDue")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ArchiveProject provides a mock function with given fields: ctx, id
 func (_m *Querier) ArchiveProject(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)
@@ -695,102 +723,6 @@ func (_m *Querier) CreateEnvironment(ctx context.Context, arg db.CreateEnvironme
 }
 
 // CreateLocalUser provides a mock function with given fields: ctx, arg
-func (_m *Querier) CreateWorkflowSchedule(ctx context.Context, arg db.CreateWorkflowScheduleParams) (string, error) {
-	ret := _m.Called(ctx, arg)
-	if len(ret) == 0 {
-		panic("no return value specified for CreateWorkflowSchedule")
-	}
-	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) (string, error)); ok {
-		return rf(ctx, arg)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) string); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	if rf, ok := ret.Get(1).(func(context.Context, db.CreateWorkflowScheduleParams) error); ok {
-		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-func (_m *Querier) AdvanceWorkflowScheduleIfDue(ctx context.Context, arg db.AdvanceWorkflowScheduleIfDueParams) (int64, error) {
-	ret := _m.Called(ctx, arg)
-	if len(ret) == 0 {
-		panic("no return value specified for AdvanceWorkflowScheduleIfDue")
-	}
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) (int64, error)); ok {
-		return rf(ctx, arg)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) int64); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-	if rf, ok := ret.Get(1).(func(context.Context, db.AdvanceWorkflowScheduleIfDueParams) error); ok {
-		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-func (_m *Querier) ListDueWorkflowSchedules(ctx context.Context) ([]db.ListDueWorkflowSchedulesRow, error) {
-	ret := _m.Called(ctx)
-	if len(ret) == 0 {
-		panic("no return value specified for ListDueWorkflowSchedules")
-	}
-	var r0 []db.ListDueWorkflowSchedulesRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListDueWorkflowSchedulesRow, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.ListDueWorkflowSchedulesRow); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListDueWorkflowSchedulesRow)
-		}
-	}
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-func (_m *Querier) ListWorkflowSchedules(ctx context.Context, orgID string) ([]db.ListWorkflowSchedulesRow, error) {
-	ret := _m.Called(ctx, orgID)
-	if len(ret) == 0 {
-		panic("no return value specified for ListWorkflowSchedules")
-	}
-	var r0 []db.ListWorkflowSchedulesRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListWorkflowSchedulesRow, error)); ok {
-		return rf(ctx, orgID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListWorkflowSchedulesRow); ok {
-		r0 = rf(ctx, orgID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListWorkflowSchedulesRow)
-		}
-	}
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
 func (_m *Querier) CreateLocalUser(ctx context.Context, arg db.CreateLocalUserParams) (string, error) {
 	ret := _m.Called(ctx, arg)
 
@@ -986,6 +918,34 @@ func (_m *Querier) CreateWebhook(ctx context.Context, arg db.CreateWebhookParams
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.CreateWebhookParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CreateWorkflowSchedule provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreateWorkflowSchedule(ctx context.Context, arg db.CreateWorkflowScheduleParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateWorkflowSchedule")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateWorkflowScheduleParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreateWorkflowScheduleParams) error); ok {
 		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
@@ -2212,6 +2172,34 @@ func (_m *Querier) GetProtectedEnvironment(ctx context.Context, arg db.GetProtec
 	return r0, r1
 }
 
+// GetRoleByID provides a mock function with given fields: ctx, id
+func (_m *Querier) GetRoleByID(ctx context.Context, id string) (db.GetRoleByIDRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRoleByID")
+	}
+
+	var r0 db.GetRoleByIDRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRoleByIDRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRoleByIDRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetRoleByIDRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRoleBySlug provides a mock function with given fields: ctx, arg
 func (_m *Querier) GetRoleBySlug(ctx context.Context, arg db.GetRoleBySlugParams) (db.GetRoleBySlugRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -2352,122 +2340,6 @@ func (_m *Querier) GetRunStats(ctx context.Context, orgID string) (db.GetRunStat
 	return r0, r1
 }
 
-// ListWorkflowRuns provides a mock function with given fields: ctx, arg
-func (_m *Querier) ListWorkflowRuns(ctx context.Context, arg db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error) {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListWorkflowRuns")
-	}
-
-	var r0 []db.ListWorkflowRunsRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error)); ok {
-		return rf(ctx, arg)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) []db.ListWorkflowRunsRow); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListWorkflowRunsRow)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, db.ListWorkflowRunsParams) error); ok {
-		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// GetRoleByID provides a mock function with given fields: ctx, id
-func (_m *Querier) GetRoleByID(ctx context.Context, id string) (db.GetRoleByIDRow, error) {
-	ret := _m.Called(ctx, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetRoleByID")
-	}
-
-	var r0 db.GetRoleByIDRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRoleByIDRow, error)); ok {
-		return rf(ctx, id)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRoleByIDRow); ok {
-		r0 = rf(ctx, id)
-	} else {
-		r0 = ret.Get(0).(db.GetRoleByIDRow)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, id)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// UpdateRole provides a mock function with given fields: ctx, arg
-func (_m *Querier) UpdateRole(ctx context.Context, arg db.UpdateRoleParams) (int64, error) {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateRole")
-	}
-
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) (int64, error)); ok {
-		return rf(ctx, arg)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) int64); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, db.UpdateRoleParams) error); ok {
-		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// ListAllRoleAssignmentsWithRole provides a mock function with given fields: ctx
-func (_m *Querier) ListAllRoleAssignmentsWithRole(ctx context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListAllRoleAssignmentsWithRole")
-	}
-
-	var r0 []db.ListAllRoleAssignmentsWithRoleRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.ListAllRoleAssignmentsWithRoleRow); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListAllRoleAssignmentsWithRoleRow)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // GetRunWorkflowID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetRunWorkflowID(ctx context.Context, id string) (*string, error) {
 	ret := _m.Called(ctx, id)
@@ -2548,6 +2420,36 @@ func (_m *Querier) GetSecretByEnvironment(ctx context.Context, arg db.GetSecretB
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.GetSecretByEnvironmentParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetSecretEnvVarValue provides a mock function with given fields: ctx, arg
+func (_m *Querier) GetSecretEnvVarValue(ctx context.Context, arg db.GetSecretEnvVarValueParams) ([]byte, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecretEnvVarValue")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) ([]byte, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) []byte); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.GetSecretEnvVarValueParams) error); ok {
 		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
@@ -3146,23 +3048,6 @@ func (_m *Querier) InsertPipelineRun(ctx context.Context, arg db.InsertPipelineR
 	return r0
 }
 
-func (_m *Querier) InsertWorkflowRun(ctx context.Context, arg db.InsertWorkflowRunParams) error {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for InsertWorkflowRun")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.InsertWorkflowRunParams) error); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // InsertRetryRun provides a mock function with given fields: ctx, arg
 func (_m *Querier) InsertRetryRun(ctx context.Context, arg db.InsertRetryRunParams) error {
 	ret := _m.Called(ctx, arg)
@@ -3317,6 +3202,24 @@ func (_m *Querier) InsertWorkflow(ctx context.Context, arg db.InsertWorkflowPara
 	return r0, r1
 }
 
+// InsertWorkflowRun provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertWorkflowRun(ctx context.Context, arg db.InsertWorkflowRunParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertWorkflowRun")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertWorkflowRunParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // IsEnvVariableSecret provides a mock function with given fields: ctx, id
 func (_m *Querier) IsEnvVariableSecret(ctx context.Context, id string) (bool, error) {
 	ret := _m.Called(ctx, id)
@@ -3463,9 +3366,9 @@ func (_m *Querier) ListAPIKeyWorkspaceSlugs(ctx context.Context, apiKeyID string
 	return r0, r1
 }
 
-// ListAPIKeys provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListAPIKeys(ctx context.Context, orgID string) ([]db.ListAPIKeysRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListAPIKeys provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListAPIKeys(ctx context.Context, arg db.ListAPIKeysParams) ([]db.ListAPIKeysRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListAPIKeys")
@@ -3473,19 +3376,19 @@ func (_m *Querier) ListAPIKeys(ctx context.Context, orgID string) ([]db.ListAPIK
 
 	var r0 []db.ListAPIKeysRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListAPIKeysRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListAPIKeysParams) ([]db.ListAPIKeysRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListAPIKeysRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListAPIKeysParams) []db.ListAPIKeysRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListAPIKeysRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListAPIKeysParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3511,6 +3414,36 @@ func (_m *Querier) ListAllRoleAssignments(ctx context.Context) ([]db.ListAllRole
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListAllRoleAssignmentsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListAllRoleAssignmentsWithRole provides a mock function with given fields: ctx
+func (_m *Querier) ListAllRoleAssignmentsWithRole(ctx context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAllRoleAssignmentsWithRole")
+	}
+
+	var r0 []db.ListAllRoleAssignmentsWithRoleRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListAllRoleAssignmentsWithRoleRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListAllRoleAssignmentsWithRoleRow)
 		}
 	}
 
@@ -3613,6 +3546,36 @@ func (_m *Querier) ListAuthProviderConfigNames(ctx context.Context) ([]db.ListAu
 	return r0, r1
 }
 
+// ListDueWorkflowSchedules provides a mock function with given fields: ctx
+func (_m *Querier) ListDueWorkflowSchedules(ctx context.Context) ([]db.ListDueWorkflowSchedulesRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDueWorkflowSchedules")
+	}
+
+	var r0 []db.ListDueWorkflowSchedulesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListDueWorkflowSchedulesRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListDueWorkflowSchedulesRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListDueWorkflowSchedulesRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListEnvVariableValues provides a mock function with given fields: ctx, orgID
 func (_m *Querier) ListEnvVariableValues(ctx context.Context, orgID string) ([]db.ListEnvVariableValuesRow, error) {
 	ret := _m.Called(ctx, orgID)
@@ -3643,9 +3606,9 @@ func (_m *Querier) ListEnvVariableValues(ctx context.Context, orgID string) ([]d
 	return r0, r1
 }
 
-// ListEnvVariables provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListEnvVariables(ctx context.Context, orgID string) ([]db.ListEnvVariablesRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListEnvVariables provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListEnvVariables(ctx context.Context, arg db.ListEnvVariablesParams) ([]db.ListEnvVariablesRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListEnvVariables")
@@ -3653,19 +3616,19 @@ func (_m *Querier) ListEnvVariables(ctx context.Context, orgID string) ([]db.Lis
 
 	var r0 []db.ListEnvVariablesRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListEnvVariablesRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEnvVariablesParams) ([]db.ListEnvVariablesRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListEnvVariablesRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEnvVariablesParams) []db.ListEnvVariablesRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListEnvVariablesRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListEnvVariablesParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3673,9 +3636,9 @@ func (_m *Querier) ListEnvVariables(ctx context.Context, orgID string) ([]db.Lis
 	return r0, r1
 }
 
-// ListEnvironments provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListEnvironments(ctx context.Context, orgID string) ([]db.ListEnvironmentsRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListEnvironments provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListEnvironments(ctx context.Context, arg db.ListEnvironmentsParams) ([]db.ListEnvironmentsRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListEnvironments")
@@ -3683,19 +3646,19 @@ func (_m *Querier) ListEnvironments(ctx context.Context, orgID string) ([]db.Lis
 
 	var r0 []db.ListEnvironmentsRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListEnvironmentsRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEnvironmentsParams) ([]db.ListEnvironmentsRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListEnvironmentsRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEnvironmentsParams) []db.ListEnvironmentsRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListEnvironmentsRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListEnvironmentsParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3733,9 +3696,9 @@ func (_m *Querier) ListForgeConnectionNames(ctx context.Context) ([]db.ListForge
 	return r0, r1
 }
 
-// ListForgeConnections provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListForgeConnections(ctx context.Context, orgID string) ([]db.ListForgeConnectionsRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListForgeConnections provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListForgeConnections(ctx context.Context, arg db.ListForgeConnectionsParams) ([]db.ListForgeConnectionsRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListForgeConnections")
@@ -3743,19 +3706,19 @@ func (_m *Querier) ListForgeConnections(ctx context.Context, orgID string) ([]db
 
 	var r0 []db.ListForgeConnectionsRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListForgeConnectionsRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListForgeConnectionsParams) ([]db.ListForgeConnectionsRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListForgeConnectionsRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListForgeConnectionsParams) []db.ListForgeConnectionsRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListForgeConnectionsRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListForgeConnectionsParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4123,9 +4086,9 @@ func (_m *Querier) ListRoleWorkspaceSlugs(ctx context.Context, roleID string) ([
 	return r0, r1
 }
 
-// ListRoles provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListRoles(ctx context.Context, orgID string) ([]db.ListRolesRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListRoles provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListRoles(ctx context.Context, arg db.ListRolesParams) ([]db.ListRolesRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListRoles")
@@ -4133,19 +4096,19 @@ func (_m *Querier) ListRoles(ctx context.Context, orgID string) ([]db.ListRolesR
 
 	var r0 []db.ListRolesRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListRolesRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRolesParams) ([]db.ListRolesRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListRolesRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRolesParams) []db.ListRolesRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListRolesRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListRolesParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4393,9 +4356,9 @@ func (_m *Querier) ListTeamMembers(ctx context.Context, teamID string) ([]db.Lis
 	return r0, r1
 }
 
-// ListTeams provides a mock function with given fields: ctx
-func (_m *Querier) ListTeams(ctx context.Context) ([]db.ListTeamsRow, error) {
-	ret := _m.Called(ctx)
+// ListTeams provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListTeams(ctx context.Context, arg db.ListTeamsParams) ([]db.ListTeamsRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListTeams")
@@ -4403,19 +4366,19 @@ func (_m *Querier) ListTeams(ctx context.Context) ([]db.ListTeamsRow, error) {
 
 	var r0 []db.ListTeamsRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListTeamsRow, error)); ok {
-		return rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListTeamsParams) ([]db.ListTeamsRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.ListTeamsRow); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListTeamsParams) []db.ListTeamsRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListTeamsRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListTeamsParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4543,9 +4506,9 @@ func (_m *Querier) ListUserTeams(ctx context.Context, userID string) ([]db.ListU
 	return r0, r1
 }
 
-// ListUsers provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListUsers(ctx context.Context, orgID string) ([]db.ListUsersRow, error) {
-	ret := _m.Called(ctx, orgID)
+// ListUsers provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListUsers(ctx context.Context, arg db.ListUsersParams) ([]db.ListUsersRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListUsers")
@@ -4553,19 +4516,19 @@ func (_m *Querier) ListUsers(ctx context.Context, orgID string) ([]db.ListUsersR
 
 	var r0 []db.ListUsersRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListUsersRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListUsersParams) ([]db.ListUsersRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListUsersRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListUsersParams) []db.ListUsersRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListUsersRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListUsersParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4663,9 +4626,69 @@ func (_m *Querier) ListWaitingGatesWithSignals(ctx context.Context) ([]db.ListWa
 	return r0, r1
 }
 
-// ListWorkspaces provides a mock function with given fields: ctx, orgID
-func (_m *Querier) ListWorkspaces(ctx context.Context, orgID string) ([]db.ListWorkspacesRow, error) {
+// ListWorkflowRuns provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListWorkflowRuns(ctx context.Context, arg db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWorkflowRuns")
+	}
+
+	var r0 []db.ListWorkflowRunsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) []db.ListWorkflowRunsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListWorkflowRunsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListWorkflowRunsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListWorkflowSchedules provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ListWorkflowSchedules(ctx context.Context, orgID string) ([]db.ListWorkflowSchedulesRow, error) {
 	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWorkflowSchedules")
+	}
+
+	var r0 []db.ListWorkflowSchedulesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListWorkflowSchedulesRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListWorkflowSchedulesRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListWorkflowSchedulesRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListWorkspaces provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListWorkspaces(ctx context.Context, arg db.ListWorkspacesParams) ([]db.ListWorkspacesRow, error) {
+	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListWorkspaces")
@@ -4673,19 +4696,19 @@ func (_m *Querier) ListWorkspaces(ctx context.Context, orgID string) ([]db.ListW
 
 	var r0 []db.ListWorkspacesRow
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListWorkspacesRow, error)); ok {
-		return rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkspacesParams) ([]db.ListWorkspacesRow, error)); ok {
+		return rf(ctx, arg)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListWorkspacesRow); ok {
-		r0 = rf(ctx, orgID)
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkspacesParams) []db.ListWorkspacesRow); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListWorkspacesRow)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, orgID)
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListWorkspacesParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -5371,6 +5394,34 @@ func (_m *Querier) UpdateProtectedEnvironment(ctx context.Context, arg db.Update
 	return r0, r1
 }
 
+// UpdateRole provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateRole(ctx context.Context, arg db.UpdateRoleParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateRole")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.UpdateRoleParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // UpdateRunStatus provides a mock function with given fields: ctx, arg
 func (_m *Querier) UpdateRunStatus(ctx context.Context, arg db.UpdateRunStatusParams) error {
 	ret := _m.Called(ctx, arg)
@@ -5589,54 +5640,6 @@ func (_m *Querier) UpsertEnvVariableValue(ctx context.Context, arg db.UpsertEnvV
 	return r0
 }
 
-// UpsertSecretEnvVariableValue provides a mock function with given fields: ctx, arg
-func (_m *Querier) UpsertSecretEnvVariableValue(ctx context.Context, arg db.UpsertSecretEnvVariableValueParams) error {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpsertSecretEnvVariableValue")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.UpsertSecretEnvVariableValueParams) error); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// GetSecretEnvVarValue provides a mock function with given fields: ctx, arg
-func (_m *Querier) GetSecretEnvVarValue(ctx context.Context, arg db.GetSecretEnvVarValueParams) ([]byte, error) {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetSecretEnvVarValue")
-	}
-
-	var r0 []byte
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) ([]byte, error)); ok {
-		return rf(ctx, arg)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) []byte); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, db.GetSecretEnvVarValueParams) error); ok {
-		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // UpsertProject provides a mock function with given fields: ctx, arg
 func (_m *Querier) UpsertProject(ctx context.Context, arg db.UpsertProjectParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -5693,6 +5696,24 @@ func (_m *Querier) UpsertSecret(ctx context.Context, arg db.UpsertSecretParams) 
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.UpsertSecretParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpsertSecretEnvVariableValue provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpsertSecretEnvVariableValue(ctx context.Context, arg db.UpsertSecretEnvVariableValueParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertSecretEnvVariableValue")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpsertSecretEnvVariableValueParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)

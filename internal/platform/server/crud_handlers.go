@@ -63,6 +63,8 @@ type auditEntryResponse struct {
 
 func (s *Server) handleListTeams(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
 
 	rows, err := s.deps.DB.Query(ctx, `
 		SELECT t.id, t.name, t.slug,
@@ -74,14 +76,15 @@ func (s *Server) handleListTeams(ctx context.Context, c *app.RequestContext) {
 		WHERE t.org_id = $1
 		GROUP BY t.id
 		ORDER BY t.name
-	`, claims.OrgID)
+		LIMIT $2 OFFSET $3
+	`, claims.OrgID, lim, off)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list teams")
 		return
 	}
 	defer rows.Close()
 
-	var result []teamResponse
+	result := []teamResponse{}
 	for rows.Next() {
 		var t teamResponse
 		var source *string
@@ -96,10 +99,7 @@ func (s *Server) handleListTeams(ctx context.Context, c *app.RequestContext) {
 		result = append(result, t)
 	}
 
-	if result == nil {
-		result = []teamResponse{}
-	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
 }
 
 func (s *Server) handleCreateTeam(ctx context.Context, c *app.RequestContext) {
@@ -160,7 +160,11 @@ func (s *Server) handleListUsers(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	users, err := s.deps.Q.ListUsers(ctx, claims.OrgID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	users, err := s.deps.Q.ListUsers(ctx, db.ListUsersParams{
+		OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list users")
 		return
@@ -174,14 +178,18 @@ func (s *Server) handleListUsers(ctx context.Context, c *app.RequestContext) {
 			AvatarUrl: u.AvatarUrl,
 		})
 	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(users))})
 }
 
 // ── Forge Connections ─────────────────────────────────────
 
 func (s *Server) handleListForgeConnections(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
-	conns, err := s.deps.Q.ListForgeConnections(ctx, claims.OrgID)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	conns, err := s.deps.Q.ListForgeConnections(ctx, db.ListForgeConnectionsParams{
+		OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list forge connections")
 		return
@@ -195,13 +203,15 @@ func (s *Server) handleListForgeConnections(ctx context.Context, c *app.RequestC
 			CreatedAt:   fc.CreatedAt.Format(time.RFC3339),
 		})
 	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(conns))})
 }
 
 // ── API Keys ──────────────────────────────────────────────
 
 func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
 
 	// Use raw query to join role and scope tables.
 	rows, err := s.deps.DB.Query(ctx, `
@@ -213,11 +223,14 @@ func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 		LEFT JOIN roles r ON r.id = ak.role_id
 		LEFT JOIN users u ON u.id = ak.user_id
 		WHERE ak.org_id = $1
-		ORDER BY ak.created_at
-	`, claims.OrgID)
+		ORDER BY ak.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, claims.OrgID, lim, off)
 	if err != nil {
 		// Fall back to sqlc query if the role_id column doesn't exist yet.
-		keys, sqlcErr := s.deps.Q.ListAPIKeys(ctx, claims.OrgID)
+		keys, sqlcErr := s.deps.Q.ListAPIKeys(ctx, db.ListAPIKeysParams{
+			OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
+		})
 		if sqlcErr != nil {
 			apiInternal(ctx, c, "failed to list API keys")
 			return
@@ -243,7 +256,7 @@ func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 			}
 			result = append(result, resp)
 		}
-		c.JSON(consts.StatusOK, utils.H{"items": result})
+		paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(keys))})
 		return
 	}
 	defer rows.Close()
@@ -288,7 +301,7 @@ func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 	if result == nil {
 		result = []apiKeyResponse{}
 	}
-	c.JSON(consts.StatusOK, utils.H{"items": result})
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
 }
 
 func (s *Server) handleCreateAPIKey(ctx context.Context, c *app.RequestContext) {

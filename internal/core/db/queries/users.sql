@@ -1,7 +1,8 @@
 -- name: ListUsers :many
 SELECT id, email, name, avatar_url, created_at
 FROM users WHERE org_id = $1
-ORDER BY name LIMIT 100;
+ORDER BY name
+LIMIT $2 OFFSET $3;
 
 -- name: SearchUsers :many
 SELECT id, email, name, avatar_url, created_at

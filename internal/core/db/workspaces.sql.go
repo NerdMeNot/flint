@@ -119,7 +119,14 @@ func (q *Queries) GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlug
 const listWorkspaces = `-- name: ListWorkspaces :many
 SELECT id, name, slug, description, created_at
 FROM workspaces WHERE org_id = $1 ORDER BY name
+LIMIT $2 OFFSET $3
 `
+
+type ListWorkspacesParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListWorkspacesRow struct {
 	ID          string    `json:"id"`
@@ -129,8 +136,8 @@ type ListWorkspacesRow struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListWorkspaces(ctx context.Context, orgID string) ([]ListWorkspacesRow, error) {
-	rows, err := q.db.Query(ctx, listWorkspaces, orgID)
+func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error) {
+	rows, err := q.db.Query(ctx, listWorkspaces, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

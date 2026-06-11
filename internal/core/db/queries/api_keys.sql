@@ -1,6 +1,7 @@
 -- name: ListAPIKeys :many
 SELECT id, name, scopes, expires_at, last_used_at, created_at
-FROM api_keys WHERE org_id = $1 ORDER BY created_at;
+FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC
+LIMIT $2 OFFSET $3;
 
 -- name: CreateAPIKey :one
 INSERT INTO api_keys (org_id, user_id, name, key_hash, scopes)

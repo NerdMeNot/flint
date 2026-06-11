@@ -1,6 +1,7 @@
 -- name: ListForgeConnections :many
 SELECT id, forge_type, display_name, app_id, installation_id, created_at
-FROM forge_connections WHERE org_id = $1 ORDER BY created_at;
+FROM forge_connections WHERE org_id = $1 ORDER BY created_at DESC
+LIMIT $2 OFFSET $3;
 
 -- name: GetWebhookSecret :one
 SELECT webhook_secret FROM forge_connections WHERE forge_type = $1 LIMIT 1;

@@ -112,7 +112,14 @@ func (q *Queries) GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (G
 const listRoles = `-- name: ListRoles :many
 SELECT id, name, slug, description, is_system, created_at
 FROM roles WHERE org_id = $1 ORDER BY is_system DESC, name
+LIMIT $2 OFFSET $3
 `
+
+type ListRolesParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
 
 type ListRolesRow struct {
 	ID          string    `json:"id"`
@@ -123,8 +130,8 @@ type ListRolesRow struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (q *Queries) ListRoles(ctx context.Context, orgID string) ([]ListRolesRow, error) {
-	rows, err := q.db.Query(ctx, listRoles, orgID)
+func (q *Queries) ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRolesRow, error) {
+	rows, err := q.db.Query(ctx, listRoles, arg.OrgID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
