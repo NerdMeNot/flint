@@ -131,18 +131,27 @@ func (s *Server) handleCreateEnvVariable(ctx context.Context, c *app.RequestCont
 		return
 	}
 
-	// For global variables, optionally set the initial value.
+	// For global variables, optionally set the initial value. Secret values are
+	// encrypted at rest (envelope, server master key); plaintext is stored as-is.
 	if req.Scope == "global" && req.Value != nil && *req.Value != "" {
-		val := *req.Value
 		if req.IsSecret {
-			// TODO: encrypt with secret store
-			_ = val
+			enc, err := s.encryptWithMasterKey([]byte(*req.Value))
+			if err != nil {
+				apiInternal(ctx, c, "failed to encrypt secret value")
+				return
+			}
+			_ = s.deps.Q.UpsertSecretEnvVariableValue(ctx, db.UpsertSecretEnvVariableValueParams{
+				VariableID:    id,
+				EnvironmentID: nil,
+				ValueEnc:      enc,
+			})
+		} else {
+			_ = s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
+				VariableID:    id,
+				EnvironmentID: nil,
+				Value:         *req.Value,
+			})
 		}
-		_ = s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
-			VariableID:    id,
-			EnvironmentID: nil,
-			Value:         val,
-		})
 	}
 
 	c.JSON(consts.StatusCreated, utils.H{"id": id, "name": req.Name, "scope": req.Scope})
@@ -166,20 +175,29 @@ func (s *Server) handleSetEnvVariableValue(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	val := req.Value
 	if isSecret {
-		// TODO: encrypt with secret store
-		_ = val
-	}
-
-	err = s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
-		VariableID:    req.VariableID,
-		EnvironmentID: req.EnvironmentID,
-		Value:         val,
-	})
-	if err != nil {
-		apiInternal(ctx, c, "failed to set variable value")
-		return
+		enc, err := s.encryptWithMasterKey([]byte(req.Value))
+		if err != nil {
+			apiInternal(ctx, c, "failed to encrypt secret value")
+			return
+		}
+		if err := s.deps.Q.UpsertSecretEnvVariableValue(ctx, db.UpsertSecretEnvVariableValueParams{
+			VariableID:    req.VariableID,
+			EnvironmentID: req.EnvironmentID,
+			ValueEnc:      enc,
+		}); err != nil {
+			apiInternal(ctx, c, "failed to set variable value")
+			return
+		}
+	} else {
+		if err := s.deps.Q.UpsertEnvVariableValue(ctx, db.UpsertEnvVariableValueParams{
+			VariableID:    req.VariableID,
+			EnvironmentID: req.EnvironmentID,
+			Value:         req.Value,
+		}); err != nil {
+			apiInternal(ctx, c, "failed to set variable value")
+			return
+		}
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"status": "ok"})

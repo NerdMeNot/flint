@@ -113,6 +113,10 @@ type Querier interface {
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
 	GetSecret(ctx context.Context, arg GetSecretParams) ([]byte, error)
 	GetSecretByEnvironment(ctx context.Context, arg GetSecretByEnvironmentParams) (GetSecretByEnvironmentRow, error)
+	// Returns the encrypted value of a secret env-var by org + name, scoped to an
+	// environment slug (the empty string selects the global value). Used by the
+	// agent secret-injection path; decrypted server-side before being returned.
+	GetSecretEnvVarValue(ctx context.Context, arg GetSecretEnvVarValueParams) ([]byte, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
 	GetStepByWorkflowAndName(ctx context.Context, arg GetStepByWorkflowAndNameParams) (GetStepByWorkflowAndNameRow, error)
 	GetStepStatus(ctx context.Context, arg GetStepStatusParams) (string, error)
@@ -262,6 +266,9 @@ type Querier interface {
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
 	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
+	// Stores an encrypted secret value. `value` is kept empty; the ciphertext lives
+	// in `value_enc`.
+	UpsertSecretEnvVariableValue(ctx context.Context, arg UpsertSecretEnvVariableValueParams) error
 	UpsertTimer(ctx context.Context, arg UpsertTimerParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (string, error)
 	VerifyUserTOTP(ctx context.Context, id string) error

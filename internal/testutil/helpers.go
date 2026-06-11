@@ -54,5 +54,10 @@ func TestConfig() *config.Config {
 			},
 			DefaultRole: "viewer",
 		},
+		Encryption: config.EncryptionConfig{
+			// 32-byte (64 hex char) master key for envelope encryption in tests.
+			MasterKey:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			MasterKeyVersion: 1,
+		},
 	}
 }

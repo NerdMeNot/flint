@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/core/secretstore"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	flintserver "github.com/NerdMeNot/flint/internal/platform/server"
@@ -16,6 +18,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/products/workflows"
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
+	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -213,12 +216,29 @@ func run(cmd *cobra.Command, args []string) error {
 	eng := engine.New(pool, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
+	// Flint-managed secret store: env-variables flagged secret are encrypted at
+	// rest with the server master key and decrypted server-side for the agent
+	// injection path. Wired only when a 32-byte hex master key is configured;
+	// otherwise secret injection is unavailable (the agent endpoint reports it).
+	var secretStore secret.SecretStore
+	if mk, err := hex.DecodeString(cfg.Encryption.MasterKey); err == nil && len(mk) == 32 {
+		store, err := secretstore.NewEnvVarStore(db.New(pool), mk)
+		if err != nil {
+			return fmt.Errorf("initializing secret store: %w", err)
+		}
+		secretStore = store
+		log.Info().Msg("secret store: env-var backend enabled")
+	} else {
+		log.Warn().Msg("secret store disabled: encryption.masterKey not configured (32-byte hex)")
+	}
+
 	deps := flintserver.Deps{
 		Config:       cfg,
 		DB:           pool,
 		Q:            q,
 		Engine:       eng,
 		Forge:        forgeProvider,
+		Secrets:      secretStore,
 		Logs:         &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
 		LogBroadcast: flintserver.NewLogStream(),
 		Mode:         mode,
