@@ -5531,6 +5531,54 @@ func (_m *Querier) UpsertEnvVariableValue(ctx context.Context, arg db.UpsertEnvV
 	return r0
 }
 
+// UpsertSecretEnvVariableValue provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpsertSecretEnvVariableValue(ctx context.Context, arg db.UpsertSecretEnvVariableValueParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertSecretEnvVariableValue")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpsertSecretEnvVariableValueParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// GetSecretEnvVarValue provides a mock function with given fields: ctx, arg
+func (_m *Querier) GetSecretEnvVarValue(ctx context.Context, arg db.GetSecretEnvVarValueParams) ([]byte, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecretEnvVarValue")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) ([]byte, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetSecretEnvVarValueParams) []byte); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.GetSecretEnvVarValueParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // UpsertProject provides a mock function with given fields: ctx, arg
 func (_m *Querier) UpsertProject(ctx context.Context, arg db.UpsertProjectParams) (string, error) {
 	ret := _m.Called(ctx, arg)

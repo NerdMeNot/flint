@@ -80,6 +80,7 @@ type EnvVariableValue struct {
 	EnvironmentID *string   `json:"environment_id"`
 	Value         string    `json:"value"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	ValueEnc      []byte    `json:"value_enc"`
 }
 
 type Environment struct {

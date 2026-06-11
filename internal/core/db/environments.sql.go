@@ -153,6 +153,35 @@ func (q *Queries) GetGlobalVariableValue(ctx context.Context, variableID string)
 	return value, err
 }
 
+const getSecretEnvVarValue = `-- name: GetSecretEnvVarValue :one
+SELECT evv.value_enc
+FROM env_variables ev
+JOIN env_variable_values evv ON evv.variable_id = ev.id
+LEFT JOIN environments e ON e.id = evv.environment_id
+WHERE ev.org_id = $1
+  AND ev.name = $2
+  AND ev.is_secret = true
+  AND ( ($3::text = '' AND evv.environment_id IS NULL)
+        OR e.slug = $3::text )
+LIMIT 1
+`
+
+type GetSecretEnvVarValueParams struct {
+	OrgID   string `json:"org_id"`
+	Name    string `json:"name"`
+	EnvSlug string `json:"env_slug"`
+}
+
+// Returns the encrypted value of a secret env-var by org + name, scoped to an
+// environment slug (the empty string selects the global value). Used by the
+// agent secret-injection path; decrypted server-side before being returned.
+func (q *Queries) GetSecretEnvVarValue(ctx context.Context, arg GetSecretEnvVarValueParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getSecretEnvVarValue, arg.OrgID, arg.Name, arg.EnvSlug)
+	var value_enc []byte
+	err := row.Scan(&value_enc)
+	return value_enc, err
+}
+
 const globalVariableValueExists = `-- name: GlobalVariableValueExists :one
 SELECT EXISTS(
     SELECT 1 FROM env_variable_values
@@ -305,7 +334,7 @@ const upsertEnvVariableValue = `-- name: UpsertEnvVariableValue :exec
 INSERT INTO env_variable_values (variable_id, environment_id, value, updated_at)
 VALUES ($1, $2, $3, now())
 ON CONFLICT (variable_id, environment_id)
-DO UPDATE SET value = $3, updated_at = now()
+DO UPDATE SET value = $3, value_enc = NULL, updated_at = now()
 `
 
 type UpsertEnvVariableValueParams struct {
@@ -316,5 +345,25 @@ type UpsertEnvVariableValueParams struct {
 
 func (q *Queries) UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error {
 	_, err := q.db.Exec(ctx, upsertEnvVariableValue, arg.VariableID, arg.EnvironmentID, arg.Value)
+	return err
+}
+
+const upsertSecretEnvVariableValue = `-- name: UpsertSecretEnvVariableValue :exec
+INSERT INTO env_variable_values (variable_id, environment_id, value, value_enc, updated_at)
+VALUES ($1, $2, '', $3, now())
+ON CONFLICT (variable_id, environment_id)
+DO UPDATE SET value = '', value_enc = $3, updated_at = now()
+`
+
+type UpsertSecretEnvVariableValueParams struct {
+	VariableID    string  `json:"variable_id"`
+	EnvironmentID *string `json:"environment_id"`
+	ValueEnc      []byte  `json:"value_enc"`
+}
+
+// Stores an encrypted secret value. `value` is kept empty; the ciphertext lives
+// in `value_enc`.
+func (q *Queries) UpsertSecretEnvVariableValue(ctx context.Context, arg UpsertSecretEnvVariableValueParams) error {
+	_, err := q.db.Exec(ctx, upsertSecretEnvVariableValue, arg.VariableID, arg.EnvironmentID, arg.ValueEnc)
 	return err
 }
