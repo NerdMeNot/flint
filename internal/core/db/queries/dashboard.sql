@@ -22,6 +22,16 @@ SELECT COUNT(*) FROM pipeline_runs WHERE status = 'running';
 -- name: CountPendingGates :one
 SELECT COUNT(*) FROM steps WHERE exec_type = 'gate' AND status = 'waiting';
 
+-- name: GetRunStats :one
+-- Aggregate run counts for the org-level stats endpoint.
+SELECT
+    COUNT(*)::bigint AS total_runs,
+    COUNT(*) FILTER (WHERE status = 'succeeded')::bigint AS success_runs,
+    COUNT(*) FILTER (WHERE started_at >= date_trunc('day', now()))::bigint AS runs_today,
+    COALESCE(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 0)::bigint AS avg_duration_ms
+FROM pipeline_runs
+WHERE org_id = $1;
+
 -- name: GetDashboardActivity :many
 SELECT pr.id, pr.project_id, p.display_name AS project_name, p.colour AS project_colour,
        pr.status, pr.trigger_type, pr.trigger_ref, pr.commit_sha,

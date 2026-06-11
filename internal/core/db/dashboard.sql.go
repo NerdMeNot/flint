@@ -164,3 +164,33 @@ func (q *Queries) GetDashboardSummary(ctx context.Context) ([]GetDashboardSummar
 	}
 	return items, nil
 }
+
+const getRunStats = `-- name: GetRunStats :one
+SELECT
+    COUNT(*)::bigint AS total_runs,
+    COUNT(*) FILTER (WHERE status = 'succeeded')::bigint AS success_runs,
+    COUNT(*) FILTER (WHERE started_at >= date_trunc('day', now()))::bigint AS runs_today,
+    COALESCE(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 0)::bigint AS avg_duration_ms
+FROM pipeline_runs
+WHERE org_id = $1
+`
+
+type GetRunStatsRow struct {
+	TotalRuns     int64 `json:"total_runs"`
+	SuccessRuns   int64 `json:"success_runs"`
+	RunsToday     int64 `json:"runs_today"`
+	AvgDurationMs int64 `json:"avg_duration_ms"`
+}
+
+// Aggregate run counts for the org-level stats endpoint.
+func (q *Queries) GetRunStats(ctx context.Context, orgID string) (GetRunStatsRow, error) {
+	row := q.db.QueryRow(ctx, getRunStats, orgID)
+	var i GetRunStatsRow
+	err := row.Scan(
+		&i.TotalRuns,
+		&i.SuccessRuns,
+		&i.RunsToday,
+		&i.AvgDurationMs,
+	)
+	return i, err
+}

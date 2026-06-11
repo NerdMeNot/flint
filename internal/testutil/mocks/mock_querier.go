@@ -2324,6 +2324,64 @@ func (_m *Querier) GetRunScope(ctx context.Context, id string) (db.GetRunScopeRo
 	return r0, r1
 }
 
+// GetRunStats provides a mock function with given fields: ctx, orgID
+func (_m *Querier) GetRunStats(ctx context.Context, orgID string) (db.GetRunStatsRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRunStats")
+	}
+
+	var r0 db.GetRunStatsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRunStatsRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRunStatsRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		r0 = ret.Get(0).(db.GetRunStatsRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListWorkflowRuns provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListWorkflowRuns(ctx context.Context, arg db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWorkflowRuns")
+	}
+
+	var r0 []db.ListWorkflowRunsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkflowRunsParams) []db.ListWorkflowRunsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListWorkflowRunsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListWorkflowRunsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRoleByID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetRoleByID(ctx context.Context, id string) (db.GetRoleByIDRow, error) {
 	ret := _m.Called(ctx, id)
