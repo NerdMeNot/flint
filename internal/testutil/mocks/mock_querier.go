@@ -2296,6 +2296,120 @@ func (_m *Querier) GetRunOrgID(ctx context.Context, id string) (string, error) {
 	return r0, r1
 }
 
+// GetRunScope provides a mock function with given fields: ctx, id
+func (_m *Querier) GetRunScope(ctx context.Context, id string) (db.GetRunScopeRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRunScope")
+	}
+
+	var r0 db.GetRunScopeRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRunScopeRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRunScopeRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetRunScopeRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetRoleByID provides a mock function with given fields: ctx, id
+func (_m *Querier) GetRoleByID(ctx context.Context, id string) (db.GetRoleByIDRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRoleByID")
+	}
+
+	var r0 db.GetRoleByIDRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRoleByIDRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRoleByIDRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetRoleByIDRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// UpdateRole provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateRole(ctx context.Context, arg db.UpdateRoleParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateRole")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateRoleParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.UpdateRoleParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListAllRoleAssignmentsWithRole provides a mock function with given fields: ctx
+func (_m *Querier) ListAllRoleAssignmentsWithRole(ctx context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAllRoleAssignmentsWithRole")
+	}
+
+	var r0 []db.ListAllRoleAssignmentsWithRoleRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListAllRoleAssignmentsWithRoleRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListAllRoleAssignmentsWithRoleRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRunWorkflowID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetRunWorkflowID(ctx context.Context, id string) (*string, error) {
 	ret := _m.Called(ctx, id)

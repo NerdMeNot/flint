@@ -192,14 +192,15 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 			return
 		}
 
-		workspace := s.resolveWorkspace(ctx, c)
+		workspace, environment := s.resolveScope(ctx, c, obj)
 
-		allowed, err := s.deps.Enforcer.Enforce(claims.Email, workspace, "*", obj, act)
+		allowed, err := s.deps.Enforcer.Enforce(claims.Email, workspace, environment, obj, act)
 		if err != nil {
 			logger := observe.Logger(ctx)
 			logger.Error().Err(err).
 				Str("user", claims.Email).
 				Str("workspace", workspace).
+				Str("environment", environment).
 				Str("obj", obj).
 				Str("act", act).
 				Msg("casbin enforcement error")
@@ -218,25 +219,49 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 	}
 }
 
-// resolveWorkspace determines the workspace context for the current request.
-// Priority: project's workspace (from URL param) → explicit query param → "*" (global).
-func (s *Server) resolveWorkspace(ctx context.Context, c *app.RequestContext) string {
-	// Try to resolve from project ID in URL.
-	projectID := c.Param("id")
-	if projectID != "" && s.deps.Q != nil {
-		slug, err := s.deps.Q.GetProjectWorkspaceSlug(ctx, projectID)
-		if err == nil && slug != "" {
-			return slug
+// resolveScope determines the (workspace, environment) the request acts in. These
+// become the ws/env dimensions of the Casbin check, so scope-restricted roles are
+// enforced against the resource the request actually touches. Resolution depends
+// on the object type:
+//   - run/gate routes: derived from the run (run → project → workspace) plus the
+//     run's environment; workflow runs have neither, so both stay "*".
+//   - project routes: workspace from the project in the URL.
+//   - admin objects (team, role, workspace, …): always global — their policies are
+//     platform-wide ("*","*"), which match any ws/env.
+//
+// An explicit ?workspace / ?environment query param overrides — used by list and
+// trigger routes that carry no resource id in the path. "*" means "all" and
+// matches platform-wide policies.
+func (s *Server) resolveScope(ctx context.Context, c *app.RequestContext, obj string) (workspace, environment string) {
+	workspace, environment = "*", "*"
+
+	switch obj {
+	case auth.ObjRun, auth.ObjGate:
+		if runID := c.Param("id"); runID != "" && s.deps.Q != nil {
+			if sc, err := s.deps.Q.GetRunScope(ctx, runID); err == nil {
+				if sc.WorkspaceSlug != "" {
+					workspace = sc.WorkspaceSlug
+				}
+				if sc.Environment != "" {
+					environment = sc.Environment
+				}
+			}
+		}
+	case auth.ObjProject:
+		if projectID := c.Param("id"); projectID != "" && s.deps.Q != nil {
+			if slug, err := s.deps.Q.GetProjectWorkspaceSlug(ctx, projectID); err == nil && slug != "" {
+				workspace = slug
+			}
 		}
 	}
 
-	// Try explicit workspace query param.
 	if ws := string(c.Query("workspace")); ws != "" {
-		return ws
+		workspace = ws
 	}
-
-	// Default to global scope.
-	return "*"
+	if env := string(c.Query("environment")); env != "" {
+		environment = env
+	}
+	return workspace, environment
 }
 
 // requestIDMiddleware generates a unique request ID.

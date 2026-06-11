@@ -54,7 +54,7 @@ func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
 
 	result := make([]roleResponse, 0, len(roles))
 	for _, r := range roles {
-		perms := s.getPermissionsForRole(r.Slug)
+		perms := s.getPermissionsForRole(ctx, r.ID)
 		if perms == nil {
 			perms = []auth.Permission{}
 		}
@@ -114,10 +114,19 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Add Casbin policies for the role.
+	// Persist the role's permissions and scope to the DB. The role_permissions /
+	// role_*_scope tables are the source of truth: Casbin policies are generated
+	// from them (per assignment) by auth.RegenerateForSubject, so a role created
+	// here survives a policy regeneration / server restart. A new role has no
+	// assignments yet, so there is nothing to materialize into Casbin until a
+	// subject is assigned to it.
 	for _, perm := range req.Permissions {
-		if _, err := s.deps.Enforcer.AddPolicy(req.Slug, "*", "*", perm.Object, perm.Action); err != nil {
-			apiInternal(ctx, c, "failed to add policy")
+		if err := s.deps.Q.InsertRolePermission(ctx, db.InsertRolePermissionParams{
+			RoleID: id,
+			Object: perm.Object,
+			Action: perm.Action,
+		}); err != nil {
+			apiInternal(ctx, c, "failed to persist permission")
 			return
 		}
 	}
@@ -144,11 +153,25 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 func (s *Server) handleDeleteRole(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	// Check it's not a system role (DeleteRole has is_system = false condition).
+	// Capture assigned subjects before deleting; the FK cascade removes their
+	// role_assignments rows, so we regenerate their policies afterwards to drop the
+	// now-revoked grants while keeping their other roles.
+	assigned, _ := s.deps.Q.ListRoleAssignmentsByRole(ctx, id)
+
+	// DeleteRole has an is_system = false condition, so system roles are protected.
 	rows, err := s.deps.Q.DeleteRole(ctx, id)
 	if err != nil || rows == 0 {
 		apiBadRequest(ctx, c, "role not found or is a system role")
 		return
+	}
+
+	if s.deps.Enforcer != nil {
+		for _, a := range assigned {
+			if err := auth.RegenerateForSubject(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, a.Subject); err != nil {
+				apiInternal(ctx, c, "failed to apply role deletion")
+				return
+			}
+		}
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"success": true})
@@ -157,26 +180,18 @@ func (s *Server) handleDeleteRole(ctx context.Context, c *app.RequestContext) {
 // ── Role Assignments ──────────────────────────────────────
 
 func (s *Server) handleListAssignments(ctx context.Context, c *app.RequestContext) {
-	if s.deps.Enforcer == nil {
-		c.JSON(consts.StatusOK, utils.H{"items": []any{}})
-		return
-	}
-
-	// Get all "g" policies (role assignments).
-	groupingPolicies, err := s.deps.Enforcer.GetGroupingPolicy()
+	rows, err := s.deps.Q.ListAllRoleAssignmentsWithRole(ctx)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list assignments")
 		return
 	}
 
-	assignments := make([]assignmentResponse, 0, len(groupingPolicies))
-	for _, gp := range groupingPolicies {
-		if len(gp) >= 2 {
-			assignments = append(assignments, assignmentResponse{
-				Subject: gp[0],
-				Role:    gp[1],
-			})
-		}
+	assignments := make([]assignmentResponse, 0, len(rows))
+	for _, r := range rows {
+		assignments = append(assignments, assignmentResponse{
+			Subject: r.Subject,
+			Role:    r.Role,
+		})
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"items": assignments})
@@ -192,59 +207,95 @@ func (s *Server) handleCreateAssignment(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	if s.deps.Enforcer == nil {
-		apiInternal(ctx, c, "RBAC not configured")
+	roleID, err := s.resolveRoleID(ctx, req.Role)
+	if err != nil {
+		apiBadRequest(ctx, c, "unknown role")
 		return
 	}
 
-	added, err := s.deps.Enforcer.AddGroupingPolicy(req.Subject, req.Role)
-	if err != nil {
-		apiInternal(ctx, c, "failed to add assignment")
+	// Persist the assignment, then materialize it into Casbin from the DB. Writing
+	// the role_assignments row (not just an in-memory grouping policy) is what makes
+	// the assignment survive a policy regeneration / restart.
+	if err := s.deps.Q.InsertRoleAssignment(ctx, db.InsertRoleAssignmentParams{
+		Subject: req.Subject,
+		RoleID:  roleID,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to create assignment")
 		return
 	}
-	if !added {
-		c.JSON(consts.StatusOK, utils.H{"status": "already_exists"})
-		return
+
+	if s.deps.Enforcer != nil {
+		if err := auth.RegenerateForSubject(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, req.Subject); err != nil {
+			apiInternal(ctx, c, "failed to apply assignment")
+			return
+		}
 	}
 
 	c.JSON(consts.StatusCreated, utils.H{"status": "created"})
 }
 
 func (s *Server) handleDeleteAssignment(ctx context.Context, c *app.RequestContext) {
-	// The "id" parameter encodes the assignment as JSON.
+	// The assignment may arrive as a JSON-encoded :id path segment, as the subject
+	// in the path with ?role= in the query (the web client's shape), or as
+	// ?subject=&role= query params. Support all three.
+	subject, role := "", ""
 	raw := c.Param("id")
-
-	var req struct {
+	var encoded struct {
 		Subject string `json:"subject"`
 		Role    string `json:"role"`
 	}
-	if err := json.Unmarshal([]byte(raw), &req); err != nil {
-		// Try query params instead.
-		req.Subject = string(c.Query("subject"))
-		req.Role = string(c.Query("role"))
+	if err := json.Unmarshal([]byte(raw), &encoded); err == nil && encoded.Subject != "" {
+		subject, role = encoded.Subject, encoded.Role
+	} else {
+		subject = raw
+	}
+	if subject == "" {
+		subject = string(c.Query("subject"))
+	}
+	if role == "" {
+		role = string(c.Query("role"))
 	}
 
-	if req.Subject == "" || req.Role == "" {
+	if subject == "" || role == "" {
 		apiBadRequest(ctx, c, "subject and role are required")
 		return
 	}
 
-	if s.deps.Enforcer == nil {
-		apiInternal(ctx, c, "RBAC not configured")
-		return
-	}
-
-	removed, err := s.deps.Enforcer.RemoveGroupingPolicy(req.Subject, req.Role)
+	roleID, err := s.resolveRoleID(ctx, role)
 	if err != nil {
-		apiInternal(ctx, c, "failed to remove assignment")
-		return
-	}
-	if !removed {
 		apiNotFound(ctx, c, "assignment not found")
 		return
 	}
 
+	if err := s.deps.Q.DeleteRoleAssignment(ctx, db.DeleteRoleAssignmentParams{
+		Subject: subject,
+		RoleID:  roleID,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to remove assignment")
+		return
+	}
+
+	if s.deps.Enforcer != nil {
+		if err := auth.RegenerateForSubject(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, subject); err != nil {
+			apiInternal(ctx, c, "failed to apply assignment change")
+			return
+		}
+	}
+
 	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// resolveRoleID maps a role slug to its id within the current org.
+func (s *Server) resolveRoleID(ctx context.Context, slug string) (string, error) {
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		return "", err
+	}
+	role, err := s.deps.Q.GetRoleBySlug(ctx, db.GetRoleBySlugParams{OrgID: org.ID, Slug: slug})
+	if err != nil {
+		return "", err
+	}
+	return role.ID, nil
 }
 
 // ── Environments moved to env_variable_handlers.go ───────────
@@ -321,23 +372,19 @@ func (s *Server) handleDeleteWorkspace(ctx context.Context, c *app.RequestContex
 
 // ── Helpers ────────────────────────────────────────────────
 
-// getPermissionsForRole extracts permissions for a role from Casbin policies.
-func (s *Server) getPermissionsForRole(roleSlug string) []auth.Permission {
-	if s.deps.Enforcer == nil {
+// getPermissionsForRole loads a role's permissions from the role_permissions
+// table — the source of truth from which Casbin policies are generated.
+func (s *Server) getPermissionsForRole(ctx context.Context, roleID string) []auth.Permission {
+	if s.deps.Q == nil {
 		return nil
 	}
-
-	policies, err := s.deps.Enforcer.GetFilteredPolicy(0, roleSlug)
+	rows, err := s.deps.Q.ListRolePermissions(ctx, roleID)
 	if err != nil {
 		return nil
 	}
-
-	perms := make([]auth.Permission, 0, len(policies))
-	for _, p := range policies {
-		// p = [sub, ws, env, obj, act]
-		if len(p) >= 5 {
-			perms = append(perms, auth.Permission{Object: p[3], Action: p[4]})
-		}
+	perms := make([]auth.Permission, 0, len(rows))
+	for _, r := range rows {
+		perms = append(perms, auth.Permission{Object: r.Object, Action: r.Action})
 	}
 	return perms
 }

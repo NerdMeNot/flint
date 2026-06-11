@@ -132,6 +132,30 @@ func (q *Queries) GetRunOrgID(ctx context.Context, id string) (string, error) {
 	return org_id, err
 }
 
+const getRunScope = `-- name: GetRunScope :one
+SELECT COALESCE(w.slug, '')::text AS workspace_slug,
+       COALESCE(pr.environment, '')::text AS environment
+FROM pipeline_runs pr
+LEFT JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE pr.id = $1
+`
+
+type GetRunScopeRow struct {
+	WorkspaceSlug string `json:"workspace_slug"`
+	Environment   string `json:"environment"`
+}
+
+// Resolves the RBAC scope (workspace slug + environment) for a run, used by the
+// authorization middleware. Workflow runs have no project, so both fall back to
+// the empty string (the caller treats "" as the global "*" scope).
+func (q *Queries) GetRunScope(ctx context.Context, id string) (GetRunScopeRow, error) {
+	row := q.db.QueryRow(ctx, getRunScope, id)
+	var i GetRunScopeRow
+	err := row.Scan(&i.WorkspaceSlug, &i.Environment)
+	return i, err
+}
+
 const getRunWorkflowID = `-- name: GetRunWorkflowID :one
 SELECT workflow_id FROM pipeline_runs WHERE id = $1
 `

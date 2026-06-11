@@ -63,6 +63,17 @@ WHERE workflow_id = $1;
 -- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1;
 
+-- name: GetRunScope :one
+-- Resolves the RBAC scope (workspace slug + environment) for a run, used by the
+-- authorization middleware. Workflow runs have no project, so both fall back to
+-- the empty string (the caller treats "" as the global "*" scope).
+SELECT COALESCE(w.slug, '')::text AS workspace_slug,
+       COALESCE(pr.environment, '')::text AS environment
+FROM pipeline_runs pr
+LEFT JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE pr.id = $1;
+
 -- name: RunExists :one
 SELECT EXISTS(SELECT 1 FROM pipeline_runs WHERE id = $1);
 

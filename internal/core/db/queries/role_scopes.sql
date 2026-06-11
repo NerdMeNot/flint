@@ -54,6 +54,12 @@ DELETE FROM role_environment_scope WHERE role_id = $1;
 -- name: ListAllRoleAssignments :many
 SELECT subject, role_id FROM role_assignments;
 
+-- name: ListAllRoleAssignmentsWithRole :many
+SELECT ra.subject, r.slug AS role
+FROM role_assignments ra
+JOIN roles r ON r.id = ra.role_id
+ORDER BY ra.subject;
+
 -- name: ListRoleAssignmentsBySubject :many
 SELECT subject, role_id FROM role_assignments WHERE subject = $1;
 

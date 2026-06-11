@@ -159,6 +159,38 @@ func (q *Queries) ListAllRoleAssignments(ctx context.Context) ([]ListAllRoleAssi
 	return items, nil
 }
 
+const listAllRoleAssignmentsWithRole = `-- name: ListAllRoleAssignmentsWithRole :many
+SELECT ra.subject, r.slug AS role
+FROM role_assignments ra
+JOIN roles r ON r.id = ra.role_id
+ORDER BY ra.subject
+`
+
+type ListAllRoleAssignmentsWithRoleRow struct {
+	Subject string `json:"subject"`
+	Role    string `json:"role"`
+}
+
+func (q *Queries) ListAllRoleAssignmentsWithRole(ctx context.Context) ([]ListAllRoleAssignmentsWithRoleRow, error) {
+	rows, err := q.db.Query(ctx, listAllRoleAssignmentsWithRole)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllRoleAssignmentsWithRoleRow{}
+	for rows.Next() {
+		var i ListAllRoleAssignmentsWithRoleRow
+		if err := rows.Scan(&i.Subject, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoleAssignmentsByRole = `-- name: ListRoleAssignmentsByRole :many
 SELECT subject, role_id FROM role_assignments WHERE role_id = $1
 `
