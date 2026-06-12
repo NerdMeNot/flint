@@ -198,6 +198,34 @@ func (_m *Querier) CheckMFARequiredForUser(ctx context.Context, subject string) 
 	return r0, r1
 }
 
+// ClaimCompletedDeviceCode provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (db.ClaimCompletedDeviceCodeRow, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimCompletedDeviceCode")
+	}
+
+	var r0 db.ClaimCompletedDeviceCodeRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.ClaimCompletedDeviceCodeRow, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.ClaimCompletedDeviceCodeRow); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		r0 = ret.Get(0).(db.ClaimCompletedDeviceCodeRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ClaimOutboxBatch provides a mock function with given fields: ctx, limit
 func (_m *Querier) ClaimOutboxBatch(ctx context.Context, limit int32) ([]db.ClaimOutboxBatchRow, error) {
 	ret := _m.Called(ctx, limit)
@@ -341,6 +369,24 @@ func (_m *Querier) ClearUserTOTP(ctx context.Context, id string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// CompleteDeviceCode provides a mock function with given fields: ctx, arg
+func (_m *Querier) CompleteDeviceCode(ctx context.Context, arg db.CompleteDeviceCodeParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompleteDeviceCode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CompleteDeviceCodeParams) error); ok {
+		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1074,6 +1120,42 @@ func (_m *Querier) DeleteAuthProviderConfig(ctx context.Context, providerType st
 	return r0, r1
 }
 
+// DeleteConsumedSignals provides a mock function with given fields: ctx
+func (_m *Querier) DeleteConsumedSignals(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteConsumedSignals")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// DeleteDeviceCode provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) DeleteDeviceCode(ctx context.Context, deviceCode string) error {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteDeviceCode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteEnvVariable provides a mock function with given fields: ctx, id
 func (_m *Querier) DeleteEnvVariable(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)
@@ -1121,6 +1203,42 @@ func (_m *Querier) DeleteEnvironment(ctx context.Context, id string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// DeleteExpiredDeviceCodes provides a mock function with given fields: ctx
+func (_m *Querier) DeleteExpiredDeviceCodes(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteExpiredDeviceCodes")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// DeleteExpiredMFAPendingTokens provides a mock function with given fields: ctx
+func (_m *Querier) DeleteExpiredMFAPendingTokens(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteExpiredMFAPendingTokens")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1185,6 +1303,24 @@ func (_m *Querier) DeleteForgeConnectionByID(ctx context.Context, id string) err
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// DeleteMFAPendingToken provides a mock function with given fields: ctx, token
+func (_m *Querier) DeleteMFAPendingToken(ctx context.Context, token string) error {
+	ret := _m.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteMFAPendingToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, token)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1512,6 +1648,62 @@ func (_m *Querier) FailStepByTimeout(ctx context.Context, arg db.FailStepByTimeo
 	return r0
 }
 
+// FindDeviceCodeByOAuthState provides a mock function with given fields: ctx, oauthState
+func (_m *Querier) FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error) {
+	ret := _m.Called(ctx, oauthState)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindDeviceCodeByOAuthState")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *string) (string, error)); ok {
+		return rf(ctx, oauthState)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *string) string); ok {
+		r0 = rf(ctx, oauthState)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *string) error); ok {
+		r1 = rf(ctx, oauthState)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// FindDeviceCodeByUserCode provides a mock function with given fields: ctx, userCode
+func (_m *Querier) FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error) {
+	ret := _m.Called(ctx, userCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindDeviceCodeByUserCode")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
+		return rf(ctx, userCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = rf(ctx, userCode)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, userCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // FinishRun provides a mock function with given fields: ctx, arg
 func (_m *Querier) FinishRun(ctx context.Context, arg db.FinishRunParams) error {
 	ret := _m.Called(ctx, arg)
@@ -1724,6 +1916,94 @@ func (_m *Querier) GetDashboardSummary(ctx context.Context) ([]db.GetDashboardSu
 	return r0, r1
 }
 
+// GetDeviceCode provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) GetDeviceCode(ctx context.Context, deviceCode string) (db.GetDeviceCodeRow, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeviceCode")
+	}
+
+	var r0 db.GetDeviceCodeRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetDeviceCodeRow, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetDeviceCodeRow); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		r0 = ret.Get(0).(db.GetDeviceCodeRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetDeviceCodeNonce provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) GetDeviceCodeNonce(ctx context.Context, deviceCode string) (*string, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeviceCodeNonce")
+	}
+
+	var r0 *string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*string, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *string); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetDeviceCodeRefreshToken provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) GetDeviceCodeRefreshToken(ctx context.Context, deviceCode string) (*string, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeviceCodeRefreshToken")
+	}
+
+	var r0 *string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*string, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *string); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetEnvVariable provides a mock function with given fields: ctx, id
 func (_m *Querier) GetEnvVariable(ctx context.Context, id string) (db.GetEnvVariableRow, error) {
 	ret := _m.Called(ctx, id)
@@ -1829,6 +2109,34 @@ func (_m *Querier) GetGlobalVariableValue(ctx context.Context, variableID string
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
 		r1 = rf(ctx, variableID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetMFAPendingToken provides a mock function with given fields: ctx, token
+func (_m *Querier) GetMFAPendingToken(ctx context.Context, token string) (db.GetMFAPendingTokenRow, error) {
+	ret := _m.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMFAPendingToken")
+	}
+
+	var r0 db.GetMFAPendingTokenRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetMFAPendingTokenRow, error)); ok {
+		return rf(ctx, token)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetMFAPendingTokenRow); ok {
+		r0 = rf(ctx, token)
+	} else {
+		r0 = ret.Get(0).(db.GetMFAPendingTokenRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, token)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -2966,6 +3274,24 @@ func (_m *Querier) InsertAuditEntry(ctx context.Context, arg db.InsertAuditEntry
 	return r0
 }
 
+// InsertDeviceCode provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertDeviceCode(ctx context.Context, arg db.InsertDeviceCodeParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertDeviceCode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertDeviceCodeParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // InsertForgeConnection provides a mock function with given fields: ctx, arg
 func (_m *Querier) InsertForgeConnection(ctx context.Context, arg db.InsertForgeConnectionParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -2992,6 +3318,24 @@ func (_m *Querier) InsertForgeConnection(ctx context.Context, arg db.InsertForge
 	}
 
 	return r0, r1
+}
+
+// InsertMFAPendingToken provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertMFAPendingToken(ctx context.Context, arg db.InsertMFAPendingTokenParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertMFAPendingToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertMFAPendingTokenParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // InsertManualRun provides a mock function with given fields: ctx, arg
@@ -4772,6 +5116,24 @@ func (_m *Querier) LockWorkflow(ctx context.Context, id string) (db.LockWorkflow
 	return r0, r1
 }
 
+// MarkRunCleaned provides a mock function with given fields: ctx, id
+func (_m *Querier) MarkRunCleaned(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkRunCleaned")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // NotifyEngine provides a mock function with given fields: ctx, pgNotify
 func (_m *Querier) NotifyEngine(ctx context.Context, pgNotify string) error {
 	ret := _m.Called(ctx, pgNotify)
@@ -4866,6 +5228,34 @@ func (_m *Querier) RecordLoginAttempt(ctx context.Context, arg db.RecordLoginAtt
 	}
 
 	return r0
+}
+
+// RecordTOTPUse provides a mock function with given fields: ctx, arg
+func (_m *Querier) RecordTOTPUse(ctx context.Context, arg db.RecordTOTPUseParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordTOTPUse")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.RecordTOTPUseParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.RecordTOTPUseParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.RecordTOTPUseParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // RemoveTeamMember provides a mock function with given fields: ctx, arg
@@ -5118,6 +5508,36 @@ func (_m *Querier) RunExists(ctx context.Context, id string) (bool, error) {
 	return r0, r1
 }
 
+// RunsNeedingCleanup provides a mock function with given fields: ctx, limit
+func (_m *Querier) RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error) {
+	ret := _m.Called(ctx, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunsNeedingCleanup")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int32) ([]string, error)); ok {
+		return rf(ctx, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, int32) []string); ok {
+		r0 = rf(ctx, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, int32) error); ok {
+		r1 = rf(ctx, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // SearchUsers provides a mock function with given fields: ctx, arg
 func (_m *Querier) SearchUsers(ctx context.Context, arg db.SearchUsersParams) ([]db.SearchUsersRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -5146,6 +5566,24 @@ func (_m *Querier) SearchUsers(ctx context.Context, arg db.SearchUsersParams) ([
 	}
 
 	return r0, r1
+}
+
+// SetDeviceCodeOAuthState provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetDeviceCodeOAuthState(ctx context.Context, arg db.SetDeviceCodeOAuthStateParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetDeviceCodeOAuthState")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetDeviceCodeOAuthStateParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // SetStepK8sJobName provides a mock function with given fields: ctx, arg
@@ -5331,6 +5769,24 @@ func (_m *Querier) TouchAPIKey(ctx context.Context, id string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// TouchDeviceCodePoll provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) TouchDeviceCodePoll(ctx context.Context, deviceCode string) error {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TouchDeviceCodePoll")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, deviceCode)
 	} else {
 		r0 = ret.Error(0)
 	}

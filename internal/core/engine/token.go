@@ -80,3 +80,23 @@ func signTokenPayload(payload string, key []byte) string {
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
+
+// wsTokenMACDomain separates the workspace-token HMAC from the task-token one.
+const wsTokenMACDomain = "flint-ws-token:v1:"
+
+// DeriveWorkspaceToken returns the bearer token a run's step pods present to its
+// workspace gRPC server. It is HMAC-SHA256(key, runID) — deterministic, so the
+// workspace pod (server) and every step pod (client), created at different
+// times, derive the identical value with no storage or coordination; yet
+// unpredictable to anyone without the worker's signing key (unlike the runID,
+// which leaks via labels, env, logs, and the runs API). With an empty key
+// (dev/test) it falls back to the runID to preserve existing behaviour.
+func DeriveWorkspaceToken(runID string, key []byte) string {
+	if len(key) == 0 {
+		return runID
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(wsTokenMACDomain))
+	mac.Write([]byte(runID))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}

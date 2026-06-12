@@ -263,6 +263,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	srv := flintserver.New(deps)
+	srv.StartAuthStoreCleanup(ctx) // prune expired device codes + MFA tokens
 	srv.Run()
 
 	return nil

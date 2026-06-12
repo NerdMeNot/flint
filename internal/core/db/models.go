@@ -65,6 +65,21 @@ type CasbinRule struct {
 	V5    string `json:"v5"`
 }
 
+type DeviceCode struct {
+	DeviceCode   string     `json:"device_code"`
+	UserCode     string     `json:"user_code"`
+	OauthState   *string    `json:"oauth_state"`
+	Nonce        *string    `json:"nonce"`
+	Completed    bool       `json:"completed"`
+	AccessToken  *string    `json:"access_token"`
+	RefreshToken *string    `json:"refresh_token"`
+	UserID       *string    `json:"user_id"`
+	IntervalSecs int32      `json:"interval_secs"`
+	LastPolledAt *time.Time `json:"last_polled_at"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 type EnvVariable struct {
 	ID          string    `json:"id"`
 	OrgID       string    `json:"org_id"`
@@ -125,6 +140,15 @@ type LoginAttempt struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type MfaPendingToken struct {
+	Token     string    `json:"token"`
+	UserID    string    `json:"user_id"`
+	Email     string    `json:"email"`
+	OrgID     string    `json:"org_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Org struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
@@ -176,6 +200,7 @@ type PipelineRun struct {
 	Environment   *string     `json:"environment"`
 	ErrorMessage  *string     `json:"error_message"`
 	Kind          string      `json:"kind"`
+	CleanedAt     *time.Time  `json:"cleaned_at"`
 }
 
 type Project struct {
@@ -367,6 +392,7 @@ type User struct {
 	PasswordChangedAt   *time.Time  `json:"password_changed_at"`
 	RecoveryCodes       []string    `json:"recovery_codes"`
 	ForcePasswordChange bool        `json:"force_password_change"`
+	MfaLastUsedPeriod   pgtype.Int8 `json:"mfa_last_used_period"`
 }
 
 type Webhook struct {

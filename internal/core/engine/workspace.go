@@ -46,7 +46,7 @@ func WorkspaceAddr(runID, namespace string) string {
 func EnsureWorkspace(
 	ctx context.Context,
 	k8s kubernetes.Interface,
-	runID, orgID, agentImage, namespace string,
+	runID, orgID, wsToken, agentImage, namespace string,
 ) (string, error) {
 	name := workspaceName(runID)
 	addr := WorkspaceAddr(runID, namespace)
@@ -67,7 +67,7 @@ func EnsureWorkspace(
 	}
 
 	// Create the Pod.
-	if err := createWorkspacePod(ctx, k8s, name, runID, orgID, agentImage, namespace); err != nil {
+	if err := createWorkspacePod(ctx, k8s, name, runID, orgID, wsToken, agentImage, namespace); err != nil {
 		// Best-effort Service cleanup to avoid orphans.
 		_ = k8s.CoreV1().Services(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 		return "", err
@@ -165,7 +165,7 @@ func createWorkspaceService(
 func createWorkspacePod(
 	ctx context.Context,
 	k8s kubernetes.Interface,
-	name, runID, orgID, agentImage, namespace string,
+	name, runID, orgID, wsToken, agentImage, namespace string,
 ) error {
 	activeDeadline := workspaceActiveDeadline
 	gracePeriod := workspaceTerminationGracePeriod
@@ -184,14 +184,20 @@ func createWorkspacePod(
 			RestartPolicy:                 corev1.RestartPolicyNever,
 			ActiveDeadlineSeconds:         &activeDeadline,
 			TerminationGracePeriodSeconds: &gracePeriod,
+			// The workspace pod runs only our agent image, so apply the same
+			// always-on hardening as step pods. runAsNonRoot is left off here
+			// (the agent writes to the emptyDir as root); pools that require
+			// non-root drive that on the step pods.
+			SecurityContext: podSecurityContext(false),
 			Containers: []corev1.Container{
 				{
-					Name:    "workspace",
-					Image:   agentImage,
-					Command: []string{"/flint-agent", "workspace"},
+					Name:            "workspace",
+					Image:           agentImage,
+					Command:         []string{"/flint-agent", "workspace"},
+					SecurityContext: restrictedSecurityContext(false),
 					Env: []corev1.EnvVar{
 						{Name: "FLINT_RUN_ID", Value: runID},
-						{Name: "FLINT_WS_TOKEN", Value: runID}, // token == runID for scoped isolation
+						{Name: "FLINT_WS_TOKEN", Value: wsToken}, // HMAC-derived per-run bearer token
 						{Name: "FLINT_WS_PORT", Value: fmt.Sprintf("%d", workspacePort)},
 						{Name: "FLINT_WS_ROOT", Value: workspaceRoot},
 					},

@@ -307,8 +307,19 @@ func (e *PgEngine) CancelWorkflow(ctx context.Context, workflowID string) error 
 	if err := qtx.CancelChildWorkflows(ctx, &workflowID); err != nil {
 		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel child workflows")
 	}
+	// Mark the run cancelled too (workflow cancel alone left the run row stale).
+	// This also makes the run eligible for executor cleanup (cleaned_at IS NULL
+	// + terminal status), so the loop tears down its pods on the next tick.
+	if err := qtx.FinishRun(ctx, db.FinishRunParams{WorkflowID: &workflowID, Status: "cancelled"}); err != nil {
+		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to mark run cancelled")
+	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Wake the loop so cleanup runs promptly rather than at the next poll/sweep.
+	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
+	return nil
 }
 
 // QueryWorkflow returns the current state of a workflow.

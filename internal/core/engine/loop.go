@@ -83,6 +83,33 @@ func (l *Loop) tick(ctx context.Context) {
 
 	// Phase 4: Claim and dispatch queued steps.
 	l.claimAndDispatch(ctx)
+
+	// Phase 5: Tear down resources for runs that just reached a terminal state.
+	l.cleanupFinishedRuns(ctx)
+}
+
+// cleanupFinishedRuns tears down executor resources (workspace pod, leftover
+// Jobs) for terminal runs not yet cleaned. Exactly-once via
+// pipeline_runs.cleaned_at; runs every tick so cleanup is prompt for ALL
+// terminal transitions — cancel, fail, succeed — not just the sweep window.
+// Marks runs cleaned even when no executor needs cleanup (e.g. http-only or
+// DB-only mode) so the pending-cleanup index stays bounded.
+func (l *Loop) cleanupFinishedRuns(ctx context.Context) {
+	q := db.New(l.pool)
+	runIDs, err := q.RunsNeedingCleanup(ctx, 100)
+	if err != nil {
+		log.Warn().Err(err).Msg("engine: list runs needing cleanup failed")
+		return
+	}
+	cleaners := l.executors.cleaners()
+	for _, runID := range runIDs {
+		for _, c := range cleaners {
+			_ = c.CleanupRun(ctx, runID)
+		}
+		if err := q.MarkRunCleaned(ctx, runID); err != nil {
+			log.Warn().Err(err).Str("run", runID).Msg("engine: mark run cleaned failed")
+		}
+	}
 }
 
 // claimAndDispatch claims queued steps and dispatches them.
@@ -161,7 +188,8 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 			step := claimedStep{
 				id: c.ID, workflowID: c.WorkflowID, name: c.Name,
 				execType: c.ExecType, taskToken: token, stepDef: c.StepDef,
-				runID: input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
+				wsToken: DeriveWorkspaceToken(input.RunID, l.config.SigningKey),
+				runID:   input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
 				repo: input.Repo, ref: input.Ref, commitSHA: input.CommitSHA,
 				environment:            input.Environment,
 				pipelineImage:          input.PipelineImage,
@@ -178,13 +206,12 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 			if err != nil {
 				log.Error().Err(err).Str("step", c.Name).Msg("engine: dispatch failed")
 				observe.DispatchErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("step", c.Name)))
-				if failErr := q.UpdateStepResult(ctx, db.UpdateStepResultParams{
-					ID:     c.ID,
-					Status: "failed",
-					Result: mustJSON(StepResult{StepName: c.Name, Success: false, Error: err.Error()}),
-				}); failErr != nil {
-					log.Error().Err(failErr).Str("step", c.Name).Msg("engine: failed to mark step as failed after dispatch error")
-				}
+				// Mark the step failed AND advance the workflow in one tx, so the
+				// failure propagates to downstream steps. Without the advance the
+				// workflow would wedge: the failed step is terminal, downstream
+				// steps stay pending, and no sweep path recovers it (sweep only
+				// rescues 'running' steps past deadline).
+				l.failStepAndAdvance(ctx, c.ID, c.WorkflowID, c.Name, err)
 			} else {
 				observe.StepsDispatched.Add(ctx, 1)
 				// Record the executor's handle (e.g. k8s Job name) for correlation.
@@ -199,6 +226,37 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// failStepAndAdvance marks a step failed and advances the workflow in a single
+// transaction, then wakes the loop. Used when dispatch fails — the workflow must
+// progress (run onFailure steps, skip downstream, or finish) rather than wedge.
+func (l *Loop) failStepAndAdvance(ctx context.Context, stepID, workflowID, stepName string, cause error) {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("step", stepName).Msg("engine: failStepAndAdvance: begin tx")
+		return
+	}
+	defer tx.Rollback(ctx)
+	qtx := db.New(l.pool).WithTx(tx)
+
+	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
+		ID:     stepID,
+		Status: "failed",
+		Result: mustJSON(StepResult{StepName: stepName, Success: false, Error: cause.Error()}),
+	}); err != nil {
+		log.Error().Err(err).Str("step", stepName).Msg("engine: failed to mark step failed after dispatch error")
+		return
+	}
+	if err := advanceWorkflow(ctx, qtx, workflowID, 0); err != nil {
+		log.Error().Err(err).Str("workflow", workflowID).Msg("engine: advance after dispatch failure")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		log.Error().Err(err).Str("step", stepName).Msg("engine: commit after dispatch failure")
+		return
+	}
+	_ = db.New(l.pool).NotifyEngine(ctx, workflowID)
 }
 
 // createStepTimers creates timers for gate steps.
@@ -364,23 +422,22 @@ func (l *Loop) sweep(ctx context.Context) {
 		log.Warn().Err(err).Msg("engine: sweep stale workflows failed")
 	}
 
-	// 3. Clean up fired timers older than 1 hour.
+	// 3. Clean up fired timers older than 1 hour, resolved outbox events (>7d),
+	// and consumed signals (>7d) so these tables don't grow unbounded.
 	if err := q.CleanupFiredTimers(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup fired timers failed")
 	}
-
-	// 4. Tear down resources for recently finished runs, for any executor that
-	// needs it (e.g. the k8s executor removes the workspace pod and leftover Jobs).
-	if cleaners := l.executors.cleaners(); len(cleaners) > 0 {
-		runIDs, err := q.RecentlyFinishedRunIDs(ctx)
-		if err == nil {
-			for _, runID := range runIDs {
-				for _, c := range cleaners {
-					_ = c.CleanupRun(ctx, runID)
-				}
-			}
-		}
+	if err := q.CleanResolvedOutbox(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: cleanup resolved outbox failed")
 	}
+	if err := q.DeleteConsumedSignals(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: cleanup consumed signals failed")
+	}
+
+	// 4. Tear down resources for terminal runs not yet cleaned. Same exactly-once
+	// path as the per-tick cleanup; kept here as a backstop in case a run reached
+	// a terminal state without a following tick.
+	l.cleanupFinishedRuns(ctx)
 
 	log.Debug().Msg("engine: sweep completed")
 }

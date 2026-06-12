@@ -44,6 +44,17 @@ func (q *Queries) ConsumeStepResultSignals(ctx context.Context, workflowID strin
 	return items, nil
 }
 
+const deleteConsumedSignals = `-- name: DeleteConsumedSignals :exec
+DELETE FROM signals WHERE consumed = true AND created_at < now() - interval '7 days'
+`
+
+// Prune consumed signals so the table doesn't grow unbounded. Keeps a 7-day
+// window for debugging/audit. Called from the sweep.
+func (q *Queries) DeleteConsumedSignals(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteConsumedSignals)
+	return err
+}
+
 const insertSignal = `-- name: InsertSignal :exec
 INSERT INTO signals (workflow_id, signal_name, payload) VALUES ($1, $2, $3)
 `

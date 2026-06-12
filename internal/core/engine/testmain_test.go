@@ -31,6 +31,8 @@ func TestMain(m *testing.M) {
 		} else {
 			autoDSN = dsn
 			stop = stopFn
+			// Export so internal (package engine) tests resolve the same DB.
+			_ = os.Setenv("FLINT_TEST_DSN", dsn)
 		}
 	}
 

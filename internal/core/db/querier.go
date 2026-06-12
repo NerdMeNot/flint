@@ -22,6 +22,9 @@ type Querier interface {
 	CancelTimer(ctx context.Context, arg CancelTimerParams) error
 	CancelWorkflow(ctx context.Context, id string) error
 	CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error)
+	// Atomic claim: return the tokens and delete the row in one statement, only if
+	// completed. This is the TOCTOU fix — no read-then-mutate window.
+	ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (ClaimCompletedDeviceCodeRow, error)
 	ClaimOutboxBatch(ctx context.Context, limit int32) ([]ClaimOutboxBatchRow, error)
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
@@ -29,6 +32,7 @@ type Querier interface {
 	CleanupOldLoginAttempts(ctx context.Context) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
 	ClearUserTOTP(ctx context.Context, id string) error
+	CompleteDeviceCode(ctx context.Context, arg CompleteDeviceCodeParams) error
 	CompleteParentInvokeStep(ctx context.Context, arg CompleteParentInvokeStepParams) error
 	ConsumeSignal(ctx context.Context, id string) error
 	ConsumeStepResultSignals(ctx context.Context, workflowID string) ([][]byte, error)
@@ -57,12 +61,19 @@ type Querier interface {
 	DeleteAPIKeyEnvironmentScopes(ctx context.Context, apiKeyID string) error
 	DeleteAPIKeyWorkspaceScopes(ctx context.Context, apiKeyID string) error
 	DeleteAuthProviderConfig(ctx context.Context, providerType string) (int64, error)
+	// Prune consumed signals so the table doesn't grow unbounded. Keeps a 7-day
+	// window for debugging/audit. Called from the sweep.
+	DeleteConsumedSignals(ctx context.Context) error
+	DeleteDeviceCode(ctx context.Context, deviceCode string) error
 	DeleteEnvVariable(ctx context.Context, id string) error
 	DeleteEnvVariableValue(ctx context.Context, arg DeleteEnvVariableValueParams) error
 	DeleteEnvironment(ctx context.Context, id string) error
+	DeleteExpiredDeviceCodes(ctx context.Context) error
+	DeleteExpiredMFAPendingTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteForgeConnection(ctx context.Context, id string) (int64, error)
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
+	DeleteMFAPendingToken(ctx context.Context, token string) error
 	DeleteProtectedEnvironment(ctx context.Context, id string) (int64, error)
 	DeleteRole(ctx context.Context, id string) (int64, error)
 	DeleteRoleAssignment(ctx context.Context, arg DeleteRoleAssignmentParams) error
@@ -75,9 +86,14 @@ type Querier interface {
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
 	DeleteWorkspace(ctx context.Context, id string) (int64, error)
 	FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error
+	// Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
+	// webhook retries all firing in lockstep when an endpoint recovers. Mirrors the
+	// step-retry jitter in backoffDuration.
 	FailOutboxEvent(ctx context.Context, arg FailOutboxEventParams) error
 	FailRunWithError(ctx context.Context, arg FailRunWithErrorParams) error
 	FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error
+	FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error)
+	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
 	FinishRun(ctx context.Context, arg FinishRunParams) error
 	FinishWorkflow(ctx context.Context, arg FinishWorkflowParams) error
 	FireDueTimers(ctx context.Context) ([]FireDueTimersRow, error)
@@ -86,10 +102,14 @@ type Querier interface {
 	GetCloneCredentials(ctx context.Context, repoPath string) (GetCloneCredentialsRow, error)
 	GetDashboardActivity(ctx context.Context, limit int32) ([]GetDashboardActivityRow, error)
 	GetDashboardSummary(ctx context.Context) ([]GetDashboardSummaryRow, error)
+	GetDeviceCode(ctx context.Context, deviceCode string) (GetDeviceCodeRow, error)
+	GetDeviceCodeNonce(ctx context.Context, deviceCode string) (*string, error)
+	GetDeviceCodeRefreshToken(ctx context.Context, deviceCode string) (*string, error)
 	GetEnvVariable(ctx context.Context, id string) (GetEnvVariableRow, error)
 	GetEnvironment(ctx context.Context, id string) (GetEnvironmentRow, error)
 	GetExistingWorkflow(ctx context.Context, runID string) (string, error)
 	GetGlobalVariableValue(ctx context.Context, variableID string) (string, error)
+	GetMFAPendingToken(ctx context.Context, token string) (GetMFAPendingTokenRow, error)
 	GetModuleByName(ctx context.Context, name string) (GetModuleByNameRow, error)
 	GetOrCreateDefaultOrg(ctx context.Context) (string, error)
 	GetOrCreateTeamBySlug(ctx context.Context, arg GetOrCreateTeamBySlugParams) (string, error)
@@ -138,7 +158,11 @@ type Querier interface {
 	InsertAPIKeyEnvironmentScope(ctx context.Context, arg InsertAPIKeyEnvironmentScopeParams) error
 	InsertAPIKeyWorkspaceScope(ctx context.Context, arg InsertAPIKeyWorkspaceScopeParams) error
 	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
+	// Device authorization flow (DB-backed; replaces the in-memory map).
+	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertForgeConnection(ctx context.Context, arg InsertForgeConnectionParams) (string, error)
+	// MFA pending tokens (DB-backed; replaces the in-memory map).
+	InsertMFAPendingToken(ctx context.Context, arg InsertMFAPendingTokenParams) error
 	InsertManualRun(ctx context.Context, arg InsertManualRunParams) error
 	InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error
 	InsertPipelineRun(ctx context.Context, arg InsertPipelineRunParams) error
@@ -226,10 +250,16 @@ type Querier interface {
 	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
+	MarkRunCleaned(ctx context.Context, id string) error
 	NotifyEngine(ctx context.Context, pgNotify string) error
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
+	// TOTP replay protection.
+	// Advance the user's last-used TOTP period atomically. Returns a row only when
+	// the new period is strictly greater than the stored one; no row means the code
+	// was already used (replay) and must be rejected.
+	RecordTOTPUse(ctx context.Context, arg RecordTOTPUseParams) (string, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)
 	RemoveUserFromAllTeams(ctx context.Context, userID string) (int64, error)
 	RequeueRetryStep(ctx context.Context, arg RequeueRetryStepParams) error
@@ -245,7 +275,12 @@ type Querier interface {
 	RoleExists(ctx context.Context, arg RoleExistsParams) (bool, error)
 	RotateSessionToken(ctx context.Context, arg RotateSessionTokenParams) error
 	RunExists(ctx context.Context, id string) (bool, error)
+	// Runs that reached a terminal state but whose executor resources (workspace
+	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
+	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
+	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
+	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
 	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
 	SetStepQueued(ctx context.Context, id string) error
 	SetStepSkipped(ctx context.Context, id string) error
@@ -256,6 +291,7 @@ type Querier interface {
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
 	SweepStaleWorkflows(ctx context.Context) error
 	TouchAPIKey(ctx context.Context, id string) error
+	TouchDeviceCodePoll(ctx context.Context, deviceCode string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	UpdateProtectedEnvironment(ctx context.Context, arg UpdateProtectedEnvironmentParams) (int64, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, error)

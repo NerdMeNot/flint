@@ -5,11 +5,22 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// totpPeriodSeconds is the TOTP step size; must match GenerateTOTPSecret.
+const totpPeriodSeconds = 30
+
+// TOTPPeriod returns the TOTP time-step counter for t (unix seconds / period).
+// Used for replay protection: a code is rejected if its period is not strictly
+// greater than the last accepted one for that user.
+func TOTPPeriod(t time.Time) int64 {
+	return t.Unix() / totpPeriodSeconds
+}
 
 // GenerateTOTPSecret creates a new TOTP secret for the given user.
 // Returns the OTP key (contains secret + QR code URL).
