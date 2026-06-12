@@ -108,7 +108,10 @@ func TestLoop_DispatchFailure_AdvancesWorkflow(t *testing.T) {
 	}, waves)
 	require.NoError(t, err)
 
-	loop := NewLoop(eng, ExecutorRegistry{"run": erroringExecutor{}}, LoopConfig{})
+	// ClaimQueuedSteps claims a global batch ordered by queued_at; sibling tests
+	// in the shared DB may leave queued steps, so use a large batch to guarantee
+	// this run's just-queued step is included.
+	loop := NewLoop(eng, ExecutorRegistry{"run": erroringExecutor{}}, LoopConfig{ClaimBatchSize: 1000})
 
 	// One synchronous dispatch pass: claims 'a' (queued→running), dispatch fails,
 	// failStepAndAdvance marks it failed and advances the workflow.

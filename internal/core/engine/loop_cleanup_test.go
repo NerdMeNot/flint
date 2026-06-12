@@ -48,19 +48,31 @@ func TestLoop_CancelTriggersCleanup(t *testing.T) {
 		`SELECT status FROM pipeline_runs WHERE id = $1`, runID).Scan(&runStatus))
 	assert.Equal(t, "cancelled", runStatus)
 
-	// One cleanup pass tears down the run's resources exactly once.
+	// One cleanup pass tears down the run's resources. cleanupFinishedRuns is
+	// global (it cleans every terminal run needing cleanup), so scope assertions
+	// to THIS run's id rather than the whole slice — the shared test DB holds
+	// other tests' runs too.
 	cleaner := &recordingCleaner{}
 	loop := NewLoop(eng, ExecutorRegistry{"run": cleaner}, LoopConfig{})
+	countRunID := func() int {
+		n := 0
+		for _, id := range cleaner.cleaned {
+			if id == runID {
+				n++
+			}
+		}
+		return n
+	}
+
 	loop.cleanupFinishedRuns(ctx)
+	assert.Equal(t, 1, countRunID(), "executor CleanupRun should be called once for the cancelled run")
 
-	assert.Equal(t, []string{runID}, cleaner.cleaned, "executor CleanupRun should be called for the cancelled run")
-
-	// cleaned_at is now set → a second pass is a no-op (exactly-once).
+	// cleaned_at is now set → a second pass is a no-op for this run (exactly-once).
 	var cleanedAt *string
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT cleaned_at::text FROM pipeline_runs WHERE id = $1`, runID).Scan(&cleanedAt))
 	assert.NotNil(t, cleanedAt, "cleaned_at should be stamped")
 
 	loop.cleanupFinishedRuns(ctx)
-	assert.Equal(t, []string{runID}, cleaner.cleaned, "cleanup must not repeat once cleaned_at is set")
+	assert.Equal(t, 1, countRunID(), "cleanup must not repeat for this run once cleaned_at is set")
 }
