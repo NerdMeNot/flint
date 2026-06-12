@@ -234,7 +234,7 @@ tasks:
       - podman rm -f flint-dev-db
 
   dev-local:
-    desc: Run the full stack locally with the subprocess executor — no Kubernetes
+    desc: Run the full stack locally — steps dispatch to your local Kubernetes cluster
     deps:
       - dev-db
     cmds:
