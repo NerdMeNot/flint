@@ -471,6 +471,15 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 	return items, nil
 }
 
+const markRunCleaned = `-- name: MarkRunCleaned :exec
+UPDATE pipeline_runs SET cleaned_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkRunCleaned(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, markRunCleaned, id)
+	return err
+}
+
 const runExists = `-- name: RunExists :one
 SELECT EXISTS(SELECT 1 FROM pipeline_runs WHERE id = $1)
 `
@@ -480,6 +489,35 @@ func (q *Queries) RunExists(ctx context.Context, id string) (bool, error) {
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const runsNeedingCleanup = `-- name: RunsNeedingCleanup :many
+SELECT id FROM pipeline_runs
+WHERE cleaned_at IS NULL AND status IN ('succeeded', 'failed', 'cancelled')
+LIMIT $1
+`
+
+// Runs that reached a terminal state but whose executor resources (workspace
+// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
+// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
+func (q *Queries) RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error) {
+	rows, err := q.db.Query(ctx, runsNeedingCleanup, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateRunStatus = `-- name: UpdateRunStatus :exec

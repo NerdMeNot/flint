@@ -29,8 +29,9 @@ jobs:
 
     env:
       # Integration tests use this Postgres; without it they'd self-provision a
-      # throwaway instance (see internal/core/engine TestMain). The container e2e
-      # (dockerExecutor) stays opt-in via FLINT_TEST_DOCKER and is not set here.
+      # throwaway instance (see internal/core/engine TestMain). Steps run as
+      # Kubernetes Jobs in production; tests use a fake clientset, so no cluster
+      # is needed here.
       FLINT_TEST_DSN: postgres://flint:flint@localhost:5432/flint?sslmode=disable
 
     steps:
@@ -56,3 +57,9 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      # Race detector — the engine's whole premise is concurrent workers over a
+      # shared Postgres, so a data race is a correctness bug. Run separately so a
+      # race failure is distinguishable from a plain test failure.
+      - name: Test (race detector)
+        run: go test -race ./...

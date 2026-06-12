@@ -67,10 +67,17 @@ func (s *Server) handleGetStepLogs(ctx context.Context, c *app.RequestContext) {
 // handleAgentLogIngestion receives log lines from the agent.
 // POST /internal/logs
 func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestContext) {
+	// Org and run identity come from the signed task token, NOT the request body
+	// — otherwise a step pod could inject logs into another org's run by setting
+	// orgId/runId. Step name/matrix key stay body-supplied: they only namespace
+	// logs within the run the token already authorizes.
+	input, ok := s.runIdentityFromToken(ctx, c)
+	if !ok {
+		return
+	}
+
 	var req struct {
-		RunID     string            `json:"runId"`
 		StepName  string            `json:"stepName"`
-		OrgID     string            `json:"orgId"`
 		MatrixKey string            `json:"matrixKey"`
 		Lines     []logsink.LogLine `json:"lines"`
 	}
@@ -85,8 +92,8 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 	}
 
 	ref := logsink.LogRef{
-		OrgID:     req.OrgID,
-		RunID:     req.RunID,
+		OrgID:     input.OrgID,
+		RunID:     input.RunID,
 		StepName:  req.StepName,
 		MatrixKey: req.MatrixKey,
 	}
@@ -98,7 +105,7 @@ func (s *Server) handleAgentLogIngestion(ctx context.Context, c *app.RequestCont
 
 	// Fan out to SSE subscribers (no-op when none are listening).
 	if s.deps.LogBroadcast != nil {
-		s.deps.LogBroadcast.Publish(req.RunID, req.StepName, req.Lines)
+		s.deps.LogBroadcast.Publish(input.RunID, req.StepName, req.Lines)
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"status": "ok", "lines": len(req.Lines)})

@@ -115,3 +115,32 @@ func TestTaskToken_RejectsForgedAndTampered(t *testing.T) {
 		t.Error("expected tampered token to be rejected")
 	}
 }
+
+func TestDeriveWorkspaceToken(t *testing.T) {
+	key := []byte("the-real-signing-key-32-chars-min!!!")
+	runID := "11111111-2222-3333-4444-555555555555"
+
+	tok := engine.DeriveWorkspaceToken(runID, key)
+
+	// Deterministic: same run + key always yields the same token, so the
+	// workspace pod and step pods (derived independently) agree.
+	if tok != engine.DeriveWorkspaceToken(runID, key) {
+		t.Error("expected DeriveWorkspaceToken to be deterministic")
+	}
+	// Not the runID (the whole point — runID leaks via labels/logs/API).
+	if tok == runID {
+		t.Error("workspace token must not equal the runID")
+	}
+	// Unpredictable without the key: a different key yields a different token.
+	if tok == engine.DeriveWorkspaceToken(runID, []byte("attacker-key-also-32-characters-x!!!")) {
+		t.Error("token must depend on the signing key")
+	}
+	// Distinct per run.
+	if tok == engine.DeriveWorkspaceToken("99999999-2222-3333-4444-555555555555", key) {
+		t.Error("token must be run-scoped")
+	}
+	// Dev/test fallback: empty key preserves prior behaviour (token == runID).
+	if engine.DeriveWorkspaceToken(runID, nil) != runID {
+		t.Error("empty key should fall back to the runID")
+	}
+}

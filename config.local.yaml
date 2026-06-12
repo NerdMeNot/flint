@@ -1,5 +1,6 @@
-# Local development config — cluster-free. Used by `task dev-local`.
-# Runs steps with the local subprocess executor; no Kubernetes required.
+# Local development config — used by `task dev-local`.
+# Steps run as Kubernetes Jobs on your local cluster (worker falls back to
+# $KUBECONFIG / ~/.kube/config when not in-cluster).
 # Dev-only values: do NOT use this file in production.
 
 server:
@@ -18,8 +19,6 @@ database:
   minConns: 2
 
 worker:
-  executor: local        # subprocess executor — no cluster, no agent
-  workspaceRoot: ""      # empty => OS temp dir
   defaultRunnerPool: standard
   sweepInterval: 1m
 

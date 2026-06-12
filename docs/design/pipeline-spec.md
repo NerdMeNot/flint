@@ -705,11 +705,12 @@ Downstream `needs: [test]` waits for **all** variants.
 flint run [--job NAME] [--env ENV] [--input k=v] [--secret k=v]
 ```
 
-Runs the same pipeline on your machine via the **local (Podman) executor** — jobs
-as local containers, scratch in a host temp dir, handoff via a host dir, **no
-cluster and no object store**. Secrets come from a local source (`--secret`, env,
-or a gitignored `.flint/secrets.local.yaml`). The inner loop: edit YAML → run a
-job → iterate, without pushing. This is the primary authoring experience.
+Runs the same pipeline against your **local Kubernetes cluster** via the same
+k8s executor used in production — there is no separate local/docker executor.
+Jobs run as real pods with full image fidelity; the worker resolves
+`$KUBECONFIG` / `~/.kube/config` when not in-cluster. Secrets come from a local
+source (`--secret`, env, or a gitignored `.flint/secrets.local.yaml`). The
+inner loop: edit YAML → run a job → iterate, without pushing.
 
 ---
 

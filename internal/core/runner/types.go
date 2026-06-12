@@ -34,6 +34,14 @@ type PoolSpec struct {
 
 	// Workspace configures how step pods share the /workspace directory.
 	Workspace WorkspaceConfig
+
+	// RunAsNonRoot, when true, forces every container in this pool's pods to run
+	// as a non-root user (pod-level runAsNonRoot). Defaults to false because many
+	// legitimate CI/build images run as root; enable it only for pools whose step
+	// images (and the Flint agent image) support non-root execution. The other
+	// hardening (drop ALL capabilities, no privilege escalation, RuntimeDefault
+	// seccomp) is always applied regardless of this flag.
+	RunAsNonRoot bool
 }
 
 // WorkspaceMode selects the workspace storage backend.

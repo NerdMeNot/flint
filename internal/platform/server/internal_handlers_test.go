@@ -40,6 +40,23 @@ func internalAuthHeader() ut.Header {
 	return ut.Header{Key: "X-Flint-Internal-Token", Value: "test-internal-token"}
 }
 
+// TestInternalAuth_FailsClosedWhenUnconfigured verifies that an empty
+// server.internalToken rejects /internal requests (fail closed) instead of
+// passing them through (the former fail-open no-op).
+func TestInternalAuth_FailsClosedWhenUnconfigured(t *testing.T) {
+	m := testutil.NewMocks(t)
+	cfg := testutil.TestConfig()
+	cfg.Server.InternalToken = "" // misconfigured / unset
+	srv := New(Deps{Config: cfg, DB: m.Pool, Q: m.Querier, Engine: m.Engine, Sessions: m.Sessions})
+
+	body := jsonBody(t, map[string]any{"stepName": "build", "lines": []logsink.LogLine{}})
+	w := ut.PerformRequest(srv.Engine(), "POST", "/internal/logs", body,
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+	)
+
+	assert.Equal(t, 503, w.Code, "internal endpoints must fail closed when no token is configured")
+}
+
 func jsonBody(t *testing.T, v any) *ut.Body {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -146,6 +163,21 @@ func TestHandleAgentComplete_InvalidBody(t *testing.T) {
 
 // ── POST /internal/logs ─────────────────────────────────────
 
+// taskTokenHeader mints a signed task token for wfID and mocks GetWorkflowInput
+// to return a run scoped to the given org/run. /internal endpoints derive
+// identity from this token, never from the request body.
+func taskTokenHeader(t *testing.T, m *testutil.Mocks, wfID, orgID, runID string) ut.Header {
+	t.Helper()
+	tok := engine.EncodeTaskToken(
+		engine.TaskToken{WorkflowID: wfID, StepName: "build", Attempt: 0},
+		[]byte("test-secret-key-at-least-32-bytes!"),
+	)
+	inputJSON, err := json.Marshal(engine.StartWorkflowInput{OrgID: orgID, RunID: runID, Repo: "acme/test"})
+	require.NoError(t, err)
+	m.Querier.On("GetWorkflowInput", mock.Anything, wfID).Return(inputJSON, nil)
+	return ut.Header{Key: "X-Flint-Task-Token", Value: tok}
+}
+
 func TestHandleAgentLogIngestion_Success(t *testing.T) {
 	srv, m := testServer(t)
 
@@ -165,15 +197,18 @@ func TestHandleAgentLogIngestion_Success(t *testing.T) {
 		return len(l) == 1 && l[0].Content == "hello world"
 	})).Return()
 
+	// org/run come from the token, not the body. The body even claims a DIFFERENT
+	// org to prove the body value is ignored.
+	tokenHdr := taskTokenHeader(t, m, "wf-1", "org-1", "run-1")
 	body := jsonBody(t, map[string]any{
-		"runId":    "run-1",
 		"stepName": "build",
-		"orgId":    "org-1",
+		"orgId":    "attacker-org",
+		"runId":    "attacker-run",
 		"lines":    lines,
 	})
 
 	w := ut.PerformRequest(srv.Engine(), "POST", "/internal/logs", body,
-		internalAuthHeader(),
+		internalAuthHeader(), tokenHdr,
 		ut.Header{Key: "Content-Type", Value: "application/json"},
 	)
 
@@ -183,13 +218,26 @@ func TestHandleAgentLogIngestion_Success(t *testing.T) {
 	assert.Equal(t, float64(1), resp["lines"])
 }
 
-func TestHandleAgentLogIngestion_InvalidBody(t *testing.T) {
+func TestHandleAgentLogIngestion_MissingToken(t *testing.T) {
 	srv, _ := testServer(t)
 
+	body := jsonBody(t, map[string]any{"stepName": "build", "lines": []logsink.LogLine{}})
+	w := ut.PerformRequest(srv.Engine(), "POST", "/internal/logs", body,
+		internalAuthHeader(),
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+	)
+
+	assert.Equal(t, 401, w.Code, "log ingestion without a task token must be rejected")
+}
+
+func TestHandleAgentLogIngestion_InvalidBody(t *testing.T) {
+	srv, m := testServer(t)
+
+	tokenHdr := taskTokenHeader(t, m, "wf-1", "org-1", "run-1")
 	badBody := &ut.Body{Body: bytes.NewReader([]byte("{")), Len: 1}
 
 	w := ut.PerformRequest(srv.Engine(), "POST", "/internal/logs", badBody,
-		internalAuthHeader(),
+		internalAuthHeader(), tokenHdr,
 		ut.Header{Key: "Content-Type", Value: "application/json"},
 	)
 
@@ -208,15 +256,14 @@ func TestHandleAgentLogIngestion_NoLogSink(t *testing.T) {
 	}
 	srv := New(deps)
 
+	tokenHdr := taskTokenHeader(t, m, "wf-1", "org-1", "run-1")
 	body := jsonBody(t, map[string]any{
-		"runId":    "run-1",
 		"stepName": "build",
-		"orgId":    "org-1",
 		"lines":    []logsink.LogLine{{Stream: "stdout", Content: "hi"}},
 	})
 
 	w := ut.PerformRequest(srv.Engine(), "POST", "/internal/logs", body,
-		internalAuthHeader(),
+		internalAuthHeader(), tokenHdr,
 		ut.Header{Key: "Content-Type", Value: "application/json"},
 	)
 

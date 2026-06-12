@@ -90,39 +90,19 @@ func run(cmd *cobra.Command, args []string) error {
 	// Runner pool registry.
 	registry := runner.NewRegistry()
 
-	// Build the executor registry (step exec type → executor). The container
-	// backend (k8s/local/docker) handles run/use/steps; the http executor runs
-	// in-process for any backend. local/docker/http report completion via
-	// eng.CompleteStep and need no cluster; only the k8s backend uses a
-	// Kubernetes client and the informer.
+	// Build the executor registry (step exec type → executor). The k8s backend
+	// handles run/use/steps via Kubernetes Jobs (with the informer as completion
+	// fallback); the http executor runs in-process and reports completion via
+	// eng.CompleteStep.
 	executors := engine.ExecutorRegistry{}
-	var k8sClient kubernetes.Interface
-	var container engine.StepExecutor
-
-	switch cfg.Worker.ExecutorOrDefault() {
-	case "local":
-		container = engine.NewLocalExecutor(cfg.Worker.WorkspaceRoot, eng.CompleteStep)
-		log.Info().Msg("container executor: local subprocess (cluster-free)")
-	case "docker":
-		runtime, derr := engine.DetectContainerRuntime()
-		if derr != nil {
-			return fmt.Errorf("docker executor: %w", derr)
-		}
-		container = engine.NewDockerExecutor(runtime, cfg.Worker.WorkspaceRoot, eng.CompleteStep)
-		log.Info().Str("runtime", runtime).Msg("container executor: local containers (cluster-free)")
-	default: // "k8s"
-		var kerr error
-		k8sClient, kerr = buildK8sClient()
-		if kerr != nil {
-			log.Warn().Err(kerr).Msg("K8s client unavailable — container steps will not be dispatched (DB-only mode)")
-		} else {
-			serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
-			container = engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
-				cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
-			log.Info().Msg("container executor: kubernetes")
-		}
-	}
-	if container != nil {
+	k8sClient, kerr := buildK8sClient()
+	if kerr != nil {
+		log.Warn().Err(kerr).Msg("K8s client unavailable — container steps will not be dispatched (DB-only mode)")
+	} else {
+		serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
+		container := engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
+			cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
+		log.Info().Msg("container executor: kubernetes")
 		executors["run"] = container
 		executors["use"] = container
 		executors["steps"] = container
@@ -136,8 +116,8 @@ func run(cmd *cobra.Command, args []string) error {
 		SigningKey:    []byte(cfg.Auth.JWT.Secret),
 	})
 
-	// The K8s informer detects Job completions/failures in seconds. It only
-	// applies to the k8s executor — local/docker report completion directly.
+	// The K8s informer detects Job completions/failures in seconds, catching
+	// steps whose agent never reported back.
 	if k8sClient != nil {
 		go func() {
 			watcher := workerinformer.New(k8sClient, eng, pool, workerinformer.Config{

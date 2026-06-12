@@ -1,6 +1,7 @@
 -- name: InsertOutboxEvent :exec
 INSERT INTO flint_outbox (event_type, payload, idempotency_key, max_attempts)
-VALUES ($1, $2, $3, $4);
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (idempotency_key) DO NOTHING;
 
 -- name: ClaimOutboxBatch :many
 UPDATE flint_outbox SET status = 'processing', attempts = attempts + 1
@@ -18,10 +19,13 @@ UPDATE flint_outbox SET status = 'resolved', resolved_at = now()
 WHERE id = $1;
 
 -- name: FailOutboxEvent :exec
+-- Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
+-- webhook retries all firing in lockstep when an endpoint recovers. Mirrors the
+-- step-retry jitter in backoffDuration.
 UPDATE flint_outbox SET
     status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
     last_error = $2,
-    process_after = now() + make_interval(secs := power(2, attempts) * 5)
+    process_after = now() + make_interval(secs := power(2, attempts) * 5 * (0.8 + random() * 0.4))
 WHERE id = $1;
 
 -- name: CleanResolvedOutbox :exec

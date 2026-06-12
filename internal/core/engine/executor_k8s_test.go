@@ -111,6 +111,20 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	assert.Equal(t, "main", ae["FLINT_GIT_REF"])
 	assert.Equal(t, "deadbeef", ae["FLINT_GIT_SHA"])
 
+	// Security hardening: every container drops all capabilities and forbids
+	// privilege escalation; the pod carries the RuntimeDefault seccomp profile.
+	// runAsNonRoot is off by default (the default pool doesn't opt in).
+	require.NotNil(t, stepC.SecurityContext)
+	require.NotNil(t, stepC.SecurityContext.AllowPrivilegeEscalation)
+	assert.False(t, *stepC.SecurityContext.AllowPrivilegeEscalation)
+	require.NotNil(t, stepC.SecurityContext.Capabilities)
+	assert.Equal(t, []corev1.Capability{"ALL"}, stepC.SecurityContext.Capabilities.Drop)
+	assert.Nil(t, stepC.SecurityContext.RunAsNonRoot, "runAsNonRoot must be opt-in per pool")
+	assert.NotNil(t, agentC.SecurityContext, "the sidecar must be hardened too")
+	require.NotNil(t, spec.SecurityContext)
+	require.NotNil(t, spec.SecurityContext.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, spec.SecurityContext.SeccompProfile.Type)
+
 	// Workspace volume is mounted.
 	var hasWorkspace bool
 	for _, v := range spec.Volumes {

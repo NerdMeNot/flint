@@ -68,7 +68,7 @@ const failOutboxEvent = `-- name: FailOutboxEvent :exec
 UPDATE flint_outbox SET
     status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
     last_error = $2,
-    process_after = now() + make_interval(secs := power(2, attempts) * 5)
+    process_after = now() + make_interval(secs := power(2, attempts) * 5 * (0.8 + random() * 0.4))
 WHERE id = $1
 `
 
@@ -77,6 +77,9 @@ type FailOutboxEventParams struct {
 	LastError *string `json:"last_error"`
 }
 
+// Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
+// webhook retries all firing in lockstep when an endpoint recovers. Mirrors the
+// step-retry jitter in backoffDuration.
 func (q *Queries) FailOutboxEvent(ctx context.Context, arg FailOutboxEventParams) error {
 	_, err := q.db.Exec(ctx, failOutboxEvent, arg.ID, arg.LastError)
 	return err
@@ -85,6 +88,7 @@ func (q *Queries) FailOutboxEvent(ctx context.Context, arg FailOutboxEventParams
 const insertOutboxEvent = `-- name: InsertOutboxEvent :exec
 INSERT INTO flint_outbox (event_type, payload, idempotency_key, max_attempts)
 VALUES ($1, $2, $3, $4)
+ON CONFLICT (idempotency_key) DO NOTHING
 `
 
 type InsertOutboxEventParams struct {

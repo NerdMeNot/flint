@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -18,28 +17,16 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
 )
 
-// deviceCodes stores pending device authorization codes (in-memory, ephemeral).
-// In production, consider Redis or a DB table with TTL.
-var deviceCodes = struct {
-	sync.RWMutex
-	codes map[string]*deviceCodeEntry
-}{codes: make(map[string]*deviceCodeEntry)}
+// Device authorization and MFA-pending state are stored in Postgres (see
+// device_codes / mfa_pending_tokens) rather than process memory, so the auth
+// layer is correct under concurrency, survives restarts, and works across
+// replicas. See migration 005_auth_stores.
 
-type deviceCodeEntry struct {
-	userCode     string
-	expiresAt    time.Time
-	interval     int
-	accessToken  string // set when user completes auth
-	refreshToken string // set when user completes auth
-	claims       *auth.Claims
-	userID       string // DB user UUID (set after sync)
-	completed    bool
-	oauthState   string // CSRF state token for OIDC/SAML
-	nonce        string // OIDC nonce for replay protection
-}
+const deviceCodeTTL = 15 * time.Minute
 
 // registerAuthRoutes registers all auth endpoints.
 func (s *Server) registerAuthRoutes() {
@@ -78,15 +65,15 @@ func (s *Server) handleDeviceCode(ctx context.Context, c *app.RequestContext) {
 	deviceCode := generateSecureCode(32)
 	userCode := generateUserCode()
 
-	entry := &deviceCodeEntry{
-		userCode:  userCode,
-		expiresAt: time.Now().Add(15 * time.Minute),
-		interval:  5,
+	if err := s.deps.Q.InsertDeviceCode(ctx, db.InsertDeviceCodeParams{
+		DeviceCode:   deviceCode,
+		UserCode:     userCode,
+		ExpiresAt:    time.Now().Add(deviceCodeTTL),
+		IntervalSecs: 5,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to create device code")
+		return
 	}
-
-	deviceCodes.Lock()
-	deviceCodes.codes[deviceCode] = entry
-	deviceCodes.Unlock()
 
 	baseURL := s.deps.Config.Server.BaseURL
 	if baseURL == "" {
@@ -113,38 +100,54 @@ func (s *Server) handleDeviceToken(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	deviceCodes.RLock()
-	entry, exists := deviceCodes.codes[req.DeviceCode]
-	deviceCodes.RUnlock()
-
-	if !exists {
+	row, err := s.deps.Q.GetDeviceCode(ctx, req.DeviceCode)
+	if err != nil {
 		apiBadRequest(ctx, c, "invalid device code")
 		return
 	}
 
-	if time.Now().After(entry.expiresAt) {
-		deviceCodes.Lock()
-		delete(deviceCodes.codes, req.DeviceCode)
-		deviceCodes.Unlock()
+	if time.Now().After(row.ExpiresAt) {
+		_ = s.deps.Q.DeleteDeviceCode(ctx, req.DeviceCode)
 		apiError(ctx, c, consts.StatusBadRequest, "EXPIRED_TOKEN", "device code expired")
 		return
 	}
 
-	if !entry.completed {
+	// Enforce the polling interval (OAuth slow_down). Measured from the last
+	// accepted poll; too-fast polls are rejected without advancing the marker.
+	if row.LastPolledAt != nil &&
+		time.Since(*row.LastPolledAt) < time.Duration(row.IntervalSecs)*time.Second {
+		apiError(ctx, c, consts.StatusBadRequest, "SLOW_DOWN", "polling too frequently")
+		return
+	}
+	_ = s.deps.Q.TouchDeviceCodePoll(ctx, req.DeviceCode)
+
+	if !row.Completed {
 		apiError(ctx, c, consts.StatusBadRequest, "AUTHORIZATION_PENDING", "waiting for user authorization")
 		return
 	}
 
-	// Auth complete — return tokens.
-	deviceCodes.Lock()
-	delete(deviceCodes.codes, req.DeviceCode)
-	deviceCodes.Unlock()
+	// Auth complete — atomically claim (return + delete) the tokens. The atomic
+	// DELETE ... RETURNING closes the TOCTOU window the in-memory map had.
+	tok, err := s.deps.Q.ClaimCompletedDeviceCode(ctx, req.DeviceCode)
+	if err != nil {
+		// Lost a race to another poll, or already claimed.
+		apiError(ctx, c, consts.StatusBadRequest, "AUTHORIZATION_PENDING", "waiting for user authorization")
+		return
+	}
 
 	c.JSON(consts.StatusOK, utils.H{
-		"accessToken":  entry.accessToken,
-		"refreshToken": entry.refreshToken,
+		"accessToken":  derefStr(tok.AccessToken),
+		"refreshToken": derefStr(tok.RefreshToken),
 		"expiresIn":    900, // 15 minutes
 	})
+}
+
+// derefStr returns the value of a *string, or "" if nil.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // handleRefresh exchanges a refresh token for a new access JWT + rotated refresh token.
@@ -376,20 +379,15 @@ func (s *Server) CompleteDeviceAuth(ctx context.Context, deviceCode string, clai
 		return fmt.Errorf("create session: %w", err)
 	}
 
-	deviceCodes.Lock()
-	defer deviceCodes.Unlock()
-
-	entry, exists := deviceCodes.codes[deviceCode]
-	if !exists {
-		return fmt.Errorf("device code not found")
+	uid := userID
+	if err := s.deps.Q.CompleteDeviceCode(ctx, db.CompleteDeviceCodeParams{
+		DeviceCode:   deviceCode,
+		AccessToken:  &accessToken,
+		RefreshToken: &refreshRaw,
+		UserID:       &uid,
+	}); err != nil {
+		return fmt.Errorf("complete device code: %w", err)
 	}
-
-	entry.accessToken = accessToken
-	entry.refreshToken = refreshRaw
-	entry.userID = userID
-	entry.claims = claims
-	entry.completed = true
-
 	return nil
 }
 
@@ -416,8 +414,8 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	deviceCode := findDeviceEntryByUserCode(userCode)
-	if deviceCode == "" {
+	deviceCode, err := s.deps.Q.FindDeviceCodeByUserCode(ctx, userCode)
+	if err != nil || deviceCode == "" {
 		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired code")))
 		return
 	}
@@ -426,11 +424,14 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 	state := generateSecureCode(32)
 	nonce := generateSecureCode(32)
 
-	deviceCodes.Lock()
-	entry := deviceCodes.codes[deviceCode]
-	entry.oauthState = state
-	entry.nonce = nonce
-	deviceCodes.Unlock()
+	if err := s.deps.Q.SetDeviceCodeOAuthState(ctx, db.SetDeviceCodeOAuthStateParams{
+		DeviceCode: deviceCode,
+		OauthState: &state,
+		Nonce:      &nonce,
+	}); err != nil {
+		c.HTML(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
+		return
+	}
 
 	// Redirect to the configured SSO provider.
 	if s.deps.OIDCProvider != nil {
@@ -464,16 +465,14 @@ func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) 
 	}
 
 	// Find the device entry by OAuth state.
-	deviceCode := findDeviceEntryByState(state)
-	if deviceCode == "" {
+	deviceCode, err := s.deps.Q.FindDeviceCodeByOAuthState(ctx, &state)
+	if err != nil || deviceCode == "" {
 		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
 		return
 	}
 
-	deviceCodes.RLock()
-	entry := deviceCodes.codes[deviceCode]
-	nonce := entry.nonce
-	deviceCodes.RUnlock()
+	noncePtr, _ := s.deps.Q.GetDeviceCodeNonce(ctx, deviceCode)
+	nonce := derefStr(noncePtr)
 
 	// Exchange authorization code for tokens.
 	claims, idpToken, err := s.deps.OIDCProvider.Exchange(ctx, code, nonce)
@@ -503,8 +502,8 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Find the device entry by RelayState (which is our OAuth state).
-	deviceCode := findDeviceEntryByState(relayState)
-	if deviceCode == "" {
+	deviceCode, err := s.deps.Q.FindDeviceCodeByOAuthState(ctx, &relayState)
+	if err != nil || deviceCode == "" {
 		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
 		return
 	}
@@ -554,11 +553,9 @@ func (s *Server) completeSSOWithToken(ctx context.Context, deviceCode string, cl
 		tokenJSON, _ := json.Marshal(idpToken)
 
 		// Find the session we just created and store the IdP token.
-		deviceCodes.RLock()
-		entry := deviceCodes.codes[deviceCode]
-		deviceCodes.RUnlock()
-		if entry != nil {
-			hash := auth.HashToken(entry.refreshToken)
+		refreshPtr, _ := s.deps.Q.GetDeviceCodeRefreshToken(ctx, deviceCode)
+		if refresh := derefStr(refreshPtr); refresh != "" {
+			hash := auth.HashToken(refresh)
 			sess, getErr := s.deps.Q.GetSessionByTokenHash(ctx, hash)
 			if getErr == nil {
 				_ = s.deps.Q.UpdateSessionIdpToken(ctx, db.UpdateSessionIdpTokenParams{
@@ -602,46 +599,7 @@ func (s *Server) completeSSO(ctx context.Context, deviceCode string, claims *aut
 	return userID, nil
 }
 
-// findDeviceEntryByState finds a device code by matching oauthState.
-func findDeviceEntryByState(state string) string {
-	deviceCodes.RLock()
-	defer deviceCodes.RUnlock()
-
-	for code, entry := range deviceCodes.codes {
-		if entry.oauthState == state && time.Now().Before(entry.expiresAt) {
-			return code
-		}
-	}
-	return ""
-}
-
-// findDeviceEntryByUserCode finds a device code by matching userCode.
-func findDeviceEntryByUserCode(userCode string) string {
-	deviceCodes.RLock()
-	defer deviceCodes.RUnlock()
-
-	for code, entry := range deviceCodes.codes {
-		if entry.userCode == userCode && time.Now().Before(entry.expiresAt) {
-			return code
-		}
-	}
-	return ""
-}
-
 // ── Local Auth ────────────────────────────────────────────────
-
-// mfaPendingTokens stores temporary tokens for the MFA verification step.
-var mfaPendingTokens = struct {
-	sync.RWMutex
-	tokens map[string]*mfaPendingEntry
-}{tokens: make(map[string]*mfaPendingEntry)}
-
-type mfaPendingEntry struct {
-	userID    string
-	email     string
-	orgID     string
-	expiresAt time.Time
-}
 
 // handlePasswordLogin authenticates a user with email + password.
 // If MFA is required, returns a temporary mfaToken for the second phase.
@@ -721,14 +679,16 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 	if mfaRequired {
 		// Issue temporary MFA token (5 min).
 		token := generateSecureCode(32)
-		mfaPendingTokens.Lock()
-		mfaPendingTokens.tokens[token] = &mfaPendingEntry{
-			userID:    user.ID,
-			email:     user.Email,
-			orgID:     org.ID,
-			expiresAt: time.Now().Add(5 * time.Minute),
+		if err := s.deps.Q.InsertMFAPendingToken(ctx, db.InsertMFAPendingTokenParams{
+			Token:     token,
+			UserID:    user.ID,
+			Email:     user.Email,
+			OrgID:     org.ID,
+			ExpiresAt: time.Now().Add(5 * time.Minute),
+		}); err != nil {
+			apiInternal(ctx, c, "failed to start MFA challenge")
+			return
 		}
-		mfaPendingTokens.Unlock()
 
 		c.JSON(consts.StatusOK, utils.H{
 			"mfaRequired": true,
@@ -757,19 +717,16 @@ func (s *Server) handleMFAVerify(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Look up pending MFA entry.
-	mfaPendingTokens.RLock()
-	entry, exists := mfaPendingTokens.tokens[req.MFAToken]
-	mfaPendingTokens.RUnlock()
-
-	if !exists || time.Now().After(entry.expiresAt) {
+	// Look up pending MFA entry (the query filters out expired tokens).
+	entry, err := s.deps.Q.GetMFAPendingToken(ctx, req.MFAToken)
+	if err != nil {
 		apiUnauthorized(ctx, c, "invalid or expired MFA token")
 		return
 	}
 
 	// Get user's TOTP secret.
 	user, err := s.deps.Q.GetUserForAuth(ctx, db.GetUserForAuthParams{
-		OrgID: entry.orgID, Email: entry.email,
+		OrgID: entry.OrgID, Email: entry.Email,
 	})
 	if err != nil || user.TotpSecretEnc == nil {
 		apiUnauthorized(ctx, c, "MFA not configured")
@@ -779,8 +736,9 @@ func (s *Server) handleMFAVerify(ctx context.Context, c *app.RequestContext) {
 	valid := false
 
 	if req.Code != "" {
-		// Validate TOTP code.
-		valid = auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code)
+		// Validate TOTP code, then guard against replay (see checkTOTPReplay).
+		valid = auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code) &&
+			s.checkTOTPReplay(ctx, user.ID)
 	} else if req.RecoveryCode != "" {
 		// Validate recovery code (single-use).
 		codes, _ := s.deps.Q.GetUserRecoveryCodes(ctx, user.ID)
@@ -800,12 +758,23 @@ func (s *Server) handleMFAVerify(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Remove used MFA token.
-	mfaPendingTokens.Lock()
-	delete(mfaPendingTokens.tokens, req.MFAToken)
-	mfaPendingTokens.Unlock()
+	_ = s.deps.Q.DeleteMFAPendingToken(ctx, req.MFAToken)
 
 	// Issue tokens.
-	s.issueLocalAuthTokens(ctx, c, entry.userID, entry.email, entry.orgID, false)
+	s.issueLocalAuthTokens(ctx, c, entry.UserID, entry.Email, entry.OrgID, false)
+}
+
+// checkTOTPReplay records the current TOTP period for the user and returns true
+// only if it is strictly newer than the last accepted one — rejecting reuse of a
+// code within (or before) its validity window. Replica-safe: the advance is a
+// single atomic UPDATE.
+func (s *Server) checkTOTPReplay(ctx context.Context, userID string) bool {
+	period := auth.TOTPPeriod(time.Now())
+	_, err := s.deps.Q.RecordTOTPUse(ctx, db.RecordTOTPUseParams{
+		ID:                userID,
+		MfaLastUsedPeriod: pgtype.Int8{Int64: period, Valid: true},
+	})
+	return err == nil
 }
 
 // handleMFASetup generates a new TOTP secret and returns the QR code URL.
@@ -885,7 +854,7 @@ func (s *Server) handleMFASetupVerify(ctx context.Context, c *app.RequestContext
 		return
 	}
 
-	if !auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code) {
+	if !auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code) || !s.checkTOTPReplay(ctx, user.ID) {
 		apiBadRequest(ctx, c, "invalid code — scan the QR code and try again")
 		return
 	}
@@ -930,7 +899,7 @@ func (s *Server) handleMFADisable(ctx context.Context, c *app.RequestContext) {
 	// Verify current code before disabling.
 	valid := false
 	if req.Code != "" {
-		valid = auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code)
+		valid = auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code) && s.checkTOTPReplay(ctx, user.ID)
 	} else if req.RecoveryCode != "" {
 		codes, _ := s.deps.Q.GetUserRecoveryCodes(ctx, user.ID)
 		_, valid = auth.ValidateRecoveryCode(req.RecoveryCode, codes)
@@ -1109,8 +1078,14 @@ func extractClientIP(c *app.RequestContext) netip.Addr {
 	return netip.Addr{} // zero value — rate limiting still works, just less precise
 }
 
-// startDeviceCodeCleanup runs a background goroutine to clean up expired device codes.
-func startDeviceCodeCleanup(ctx context.Context) {
+// StartAuthStoreCleanup runs a background goroutine that periodically prunes
+// expired device codes and MFA-pending tokens from Postgres. Call once at
+// startup with a process-lifetime context; the goroutine exits on ctx.Done.
+// (The old in-memory cleanup function was defined but never invoked — a leak.)
+func (s *Server) StartAuthStoreCleanup(ctx context.Context) {
+	if s.deps.Q == nil {
+		return
+	}
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -1119,25 +1094,9 @@ func startDeviceCodeCleanup(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				now := time.Now()
-				deviceCodes.Lock()
-				for code, entry := range deviceCodes.codes {
-					if now.After(entry.expiresAt) {
-						delete(deviceCodes.codes, code)
-					}
-				}
-				deviceCodes.Unlock()
+				_ = s.deps.Q.DeleteExpiredDeviceCodes(ctx)
+				_ = s.deps.Q.DeleteExpiredMFAPendingTokens(ctx)
 			}
-
-			// Also clean up expired MFA tokens.
-			mfaPendingTokens.Lock()
-			now := time.Now()
-			for token, entry := range mfaPendingTokens.tokens {
-				if now.After(entry.expiresAt) {
-					delete(mfaPendingTokens.tokens, token)
-				}
-			}
-			mfaPendingTokens.Unlock()
 		}
 	}()
 }

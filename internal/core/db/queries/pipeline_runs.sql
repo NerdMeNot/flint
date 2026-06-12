@@ -63,6 +63,17 @@ WHERE workflow_id = $1;
 -- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1;
 
+-- name: RunsNeedingCleanup :many
+-- Runs that reached a terminal state but whose executor resources (workspace
+-- pod, leftover Jobs) haven't been torn down yet. The loop claims these and
+-- calls each executor's CleanupRun, then marks them cleaned — exactly-once.
+SELECT id FROM pipeline_runs
+WHERE cleaned_at IS NULL AND status IN ('succeeded', 'failed', 'cancelled')
+LIMIT $1;
+
+-- name: MarkRunCleaned :exec
+UPDATE pipeline_runs SET cleaned_at = now() WHERE id = $1;
+
 -- name: ListWorkflowRuns :many
 -- Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
 -- pagination. The cursor is (started_at, id); an empty cursor returns the first

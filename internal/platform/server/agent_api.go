@@ -12,6 +12,36 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
 
+// runIdentityFromToken extracts and verifies the X-Flint-Task-Token, then loads
+// the run's workflow input — the trusted source of org/project/run/repo identity
+// for /internal endpoints. A step pod runs untrusted user code, so identity must
+// come from the signed token, never from client-supplied body/headers. On any
+// failure it writes the HTTP error and returns ok=false; callers must return
+// immediately when ok is false.
+func (s *Server) runIdentityFromToken(ctx context.Context, c *app.RequestContext) (engine.StartWorkflowInput, bool) {
+	tokenStr := string(c.GetHeader("X-Flint-Task-Token"))
+	if tokenStr == "" {
+		apiUnauthorized(ctx, c, "missing task token")
+		return engine.StartWorkflowInput{}, false
+	}
+	tok, err := engine.DecodeTaskToken(tokenStr, []byte(s.deps.Config.Auth.JWT.Secret))
+	if err != nil {
+		apiUnauthorized(ctx, c, "invalid task token")
+		return engine.StartWorkflowInput{}, false
+	}
+	inputJSON, err := s.deps.Q.GetWorkflowInput(ctx, tok.WorkflowID)
+	if err != nil {
+		apiNotFound(ctx, c, "run not found")
+		return engine.StartWorkflowInput{}, false
+	}
+	var input engine.StartWorkflowInput
+	if err := json.Unmarshal(inputJSON, &input); err != nil {
+		apiInternal(ctx, c, "invalid run input")
+		return engine.StartWorkflowInput{}, false
+	}
+	return input, true
+}
+
 // handleAgentSecrets returns secret values for a step.
 //
 // The secret scope (org/project/environment) is derived SERVER-SIDE from the
@@ -22,26 +52,8 @@ import (
 func (s *Server) handleAgentSecrets(ctx context.Context, c *app.RequestContext) {
 	log := observe.Logger(ctx)
 
-	tokenStr := string(c.GetHeader("X-Flint-Task-Token"))
-	if tokenStr == "" {
-		apiUnauthorized(ctx, c, "missing task token")
-		return
-	}
-	tok, err := engine.DecodeTaskToken(tokenStr, []byte(s.deps.Config.Auth.JWT.Secret))
-	if err != nil {
-		apiUnauthorized(ctx, c, "invalid task token")
-		return
-	}
-
-	// Derive the run's identity from its workflow input (the trusted source).
-	inputJSON, err := s.deps.Q.GetWorkflowInput(ctx, tok.WorkflowID)
-	if err != nil {
-		apiNotFound(ctx, c, "run not found")
-		return
-	}
-	var input engine.StartWorkflowInput
-	if err := json.Unmarshal(inputJSON, &input); err != nil {
-		apiInternal(ctx, c, "invalid run input")
+	input, ok := s.runIdentityFromToken(ctx, c)
+	if !ok {
 		return
 	}
 	orgID, projectID, environment := input.OrgID, input.ProjectID, input.Environment
@@ -99,12 +111,20 @@ func (s *Server) handleAgentSecrets(ctx context.Context, c *app.RequestContext) 
 
 // handleAgentCloneToken returns a short-lived token for cloning a repo.
 // The agent uses this to authenticate git clone for private repos.
+//
+// The repo is derived SERVER-SIDE from the run's workflow input, NOT from a
+// client header — otherwise a step pod could request clone credentials for any
+// repo its org's forge connection can reach by rewriting X-Flint-Repo.
 func (s *Server) handleAgentCloneToken(ctx context.Context, c *app.RequestContext) {
 	log := observe.Logger(ctx)
 
-	repo := string(c.GetHeader("X-Flint-Repo"))
+	input, ok := s.runIdentityFromToken(ctx, c)
+	if !ok {
+		return
+	}
+	repo := input.Repo
 	if repo == "" {
-		apiBadRequest(ctx, c, "missing X-Flint-Repo header")
+		apiBadRequest(ctx, c, "run has no associated repo")
 		return
 	}
 

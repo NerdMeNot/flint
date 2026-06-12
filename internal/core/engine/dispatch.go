@@ -107,7 +107,7 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	} else {
 		// Agent mode: ensure per-run workspace agent pod is running.
 		var wsErr error
-		wsAddr, wsErr = EnsureWorkspace(ctx, e.k8s, step.runID, step.orgID, e.agentImage, e.jobNamespace)
+		wsAddr, wsErr = EnsureWorkspace(ctx, e.k8s, step.runID, step.orgID, step.wsToken, e.agentImage, e.jobNamespace)
 		if wsErr != nil {
 			log.Warn().Err(wsErr).Str("runID", step.runID).Msg("engine: workspace unavailable, falling back to S3 artifacts")
 		}
@@ -156,7 +156,7 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	if wsAddr != "" {
 		agentEnv = append(agentEnv,
 			corev1.EnvVar{Name: "FLINT_WS_ADDR", Value: wsAddr},
-			corev1.EnvVar{Name: "FLINT_WS_TOKEN", Value: step.runID},
+			corev1.EnvVar{Name: "FLINT_WS_TOKEN", Value: step.wsToken},
 		)
 	}
 
@@ -328,6 +328,17 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		})
 	}
 
+	// Harden every container and the pod. Always drop ALL capabilities, forbid
+	// privilege escalation, and apply the RuntimeDefault seccomp profile; only
+	// force non-root when the pool opts in (build images often need root).
+	job.Spec.Template.Spec.SecurityContext = podSecurityContext(poolSpec.RunAsNonRoot)
+	for i := range job.Spec.Template.Spec.InitContainers {
+		job.Spec.Template.Spec.InitContainers[i].SecurityContext = restrictedSecurityContext(poolSpec.RunAsNonRoot)
+	}
+	for i := range job.Spec.Template.Spec.Containers {
+		job.Spec.Template.Spec.Containers[i].SecurityContext = restrictedSecurityContext(poolSpec.RunAsNonRoot)
+	}
+
 	// Apply runner pool scheduling (includes pool-level ServiceAccount).
 	runner.MergeIntoJob(poolSpec, job)
 
@@ -356,6 +367,34 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	return created.Name, nil
 }
 
+func boolPtr(b bool) *bool { return &b }
+
+// restrictedSecurityContext is the always-on container hardening: drop every
+// capability and forbid privilege escalation. runAsNonRoot is set only when the
+// pool opts in — root-using build images would otherwise fail to start.
+func restrictedSecurityContext(runAsNonRoot bool) *corev1.SecurityContext {
+	sc := &corev1.SecurityContext{
+		AllowPrivilegeEscalation: boolPtr(false),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+	if runAsNonRoot {
+		sc.RunAsNonRoot = boolPtr(true)
+	}
+	return sc
+}
+
+// podSecurityContext applies the RuntimeDefault seccomp profile to the pod, plus
+// pod-level runAsNonRoot when the pool opts in.
+func podSecurityContext(runAsNonRoot bool) *corev1.PodSecurityContext {
+	psc := &corev1.PodSecurityContext{
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+	if runAsNonRoot {
+		psc.RunAsNonRoot = boolPtr(true)
+	}
+	return psc
+}
+
 // claimedStep holds the data needed to dispatch a step after claiming.
 type claimedStep struct {
 	id                     string
@@ -363,6 +402,7 @@ type claimedStep struct {
 	name                   string
 	execType               string
 	taskToken              string
+	wsToken                string // per-run workspace gRPC bearer token (HMAC-derived)
 	stepDef                []byte
 	runID                  string
 	orgID                  string

@@ -12,15 +12,20 @@ import (
 // failure.
 var errNoExecutor = errors.New("engine: no executor registered for step type")
 
+// CompleteFunc reports a step's terminal result back to the engine. In-process
+// executors (e.g. http) invoke it when a step finishes — standing in for the
+// agent's /internal/complete callback that the k8s executor relies on.
+type CompleteFunc func(ctx context.Context, taskToken string, result StepResult) error
+
 // StepExecutor starts execution of a claimed step. Implementations are
 // fire-and-forget: step completion is reported out-of-band via the
 // /internal/complete callback (the k8s executor also has the informer fallback).
 //
 // This is the seam that lets the engine run work in different ways — a
-// Kubernetes Job, a local process, an HTTP call — without the loop or the rest
-// of the engine knowing which.
+// Kubernetes Job, an HTTP call — without the loop or the rest of the engine
+// knowing which.
 type StepExecutor interface {
-	// Kind identifies the executor ("k8s", "local", …) for logs and metrics.
+	// Kind identifies the executor ("k8s", "http", …) for logs and metrics.
 	Kind() string
 	// Dispatch starts the step and returns an opaque handle for correlation
 	// (e.g. the k8s Job name), or an error if it could not be started. An empty
@@ -30,8 +35,8 @@ type StepExecutor interface {
 
 // stepCleaner is an optional StepExecutor capability: release any resources
 // associated with a finished run (e.g. a k8s workspace pod and leftover Jobs).
-// Executors with nothing to clean up (e.g. local processes, http) simply don't
-// implement it, and the sweep skips cleanup for them.
+// Executors with nothing to clean up (e.g. http) simply don't implement it,
+// and the sweep skips cleanup for them.
 type stepCleaner interface {
 	CleanupRun(ctx context.Context, runID string) error
 }
