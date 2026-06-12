@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Users, ArrowLeft, Mail, Link2, UserPlus, Check, Search, KeyRound, Plus } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
 import { FormSelect } from '#/components/FormSelect'
 import { ScopeBadges } from '#/components/ScopeBadges'
@@ -200,11 +201,20 @@ function AssignRoleToTeamModal({
 
   const role = roles.find((r) => r.slug === selectedRole)
 
+  const assign = useAction(
+    () => client.roles.assignments.create({ subjects: [`team:${teamSlug}`], role: selectedRole }),
+    {
+      invalidate: [orpc.roles.assignments.list.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1000)
+      },
+    },
+  )
+
   function handleSubmit() {
     if (!selectedRole) return
-    client.roles.assignments.create({ subjects: [`team:${teamSlug}`], role: selectedRole })
-    setSubmitted(true)
-    setTimeout(onClose, 1000)
+    assign.mutate(undefined)
   }
 
   return (

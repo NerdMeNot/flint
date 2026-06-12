@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useSuspenseQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ArrowLeft, Mail, KeyRound, Users, Shield, Plus, Key, Trash2, Copy, Check, Clock, AlertTriangle, Calendar } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { PermissionMatrix } from '#/components/PermissionMatrix'
 import { Modal } from '#/components/Modal'
@@ -191,6 +192,9 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
   )
   const tokens = tokensData.items
   const [showGenerate, setShowGenerate] = useState(false)
+  const del = useAction((id: string) => client.personalTokens.delete({ id }), {
+    invalidate: [orpc.personalTokens.list.key()],
+  })
 
   return (
     <div className="space-y-3">
@@ -247,7 +251,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
                 </div>
                 <button
                   type="button"
-                  onClick={() => client.personalTokens.delete({ id: token.id })}
+                  onClick={() => del.mutate(token.id)}
                   className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors shrink-0"
                   title="Revoke token"
                 >
@@ -271,6 +275,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
   const [expiry, setExpiry] = useState('90d')
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const { copied, copy } = useCopyToClipboard()
+  const queryClient = useQueryClient()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -283,6 +288,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
     })
 
     setGeneratedToken((result as any).token)
+    queryClient.invalidateQueries({ queryKey: orpc.personalTokens.list.key() })
   }
 
   return (
@@ -393,11 +399,20 @@ function AssignRoleToSubjectModal({
 
   const role = roles.find((r) => r.slug === selectedRole)
 
+  const assign = useAction(
+    () => client.roles.assignments.create({ subjects: [subject], role: selectedRole }),
+    {
+      invalidate: [orpc.roles.assignments.list.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1000)
+      },
+    },
+  )
+
   function handleSubmit() {
     if (!selectedRole) return
-    client.roles.assignments.create({ subjects: [subject], role: selectedRole })
-    setSubmitted(true)
-    setTimeout(onClose, 1000)
+    assign.mutate(undefined)
   }
 
   return (

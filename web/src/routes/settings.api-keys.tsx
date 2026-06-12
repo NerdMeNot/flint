@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useSuspenseQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Key, Calendar, Clock, AlertTriangle, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { formatTime } from '#/lib/format-time'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { FormSelect } from '#/components/FormSelect'
@@ -19,6 +20,9 @@ function ApiKeysPage() {
   const { data: rolesData } = useSuspenseQuery(orpc.roles.list.queryOptions({ input: {} }))
   const roles = rolesData.items
   const [showCreate, setShowCreate] = useState(false)
+  const del = useAction((id: string) => client.apiKeys.delete({ id }), {
+    invalidate: [orpc.apiKeys.list.key()],
+  })
 
   const roleMap = new Map(roles.map((r) => [r.slug, r]))
 
@@ -78,7 +82,7 @@ function ApiKeysPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => client.apiKeys.delete({ id: apiKey.id })}
+                        onClick={() => del.mutate(apiKey.id)}
                         className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
                       >
                         <Trash2 size={13} />
@@ -174,6 +178,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
   const [expiry, setExpiry] = useState('90d')
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const { copied, copy } = useCopyToClipboard()
+  const queryClient = useQueryClient()
 
   const role = roles.find((r) => r.slug === selectedRole)
 
@@ -203,6 +208,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
     })
 
     setGeneratedToken((result as any).token)
+    queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
   }
 
   return (

@@ -1,14 +1,6 @@
 import { Link } from '@tanstack/react-router'
-import {
-  GitBranch,
-  GitCommit,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  Ban,
-  Timer,
-} from 'lucide-react'
+import { GitBranch, GitCommit, Timer } from 'lucide-react'
+import { runStatusVisualFor } from '#/lib/status'
 
 interface Run {
   id: string
@@ -32,42 +24,6 @@ interface RunRowProps {
   action?: React.ReactNode
 }
 
-const accentColors: Record<string, string> = {
-  succeeded: 'bg-success',
-  failed: 'bg-destructive',
-  running: 'bg-primary',
-  pending: 'bg-muted-foreground/30',
-  cancelled: 'bg-muted-foreground/30',
-}
-
-const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
-  succeeded: {
-    icon: <CheckCircle size={14} />,
-    label: 'Passed',
-    className: 'text-success',
-  },
-  failed: {
-    icon: <XCircle size={14} />,
-    label: 'Failed',
-    className: 'text-destructive',
-  },
-  running: {
-    icon: <Loader2 size={14} className="animate-spin" />,
-    label: 'Running',
-    className: 'text-primary',
-  },
-  pending: {
-    icon: <Clock size={14} />,
-    label: 'Pending',
-    className: 'text-muted-foreground',
-  },
-  cancelled: {
-    icon: <Ban size={14} />,
-    label: 'Cancelled',
-    className: 'text-muted-foreground',
-  },
-}
-
 // Parse duration string like "2m 34s" to seconds for relative bar
 function parseDurationToSeconds(dur: string): number {
   let total = 0
@@ -79,8 +35,8 @@ function parseDurationToSeconds(dur: string): number {
 }
 
 export function RunRow({ run, showProject = true, action }: RunRowProps) {
-  const status = statusConfig[run.status] ?? statusConfig.pending!
-  const accent = accentColors[run.status] ?? accentColors.pending!
+  const status = runStatusVisualFor(run.status)
+  const accent = status.accent
   const isRunning = run.status === 'running'
   const durationSecs = parseDurationToSeconds(run.duration)
   // Assume 5min (300s) as a "typical" run for the relative bar
@@ -99,8 +55,8 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
       <div className="flex-1 px-4 lg:px-5 py-3 lg:py-3.5 min-w-0 space-y-1.5">
         {/* Row 1: Status + project + commit message */}
         <div className="flex items-start gap-3">
-          <span className={`shrink-0 mt-2 ${status.className}`}>
-            {status.icon}
+          <span className={`shrink-0 mt-2 ${status.text}`}>
+            <status.Icon size={14} className={status.spin ? 'animate-spin' : undefined} />
           </span>
 
           <div className="flex-1 min-w-0">

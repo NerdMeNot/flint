@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
 import { StepRail } from '#/components/pipeline/step-rail'
@@ -158,6 +159,9 @@ function RunDetailPage() {
 // ---------------------------------------------------------------------------
 
 function RunHeader({ run }: { run: any }) {
+  const invalidate = [orpc.runs.get.key({ input: { id: run.id } }), orpc.runs.list.key()]
+  const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), { invalidate })
+  const retry = useAction((id: string) => client.runs.retry({ runId: id }), { invalidate })
   return (
     <div className="island-shell p-4 sm:p-5 lg:p-6 mb-4 lg:mb-5">
       <div className="space-y-2 lg:space-y-3">
@@ -203,8 +207,9 @@ function RunHeader({ run }: { run: any }) {
           {(run.status === 'running' || run.status === 'pending') && (
             <button
               type="button"
-              onClick={() => client.runs.cancel({ runId: run.id })}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+              onClick={() => cancel.mutate(run.id)}
+              disabled={cancel.isPending}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors disabled:opacity-50"
             >
               <Ban size={12} />
               Cancel
@@ -213,8 +218,9 @@ function RunHeader({ run }: { run: any }) {
           {(run.status === 'failed' || run.status === 'cancelled') && (
             <button
               type="button"
-              onClick={() => client.runs.retry({ runId: run.id })}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+              onClick={() => retry.mutate(run.id)}
+              disabled={retry.isPending}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
             >
               <RotateCcw size={12} />
               Retry

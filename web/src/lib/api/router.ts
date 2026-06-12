@@ -33,7 +33,9 @@ import {
   backendPatch,
   backendDelete,
   BackendUnavailableError,
+  isBackendUnreachable,
 } from './backend'
+import { apiMode } from './mode'
 import * as mocks from './mocks'
 
 // ---------------------------------------------------------------------------
@@ -42,27 +44,31 @@ import * as mocks from './mocks'
 
 type Paginated<T> = { items: T[]; nextCursor?: string }
 
-// Helper: try backend, fall back to mock data if backend is down.
+// withFallback / safe are mode-aware (see ./mode):
+//   mock — skip the backend entirely and use the mock path.
+//   live — call the backend and let errors (including unreachability) surface.
+//   auto — try the backend, fall back to the mock path only when unreachable.
+//
+// withFallback is for reads; safe is for writes. safe's second arg accepts a
+// plain value OR a thunk — pass a thunk to MUTATE the mock store so writes feel
+// real in mock mode (the next read reflects them).
 async function withFallback<T>(backendCall: () => Promise<T>, mockFallback: () => T): Promise<T> {
+  if (apiMode() === 'mock') return mockFallback()
   try {
     return await backendCall()
   } catch (err) {
-    if (err instanceof BackendUnavailableError) {
-      return mockFallback()
-    }
+    if (apiMode() === 'auto' && err instanceof BackendUnavailableError) return mockFallback()
     throw err
   }
 }
 
-// Safe version: catches BackendUnavailableError and returns a default value.
-// Use for write operations and handlers without specific mock data.
-async function safe<T>(backendCall: () => Promise<T>, defaultValue: T): Promise<T> {
+async function safe<T>(backendCall: () => Promise<T>, fallback: T | (() => T)): Promise<T> {
+  const resolve = () => (typeof fallback === 'function' ? (fallback as () => T)() : fallback)
+  if (apiMode() === 'mock') return resolve()
   try {
     return await backendCall()
   } catch (err) {
-    if (err instanceof BackendUnavailableError) {
-      return defaultValue
-    }
+    if (apiMode() === 'auto' && err instanceof BackendUnavailableError) return resolve()
     throw err
   }
 }
@@ -101,6 +107,18 @@ type Capability = {
   name: string
   enabled: boolean
   status: 'enabled' | 'coming_soon' | 'disabled'
+}
+
+// meta exposes the API mode so the client can warn when it is showing demo
+// (mock) data instead of real backend data.
+const meta = {
+  get: os.handler(async () => {
+    const mode = apiMode()
+    return {
+      mode,
+      usingMockData: mode === 'mock' || (mode === 'auto' && isBackendUnreachable()),
+    }
+  }),
 }
 
 const capabilities = {
@@ -237,22 +255,31 @@ const runs = {
   trigger: os
     .input(z.object({ projectId: z.string(), branch: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/runs', {
-        projectId: input.projectId,
-        branch: input.branch || 'main',
-      }), { id: `r-mock-${Date.now()}`, status: 'pending', message: 'Mock run triggered' } as any)
+      return safe(
+        () => backendPost('/runs', {
+          projectId: input.projectId,
+          branch: input.branch || 'main',
+        }),
+        () => mocks.triggerRun({ projectId: input.projectId, branch: input.branch }),
+      )
     }),
 
   cancel: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost(`/runs/${input.runId}/cancel`), { success: true } as any)
+      return safe(
+        () => backendPost(`/runs/${input.runId}/cancel`),
+        () => ({ success: true, run: mocks.cancelRun(input.runId) }) as any,
+      )
     }),
 
   retry: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost(`/runs/${input.runId}/retry`), { id: `r-mock-${Date.now()}`, status: 'pending' } as any)
+      return safe(
+        () => backendPost(`/runs/${input.runId}/retry`),
+        () => mocks.retryRun(input.runId),
+      )
     }),
 }
 
@@ -342,17 +369,23 @@ const gates = {
   approve: os
     .input(z.object({ runId: z.string(), stepName: z.string(), comment: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/approve`, {
-        stepName: input.stepName, comment: input.comment,
-      }), { success: true } as any)
+      return safe(
+        () => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/approve`, {
+          stepName: input.stepName, comment: input.comment,
+        }),
+        () => ({ success: true, gate: mocks.approveGate(input.runId, input.stepName) }) as any,
+      )
     }),
 
   reject: os
     .input(z.object({ runId: z.string(), stepName: z.string(), reason: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/reject`, {
-        stepName: input.stepName, reason: input.reason,
-      }), { success: true } as any)
+      return safe(
+        () => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/reject`, {
+          stepName: input.stepName, reason: input.reason,
+        }),
+        () => ({ success: true, gate: mocks.rejectGate(input.runId, input.stepName) }) as any,
+      )
     }),
 }
 
@@ -373,13 +406,13 @@ const workspaces = {
   create: os
     .input(z.object({ name: z.string(), slug: z.string(), description: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/workspaces', input), { id: `ws-mock`, name: input.name, slug: input.slug } as any)
+      return safe(() => backendPost('/workspaces', input), () => mocks.createWorkspace(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/workspaces/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/workspaces/${input.id}`), () => mocks.deleteWorkspace(input.id))
     }),
 }
 
@@ -400,13 +433,13 @@ const environments = {
   create: os
     .input(z.object({ name: z.string(), slug: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/environments', input), { id: `env-mock`, ...input } as any)
+      return safe(() => backendPost('/environments', input), () => mocks.createEnvironment(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/environments/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/environments/${input.id}`), () => mocks.deleteEnvironment(input.id))
     }),
 }
 
@@ -447,19 +480,19 @@ const envVariables = {
       value: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/env-variables', input), { id: `var-mock`, ...input } as any)
+      return safe(() => backendPost('/env-variables', input), () => mocks.createEnvVariable(input))
     }),
 
   setValue: os
     .input(z.object({ variableId: z.string(), environmentId: z.optional(z.string()), value: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPut(`/env-variables/${input.variableId}/values`, input), { ...input, updatedAt: new Date().toISOString() } as any)
+      return safe(() => backendPut(`/env-variables/${input.variableId}/values`, input), () => mocks.setEnvVariableValue(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/env-variables/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/env-variables/${input.id}`), () => mocks.deleteEnvVariable(input.id))
     }),
 }
 
@@ -489,13 +522,13 @@ const teams = {
   create: os
     .input(z.object({ name: z.string(), slug: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/teams', input), { id: `t-mock`, ...input, memberCount: 0 } as any)
+      return safe(() => backendPost('/teams', input), () => mocks.createTeam(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/teams/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/teams/${input.id}`), () => mocks.deleteTeam(input.id))
     }),
 }
 
@@ -540,7 +573,7 @@ const roles = {
       }),
     )
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/roles', input), { id: `role-mock`, ...input, isSystem: false } as any)
+      return safe(() => backendPost('/roles', input), () => mocks.createRole(input))
     }),
 
   update: os
@@ -556,13 +589,13 @@ const roles = {
     )
     .handler(async ({ input }) => {
       const { id, ...body } = input
-      return safe(() => backendPatch(`/roles/${id}`, body), { id, ...body } as any)
+      return safe(() => backendPatch(`/roles/${id}`, body), () => mocks.updateRole(id, body))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/roles/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/roles/${input.id}`), () => mocks.deleteRole(input.id))
     }),
 
   assignments: {
@@ -582,13 +615,13 @@ const roles = {
     create: os
       .input(z.object({ subjects: z.array(z.string()), role: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendPost('/roles/assignments', input), { success: true, count: input.subjects.length } as any)
+        return safe(() => backendPost('/roles/assignments', input), () => mocks.createAssignments(input))
       }),
 
     delete: os
       .input(z.object({ subject: z.string(), role: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendDelete(`/roles/assignments/${encodeURIComponent(input.subject)}?role=${input.role}`), { success: true } as any)
+        return safe(() => backendDelete(`/roles/assignments/${encodeURIComponent(input.subject)}?role=${input.role}`), () => mocks.deleteAssignment(input.subject, input.role))
       }),
   },
 }
@@ -616,13 +649,13 @@ const apiKeys = {
       expiresAt: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/api-keys', input), { id: `ak-mock`, ...input, token: 'flint_mock_token', createdBy: 'mock', createdAt: new Date().toISOString() } as any)
+      return safe(() => backendPost('/api-keys', input), () => mocks.createApiKey(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/api-keys/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/api-keys/${input.id}`), () => mocks.deleteApiKey(input.id))
     }),
 }
 
@@ -643,13 +676,13 @@ const personalTokens = {
   create: os
     .input(z.object({ userId: z.string(), name: z.string(), expiresAt: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/personal-tokens', input), { id: `pt-mock`, name: input.name, token: 'flint_pat_mock', createdAt: new Date().toISOString() } as any)
+      return safe(() => backendPost('/personal-tokens', input), () => mocks.createPersonalToken(input))
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/personal-tokens/${input.id}`), { success: true } as any)
+      return safe(() => backendDelete(`/personal-tokens/${input.id}`), () => mocks.deletePersonalToken(input.id))
     }),
 }
 
@@ -744,6 +777,7 @@ const search = {
 // ---------------------------------------------------------------------------
 
 export const appRouter = os.router({
+  meta,
   stats,
   capabilities,
   projects,

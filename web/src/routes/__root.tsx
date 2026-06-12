@@ -13,6 +13,7 @@ import ThemeToggle from '#/components/ThemeToggle'
 import { ThemeSwitcher } from '#/components/ThemeSwitcher'
 import { DensityToggle } from '#/components/DensityToggle'
 import { ScopeChips } from '#/components/ScopeChips'
+import { DemoModeBanner } from '#/components/DemoModeBanner'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
@@ -98,6 +99,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
     <div className={`min-h-screen transition-all duration-200 ease-out ${
       collapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]'
     }`}>
+      <DemoModeBanner />
       <header
         className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
@@ -141,6 +143,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
 function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
   return (
     <div className="min-h-screen">
+      <DemoModeBanner />
       <header
         className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}

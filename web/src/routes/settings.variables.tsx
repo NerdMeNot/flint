@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Lock, Variable, Plus, Trash2, ChevronDown, ChevronRight, AlertTriangle, Globe, Pencil, Eye, EyeOff } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
 
 export const Route = createFileRoute('/settings/variables')({
@@ -18,6 +19,13 @@ function VariablesPage() {
   const values = valuesData.items
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+
+  const varInvalidate = [orpc.envVariables.list.key(), orpc.envVariables.values.key()]
+  const delVar = useAction((id: string) => client.envVariables.delete({ id }), { invalidate: varInvalidate })
+  const setVal = useAction(
+    (a: { variableId: string; environmentId?: string; value: string }) => client.envVariables.setValue(a),
+    { invalidate: varInvalidate },
+  )
 
   const globalVars = variables.filter((v) => v.scope === 'global')
   const envVars = variables.filter((v) => v.scope === 'environment')
@@ -122,7 +130,7 @@ function VariablesPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => client.envVariables.delete({ id: variable.id })}
+                        onClick={() => delVar.mutate(variable.id)}
                         className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
                       >
                         <Trash2 size={12} />
@@ -138,7 +146,7 @@ function VariablesPage() {
                           label={env.name}
                           value={value}
                           isSecret={variable.isSecret}
-                          onSave={(val) => client.envVariables.setValue({ variableId: variable.id, environmentId: env.id, value: val })}
+                          onSave={(val) => setVal.mutate({ variableId: variable.id, environmentId: env.id, value: val })}
                         />
                       ))}
                     </div>
@@ -164,6 +172,13 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
   const [editValue, setEditValue] = useState('')
   const [revealed, setRevealed] = useState(false)
 
+  const varInvalidate = [orpc.envVariables.list.key(), orpc.envVariables.values.key()]
+  const setVal = useAction(
+    (value: string) => client.envVariables.setValue({ variableId: variable.id, value }),
+    { invalidate: varInvalidate },
+  )
+  const delVar = useAction((id: string) => client.envVariables.delete({ id }), { invalidate: varInvalidate })
+
   function startEdit() {
     setEditValue(variable.isSecret ? '' : (variable.value ?? ''))
     setEditing(true)
@@ -171,7 +186,7 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
 
   function save() {
     if (editValue.trim()) {
-      client.envVariables.setValue({ variableId: variable.id, value: editValue })
+      setVal.mutate(editValue)
     }
     setEditing(false)
   }
@@ -216,7 +231,7 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
 
       <button
         type="button"
-        onClick={() => client.envVariables.delete({ id: variable.id })}
+        onClick={() => delVar.mutate(variable.id)}
         className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors shrink-0"
       >
         <Trash2 size={12} />
@@ -329,18 +344,28 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
   const [globalValue, setGlobalValue] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
+  const create = useAction(
+    (data: { name: string; description?: string; scope: 'global' | 'environment'; isSecret: boolean; value?: string }) =>
+      client.envVariables.create(data),
+    {
+      invalidate: [orpc.envVariables.list.key(), orpc.envVariables.values.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1000)
+      },
+    },
+  )
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
-    client.envVariables.create({
+    create.mutate({
       name: name.toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
       description: description || undefined,
       scope,
       isSecret,
       value: scope === 'global' ? globalValue : undefined,
     })
-    setSubmitted(true)
-    setTimeout(onClose, 1000)
   }
 
   return (

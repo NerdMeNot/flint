@@ -2,9 +2,10 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban } from 'lucide-react'
-import { orpc } from '#/lib/orpc'
+import { client, orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 import { useScope } from '#/lib/scope-context'
+import { useAction } from '#/hooks/use-action'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
@@ -30,6 +31,16 @@ function GatesPage() {
   const { data } = useSuspenseQuery(
     orpc.gates.list.queryOptions({ input: { status, limit: GATE_PAGE_SIZE, cursor } }),
   )
+
+  const approve = useAction(
+    (g: { runId: string; stepName: string }) => client.gates.approve({ runId: g.runId, stepName: g.stepName }),
+    { invalidate: [orpc.gates.list.key()] },
+  )
+  const reject = useAction(
+    (g: { runId: string; stepName: string }) => client.gates.reject({ runId: g.runId, stepName: g.stepName }),
+    { invalidate: [orpc.gates.list.key()] },
+  )
+  const deciding = approve.isPending || reject.isPending
 
   const gates = data.items.filter((g: any) => {
     if (!workspaceMatches(g.workspace)) return false
@@ -142,14 +153,18 @@ function GatesPage() {
                   <>
                     <button
                       type="button"
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors border-r border-border"
+                      disabled={deciding}
+                      onClick={() => reject.mutate({ runId: gate.runId, stepName: gate.stepName })}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors border-r border-border disabled:opacity-50"
                     >
                       <XCircle size={13} />
                       Reject
                     </button>
                     <button
                       type="button"
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success/5 transition-colors"
+                      disabled={deciding}
+                      onClick={() => approve.mutate({ runId: gate.runId, stepName: gate.stepName })}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success/5 transition-colors disabled:opacity-50"
                     >
                       <CheckCircle size={13} />
                       Approve
