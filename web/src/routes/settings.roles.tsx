@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
 import { PermissionMatrix, CI_CATALOG } from '#/components/PermissionMatrix'
 import { ScopeBadges } from '#/components/ScopeBadges'
@@ -69,6 +70,9 @@ function RolesTab() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
+  const del = useAction((id: string) => client.roles.delete({ id }), {
+    invalidate: [orpc.roles.list.key()],
+  })
 
   const systemRoles = roles.filter((r) => r.isSystem)
   const customRoles = roles.filter((r) => !r.isSystem)
@@ -124,7 +128,7 @@ function RolesTab() {
                 expanded={expanded === role.id}
                 onToggle={() => setExpanded(expanded === role.id ? null : role.id)}
                 onEdit={() => setEditingRole(role)}
-                onDelete={() => client.roles.delete({ id: role.id })}
+                onDelete={() => del.mutate(role.id)}
               />
             ))}
           </div>
@@ -227,26 +231,28 @@ function RoleFormModal({ role, onClose }: { role?: Role; onClose: () => void }) 
 
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
+  const save = useAction(
+    (data: { name: string; slug: string; description?: string; permissions: Permission[]; workspaces: string[]; environments: string[] }) =>
+      isEdit && role ? client.roles.update({ id: role.id, ...data }) : client.roles.create(data),
+    {
+      invalidate: [orpc.roles.list.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1000)
+      },
+    },
+  )
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || permissions.length === 0) return
-
-    const data = {
+    save.mutate({
       name, slug,
       description: description || undefined,
       permissions,
       workspaces: wsScope === 'specific' ? [...selectedWs] : [],
       environments: envScope === 'specific' ? [...selectedEnv] : [],
-    }
-
-    if (isEdit && role) {
-      client.roles.update({ id: role.id, ...data })
-    } else {
-      client.roles.create(data)
-    }
-
-    setSubmitted(true)
-    setTimeout(onClose, 1000)
+    })
   }
 
   function toggleSet(set: Set<string>, setFn: (s: Set<string>) => void, key: string) {
@@ -389,6 +395,10 @@ function AssignmentsTab() {
   const { data: rolesData } = useSuspenseQuery(orpc.roles.list.queryOptions({ input: {} }))
   const roles = rolesData.items
   const [showAssign, setShowAssign] = useState(false)
+  const removeAssignment = useAction(
+    (a: { subject: string; role: string }) => client.roles.assignments.delete(a),
+    { invalidate: [orpc.roles.assignments.list.key()] },
+  )
 
   const roleMap = new Map(roles.map((r) => [r.slug, r]))
 
@@ -429,7 +439,7 @@ function AssignmentsTab() {
                 </div>
                 <div>{role && <ScopeBadges workspaces={role.workspaces} environments={role.environments} />}</div>
                 <div className="flex justify-end">
-                  <button type="button" onClick={() => client.roles.assignments.delete({ subject: a.subject, role: a.role })}
+                  <button type="button" onClick={() => removeAssignment.mutate({ subject: a.subject, role: a.role })}
                     className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors" title="Remove">
                     <X size={13} />
                   </button>
@@ -480,12 +490,20 @@ function AssignRoleModal({ onClose, preSelectedRole }: { onClose: () => void; pr
 
   const totalSelected = selectedUsers.size + selectedTeams.size
 
+  const assign = useAction(
+    (subjects: string[]) => client.roles.assignments.create({ subjects, role: selectedRole }),
+    {
+      invalidate: [orpc.roles.assignments.list.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1000)
+      },
+    },
+  )
+
   function handleSubmit() {
     if (!selectedRole || totalSelected === 0) return
-    const subjects = [...selectedUsers, ...selectedTeams]
-    client.roles.assignments.create({ subjects, role: selectedRole })
-    setSubmitted(true)
-    setTimeout(onClose, 1000)
+    assign.mutate([...selectedUsers, ...selectedTeams])
   }
 
   return (

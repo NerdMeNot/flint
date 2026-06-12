@@ -4,13 +4,17 @@
 // When the backend is unreachable, throws BackendUnavailableError.
 // The router catches this and falls back to mock data.
 
+import { apiMode } from './mode'
+
 const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
 
-// In development without an explicit backend URL, start in mock mode.
-const DEV_MODE = !process.env.FLINT_BACKEND_URL &&
-  typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
-
-let backendDown = DEV_MODE
+// Whether the most recent backend attempt found it unreachable. Only meaningful
+// in 'auto' mode (in 'mock' we never try; in 'live' we never fall back). Exposed
+// via the meta endpoint so the UI can show a "showing demo data" banner.
+let backendUnreachable = false
+export function isBackendUnreachable(): boolean {
+  return backendUnreachable
+}
 
 export class BackendUnavailableError extends Error {
   constructor() {
@@ -20,7 +24,8 @@ export class BackendUnavailableError extends Error {
 }
 
 async function doFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  if (backendDown) {
+  // Mock mode never touches the network — the router serves the mock store.
+  if (apiMode() === 'mock') {
     throw new BackendUnavailableError()
   }
 
@@ -28,13 +33,11 @@ async function doFetch<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, init)
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      // Treat auth errors as "backend unavailable" in dev — the server-side
-      // oRPC handlers don't have access to the user's JWT yet.
-      if (res.status === 401 || res.status === 403) {
-        throw new BackendUnavailableError()
-      }
+      // 401/403 are auth problems, not unreachability — surface them (they must
+      // not masquerade as "backend down" and silently flip to demo data).
       throw new Error(`Backend ${res.status}: ${body}`)
     }
+    backendUnreachable = false
     return res.json()
   } catch (err: any) {
     if (err instanceof BackendUnavailableError) throw err
@@ -44,8 +47,9 @@ async function doFetch<T>(url: string, init?: RequestInit): Promise<T> {
       err.message?.includes('ECONNREFUSED') ||
       err.message?.includes('ENOTFOUND')
     ) {
-      backendDown = true
-      console.warn('[flint] Backend unreachable — using mock data.')
+      // Genuine network unreachability. In 'auto' the router falls back to mock
+      // data; in 'live' the router rethrows so the UI shows a real error.
+      backendUnreachable = true
       throw new BackendUnavailableError()
     }
     throw err

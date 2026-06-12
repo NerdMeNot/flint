@@ -18,6 +18,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import type { PipelineDefinition } from '#/lib/api/types'
 import { Modal } from '#/components/Modal'
 import { DagView } from '#/components/pipeline/dag-view'
@@ -270,16 +271,21 @@ function TriggerOverlay({
   })
   const [submitted, setSubmitted] = useState(false)
 
+  const trigger = useAction(
+    () => client.runs.trigger({ projectId, branch: inputs.ref || inputs.branch || 'main' }),
+    {
+      invalidate: [orpc.runs.list.key()],
+      onSuccess: () => {
+        setSubmitted(true)
+        setTimeout(onClose, 1500)
+      },
+    },
+  )
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!pipeline) return
-    client.runs.trigger({
-      projectId,
-      branch: inputs.ref || inputs.branch || 'main',
-    })
-    console.log(`[mock] Triggering ${pipeline.filename} with inputs:`, inputs)
-    setSubmitted(true)
-    setTimeout(onClose, 1500)
+    trigger.mutate(undefined)
   }
 
   const { data: envData } = useSuspenseQuery(orpc.environments.list.queryOptions({ input: {} }))
@@ -368,7 +374,8 @@ function TriggerOverlay({
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors"
+                  disabled={trigger.isPending}
+                  className="flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-50"
                   style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
                 >
                   <Play size={12} />

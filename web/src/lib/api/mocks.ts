@@ -167,7 +167,7 @@ const projectEnvironment: Record<string, string> = {
   'p-6': 'dev',
 }
 
-export function getRuns(): PipelineRun[] {
+function seedRuns(): PipelineRun[] {
   return [
     {
       // Designed test-bed for the gate panel: a production deploy that
@@ -509,6 +509,73 @@ export function getRuns(): PipelineRun[] {
       workflowFile: 'ci.yaml',
     },
   ].map((r) => ({ ...r, environment: projectEnvironment[r.projectId] }) as PipelineRun)
+}
+
+// Mutable, lazily-seeded run store. In mock mode the router's writes mutate this
+// so the UI reflects triggers/cancels/retries without a backend.
+let _runs: PipelineRun[] | undefined
+export function getRuns(): PipelineRun[] {
+  return (_runs ??= seedRuns())
+}
+
+let _mockRunSeq = 0
+function nextRunId(): string {
+  _mockRunSeq += 1
+  return `r-mock-${_mockRunSeq}`
+}
+
+// triggerRun creates a new 'pending' run for a project and prepends it.
+export function triggerRun(input: {
+  projectId: string
+  branch?: string
+  workflowFile?: string
+  environment?: string
+}): PipelineRun {
+  const runs = getRuns()
+  const template = runs.find((r) => r.projectId === input.projectId)
+  const run: PipelineRun = {
+    id: nextRunId(),
+    projectId: input.projectId,
+    projectName: template?.projectName ?? input.projectId,
+    projectColour: template?.projectColour ?? '#6366f1',
+    repo: template?.repo ?? 'acme/repo',
+    status: 'pending',
+    branch: input.branch ?? 'main',
+    commitSha: Math.random().toString(16).slice(2, 9),
+    commitMessage: 'manual trigger',
+    triggeredBy: 'you',
+    triggerType: 'manual',
+    duration: '—',
+    startedAt: 'just now',
+    workflowFile: input.workflowFile ?? template?.workflowFile ?? 'ci.yaml',
+    environment: input.environment ?? projectEnvironment[input.projectId],
+  }
+  runs.unshift(run)
+  return run
+}
+
+// cancelRun marks a run cancelled. Returns the updated run (or undefined).
+export function cancelRun(runId: string): PipelineRun | undefined {
+  const run = getRuns().find((r) => r.id === runId)
+  if (run) run.status = 'cancelled'
+  return run
+}
+
+// retryRun creates a fresh 'pending' run cloned from an existing one.
+export function retryRun(runId: string): PipelineRun {
+  const src = getRuns().find((r) => r.id === runId)
+  const run: PipelineRun = {
+    ...(src ?? (getRuns()[0] as PipelineRun)),
+    id: nextRunId(),
+    status: 'pending',
+    duration: '—',
+    startedAt: 'just now',
+    finishedAt: undefined,
+    triggeredBy: 'you',
+    triggerType: 'manual',
+  }
+  getRuns().unshift(run)
+  return run
 }
 
 // ---------------------------------------------------------------------------
@@ -1377,7 +1444,7 @@ export function getDashboardSummary(): DashboardSummary {
 // Pending gates
 // ---------------------------------------------------------------------------
 
-export function getGates(): Gate[] {
+function seedGates(): Gate[] {
   return [
     // Pending
     {
@@ -1499,11 +1566,36 @@ export function getGates(): Gate[] {
   ]
 }
 
+// Mutable, lazily-seeded gate store. Approve/reject mutate this so the gates
+// list and run view reflect decisions in mock mode.
+let _gates: Gate[] | undefined
+export function getGates(): Gate[] {
+  return (_gates ??= seedGates())
+}
+
+function decideGate(runId: string, stepName: string, status: 'approved' | 'rejected'): Gate | undefined {
+  const gate = getGates().find((g) => g.runId === runId && g.stepName === stepName)
+  if (gate) {
+    gate.status = status
+    gate.reviewedBy = 'you'
+    gate.reviewedAt = 'just now'
+  }
+  return gate
+}
+
+export function approveGate(runId: string, stepName: string): Gate | undefined {
+  return decideGate(runId, stepName, 'approved')
+}
+
+export function rejectGate(runId: string, stepName: string): Gate | undefined {
+  return decideGate(runId, stepName, 'rejected')
+}
+
 // ---------------------------------------------------------------------------
 // Workspaces
 // ---------------------------------------------------------------------------
 
-export function getWorkspaces(): Workspace[] {
+function seedWorkspaces(): Workspace[] {
   return [
     {
       id: 'ws-1',
@@ -1544,7 +1636,7 @@ export function getWorkspaces(): Workspace[] {
 // Teams
 // ---------------------------------------------------------------------------
 
-export function getTeams(): Team[] {
+function seedTeams(): Team[] {
   return [
     { id: 't-1', name: 'Backend Devs', slug: 'backend-devs', source: 'idp', idpGroup: 'engineering-backend', memberCount: 5 },
     { id: 't-2', name: 'Frontend Devs', slug: 'frontend-devs', source: 'idp', idpGroup: 'engineering-frontend', memberCount: 3 },
@@ -1574,7 +1666,7 @@ export function getTeamWithMembers(teamId: string): TeamWithMembers | undefined 
 // Roles
 // ---------------------------------------------------------------------------
 
-export function getRoles(): Role[] {
+function seedRoles(): Role[] {
   return [
     // ── System roles (unscoped, immutable) ──
     {
@@ -1718,7 +1810,7 @@ export function getRoles(): Role[] {
 // Role assignments
 // ---------------------------------------------------------------------------
 
-export function getAssignments(): Assignment[] {
+function seedAssignments(): Assignment[] {
   return [
     { subject: 'alice@acme.dev', role: 'admin' },
     { subject: 'bob@acme.dev', role: 'developer' },
@@ -1736,7 +1828,7 @@ export function getAssignments(): Assignment[] {
 // Environments (simplified — just name + slug)
 // ---------------------------------------------------------------------------
 
-export function getEnvironments(): Environment[] {
+function seedEnvironments(): Environment[] {
   return [
     { id: 'env-1', name: 'production', slug: 'production', createdAt: '2023-06-01T00:00:00Z' },
     { id: 'env-2', name: 'staging', slug: 'staging', createdAt: '2023-06-01T00:00:00Z' },
@@ -1748,7 +1840,7 @@ export function getEnvironments(): Environment[] {
 // Environment variables + per-env values
 // ---------------------------------------------------------------------------
 
-export function getEnvVariables(): EnvVariable[] {
+function seedEnvVariables(): EnvVariable[] {
   return [
     // Environment-scoped variables
     { id: 'var-1', name: 'CLUSTER_URL', description: 'Base URL for the deployment cluster', scope: 'environment', isSecret: false, createdAt: '2023-06-01T00:00:00Z' },
@@ -1765,7 +1857,7 @@ export function getEnvVariables(): EnvVariable[] {
   ]
 }
 
-export function getEnvVariableValues(): EnvVariableValue[] {
+function seedEnvVariableValues(): EnvVariableValue[] {
   return [
     // CLUSTER_URL
     { variableId: 'var-1', environmentId: 'env-1', value: 'https://api.acme.com', updatedAt: '2024-01-01T00:00:00Z' },
@@ -1798,7 +1890,7 @@ export function getEnvVariableValues(): EnvVariableValue[] {
 // API keys
 // ---------------------------------------------------------------------------
 
-export function getApiKeys(): ApiKey[] {
+function seedApiKeys(): ApiKey[] {
   return [
     {
       id: 'ak-1',
@@ -2103,4 +2195,187 @@ export function getWorkflowRun(id: string): WorkflowRunDetail | undefined {
   if (!run) return undefined
   const steps = workflowSteps[run.name] ?? defaultWorkflowSteps()
   return { ...run, steps }
+}
+
+// ---------------------------------------------------------------------------
+// Stateful mock store
+//
+// The getters above (seedX) build the initial data; these lazily snapshot it
+// into mutable collections so that, in mock mode (FLINT_API_MODE=mock), the
+// router's write handlers mutate real state and subsequent reads reflect it.
+// Pure UI development against mocks then behaves like a real backend.
+// ---------------------------------------------------------------------------
+
+function nowIso(): string {
+  // Avoid Date.now()/new Date() jitter concerns — a fixed-ish stamp is fine for
+  // mock data; uniqueness for ids comes from the per-entity sequences below.
+  return new Date().toISOString()
+}
+
+let _seq = 0
+const nextId = (prefix: string) => `${prefix}-${(_seq += 1)}`
+
+// Workspaces
+let _workspaces: Workspace[] | undefined
+export function getWorkspaces(): Workspace[] {
+  return (_workspaces ??= seedWorkspaces())
+}
+export function createWorkspace(input: { name: string; slug: string; description?: string }): Workspace {
+  const ws: Workspace = { id: nextId('ws'), name: input.name, slug: input.slug, description: input.description, projectCount: 0, createdAt: nowIso() }
+  getWorkspaces().unshift(ws)
+  return ws
+}
+export function deleteWorkspace(id: string): { success: true } {
+  const list = getWorkspaces()
+  const i = list.findIndex((w) => w.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Environments
+let _environments: Environment[] | undefined
+export function getEnvironments(): Environment[] {
+  return (_environments ??= seedEnvironments())
+}
+export function createEnvironment(input: { name: string; slug: string }): Environment {
+  const env: Environment = { id: nextId('env'), name: input.name, slug: input.slug, createdAt: nowIso() }
+  getEnvironments().unshift(env)
+  return env
+}
+export function deleteEnvironment(id: string): { success: true } {
+  const list = getEnvironments()
+  const i = list.findIndex((e) => e.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Env variables + values
+let _envVariables: EnvVariable[] | undefined
+export function getEnvVariables(): EnvVariable[] {
+  return (_envVariables ??= seedEnvVariables())
+}
+let _envVariableValues: EnvVariableValue[] | undefined
+export function getEnvVariableValues(): EnvVariableValue[] {
+  return (_envVariableValues ??= seedEnvVariableValues())
+}
+export function createEnvVariable(input: { name: string; description?: string; scope: EnvVariable['scope']; isSecret: boolean; value?: string }): EnvVariable {
+  const v: EnvVariable = { id: nextId('var'), name: input.name, description: input.description, scope: input.scope, isSecret: input.isSecret, value: input.value, createdAt: nowIso() }
+  getEnvVariables().unshift(v)
+  return v
+}
+export function setEnvVariableValue(input: { variableId: string; environmentId?: string; value: string }): EnvVariableValue | EnvVariable {
+  if (!input.environmentId) {
+    // Global value lives on the variable itself.
+    const v = getEnvVariables().find((x) => x.id === input.variableId)
+    if (v) v.value = input.value
+    return v ?? ({} as EnvVariable)
+  }
+  const values = getEnvVariableValues()
+  let row = values.find((x) => x.variableId === input.variableId && x.environmentId === input.environmentId)
+  if (row) {
+    row.value = input.value
+    row.updatedAt = nowIso()
+  } else {
+    row = { variableId: input.variableId, environmentId: input.environmentId, value: input.value, updatedAt: nowIso() }
+    values.push(row)
+  }
+  return row
+}
+export function deleteEnvVariable(id: string): { success: true } {
+  const list = getEnvVariables()
+  const i = list.findIndex((v) => v.id === id)
+  if (i >= 0) list.splice(i, 1)
+  const values = getEnvVariableValues()
+  for (let j = values.length - 1; j >= 0; j--) if (values[j].variableId === id) values.splice(j, 1)
+  return { success: true }
+}
+
+// Teams
+let _teams: Team[] | undefined
+export function getTeams(): Team[] {
+  return (_teams ??= seedTeams())
+}
+export function createTeam(input: { name: string; slug: string }): Team {
+  const t: Team = { id: nextId('t'), name: input.name, slug: input.slug, source: 'internal', memberCount: 0 }
+  getTeams().unshift(t)
+  return t
+}
+export function deleteTeam(id: string): { success: true } {
+  const list = getTeams()
+  const i = list.findIndex((t) => t.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Roles
+let _roles: Role[] | undefined
+export function getRoles(): Role[] {
+  return (_roles ??= seedRoles())
+}
+export function createRole(input: { name: string; slug: string; description?: string; permissions?: Role['permissions']; workspaces?: string[]; environments?: string[] }): Role {
+  const r: Role = { id: nextId('role'), name: input.name, slug: input.slug, description: input.description, isSystem: false, permissions: input.permissions ?? [], workspaces: input.workspaces ?? [], environments: input.environments ?? [] }
+  getRoles().push(r)
+  return r
+}
+export function updateRole(id: string, patch: Partial<Role>): Role | undefined {
+  const r = getRoles().find((x) => x.id === id)
+  if (r) Object.assign(r, patch)
+  return r
+}
+export function deleteRole(id: string): { success: true } {
+  const list = getRoles()
+  const i = list.findIndex((r) => r.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Role assignments
+let _assignments: Assignment[] | undefined
+export function getAssignments(): Assignment[] {
+  return (_assignments ??= seedAssignments())
+}
+export function createAssignments(input: { subjects: string[]; role: string }): { success: true; count: number } {
+  const list = getAssignments()
+  for (const subject of input.subjects) {
+    if (!list.some((a) => a.subject === subject && a.role === input.role)) list.push({ subject, role: input.role })
+  }
+  return { success: true, count: input.subjects.length }
+}
+export function deleteAssignment(subject: string, role: string): { success: true } {
+  const list = getAssignments()
+  const i = list.findIndex((a) => a.subject === subject && a.role === role)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// API keys
+let _apiKeys: ApiKey[] | undefined
+export function getApiKeys(): ApiKey[] {
+  return (_apiKeys ??= seedApiKeys())
+}
+export function createApiKey(input: { name: string; role: string; workspaces?: string[]; environments?: string[]; expiresAt?: string }): ApiKey & { token: string } {
+  const key: ApiKey = { id: nextId('ak'), name: input.name, role: input.role, workspaces: input.workspaces ?? [], environments: input.environments ?? [], expiresAt: input.expiresAt, createdBy: 'you', createdAt: nowIso() }
+  getApiKeys().unshift(key)
+  return { ...key, token: `flint_mock_${key.id}` }
+}
+export function deleteApiKey(id: string): { success: true } {
+  const list = getApiKeys()
+  const i = list.findIndex((k) => k.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Personal tokens (per-user store; the backing record is already mutable)
+export function createPersonalToken(input: { userId: string; name: string; expiresAt?: string }): PersonalToken & { token: string } {
+  const pt: PersonalToken = { id: nextId('pt'), name: input.name, expiresAt: input.expiresAt, createdAt: nowIso() }
+  ;(personalTokens[input.userId] ??= []).unshift(pt)
+  return { ...pt, token: `flint_pat_mock_${pt.id}` }
+}
+export function deletePersonalToken(id: string): { success: true } {
+  for (const userId of Object.keys(personalTokens)) {
+    const list = personalTokens[userId]
+    const i = list.findIndex((t) => t.id === id)
+    if (i >= 0) { list.splice(i, 1); break }
+  }
+  return { success: true }
 }

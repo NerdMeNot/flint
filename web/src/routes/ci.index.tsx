@@ -17,17 +17,21 @@ export const Route = createFileRoute('/ci/')({
 })
 
 function DashboardPage() {
-  const { workspaces, environmentMatches } = useScope()
+  const { workspaceMatches, environmentMatches } = useScope()
   const { data: stats } = useSuspenseQuery(orpc.stats.get.queryOptions())
   const { data: runsData } = useSuspenseQuery(
     orpc.runs.list.queryOptions({ input: { limit: 20 } }),
   )
+  const { data: projectsData } = useSuspenseQuery(
+    orpc.projects.list.queryOptions({ input: { limit: 100 } }),
+  )
 
-  // Client-side scope filtering (real API would accept these as params)
-  const wsMap: Record<string, string> = { 'p-1': 'production', 'p-2': 'production', 'p-3': 'staging', 'p-4': 'platform', 'p-5': 'production', 'p-6': 'platform' }
-  const wsSet = workspaces.length > 0 ? new Set(workspaces) : null
+  // Resolve each run's workspace from its project (runs carry no workspace of
+  // their own), then apply the active workspace/environment scope. Server-side
+  // filtering would make this unnecessary, but the join is real data, not a map.
+  const projectWorkspace = new Map(projectsData.items.map((p) => [p.id, p.workspace]))
   const runs = runsData.items.filter((r) => {
-    if (wsSet && !wsSet.has(wsMap[r.projectId] ?? '')) return false
+    if (!workspaceMatches(projectWorkspace.get(r.projectId))) return false
     if (!environmentMatches(r.environment)) return false
     return true
   }).slice(0, 10)

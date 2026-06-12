@@ -5,6 +5,7 @@ import { Ban, FolderGit2, RotateCcw, CheckCircle } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { RunRow } from '#/components/RunRow'
 import { useScope } from '#/lib/scope-context'
+import { useAction } from '#/hooks/use-action'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
@@ -138,13 +139,21 @@ function RunsListPage() {
 }
 
 function RunAction({ status, runId }: { status: string; runId: string }) {
+  const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), {
+    invalidate: [orpc.runs.list.key()],
+  })
+  const retry = useAction((id: string) => client.runs.retry({ runId: id }), {
+    invalidate: [orpc.runs.list.key()],
+  })
+
   if (status === 'running' || status === 'pending') {
     return (
       <button
         type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); client.runs.cancel({ runId }) }}
+        disabled={cancel.isPending}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancel.mutate(runId) }}
         title="Cancel run"
-        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors disabled:opacity-50"
       >
         <Ban size={13} />
       </button>
@@ -154,9 +163,10 @@ function RunAction({ status, runId }: { status: string; runId: string }) {
     return (
       <button
         type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); client.runs.retry({ runId }) }}
+        disabled={retry.isPending}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); retry.mutate(runId) }}
         title="Retry run"
-        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
       >
         <RotateCcw size={13} />
       </button>
