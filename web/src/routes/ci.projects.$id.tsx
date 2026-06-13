@@ -3,7 +3,6 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import {
   GitBranch,
-  GitCommit,
   CheckCircle,
   XCircle,
   Loader2,
@@ -11,12 +10,15 @@ import {
   Ban,
   Network,
   FileCode,
-  List,
   ExternalLink,
   AlertTriangle,
   Play,
   ChevronDown,
   Plus,
+  Timer,
+  Layers,
+  Shield,
+  ArrowRight,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -26,12 +28,21 @@ import { DagView } from '#/components/pipeline/dag-view'
 import { TagChip } from '#/components/TagChip'
 import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import { BackLink } from '#/components/BackLink'
+import { ProjectHealthBar } from '#/components/ProjectHealth'
+import { parseDurationToSeconds, median } from '#/lib/run-feed'
 
 export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
 })
 
-type Tab = 'runs' | 'dag' | 'yaml'
+type Tab = 'dag' | 'yaml'
+
+function fmtDuration(secs: number): string {
+  if (!secs) return '—'
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return m ? `${m}m ${s}s` : `${s}s`
+}
 
 function ProjectDetailPage() {
   const { id } = Route.useParams()
@@ -60,10 +71,17 @@ function ProjectDetailPage() {
     ? allRuns.filter((r) => r.workflowFile === activePipeline.filename)
     : allRuns
 
+  // Typical (median) duration across this project's finished runs.
+  const medianSecs = median(
+    allRuns
+      .filter((r) => r.status === 'succeeded' || r.status === 'failed')
+      .map((r) => parseDurationToSeconds(r.duration))
+      .filter((s) => s > 0),
+  )
+
   const tabs = [
     { key: 'dag' as const, icon: Network, label: 'Pipeline' },
     { key: 'yaml' as const, icon: FileCode, label: 'YAML' },
-    { key: 'runs' as const, icon: List, label: 'Runs', count: filteredRuns.length },
   ]
 
   return (
@@ -71,7 +89,7 @@ function ProjectDetailPage() {
       <BackLink fallbackTo="/ci/projects" label="Back to projects" />
 
       {/* Project header */}
-      <div className="island-shell p-4 sm:p-5 lg:p-6">
+      <div className="island-shell p-4 sm:p-5 lg:p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1.5 lg:space-y-2 min-w-0">
             <div className="flex items-center gap-2.5">
@@ -109,77 +127,91 @@ function ProjectDetailPage() {
         </div>
 
         <ProjectTags projectId={id} tags={project.tags} />
+
+        {/* Health / activity stat strip */}
+        <div className="flex flex-wrap items-start gap-x-8 gap-y-3 pt-4 border-t border-border">
+          <StatCell label="Health">
+            <ProjectHealthBar health={project.health} />
+          </StatCell>
+          <StatCell label="Last run">
+            {project.lastRun ? (
+              <span className="flex items-center gap-1.5">
+                <RunStatusIcon status={project.lastRun.status} size={13} />
+                <span className="text-muted-foreground">{project.lastRun.startedAt}</span>
+              </span>
+            ) : <span className="text-muted-foreground">—</span>}
+          </StatCell>
+          <StatCell label="Typical duration">
+            <span className="flex items-center gap-1.5 text-foreground">
+              <Timer size={13} className="text-muted-foreground" />
+              {fmtDuration(medianSecs)}
+            </span>
+          </StatCell>
+          <StatCell label="Total runs">
+            <span className="tabular-nums text-foreground">{allRuns.length}</span>
+          </StatCell>
+        </div>
       </div>
 
-      {/* Pipeline selector — always visible */}
-      <div className="flex flex-wrap gap-2">
-        {pipelines.map((p, i) => (
-          <button
-            key={p.filename}
-            type="button"
-            onClick={() => setPipelineIdx(i)}
-            className={`feature-card flex items-center gap-3 px-4 py-3 transition-all ${
-              i === pipelineIdx ? 'ring-2 ring-primary/40' : ''
-            } ${p.status === 'invalid' ? 'border-destructive/30' : ''}`}
-          >
-            <FileCode size={15} className={
-              p.status === 'invalid'
-                ? 'text-destructive'
-                : i === pipelineIdx ? 'text-primary' : 'text-muted-foreground'
-            } />
-            <div className="text-left">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-sm font-mono font-medium ${
-                  i === pipelineIdx ? 'text-foreground' : 'text-muted-foreground'
-                }`}>
-                  {p.filename}
-                </span>
-                {p.status === 'invalid' && (
-                  <span className="flex items-center gap-0.5 text-[11px] font-semibold text-destructive">
-                    <AlertTriangle size={10} />
-                    invalid
-                  </span>
-                )}
-              </div>
-              <span className="text-[12px] text-muted-foreground">
-                {p.steps.length} steps
-              </span>
-            </div>
-          </button>
-        ))}
-      </div>
+      {/* Compact pipeline switcher */}
+      {pipelines.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mr-1">Pipelines</span>
+          {pipelines.map((p, i) => (
+            <button
+              key={p.filename}
+              type="button"
+              onClick={() => setPipelineIdx(i)}
+              className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                i === pipelineIdx
+                  ? 'border-primary/40 bg-primary/5 text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground'
+              } ${p.status === 'invalid' ? '!border-destructive/40' : ''}`}
+            >
+              <FileCode size={13} className={p.status === 'invalid' ? 'text-destructive' : i === pipelineIdx ? 'text-primary' : 'opacity-60'} />
+              <span className="font-mono">{p.filename}</span>
+              <span className="opacity-50">{p.steps.length}</span>
+              {p.status === 'invalid' && <AlertTriangle size={11} className="text-destructive" />}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error banner for invalid pipelines */}
       {activePipeline?.status === 'invalid' && activePipeline.errors && (
         <PipelineErrorBanner errors={activePipeline.errors} filename={activePipeline.filename} />
       )}
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-border pb-px -mb-px">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-1.5 shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-              tab === t.key
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-            }`}
-          >
-            <t.icon size={13} />
-            {t.label}
-            {'count' in t && t.count !== undefined && (
-              <span className="ml-0.5 text-[11px] opacity-60">{t.count}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Two-column body: pipeline view + side rail */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="space-y-3 min-w-0">
+          <div className="flex items-center gap-1 border-b border-border pb-px -mb-px">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`flex items-center gap-1.5 shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                  tab === t.key
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                }`}
+              >
+                <t.icon size={13} />
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-      {/* Tab content */}
-      {tab === 'dag' && activePipeline && <PipelineTab steps={dagSteps} filename={activePipeline.filename} />}
-      {tab === 'yaml' && activePipeline && <YamlTab yaml={activePipeline.yaml} />}
-      {tab === 'runs' && <RunsTab runs={filteredRuns} />}
+          {tab === 'dag' && activePipeline && <PipelineTab steps={dagSteps} />}
+          {tab === 'yaml' && activePipeline && <YamlTab yaml={activePipeline.yaml} />}
+        </div>
+
+        <div className="space-y-5">
+          <RecentRunsRail runs={filteredRuns} projectId={id} />
+          {activePipeline && <PipelineMeta pipeline={activePipeline} />}
+        </div>
+      </div>
 
       {showTrigger && (
         <TriggerOverlay
@@ -193,54 +225,87 @@ function ProjectDetailPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Runs tab
+// Header stat cell
 // ---------------------------------------------------------------------------
 
-function RunsTab({ runs }: { runs: Array<{ id: string; projectName: string; projectColour: string; status: string; branch: string; commitSha: string; commitMessage: string; triggeredBy: string; triggerType: string; duration: string; startedAt: string; workflowFile: string }> }) {
-  if (runs.length === 0) {
-    return (
-      <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
-        <List size={32} strokeWidth={1.2} />
-        <span className="text-sm">No runs for this project yet.</span>
-      </div>
-    )
-  }
+function StatCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{label}</span>
+      <div className="text-sm">{children}</div>
+    </div>
+  )
+}
 
+// ---------------------------------------------------------------------------
+// Side rail: recent runs + pipeline details
+// ---------------------------------------------------------------------------
+
+function RecentRunsRail({ runs, projectId }: {
+  runs: Array<{ id: string; status: string; branch: string; commitMessage: string; startedAt: string }>
+  projectId: string
+}) {
+  const recent = runs.slice(0, 6)
   return (
     <div className="island-shell !p-0 overflow-hidden">
-      <div className="divide-y divide-border">
-        {runs.map((run) => (
-          <Link
-            key={run.id}
-            to="/ci/runs/$id"
-            params={{ id: run.id }}
-            className="flex items-center gap-4 px-5 py-3 hover:bg-accent transition-colors group"
-          >
-            <RunStatusIcon status={run.status} size={16} />
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <StatusBadge status={run.status} />
-                <span className="text-xs text-muted-foreground font-mono opacity-60">
-                  {run.workflowFile}
-                </span>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+        <span className="text-xs font-semibold text-foreground">Recent runs</span>
+        <Link
+          to="/ci/runs"
+          search={{ project: projectId }}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
+        >
+          View all <ArrowRight size={11} />
+        </Link>
+      </div>
+      {recent.length === 0 ? (
+        <p className="px-4 py-6 text-center text-xs text-muted-foreground">No runs yet.</p>
+      ) : (
+        <div className="divide-y divide-border">
+          {recent.map((run) => (
+            <Link
+              key={run.id}
+              to="/ci/runs/$id"
+              params={{ id: run.id }}
+              className="flex items-start gap-2.5 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
+            >
+              <span className="mt-0.5"><RunStatusIcon status={run.status} size={13} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-foreground/85 truncate group-hover:text-primary transition-colors">{run.commitMessage}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
+                  <GitBranch size={10} />
+                  <span className="font-mono truncate">{run.branch}</span>
+                  <span className="opacity-40">·</span>
+                  <span className="opacity-60 shrink-0">{run.startedAt}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <GitCommit size={12} className="text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground truncate">{run.commitMessage}</span>
-              </div>
-            </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
-            <div className="hidden sm:flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <GitBranch size={12} />
-                <span className="font-mono">{run.branch}</span>
-              </span>
-              <span className="hidden md:inline font-mono opacity-60">{run.commitSha}</span>
-              <span>{run.duration}</span>
-              <span className="hidden lg:inline opacity-50">{run.startedAt}</span>
-            </div>
-          </Link>
+function PipelineMeta({ pipeline }: { pipeline: PipelineDefinition }) {
+  const waves = pipeline.steps.length > 0 ? Math.max(...pipeline.steps.map((s) => s.wave)) + 1 : 0
+  const gates = pipeline.steps.filter((s) => s.execType === 'gate').length
+  const rows: { icon: typeof FileCode; label: string; value: string }[] = [
+    { icon: FileCode, label: 'File', value: pipeline.filename },
+    { icon: Network, label: 'Steps', value: String(pipeline.steps.length) },
+    { icon: Layers, label: 'Waves', value: String(waves) },
+    { icon: Shield, label: 'Gates', value: String(gates) },
+  ]
+  return (
+    <div className="island-shell p-4 space-y-3">
+      <span className="text-xs font-semibold text-foreground">Pipeline details</span>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center gap-2 text-xs">
+            <r.icon size={13} className="text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">{r.label}</span>
+            <span className="ml-auto font-mono text-foreground truncate max-w-[170px]">{r.value}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -490,19 +555,15 @@ function PipelineErrorBanner({ errors, filename }: { errors: string[]; filename:
 // Pipeline tab (DAG view)
 // ---------------------------------------------------------------------------
 
-function PipelineTab({ steps, filename }: { steps: Array<{ name: string; status: string; execType: string; wave: number; dependsOn?: string[] }>; filename: string }) {
+function PipelineTab({ steps }: { steps: Array<{ name: string; status: string; execType: string; wave: number; dependsOn?: string[] }> }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        <span className="font-mono">{filename}</span> — {steps.length} steps across {Math.max(...steps.map((s) => s.wave)) + 1} waves
-      </p>
-
-      {/* DAG — full width */}
-      <div className="island-shell !p-0 overflow-hidden h-[350px]">
-        <DagView steps={steps as any} />
+      {/* Vertical DAG — reads top → bottom like the pipeline runs. */}
+      <div className="island-shell !p-0 overflow-hidden h-[440px] lg:h-[600px]">
+        <DagView steps={steps as any} direction="DOWN" />
       </div>
 
-      {/* Step list — compact horizontal */}
+      {/* Step list — compact, complements the graph. */}
       <div className="flex flex-wrap gap-1.5">
         {steps.map((step) => (
           <div
@@ -592,22 +653,6 @@ function YamlTab({ yaml }: { yaml: string }) {
 // ---------------------------------------------------------------------------
 // Shared components
 // ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    succeeded: 'bg-success/10 text-success border-success/20',
-    failed: 'bg-destructive/10 text-destructive border-destructive/20',
-    running: 'bg-primary/10 text-primary border-primary/20',
-    pending: 'bg-secondary text-muted-foreground border-border',
-    cancelled: 'bg-secondary text-muted-foreground border-border',
-  }
-
-  return (
-    <span className={`inline-flex rounded-full border px-1.5 py-px text-[11px] font-semibold ${styles[status] ?? styles.pending}`}>
-      {status}
-    </span>
-  )
-}
 
 function RunStatusIcon({ status, size = 16 }: { status: string; size?: number }) {
   switch (status) {
