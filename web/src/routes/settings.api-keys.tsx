@@ -1,13 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useSuspenseQuery, useQueryClient } from '@tanstack/react-query'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Key, Calendar, Clock, AlertTriangle, Plus, Trash2, Copy, Check } from 'lucide-react'
+import { Key, Calendar, Clock, AlertTriangle, Plus, Copy, Check } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { formatTime } from '#/lib/format-time'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { FormSelect } from '#/components/FormSelect'
 import { Modal } from '#/components/Modal'
+import { Badge } from '#/components/Badge'
+import { ConfirmButton } from '#/components/ConfirmButton'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 
 export const Route = createFileRoute('/settings/api-keys')({
@@ -75,18 +77,12 @@ function ApiKeysPage() {
 
                     <div className="flex items-center gap-2 shrink-0">
                       {isExpired && (
-                        <span className="island-kicker !text-[11px] bg-warning/10 text-warning border-warning/20 flex items-center gap-1">
+                        <Badge variant="danger">
                           <AlertTriangle size={10} />
                           Expired
-                        </span>
+                        </Badge>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => del.mutate(apiKey.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <ConfirmButton onConfirm={() => del.mutate(apiKey.id)} title="Delete API key" />
                     </div>
                   </div>
 
@@ -178,7 +174,20 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
   const [expiry, setExpiry] = useState('90d')
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const { copied, copy } = useCopyToClipboard()
-  const queryClient = useQueryClient()
+
+  const create = useAction(
+    (input: {
+      name: string
+      role: string
+      workspaces: string[]
+      environments: string[]
+      expiresAt?: string
+    }) => client.apiKeys.create(input),
+    {
+      invalidate: [orpc.apiKeys.list.key()],
+      onSuccess: (result) => setGeneratedToken((result as { token: string }).token),
+    },
+  )
 
   const role = roles.find((r) => r.slug === selectedRole)
 
@@ -195,20 +204,17 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
     setFn(new Set(set.has(key) ? [...set].filter((k) => k !== key) : [...set, key]))
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || !selectedRole) return
 
-    const result = await client.apiKeys.create({
+    create.mutate({
       name,
       role: selectedRole,
       workspaces: scopeMode === 'restrict' ? [...selectedWs] : [],
       environments: scopeMode === 'restrict' ? [...selectedEnv] : [],
       expiresAt: computeExpiry(expiry),
     })
-
-    setGeneratedToken((result as any).token)
-    queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() })
   }
 
   return (
@@ -314,7 +320,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                           <button key={env.name} type="button" onClick={() => toggleSet(selectedEnv, setSelectedEnv, env.name)}
                             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                               selectedEnv.has(env.name)
-                                ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20'
+                                ? 'bg-primary/10 text-primary border border-primary/20'
                                 : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                             }`}>
                             {env.name}
@@ -353,7 +359,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
             <button type="button" onClick={onClose} className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
               Cancel
             </button>
-            <button type="submit" disabled={!name.trim() || !selectedRole}
+            <button type="submit" disabled={!name.trim() || !selectedRole || create.isPending}
               className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
               style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}>
               Create key

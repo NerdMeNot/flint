@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { Users } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
+import { Badge } from '#/components/Badge'
 
 export const Route = createFileRoute('/settings/teams/')({
   component: TeamsPage,
@@ -57,13 +58,9 @@ function TeamsPage() {
                   <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{team.name}</h3>
                   <p className="text-xs text-muted-foreground font-mono truncate">{team.slug}</p>
                 </div>
-                <span className={`island-kicker !text-[11px] shrink-0 ${
-                  team.source === 'idp'
-                    ? 'bg-primary/10 text-primary border-primary/20'
-                    : ''
-                }`}>
+                <Badge variant={team.source === 'idp' ? 'primary' : 'neutral'}>
                   {team.source === 'idp' ? 'IdP' : 'Internal'}
-                </span>
+                </Badge>
               </div>
 
               {team.idpGroup && (

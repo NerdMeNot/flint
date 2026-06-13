@@ -7,6 +7,8 @@ import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
 import { FormSelect } from '#/components/FormSelect'
 import { ScopeBadges } from '#/components/ScopeBadges'
+import { Badge } from '#/components/Badge'
+import { MemberAvatar } from '#/components/MemberAvatar'
 
 export const Route = createFileRoute('/settings/teams/$id')({
   component: TeamDetailPage,
@@ -42,13 +44,9 @@ function TeamDetailPage() {
           <div>
             <div className="flex items-center gap-2.5">
               <h2 className="display-title text-lg font-bold text-foreground">{team.name}</h2>
-              <span className={`island-kicker !text-[11px] shrink-0 ${
-                team.source === 'idp'
-                  ? 'bg-primary/10 text-primary border-primary/20'
-                  : ''
-              }`}>
+              <Badge variant={team.source === 'idp' ? 'primary' : 'neutral'}>
                 {team.source === 'idp' ? 'IdP Synced' : 'Internal'}
-              </span>
+              </Badge>
             </div>
             <p className="text-sm text-muted-foreground font-mono mt-0.5">{team.slug}</p>
             {team.idpGroup && (
@@ -103,9 +101,7 @@ function TeamDetailPage() {
                   <div key={role.id} className="island-shell p-3 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground">{role.name}</span>
-                      {role.isSystem && (
-                        <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
-                      )}
+                      {role.isSystem && <Badge variant="primary">System</Badge>}
                     </div>
                     <ScopeBadges workspaces={role.workspaces} environments={role.environments} />
                   </div>
@@ -155,7 +151,6 @@ function TeamDetailPage() {
                     {member.email}
                   </p>
                 </div>
-                <span className="text-[11px] font-mono text-muted-foreground opacity-50 shrink-0">{member.id}</span>
               </div>
             ))}
           </div>
@@ -380,29 +375,3 @@ function AddMemberOverlay({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Avatar
-// ---------------------------------------------------------------------------
-
-const avatarColors = [
-  'bg-blue-500/15 text-blue-400',
-  'bg-emerald-500/15 text-emerald-400',
-  'bg-violet-500/15 text-violet-400',
-  'bg-amber-500/15 text-amber-400',
-  'bg-rose-500/15 text-rose-400',
-  'bg-cyan-500/15 text-cyan-400',
-  'bg-pink-500/15 text-pink-400',
-  'bg-teal-500/15 text-teal-400',
-]
-
-function MemberAvatar({ name }: { name: string }) {
-  const hash = name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const color = avatarColors[hash % avatarColors.length]!
-  const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
-
-  return (
-    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${color}`}>
-      <span className="text-xs font-semibold">{initials}</span>
-    </div>
-  )
-}

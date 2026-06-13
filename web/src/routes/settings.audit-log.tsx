@@ -6,19 +6,19 @@ import { orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
+import { Badge, type BadgeVariant } from '#/components/Badge'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/settings/audit-log')({
   component: AuditLogPage,
 })
 
-function actionColor(action: string): string {
-  if (action.startsWith('run.trigger')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-  if (action.startsWith('gate.approve')) return 'bg-success/10 text-success border-success/20'
-  if (action.startsWith('gate.reject')) return 'bg-destructive/10 text-destructive border-destructive/20'
-  if (action.startsWith('secret.')) return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-  if (action.startsWith('runner.')) return 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-  if (action.startsWith('connection.')) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-  return 'bg-muted text-muted-foreground border-border'
+function actionVariant(action: string): BadgeVariant {
+  const a = action.toLowerCase()
+  if (/(create|add|approve)/.test(a)) return 'success'
+  if (/(delete|remove|revoke|reject)/.test(a)) return 'danger'
+  if (/(update|change)/.test(a)) return 'primary'
+  return 'neutral'
 }
 
 function MetadataExpander({ metadata }: { metadata: unknown }) {
@@ -58,9 +58,7 @@ function AuditLogPage() {
 
   return (
     <div className="space-y-5">
-      <p className="text-muted-foreground text-sm">
-        {entries.length} audit {entries.length === 1 ? 'entry' : 'entries'}
-      </p>
+      <PageHeader title="Audit Log" />
 
       {entries.length === 0 ? (
         <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
@@ -93,11 +91,7 @@ function AuditLogPage() {
 
                 {/* Action */}
                 <div>
-                  <span
-                    className={`island-kicker !text-[11px] ${actionColor(entry.action)}`}
-                  >
-                    {entry.action}
-                  </span>
+                  <Badge variant={actionVariant(entry.action)}>{entry.action}</Badge>
                   <MetadataExpander metadata={entry.metadata} />
                 </div>
 

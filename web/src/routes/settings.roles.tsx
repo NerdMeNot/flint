@@ -7,14 +7,13 @@ import {
   ChevronRight,
   Plus,
   Pencil,
-  Trash2,
   Users,
   User,
-  X,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
+import { ConfirmButton } from '#/components/ConfirmButton'
 import { PermissionMatrix, CI_CATALOG } from '#/components/PermissionMatrix'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { FormSelect } from '#/components/FormSelect'
@@ -189,9 +188,7 @@ function RoleCard({
               </button>
             )}
             {onDelete && (
-              <button type="button" onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors">
-                <Trash2 size={13} />
-              </button>
+              <ConfirmButton onConfirm={onDelete} title="Delete role" />
             )}
           </div>
         )}
@@ -356,7 +353,7 @@ function RoleFormModal({ role, onClose }: { role?: Role; onClose: () => void }) 
                         <button key={env.name} type="button" onClick={() => toggleSet(selectedEnv, setSelectedEnv, env.name)}
                           className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                             selectedEnv.has(env.name)
-                              ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20'
+                              ? 'bg-success/10 text-success border border-success/30'
                               : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                           }`}>
                           {env.name}
@@ -439,10 +436,7 @@ function AssignmentsTab() {
                 </div>
                 <div>{role && <ScopeBadges workspaces={role.workspaces} environments={role.environments} />}</div>
                 <div className="flex justify-end">
-                  <button type="button" onClick={() => removeAssignment.mutate({ subject: a.subject, role: a.role })}
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors" title="Remove">
-                    <X size={13} />
-                  </button>
+                  <ConfirmButton onConfirm={() => removeAssignment.mutate({ subject: a.subject, role: a.role })} title="Remove assignment" />
                 </div>
               </div>
             )
