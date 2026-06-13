@@ -10,6 +10,7 @@ import { useAction } from '#/hooks/use-action'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
+import { groupByBucket, parseDurationToSeconds, median } from '#/lib/run-feed'
 
 const DEFAULT_PAGE_SIZE = 15
 
@@ -91,6 +92,25 @@ function RunsListPage() {
     data.items.map((r) => r.environment).filter((e): e is string => !!e),
   )].sort()
 
+  // Per-project median duration (from finished runs on this page) for the
+  // slower/faster indicator on each row.
+  const baselineByProject = (() => {
+    const buckets = new Map<string, number[]>()
+    for (const r of data.items) {
+      if (r.status !== 'succeeded' && r.status !== 'failed') continue
+      const secs = parseDurationToSeconds(r.duration)
+      if (secs <= 0) continue
+      const arr = buckets.get(r.projectId) ?? []
+      arr.push(secs)
+      buckets.set(r.projectId, arr)
+    }
+    const out = new Map<string, number>()
+    for (const [id, secs] of buckets) out.set(id, median(secs))
+    return out
+  })()
+
+  const grouped = groupByBucket(filteredItems)
+
   return (
     <div className="space-y-6 rise-in">
       <div className="flex items-start justify-between gap-4">
@@ -145,22 +165,31 @@ function RunsListPage() {
         <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} runs</span>
       </div>
 
-      {/* Runs list */}
+      {/* Runs feed — grouped by time bucket */}
       <div className="island-shell !p-0 overflow-hidden">
         {filteredItems.length === 0 ? (
           <div className="p-12 text-center text-sm text-muted-foreground">
             No runs match the current filters.
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {filteredItems.map((run) => (
-              <RunRow
-                key={run.id}
-                run={run}
-                action={<RunAction status={run.status} runId={run.id} />}
-              />
-            ))}
-          </div>
+          grouped.map(({ bucket, runs }) => (
+            <div key={bucket}>
+              <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent/20 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {bucket}
+                <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{runs.length}</span>
+              </div>
+              <div className="divide-y divide-border">
+                {runs.map((run) => (
+                  <RunRow
+                    key={run.id}
+                    run={run}
+                    baselineSecs={baselineByProject.get(run.projectId)}
+                    action={<RunAction status={run.status} runId={run.id} />}
+                  />
+                ))}
+              </div>
+            </div>
+          ))
         )}
       </div>
 

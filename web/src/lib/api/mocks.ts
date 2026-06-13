@@ -27,6 +27,8 @@ import type {
   PersonalToken,
   WorkflowRun,
   WorkflowRunDetail,
+  RunStepSummary,
+  StepStatusValue,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -534,9 +536,34 @@ function seedRuns(): PipelineRun[] {
 
 // Mutable, lazily-seeded run store. In mock mode the router's writes mutate this
 // so the UI reflects triggers/cancels/retries without a backend.
+// Derive a per-step summary for a run's stage pips. Deterministic from the run
+// id so pips are stable across renders. A real backend would supply actual step
+// statuses; this lives in the mock data layer so the UI can consume run.steps.
+const STEP_NAMES = ['build', 'test', 'lint', 'integration', 'package', 'deploy']
+function deriveSteps(run: PipelineRun): RunStepSummary[] {
+  let h = 0
+  for (const c of run.id) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  const count = 4 + (h % 3) // 4..6 steps
+  // Index where progress stops (failure / running / cancellation point).
+  const stop = 1 + (h % Math.max(1, count - 1))
+  return Array.from({ length: count }, (_, i): RunStepSummary => {
+    const name = STEP_NAMES[i % STEP_NAMES.length]!
+    let status: StepStatusValue
+    switch (run.status) {
+      case 'succeeded': status = 'succeeded'; break
+      case 'pending': status = 'pending'; break
+      case 'failed': status = i < stop ? 'succeeded' : i === stop ? 'failed' : 'skipped'; break
+      case 'cancelled': status = i < stop ? 'succeeded' : i === stop ? 'cancelled' : 'skipped'; break
+      case 'running': status = i < stop ? 'succeeded' : i === stop ? 'running' : 'pending'; break
+      default: status = 'pending'
+    }
+    return { name, status }
+  })
+}
+
 let _runs: PipelineRun[] | undefined
 export function getRuns(): PipelineRun[] {
-  return (_runs ??= seedRuns())
+  return (_runs ??= seedRuns().map((r) => ({ ...r, steps: deriveSteps(r) })))
 }
 
 let _mockRunSeq = 0

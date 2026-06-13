@@ -23,6 +23,14 @@ export const StepStatus = z.enum([
   'skipped',
   'cancelled',
 ])
+export type StepStatusValue = z.infer<typeof StepStatus>
+
+// Compact per-step summary carried on a run for the runs feed's stage pips.
+export const RunStepSummarySchema = z.object({
+  name: z.string(),
+  status: StepStatus,
+})
+export type RunStepSummary = z.infer<typeof RunStepSummarySchema>
 
 export const TriggerType = z.enum([
   'push',
@@ -53,6 +61,9 @@ export const PipelineRunSchema = z.object({
   workflowFile: z.string(),
   environment: z.optional(z.string()),
   errorMessage: z.optional(z.string()),
+  // Per-step summary for the feed's stage pips (backend should populate this;
+  // the mock derives it). Optional so other run producers stay valid.
+  steps: z.optional(z.array(RunStepSummarySchema)),
 })
 
 export const LastRunSchema = z.object({
