@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Tag, Plus, ChevronRight, ChevronDown, X } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Tag, Plus, ChevronRight, ChevronDown, X, GripVertical } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { ConfirmButton } from '#/components/ConfirmButton'
@@ -11,7 +11,12 @@ export const Route = createFileRoute('/settings/tags')({
   component: TagsPage,
 })
 
-const SWATCHES = ['#6366f1', '#ef4444', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#64748b']
+const SWATCHES = [
+  '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
+  '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#2563eb',
+  '#64748b', '#78716c', '#0d9488', '#7c3aed', '#db2777', '#475569',
+]
 
 function TagsPage() {
   const { data } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
@@ -221,8 +226,16 @@ function CreateRow({ onClose }: { onClose: () => void }) {
 
 // ---------------------------------------------------------------------------
 // Allowed-values editor — one row per value (prefix preview + remove), with a
-// dedicated add row. Clearer than cramming every value into one combo field.
+// dedicated add row. Rows are drag-to-reorder (the saved order is the order
+// projects see in pickers). Clearer than cramming every value into one field.
 // ---------------------------------------------------------------------------
+
+function reorder(list: string[], from: number, to: number): string[] {
+  const next = [...list]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
+}
 
 function ValueListEditor({ values, onChange, prefix }: {
   values: string[]
@@ -230,24 +243,47 @@ function ValueListEditor({ values, onChange, prefix }: {
   prefix?: string
 }) {
   const [draft, setDraft] = useState('')
+  // Local working copy so a drag reorders smoothly and persists once on drop,
+  // rather than firing an update on every dragged-over row.
+  const [items, setItems] = useState<string[]>(values)
+  const dragFrom = useRef<number | null>(null)
+  useEffect(() => { setItems(values) }, [values])
 
   function add() {
     const v = draft.trim()
-    if (!v || values.includes(v)) return
-    onChange([...values, v])
+    if (!v || items.includes(v)) return
+    onChange([...items, v])
     setDraft('')
+  }
+
+  function commitIfChanged() {
+    dragFrom.current = null
+    if (items.length !== values.length || items.some((v, i) => v !== values[i])) onChange(items)
   }
 
   return (
     <div className="space-y-1.5">
-      {values.map((v) => (
-        <div key={v} className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
+      {items.map((v, i) => (
+        <div
+          key={v}
+          draggable
+          onDragStart={() => { dragFrom.current = i }}
+          onDragEnter={() => {
+            if (dragFrom.current === null || dragFrom.current === i) return
+            setItems((prev) => reorder(prev, dragFrom.current!, i))
+            dragFrom.current = i
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDragEnd={commitIfChanged}
+          className={`flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 transition-opacity ${dragFrom.current === i ? 'opacity-50' : ''}`}
+        >
+          <GripVertical size={14} className="text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <span className="flex-1 text-sm font-mono text-foreground truncate">
             <span className="text-muted-foreground">{prefix}</span>{v}
           </span>
           <button
             type="button"
-            onClick={() => onChange(values.filter((x) => x !== v))}
+            onClick={() => onChange(items.filter((x) => x !== v))}
             className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
             aria-label={`Remove ${v}`}
           >
