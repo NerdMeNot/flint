@@ -5,8 +5,8 @@ import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, 
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
-import { FilterPill } from '#/components/FilterPill'
 import { TagChip } from '#/components/TagChip'
+import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
@@ -24,6 +24,7 @@ function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [needsGrouping, setNeedsGrouping] = useState(false)
+  const [tagFilterOpen, setTagFilterOpen] = useState(false)
   const [view, setView] = useState<ProjectView>('grid')
 
   // Persist the grid/list preference (SSR-safe).
@@ -52,17 +53,26 @@ function ProjectsPage() {
   )
 
   // Unfiltered-by-tag, workspace-scoped fetch supplies the stable universe of
-  // tag options so the pill doesn't collapse as the user narrows the filter.
+  // tag options so the filter doesn't collapse as the user narrows it.
   const { data: tagUniverse } = useSuspenseQuery(
     orpc.projects.list.queryOptions({
       input: { workspace: wsScope, limit: 100 },
     }),
   )
-  const allTags = [...new Set(tagUniverse.items.flatMap((p) => p.tags ?? []))].sort()
 
   // Registry → structured, colored tag chips.
   const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
   const registry = new Map(regData.items.map((k) => [k.key, k]))
+
+  // Tag filter: how many in-scope projects carry each tag, and the registry-grouped
+  // options limited to declared tags that actually appear (filtering by an absent
+  // tag would just empty the list).
+  const tagCounts = new Map<string, number>()
+  for (const p of tagUniverse.items) for (const t of p.tags ?? []) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+  const filterGroups: TagGroup[] = regData.items
+    .map((k) => ({ key: k.key, label: k.label, color: k.color, values: k.allowedValues.filter((v) => tagCounts.has(`${k.key}:${v}`)) }))
+    .filter((g) => g.values.length > 0)
+
   // Stable count of projects that need grouping: workspace inferred (not
   // declared) or no tags — derived from the unfiltered, workspace-scoped set.
   const needsGroupingCount = tagUniverse.items.filter((p) => p.inferred || (p.tags ?? []).length === 0).length
@@ -141,7 +151,7 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {(allTags.length > 0 || needsGroupingCount > 0) && (
+      {(filterGroups.length > 0 || needsGroupingCount > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {needsGroupingCount > 0 && (
             <button
@@ -157,29 +167,44 @@ function ProjectsPage() {
               <span className="rounded-full bg-warning/20 text-warning text-[10px] font-bold leading-none px-1.5 py-0.5">{needsGroupingCount}</span>
             </button>
           )}
-          {allTags.length > 0 && (
-          <FilterPill
-            icon={<Tag size={12} />}
-            label={selectedTags.length > 0 ? `${selectedTags.length} tag${selectedTags.length > 1 ? 's' : ''}` : 'Tags'}
-            active={selectedTags.length > 0}
-            onClear={() => { setSelectedTags([]); reset() }}
-            items={allTags.map((t) => ({ key: t, label: t, active: selectedTags.includes(t) }))}
-            onSelect={toggleTag}
-          />
+          {filterGroups.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTagFilterOpen(true)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                selectedTags.length > 0 ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Tag size={12} />
+              {selectedTags.length > 0 ? `${selectedTags.length} tag${selectedTags.length > 1 ? 's' : ''}` : 'Filter tags'}
+            </button>
           )}
           {selectedTags.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => toggleTag(t)}
-              className="flex items-center gap-1 rounded-md bg-primary/5 border border-primary/30 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-            >
-              {t}
-              <X size={11} />
-            </button>
+            <TagChip key={t} tag={t} registry={registry} onRemove={() => toggleTag(t)} />
           ))}
+          {selectedTags.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setSelectedTags([]); reset() }}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors px-1"
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
+
+      <TagManagerModal
+        open={tagFilterOpen}
+        onClose={() => setTagFilterOpen(false)}
+        groups={filterGroups}
+        applied={new Set(selectedTags)}
+        onToggle={toggleTag}
+        onClear={() => { setSelectedTags([]); reset() }}
+        counts={tagCounts}
+        title="Filter by tags"
+        subtitle="Show projects matching any selected tag"
+      />
 
       {view === 'grid' ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">

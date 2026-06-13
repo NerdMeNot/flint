@@ -9,16 +9,30 @@ export interface TagGroup {
   values: string[]
 }
 
-// A roomy, grouped tag manager. Tags are laid out by key in a responsive grid so
+// A roomy, grouped tag picker. Tags are laid out by key in a responsive grid so
 // many keys/values stay browsable; search narrows within every group at once and
-// toggling applies immediately (the parent persists via an optimistic write).
-export function TagManagerModal({ open, onClose, groups, applied, onToggle, onClear }: {
+// toggling applies immediately. Used both to manage a project's tags and to build
+// a tag filter — pass `counts` to show how many items carry each tag.
+export function TagManagerModal({
+  open,
+  onClose,
+  groups,
+  applied,
+  onToggle,
+  onClear,
+  counts,
+  title = 'Manage tags',
+  subtitle = 'Apply curated tags to this project',
+}: {
   open: boolean
   onClose: () => void
   groups: TagGroup[]
   applied: Set<string>
   onToggle: (tag: string) => void
   onClear?: () => void
+  counts?: Map<string, number>
+  title?: string
+  subtitle?: string
 }) {
   const [query, setQuery] = useState('')
   const q = query.toLowerCase().trim()
@@ -33,7 +47,7 @@ export function TagManagerModal({ open, onClose, groups, applied, onToggle, onCl
     .filter((g) => g.values.length > 0)
 
   return (
-    <Modal open={open} onClose={onClose} title="Manage tags" subtitle="Apply curated tags to this project" wide>
+    <Modal open={open} onClose={onClose} title={title} subtitle={subtitle} wide>
       {groups.length === 0 ? (
         <div className="px-5 py-10 text-center text-sm text-muted-foreground">
           No tags declared — add some in Settings → Tags.
@@ -69,6 +83,7 @@ export function TagManagerModal({ open, onClose, groups, applied, onToggle, onCl
                       {g.values.map((v) => {
                         const tag = `${g.key}:${v}`
                         const on = applied.has(tag)
+                        const count = counts?.get(tag)
                         return (
                           <button
                             key={tag}
@@ -88,6 +103,7 @@ export function TagManagerModal({ open, onClose, groups, applied, onToggle, onCl
                             }
                           >
                             {v}
+                            {count != null && <span className="text-[10px] opacity-50 tabular-nums">{count}</span>}
                             {on && <Check size={11} className="shrink-0" />}
                           </button>
                         )
