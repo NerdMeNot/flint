@@ -326,9 +326,14 @@ export const AuthUserSchema = z.object({
   userId: z.string(),
   email: z.string(),
   name: z.string(),
+  avatarUrl: z.optional(z.string()),
   role: z.string(),
   permissions: z.array(z.string()),
   groups: z.array(z.string()),
+  provider: z.optional(z.string()),
+  // Appearance preferences, persisted server-side against the user.
+  themeMode: z.optional(z.string()),
+  colorTheme: z.optional(z.string()),
 })
 
 export const SearchResultSchema = z.object({

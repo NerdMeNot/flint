@@ -9,9 +9,8 @@ import {
 import { Sidebar, SidebarProvider, MobileMenuButton, useSidebar } from '#/components/Sidebar'
 import { ScopeSelector } from '#/components/ScopeSelector'
 import { ScopeProvider } from '#/lib/scope-context'
-import ThemeToggle from '#/components/ThemeToggle'
-import { ThemeSwitcher } from '#/components/ThemeSwitcher'
 import { ScopeChips } from '#/components/ScopeChips'
+import { AppearanceSync } from '#/components/AppearanceSync'
 import { DemoModeBanner } from '#/components/DemoModeBanner'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -70,6 +69,7 @@ function RootLayout() {
   if (isAdmin) {
     return (
       <>
+        <AppearanceSync />
         <AdminShell onSearchClick={() => palette.setOpen(true)} />
         <CommandPalette open={palette.open} onClose={() => palette.setOpen(false)} />
       </>
@@ -79,6 +79,7 @@ function RootLayout() {
   return (
     <ScopeProvider>
       <SidebarProvider>
+        <AppearanceSync />
         <Sidebar />
         <MainContent onSearchClick={() => palette.setOpen(true)} />
         <CommandPalette open={palette.open} onClose={() => palette.setOpen(false)} />
@@ -121,9 +122,6 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
         {/* Actions — right side */}
         <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
           <SearchTrigger onClick={onSearchClick} />
-          <div className="hidden sm:block w-px h-5 bg-border shrink-0" />
-          <div className="hidden sm:block"><ThemeSwitcher /></div>
-          <ThemeToggle />
         </div>
       </header>
       <ScopeChips />
@@ -158,8 +156,6 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
         </div>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <SearchTrigger onClick={onSearchClick} />
-          <div className="hidden sm:block"><ThemeSwitcher /></div>
-          <ThemeToggle />
         </div>
       </header>
       <main className="mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8 xl:px-12">

@@ -355,7 +355,7 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
     return (
       <div className="border-t border-border px-1.5 py-2.5">
         <Link
-          to="/settings/users/$id" params={{ id: user.userId ?? '' }}
+          to="/profile"
           title={user.name ?? user.email}
           className="flex items-center justify-center w-full rounded-lg py-1.5 hover:bg-[var(--link-bg-hover)] transition-colors"
         >
@@ -374,7 +374,7 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
     <div className="border-t border-border px-3 py-2.5">
       <div className="flex items-center gap-2.5">
         <Link
-          to="/settings/users/$id" params={{ id: user.userId ?? '' }}
+          to="/profile"
           className="flex items-center gap-2.5 flex-1 min-w-0 rounded-lg px-1 py-1.5 -ml-1 hover:bg-[var(--link-bg-hover)] transition-colors"
         >
           <div

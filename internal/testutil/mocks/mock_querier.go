@@ -6184,6 +6184,24 @@ func (_m *Querier) UpdateUserPassword(ctx context.Context, arg db.UpdateUserPass
 	return r0
 }
 
+// UpdateUserProfile provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateUserProfile(ctx context.Context, arg db.UpdateUserProfileParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateUserProfile")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateUserProfileParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // UpdateWorkflowPipeline provides a mock function with given fields: ctx, arg
 func (_m *Querier) UpdateWorkflowPipeline(ctx context.Context, arg db.UpdateWorkflowPipelineParams) error {
 	ret := _m.Called(ctx, arg)

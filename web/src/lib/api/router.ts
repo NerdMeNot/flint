@@ -800,6 +800,17 @@ const auth = {
       () => mocks.getAuthUser(),
     )
   }),
+
+  updateProfile: os
+    .input(z.object({
+      name: z.optional(z.string()),
+      avatarUrl: z.optional(z.string()),
+      themeMode: z.optional(z.enum(['light', 'dark', 'auto'])),
+      colorTheme: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return safe(() => backendPut('/auth/profile', input), () => mocks.updateAuthProfile(input))
+    }),
 }
 
 // ---------------------------------------------------------------------------

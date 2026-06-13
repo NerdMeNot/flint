@@ -314,6 +314,9 @@ type Querier interface {
 	UpdateStepResult(ctx context.Context, arg UpdateStepResultParams) error
 	UpdateTagKey(ctx context.Context, arg UpdateTagKeyParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	// Self-service profile update. NULL args leave the existing value untouched
+	// (COALESCE), so callers can patch any subset of {name, avatar, appearance}.
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)
 	UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error

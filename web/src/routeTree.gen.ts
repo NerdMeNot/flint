@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LoadtestRouteImport } from './routes/loadtest'
 import { Route as IndexRouteImport } from './routes/index'
@@ -54,6 +55,11 @@ const TeamsRoute = TeamsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
@@ -270,6 +277,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -304,6 +312,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
     | '/'
     | '/loadtest'
     | '/login'
+    | '/profile'
     | '/settings'
     | '/teams'
     | '/ci/gates'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
     | '/'
     | '/loadtest'
     | '/login'
+    | '/profile'
     | '/teams'
     | '/ci/gates'
     | '/settings/api-keys'
@@ -415,6 +426,7 @@ export interface FileRouteTypes {
     | '/'
     | '/loadtest'
     | '/login'
+    | '/profile'
     | '/settings'
     | '/teams'
     | '/ci/gates'
@@ -454,6 +466,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoadtestRoute: typeof LoadtestRoute
   LoginRoute: typeof LoginRoute
+  ProfileRoute: typeof ProfileRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
   CiGatesRoute: typeof CiGatesRoute
@@ -480,6 +493,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -822,6 +842,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoadtestRoute: LoadtestRoute,
   LoginRoute: LoginRoute,
+  ProfileRoute: ProfileRoute,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,
   CiGatesRoute: CiGatesRoute,

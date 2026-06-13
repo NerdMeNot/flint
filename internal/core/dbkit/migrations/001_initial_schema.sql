@@ -569,7 +569,9 @@ CREATE TABLE public.users (
     password_changed_at timestamptz,
     recovery_codes text[],
     force_password_change boolean DEFAULT false NOT NULL,
-    mfa_last_used_period bigint
+    mfa_last_used_period bigint,
+    theme_mode text,
+    color_theme text
 );
 
 
