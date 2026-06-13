@@ -350,18 +350,24 @@ function ProjectCard({ project, registry, index }: { project: Project; registry:
 
 function ProjectRow({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
   return (
-    <div className="feature-card rise-in flex items-center overflow-hidden" style={{ animationDelay: `${index * 25 + 20}ms` }}>
+    <div className="feature-card rise-in flex items-stretch overflow-hidden" style={{ animationDelay: `${index * 25 + 20}ms` }}>
       <Link
         to="/ci/projects/$id"
         params={{ id: project.id }}
-        className="flex items-center gap-3 min-w-0 flex-1 px-4 py-3 hover:bg-accent/50 transition-colors group"
+        className="flex flex-col justify-center gap-1 min-w-0 flex-1 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
       >
-        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
-        <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate shrink-0 max-w-[14rem]">{project.name}</h3>
-        <span className="text-xs text-muted-foreground font-mono truncate hidden sm:inline">{project.repo}</span>
-        <span className="island-kicker !text-[11px] shrink-0 ml-auto">{project.workspace}</span>
-        <div className="hidden lg:flex items-center gap-1.5 shrink-0 overflow-hidden max-w-[22rem]">
-          <TagSummary tags={project.tags} registry={registry} max={3} />
+        {/* Line 1: name + workspace */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
+          <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.name}</h3>
+          <span className="island-kicker !text-[11px] shrink-0 ml-auto">{project.workspace}</span>
+        </div>
+        {/* Line 2: repo + tags */}
+        <div className="flex items-center gap-2 min-w-0 pl-[18px]">
+          <span className="text-xs text-muted-foreground font-mono truncate shrink-0 max-w-[16rem]">{project.repo}</span>
+          <div className="hidden sm:flex items-center gap-1.5 min-w-0 overflow-hidden">
+            <TagSummary tags={project.tags} registry={registry} max={4} />
+          </div>
         </div>
       </Link>
 
@@ -369,7 +375,7 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
         <Link
           to="/ci/runs/$id"
           params={{ id: project.lastRun.id }}
-          className="flex items-center gap-2 shrink-0 px-4 py-3 border-l border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors group"
+          className="flex items-center gap-2 shrink-0 px-4 border-l border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors group"
         >
           <StatusIcon status={project.lastRun.status} />
           <span className="hidden md:flex items-center gap-1">
@@ -380,7 +386,7 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
           <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
         </Link>
       ) : (
-        <span className="shrink-0 px-4 py-3 border-l border-border text-xs text-muted-foreground opacity-40">No runs yet</span>
+        <span className="flex items-center shrink-0 px-4 border-l border-border text-xs text-muted-foreground opacity-40">No runs yet</span>
       )}
     </div>
   )
