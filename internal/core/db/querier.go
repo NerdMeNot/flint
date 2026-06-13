@@ -88,8 +88,9 @@ type Querier interface {
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
 	// The default workspace can't be deleted (projects must always have a home).
 	DeleteWorkspace(ctx context.Context, id string) (int64, error)
-	// Idempotent: creates a "Default" workspace for the org if it has none. Called
-	// at startup so every org always has a landing workspace for new projects.
+	// Idempotent: creates the fallback "Unsorted" workspace for the org if it has
+	// none. Called at startup. Projects only land here when no workspace was
+	// declared and none could be inferred — it's a triage bucket, not a home.
 	EnsureDefaultWorkspace(ctx context.Context, orgID string) error
 	FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error
 	// Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
@@ -320,8 +321,11 @@ type Querier interface {
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)
 	UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error
-	// New projects land in their org's default workspace (workspace_id is NOT NULL).
-	// On conflict the existing workspace_id is preserved (it isn't in the SET list).
+	// Workspace placement (the CRD is authoritative): use the declared
+	// spec.workspace slug if given, else infer from the repo owner (the part
+	// before "/"), else fall back to the org's default "Unsorted" bucket. The
+	// target workspace is created on the fly if it doesn't exist, and
+	// workspace_inferred records whether placement was declared or inferred.
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
 	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error

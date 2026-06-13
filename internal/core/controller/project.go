@@ -155,6 +155,7 @@ func (r *ProjectReconciler) upsertProject(ctx context.Context, p *flintv1.Projec
 		DefaultBranch:  defaultBranch,
 		PipelineSource: []byte(pipelineSource),
 		ForgeRef:       p.Spec.ForgeRef,
+		Workspace:      p.Spec.Workspace,
 	})
 }
 

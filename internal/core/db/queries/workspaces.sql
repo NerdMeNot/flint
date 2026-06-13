@@ -16,10 +16,11 @@ INSERT INTO workspaces (org_id, name, slug, description)
 VALUES ($1, $2, $3, $4) RETURNING id;
 
 -- name: EnsureDefaultWorkspace :exec
--- Idempotent: creates a "Default" workspace for the org if it has none. Called
--- at startup so every org always has a landing workspace for new projects.
+-- Idempotent: creates the fallback "Unsorted" workspace for the org if it has
+-- none. Called at startup. Projects only land here when no workspace was
+-- declared and none could be inferred — it's a triage bucket, not a home.
 INSERT INTO workspaces (org_id, name, slug, is_default)
-SELECT sqlc.arg('org_id'), 'Default', 'default', true
+SELECT sqlc.arg('org_id'), 'Unsorted', 'unsorted', true
 WHERE NOT EXISTS (
     SELECT 1 FROM workspaces WHERE org_id = sqlc.arg('org_id') AND is_default
 );
