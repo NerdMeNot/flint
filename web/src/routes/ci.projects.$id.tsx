@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Play,
   ChevronDown,
+  Plus,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -23,7 +24,7 @@ import type { PipelineDefinition } from '#/lib/api/types'
 import { Modal } from '#/components/Modal'
 import { DagView } from '#/components/pipeline/dag-view'
 import { TagChip } from '#/components/TagChip'
-import { TagPicker, type TagOption } from '#/components/TagPicker'
+import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 
 export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
@@ -617,38 +618,63 @@ function RunStatusIcon({ status, size = 16 }: { status: string; size?: number })
 
 // ---------------------------------------------------------------------------
 // Project tags — UI-managed labels constrained to the curated registry. Chips
-// for applied tags; a portaled, grouped, keyboard-navigable picker to add (see
-// TagPicker). Optimistic local state keeps fast toggles from racing the write.
+// for applied tags (collapsed past a threshold); a roomy grouped modal to browse
+// and apply at scale (see TagManagerModal). Optimistic local state keeps fast
+// toggles from racing the write.
 // ---------------------------------------------------------------------------
+
+const TAG_CHIP_LIMIT = 8
 
 function ProjectTags({ projectId, tags }: { projectId: string; tags: string[] }) {
   const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
   const registry = new Map(regData.items.map((k) => [k.key, k]))
-  const options: TagOption[] = regData.items.flatMap((k) =>
-    k.allowedValues.map((v) => ({ tag: `${k.key}:${v}`, group: k.label, value: v, color: k.color })),
-  )
+  const groups: TagGroup[] = regData.items.map((k) => ({
+    key: k.key,
+    label: k.label,
+    color: k.color,
+    values: k.allowedValues,
+  }))
 
   const [optimistic, setOptimistic] = useState<string[] | null>(null)
+  const [open, setOpen] = useState(false)
   const current = optimistic ?? tags
 
   const save = useAction(
     (next: string[]) => client.projects.setTags({ id: projectId, tags: next }),
     { invalidate: [orpc.projects.get.key(), orpc.projects.list.key()], onSuccess: () => setOptimistic(null) },
   )
-  const toggle = (t: string) => {
-    const next = current.includes(t) ? current.filter((x) => x !== t) : [...current, t]
-    setOptimistic(next)
-    save.mutate(next)
-  }
+  const persist = (next: string[]) => { setOptimistic(next); save.mutate(next) }
+  const toggle = (t: string) => persist(current.includes(t) ? current.filter((x) => x !== t) : [...current, t])
+
+  const shown = current.slice(0, TAG_CHIP_LIMIT)
+  const overflow = current.length - shown.length
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1.5">
-      {current.map((t) => <TagChip key={t} tag={t} registry={registry} onRemove={() => toggle(t)} />)}
-      <TagPicker
-        options={options}
+      {shown.map((t) => <TagChip key={t} tag={t} registry={registry} onRemove={() => toggle(t)} />)}
+      {overflow > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-md border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          +{overflow} more
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Plus size={11} /> {current.length > 0 ? 'edit tags' : 'add tags'}
+      </button>
+      <TagManagerModal
+        open={open}
+        onClose={() => setOpen(false)}
+        groups={groups}
         applied={new Set(current)}
         onToggle={toggle}
-        emptyHint="No tags declared — add some in Settings → Tags."
+        onClear={() => persist([])}
       />
     </div>
   )
