@@ -11,7 +11,6 @@ import { ScopeSelector } from '#/components/ScopeSelector'
 import { ScopeProvider } from '#/lib/scope-context'
 import ThemeToggle from '#/components/ThemeToggle'
 import { ThemeSwitcher } from '#/components/ThemeSwitcher'
-import { DensityToggle } from '#/components/DensityToggle'
 import { ScopeChips } from '#/components/ScopeChips'
 import { DemoModeBanner } from '#/components/DemoModeBanner'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
@@ -20,7 +19,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { Search } from 'lucide-react'
 import appCss from '../styles.css?url'
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;if(!stored){resolved='dark'}var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;var d=window.localStorage.getItem('density');if(d==='compact'){root.setAttribute('data-density','compact')}else{root.removeAttribute('data-density')}}catch(e){}})();`
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;if(!stored){resolved='dark'}var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 export const Route = createRootRoute({
   head: () => ({
@@ -124,7 +123,6 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
           <SearchTrigger onClick={onSearchClick} />
           <div className="hidden sm:block w-px h-5 bg-border shrink-0" />
           <div className="hidden sm:block"><ThemeSwitcher /></div>
-          <div className="hidden lg:block"><DensityToggle /></div>
           <ThemeToggle />
         </div>
       </header>
@@ -161,7 +159,6 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <SearchTrigger onClick={onSearchClick} />
           <div className="hidden sm:block"><ThemeSwitcher /></div>
-          <div className="hidden lg:block"><DensityToggle /></div>
           <ThemeToggle />
         </div>
       </header>
