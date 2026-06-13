@@ -35,15 +35,31 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 }
 
 const deleteWorkspace = `-- name: DeleteWorkspace :execrows
-DELETE FROM workspaces WHERE id = $1
+DELETE FROM workspaces WHERE id = $1 AND is_default = false
 `
 
+// The default workspace can't be deleted (projects must always have a home).
 func (q *Queries) DeleteWorkspace(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteWorkspace, id)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const ensureDefaultWorkspace = `-- name: EnsureDefaultWorkspace :exec
+INSERT INTO workspaces (org_id, name, slug, is_default)
+SELECT $1, 'Default', 'default', true
+WHERE NOT EXISTS (
+    SELECT 1 FROM workspaces WHERE org_id = $1 AND is_default
+)
+`
+
+// Idempotent: creates a "Default" workspace for the org if it has none. Called
+// at startup so every org always has a landing workspace for new projects.
+func (q *Queries) EnsureDefaultWorkspace(ctx context.Context, orgID string) error {
+	_, err := q.db.Exec(ctx, ensureDefaultWorkspace, orgID)
+	return err
 }
 
 const getProjectWorkspaceSlug = `-- name: GetProjectWorkspaceSlug :one
@@ -60,7 +76,7 @@ func (q *Queries) GetProjectWorkspaceSlug(ctx context.Context, id string) (strin
 }
 
 const getWorkspaceByID = `-- name: GetWorkspaceByID :one
-SELECT id, name, slug, description, created_at
+SELECT id, name, slug, description, created_at, is_default
 FROM workspaces WHERE id = $1
 `
 
@@ -70,6 +86,7 @@ type GetWorkspaceByIDRow struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	IsDefault   bool      `json:"is_default"`
 }
 
 func (q *Queries) GetWorkspaceByID(ctx context.Context, id string) (GetWorkspaceByIDRow, error) {
@@ -81,12 +98,13 @@ func (q *Queries) GetWorkspaceByID(ctx context.Context, id string) (GetWorkspace
 		&i.Slug,
 		&i.Description,
 		&i.CreatedAt,
+		&i.IsDefault,
 	)
 	return i, err
 }
 
 const getWorkspaceBySlug = `-- name: GetWorkspaceBySlug :one
-SELECT id, name, slug, description, created_at
+SELECT id, name, slug, description, created_at, is_default
 FROM workspaces WHERE org_id = $1 AND slug = $2
 `
 
@@ -101,6 +119,7 @@ type GetWorkspaceBySlugRow struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	IsDefault   bool      `json:"is_default"`
 }
 
 func (q *Queries) GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlugParams) (GetWorkspaceBySlugRow, error) {
@@ -112,13 +131,14 @@ func (q *Queries) GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlug
 		&i.Slug,
 		&i.Description,
 		&i.CreatedAt,
+		&i.IsDefault,
 	)
 	return i, err
 }
 
 const listWorkspaces = `-- name: ListWorkspaces :many
-SELECT id, name, slug, description, created_at
-FROM workspaces WHERE org_id = $1 ORDER BY name
+SELECT id, name, slug, description, created_at, is_default
+FROM workspaces WHERE org_id = $1 ORDER BY is_default DESC, name
 LIMIT $2 OFFSET $3
 `
 
@@ -134,6 +154,7 @@ type ListWorkspacesRow struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	IsDefault   bool      `json:"is_default"`
 }
 
 func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error) {
@@ -151,6 +172,7 @@ func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) 
 			&i.Slug,
 			&i.Description,
 			&i.CreatedAt,
+			&i.IsDefault,
 		); err != nil {
 			return nil, err
 		}

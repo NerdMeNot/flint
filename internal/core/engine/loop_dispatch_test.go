@@ -60,10 +60,16 @@ func seedRun(t *testing.T, pool *pgxpool.Pool, runID string) (orgID, projectID s
 		 VALUES ($1, $2, 'github', 'test-forge', 'test-secret', $3) ON CONFLICT DO NOTHING`,
 		forgeID, orgID, []byte{})
 	require.NoError(t, err)
+	wsID := uuid.NewString()
 	_, err = pool.Exec(ctx,
-		`INSERT INTO projects (id, org_id, forge_id, display_name, repo_path, repo_url)
-		 VALUES ($1, $2, $3, 'test-project', 'acme/test', 'https://example.com/acme/test') ON CONFLICT DO NOTHING`,
-		projectID, orgID, forgeID)
+		`INSERT INTO workspaces (id, org_id, name, slug, is_default)
+		 VALUES ($1, $2, 'Default', 'default', true) ON CONFLICT DO NOTHING`,
+		wsID, orgID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO projects (id, org_id, forge_id, workspace_id, display_name, repo_path, repo_url)
+		 VALUES ($1, $2, $3, $4, 'test-project', 'acme/test', 'https://example.com/acme/test') ON CONFLICT DO NOTHING`,
+		projectID, orgID, forgeID, wsID)
 	require.NoError(t, err)
 
 	q := db.New(pool)

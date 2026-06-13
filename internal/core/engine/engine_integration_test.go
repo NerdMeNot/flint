@@ -75,12 +75,21 @@ func seedOrgAndProject(t *testing.T, pool *pgxpool.Pool) (orgID, projectID strin
 		forgeID, orgID, []byte{})
 	require.NoError(t, err)
 
+	// Projects belong to exactly one workspace (workspace_id is NOT NULL), so
+	// seed a default workspace for the org first.
+	wsID := uuid.NewString()
+	_, err = pool.Exec(ctx,
+		`INSERT INTO workspaces (id, org_id, name, slug, is_default)
+		 VALUES ($1, $2, 'Default', 'default', true) ON CONFLICT DO NOTHING`,
+		wsID, orgID)
+	require.NoError(t, err)
+
 	// Pipeline location now lives in pipeline_source jsonb (defaults to .flint/).
 	_, err = pool.Exec(ctx,
-		`INSERT INTO projects (id, org_id, forge_id, display_name, repo_path, repo_url)
-		 VALUES ($1, $2, $3, 'test-project', 'acme/test', 'https://example.com/acme/test')
+		`INSERT INTO projects (id, org_id, forge_id, workspace_id, display_name, repo_path, repo_url)
+		 VALUES ($1, $2, $3, $4, 'test-project', 'acme/test', 'https://example.com/acme/test')
 		 ON CONFLICT DO NOTHING`,
-		projectID, orgID, forgeID)
+		projectID, orgID, forgeID, wsID)
 	require.NoError(t, err)
 
 	return orgID, projectID

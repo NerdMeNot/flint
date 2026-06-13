@@ -219,7 +219,7 @@ type Project struct {
 	IsArchived     bool      `json:"is_archived"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
-	WorkspaceID    *string   `json:"workspace_id"`
+	WorkspaceID    string    `json:"workspace_id"`
 }
 
 type ProjectFavourite struct {
@@ -443,4 +443,5 @@ type Workspace struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	IsDefault   bool      `json:"is_default"`
 }

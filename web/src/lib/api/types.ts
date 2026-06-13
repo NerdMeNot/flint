@@ -173,6 +173,8 @@ export const WorkspaceSchema = z.object({
   description: z.optional(z.string()),
   projectCount: z.number(),
   createdAt: z.string(),
+  // The org's default workspace — where new projects land when none is chosen.
+  isDefault: z.optional(z.boolean()),
 })
 
 export const UserSchema = z.object({

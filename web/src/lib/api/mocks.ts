@@ -1604,6 +1604,7 @@ function seedWorkspaces(): Workspace[] {
       description: 'Checkout, billing, and payment processing services',
       projectCount: 2,
       createdAt: '2023-06-01T00:00:00Z',
+      isDefault: true,
     },
     {
       id: 'ws-2',

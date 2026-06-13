@@ -94,6 +94,11 @@ func run(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating default org: %w", err)
 	}
+	// Every org has a default workspace so new projects always have a home
+	// (projects.workspace_id is NOT NULL).
+	if err := q.EnsureDefaultWorkspace(ctx, orgID); err != nil {
+		return fmt.Errorf("ensuring default workspace: %w", err)
+	}
 	log.Info().Str("orgID", orgID).Msg("default org ready")
 
 	// Casbin RBAC enforcer.
