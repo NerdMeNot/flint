@@ -75,6 +75,15 @@ export const LastRunSchema = z.object({
   startedAt: z.string(),
 })
 
+// Rolling health over a recent window of runs, for the projects triage surface.
+export const ProjectHealthSchema = z.object({
+  recentRuns: z.array(RunStatus), // newest-first, up to ~12
+  passRate: z.number(),           // 0..100 over the window
+  failingNow: z.boolean(),        // most recent run failed
+  totalRuns: z.number(),          // window size
+})
+export type ProjectHealth = z.infer<typeof ProjectHealthSchema>
+
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -87,6 +96,8 @@ export const ProjectSchema = z.object({
   lastRun: z.optional(LastRunSchema),
   // true when the workspace was inferred (not declared) — surfaced for triage.
   inferred: z.optional(z.boolean()),
+  // Backend should populate this; the mock derives it. Optional for safety.
+  health: z.optional(ProjectHealthSchema),
 })
 
 export const PipelineStepSchema = z.object({
