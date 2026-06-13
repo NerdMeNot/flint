@@ -1,10 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Boxes, FolderGit2, Calendar } from 'lucide-react'
-import { orpc } from '#/lib/orpc'
+import { useState } from 'react'
+import { Boxes, FolderGit2, Calendar, Plus } from 'lucide-react'
+import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { formatTime } from '#/lib/format-time'
 import { PageHeader } from '#/components/PageHeader'
 import { Badge } from '#/components/Badge'
+import { EmptyState } from '#/components/EmptyState'
+import { ConfirmButton } from '#/components/ConfirmButton'
+import { Modal } from '#/components/Modal'
 
 export const Route = createFileRoute('/settings/workspaces')({
   component: WorkspacesPage,
@@ -13,19 +18,31 @@ export const Route = createFileRoute('/settings/workspaces')({
 function WorkspacesPage() {
   const { data: wsData } = useSuspenseQuery(orpc.workspaces.list.queryOptions({ input: {} }))
   const workspaces = wsData.items
+  const [showCreate, setShowCreate] = useState(false)
+
+  const del = useAction((id: string) => client.workspaces.delete({ id }), {
+    invalidate: [orpc.workspaces.list.key()],
+  })
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Workspaces"
         subtitle={`${workspaces.length} ${workspaces.length === 1 ? 'workspace' : 'workspaces'} configured`}
+        action={
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors"
+            style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+          >
+            <Plus size={12} /> Add workspace
+          </button>
+        }
       />
 
       {workspaces.length === 0 ? (
-        <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
-          <Boxes size={32} strokeWidth={1.2} />
-          <span className="text-sm">No workspaces configured yet.</span>
-        </div>
+        <EmptyState icon={Boxes} message="No workspaces configured yet." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {workspaces.map((ws, i) => (
@@ -42,6 +59,8 @@ function WorkspacesPage() {
                   </div>
                   <p className="text-xs text-muted-foreground font-mono truncate">{ws.slug}</p>
                 </div>
+                {/* The org default can't be deleted (it's where new projects land). */}
+                {!ws.isDefault && <ConfirmButton onConfirm={() => del.mutate(ws.id)} title="Delete workspace" />}
               </div>
 
               {ws.description && (
@@ -62,6 +81,74 @@ function WorkspacesPage() {
           ))}
         </div>
       )}
+
+      {showCreate && <CreateWorkspaceModal onClose={() => setShowCreate(false)} />}
     </div>
+  )
+}
+
+function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [description, setDescription] = useState('')
+
+  const create = useAction(
+    (input: { name: string; slug: string; description?: string }) => client.workspaces.create(input),
+    { invalidate: [orpc.workspaces.list.key()], onSuccess: onClose },
+  )
+
+  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim() || !slug.trim()) return
+    create.mutate({ name: name.trim(), slug: slug.trim(), description: description.trim() || undefined })
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Add workspace" subtitle="A new ownership partition for projects">
+      <form onSubmit={handleSubmit}>
+        <div className="px-5 py-4 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Name <span className="text-destructive">*</span></label>
+            <input
+              type="text" required autoFocus value={name}
+              onChange={(e) => { setName(e.target.value); if (!slugEdited) setSlug(slugify(e.target.value)) }}
+              placeholder="Payments"
+              className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Slug <span className="text-destructive">*</span></label>
+            <input
+              type="text" required value={slug}
+              onChange={(e) => { setSlug(slugify(e.target.value)); setSlugEdited(true) }}
+              placeholder="payments"
+              className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Description</label>
+            <input
+              type="text" value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What lives in this workspace?"
+              className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+            Cancel
+          </button>
+          <button type="submit" disabled={create.isPending || !name.trim() || !slug.trim()}
+            className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
+            style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}>
+            Add workspace
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
