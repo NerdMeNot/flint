@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Shield, Copy, Download, Check, ArrowRight, Loader2 } from 'lucide-react'
+import { orpc, client } from '#/lib/orpc'
 
 type MFASetupStep = 'qr' | 'verify' | 'recovery'
 
@@ -22,24 +24,18 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
   // Verify
   const [code, setCode] = useState('')
   const [copied, setCopied] = useState(false)
+  const queryClient = useQueryClient()
 
   const startSetup = async () => {
     setLoading(true)
     setError('')
     try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/auth/mfa/setup', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Setup failed')
-
+      const data = await client.auth.mfa.setup()
       setSecret(data.secret)
       setQrCodeURL(data.qrCodeURL)
       setRecoveryCodes(data.recoveryCodes || [])
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Setup failed')
     } finally {
       setLoading(false)
     }
@@ -49,21 +45,12 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
     setLoading(true)
     setError('')
     try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/auth/mfa/setup/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ code }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Verification failed')
-
+      await client.auth.mfa.verifySetup({ code })
+      // MFA is now enabled — refresh /auth/me so the parent reflects it.
+      await queryClient.invalidateQueries({ queryKey: orpc.auth.me.key() })
       setStep('recovery')
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed')
     } finally {
       setLoading(false)
     }

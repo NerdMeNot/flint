@@ -344,6 +344,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 	// live on the user row. Best-effort: fall back to JWT claims if absent.
 	name := claims.Name
 	var avatarURL, themeMode, colorTheme string
+	var mfaEnabled bool
 	if user, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{
 		OrgID: claims.OrgID, Email: claims.Email,
 	}); err == nil {
@@ -353,6 +354,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		avatarURL = derefString(user.AvatarUrl)
 		themeMode = derefString(user.ThemeMode)
 		colorTheme = derefString(user.ColorTheme)
+		mfaEnabled = user.TotpVerified
 	}
 
 	c.JSON(consts.StatusOK, utils.H{
@@ -367,6 +369,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		"groups":      claims.Groups,
 		"themeMode":   themeMode,
 		"colorTheme":  colorTheme,
+		"mfaEnabled":  mfaEnabled,
 	})
 }
 

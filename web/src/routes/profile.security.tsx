@@ -1,6 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Shield, Key, AlertCircle, Check, Loader2, Eye, EyeOff } from 'lucide-react'
+import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 import { MFASetupWizard } from '#/components/auth/MFASetupWizard'
 import { PageHeader } from '#/components/PageHeader'
 
@@ -35,35 +38,22 @@ function ChangePasswordSection() {
   const [newPw, setNewPw] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showCurrent, setShowCurrent] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const [localError, setLocalError] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const change = useAction(
+    (input: { currentPassword: string; newPassword: string }) => client.auth.changePassword(input),
+    { onSuccess: () => { setCurrent(''); setNewPw(''); setConfirm('') } },
+  )
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
-    setSuccess(false)
-    if (newPw.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (newPw !== confirm) { setError('Passwords do not match'); return }
-
-    setLoading(true)
-    try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ currentPassword: current, newPassword: newPw }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to change password')
-      setSuccess(true)
-      setCurrent(''); setNewPw(''); setConfirm('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to change password')
-    } finally {
-      setLoading(false)
-    }
+    setLocalError('')
+    if (newPw.length < 8) { setLocalError('Password must be at least 8 characters'); return }
+    if (newPw !== confirm) { setLocalError('Passwords do not match'); return }
+    change.mutate({ currentPassword: current, newPassword: newPw })
   }
+
+  const error = localError || (change.isError ? (change.error as Error).message : '')
 
   return (
     <section className="island-shell p-5">
@@ -74,7 +64,7 @@ function ChangePasswordSection() {
 
       <div className="space-y-3">
         {error && <Alert kind="error">{error}</Alert>}
-        {success && <Alert kind="success">Password changed successfully</Alert>}
+        {change.isSuccess && <Alert kind="success">Password changed successfully</Alert>}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1.5">
@@ -104,10 +94,10 @@ function ChangePasswordSection() {
             <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required
               className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 transition-shadow" />
           </div>
-          <button type="submit" disabled={loading || !current || !newPw || !confirm}
+          <button type="submit" disabled={change.isPending || !current || !newPw || !confirm}
             className="flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
             style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}>
-            {loading ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+            {change.isPending ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
             Change password
           </button>
         </form>
@@ -117,32 +107,16 @@ function ChangePasswordSection() {
 }
 
 function MFASection() {
-  const [mfaEnabled, setMfaEnabled] = useState(false) // TODO(phase2): hydrate from /auth/me
+  const { data: user } = useQuery(orpc.auth.me.queryOptions({}))
+  const mfaEnabled = !!user?.mfaEnabled
   const [showSetup, setShowSetup] = useState(false)
   const [disableCode, setDisableCode] = useState('')
   const [showDisable, setShowDisable] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
-  const handleDisable = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/auth/mfa', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ code: disableCode }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to disable MFA')
-      setMfaEnabled(false); setShowDisable(false); setDisableCode('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to disable MFA')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const disable = useAction((code: string) => client.auth.mfa.disable({ code }), {
+    invalidate: [orpc.auth.me.key()],
+    onSuccess: () => { setShowDisable(false); setDisableCode('') },
+  })
 
   return (
     <section className="island-shell p-5">
@@ -158,11 +132,11 @@ function MFASection() {
         )}
       </div>
 
-      {error && <div className="mb-4"><Alert kind="error">{error}</Alert></div>}
+      {disable.isError && <div className="mb-4"><Alert kind="error">{(disable.error as Error).message}</Alert></div>}
 
       {showSetup ? (
         <MFASetupWizard
-          onComplete={() => { setShowSetup(false); setMfaEnabled(true) }}
+          onComplete={() => setShowSetup(false)}
           onCancel={() => setShowSetup(false)}
         />
       ) : showDisable ? (
@@ -173,9 +147,9 @@ function MFASection() {
             placeholder="000000" maxLength={6} autoFocus
             className="w-48 text-center rounded-lg border border-border bg-transparent px-3 py-2 text-sm font-mono text-foreground tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring/40" />
           <div className="flex gap-2">
-            <button onClick={handleDisable} disabled={loading || disableCode.length !== 6}
+            <button onClick={() => disable.mutate(disableCode)} disabled={disable.isPending || disableCode.length !== 6}
               className="flex items-center gap-2 rounded-lg bg-destructive text-white font-medium text-xs px-3.5 py-1.5 hover:opacity-90 disabled:opacity-50">
-              {loading ? <Loader2 size={13} className="animate-spin" /> : null}
+              {disable.isPending ? <Loader2 size={13} className="animate-spin" /> : null}
               Disable MFA
             </button>
             <button onClick={() => { setShowDisable(false); setDisableCode('') }}

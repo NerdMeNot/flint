@@ -20,6 +20,8 @@ import type {
   RunnerPool,
   ForgeConnection,
   AuthUser,
+  Session,
+  MfaSetup,
   PersonalToken,
   WorkflowRun,
   WorkflowRunDetail,
@@ -2119,6 +2121,7 @@ export function getAuthUser(): AuthUser {
     provider: 'local',
     themeMode: ls?.getItem('theme') ?? 'auto',
     colorTheme: ls?.getItem('flint-color-theme') ?? 'ocean',
+    mfaEnabled: false,
   })
 }
 
@@ -2133,6 +2136,46 @@ export function updateAuthProfile(input: {
   if (input.avatarUrl !== undefined) u.avatarUrl = input.avatarUrl
   if (input.themeMode !== undefined) u.themeMode = input.themeMode
   if (input.colorTheme !== undefined) u.colorTheme = input.colorTheme
+  return { success: true }
+}
+
+export function changePassword(): { success: true } {
+  return { success: true }
+}
+
+// ── Sessions (current user) ─────────────────────────────────
+let _sessions: Session[] | undefined
+function seedSessions(): Session[] {
+  return [
+    { id: 'sess-1', ipAddress: '192.168.1.42', userAgent: 'Mozilla/5.0 (Macintosh; Apple Silicon) Chrome/124', createdAt: '2026-06-14T08:00:00Z', lastActivity: nowIso(), current: true },
+    { id: 'sess-2', ipAddress: '10.0.0.7', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_2) Safari', createdAt: '2026-06-12T14:30:00Z', lastActivity: '2026-06-13T19:05:00Z' },
+    { id: 'sess-3', ipAddress: '172.16.4.19', userAgent: 'flint-cli/1.4.0 (linux; amd64)', createdAt: '2026-06-10T09:12:00Z', lastActivity: '2026-06-13T11:40:00Z' },
+  ]
+}
+export function getSessions(): Session[] {
+  return (_sessions ??= seedSessions())
+}
+export function revokeSession(id: string): { success: true } {
+  const list = getSessions()
+  const i = list.findIndex((s) => s.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// ── MFA enrollment ──────────────────────────────────────────
+export function mfaSetup(): MfaSetup {
+  return {
+    secret: 'JBSWY3DPEHPK3PXP',
+    qrCodeURL: 'otpauth://totp/Flint:alice@acme.dev?secret=JBSWY3DPEHPK3PXP&issuer=Flint',
+    recoveryCodes: ['8f3k-2m9x', 'q7w2-p4r8', 'z1c5-v6b3', 'n9d4-h2j7', 'a5s8-g3f1', 't6y9-u4i2'],
+  }
+}
+export function mfaVerifySetup(): { success: true } {
+  getAuthUser().mfaEnabled = true
+  return { success: true }
+}
+export function mfaDisable(): { success: true } {
+  getAuthUser().mfaEnabled = false
   return { success: true }
 }
 

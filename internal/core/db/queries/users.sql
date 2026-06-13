@@ -17,7 +17,7 @@ ON CONFLICT (org_id, external_id) DO UPDATE SET
 RETURNING id;
 
 -- name: GetUserByEmail :one
-SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme FROM users
+SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme, totp_verified FROM users
 WHERE org_id = $1 AND email = $2;
 
 -- name: UpdateUserProfile :exec
