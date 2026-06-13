@@ -60,16 +60,22 @@ func (q *Queries) GetProjectWorkspaceSlug(ctx context.Context, id string) (strin
 }
 
 const getWorkspaceByID = `-- name: GetWorkspaceByID :one
-SELECT id, name, slug, description, created_at
-FROM workspaces WHERE id = $1
+SELECT w.id, w.name, w.slug, w.description, w.created_at,
+       w.owner_team_id, t.name AS owner_team_name, t.slug AS owner_team_slug
+FROM workspaces w
+LEFT JOIN teams t ON t.id = w.owner_team_id
+WHERE w.id = $1
 `
 
 type GetWorkspaceByIDRow struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description *string   `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Description   *string   `json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	OwnerTeamID   *string   `json:"owner_team_id"`
+	OwnerTeamName *string   `json:"owner_team_name"`
+	OwnerTeamSlug *string   `json:"owner_team_slug"`
 }
 
 func (q *Queries) GetWorkspaceByID(ctx context.Context, id string) (GetWorkspaceByIDRow, error) {
@@ -81,13 +87,19 @@ func (q *Queries) GetWorkspaceByID(ctx context.Context, id string) (GetWorkspace
 		&i.Slug,
 		&i.Description,
 		&i.CreatedAt,
+		&i.OwnerTeamID,
+		&i.OwnerTeamName,
+		&i.OwnerTeamSlug,
 	)
 	return i, err
 }
 
 const getWorkspaceBySlug = `-- name: GetWorkspaceBySlug :one
-SELECT id, name, slug, description, created_at
-FROM workspaces WHERE org_id = $1 AND slug = $2
+SELECT w.id, w.name, w.slug, w.description, w.created_at,
+       w.owner_team_id, t.name AS owner_team_name, t.slug AS owner_team_slug
+FROM workspaces w
+LEFT JOIN teams t ON t.id = w.owner_team_id
+WHERE w.org_id = $1 AND w.slug = $2
 `
 
 type GetWorkspaceBySlugParams struct {
@@ -96,11 +108,14 @@ type GetWorkspaceBySlugParams struct {
 }
 
 type GetWorkspaceBySlugRow struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description *string   `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Description   *string   `json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	OwnerTeamID   *string   `json:"owner_team_id"`
+	OwnerTeamName *string   `json:"owner_team_name"`
+	OwnerTeamSlug *string   `json:"owner_team_slug"`
 }
 
 func (q *Queries) GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlugParams) (GetWorkspaceBySlugRow, error) {
@@ -112,13 +127,19 @@ func (q *Queries) GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlug
 		&i.Slug,
 		&i.Description,
 		&i.CreatedAt,
+		&i.OwnerTeamID,
+		&i.OwnerTeamName,
+		&i.OwnerTeamSlug,
 	)
 	return i, err
 }
 
 const listWorkspaces = `-- name: ListWorkspaces :many
-SELECT id, name, slug, description, created_at
-FROM workspaces WHERE org_id = $1 ORDER BY name
+SELECT w.id, w.name, w.slug, w.description, w.created_at,
+       w.owner_team_id, t.name AS owner_team_name, t.slug AS owner_team_slug
+FROM workspaces w
+LEFT JOIN teams t ON t.id = w.owner_team_id
+WHERE w.org_id = $1 ORDER BY w.name
 LIMIT $2 OFFSET $3
 `
 
@@ -129,11 +150,14 @@ type ListWorkspacesParams struct {
 }
 
 type ListWorkspacesRow struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description *string   `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Description   *string   `json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	OwnerTeamID   *string   `json:"owner_team_id"`
+	OwnerTeamName *string   `json:"owner_team_name"`
+	OwnerTeamSlug *string   `json:"owner_team_slug"`
 }
 
 func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error) {
@@ -151,6 +175,9 @@ func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) 
 			&i.Slug,
 			&i.Description,
 			&i.CreatedAt,
+			&i.OwnerTeamID,
+			&i.OwnerTeamName,
+			&i.OwnerTeamSlug,
 		); err != nil {
 			return nil, err
 		}
@@ -160,4 +187,18 @@ func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const setWorkspaceOwnerTeam = `-- name: SetWorkspaceOwnerTeam :exec
+UPDATE workspaces SET owner_team_id = $1 WHERE id = $2
+`
+
+type SetWorkspaceOwnerTeamParams struct {
+	OwnerTeamID *string `json:"owner_team_id"`
+	ID          string  `json:"id"`
+}
+
+func (q *Queries) SetWorkspaceOwnerTeam(ctx context.Context, arg SetWorkspaceOwnerTeamParams) error {
+	_, err := q.db.Exec(ctx, setWorkspaceOwnerTeam, arg.OwnerTeamID, arg.ID)
+	return err
 }

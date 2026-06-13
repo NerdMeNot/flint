@@ -414,6 +414,15 @@ const workspaces = {
     .handler(async ({ input }) => {
       return safe(() => backendDelete(`/workspaces/${input.id}`), () => mocks.deleteWorkspace(input.id))
     }),
+
+  setOwnerTeam: os
+    .input(z.object({ id: z.string(), teamId: z.nullable(z.string()) }))
+    .handler(async ({ input }) => {
+      return safe(
+        () => backendPut(`/workspaces/${input.id}/owner-team`, { teamId: input.teamId }),
+        () => mocks.setWorkspaceOwnerTeam(input.id, input.teamId),
+      )
+    }),
 }
 
 // ---------------------------------------------------------------------------

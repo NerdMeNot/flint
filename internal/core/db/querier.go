@@ -288,6 +288,7 @@ type Querier interface {
 	SetStepTaskToken(ctx context.Context, arg SetStepTaskTokenParams) error
 	SetUserRecoveryCodes(ctx context.Context, arg SetUserRecoveryCodesParams) error
 	SetUserTOTPSecret(ctx context.Context, arg SetUserTOTPSecretParams) error
+	SetWorkspaceOwnerTeam(ctx context.Context, arg SetWorkspaceOwnerTeamParams) error
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
 	SweepStaleWorkflows(ctx context.Context) error
 	TouchAPIKey(ctx context.Context, id string) error

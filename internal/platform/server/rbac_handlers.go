@@ -30,11 +30,13 @@ type assignmentResponse struct {
 }
 
 type workspaceResponse struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"createdAt"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Slug          string  `json:"slug"`
+	Description   *string `json:"description,omitempty"`
+	CreatedAt     string  `json:"createdAt"`
+	OwnerTeamID   *string `json:"ownerTeamId,omitempty"`
+	OwnerTeamName *string `json:"ownerTeamName,omitempty"`
 }
 
 // ── Roles ──────────────────────────────────────────────────
@@ -338,11 +340,13 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 	result := make([]workspaceResponse, 0, len(workspaces))
 	for _, w := range workspaces {
 		result = append(result, workspaceResponse{
-			ID:          w.ID,
-			Name:        w.Name,
-			Slug:        w.Slug,
-			Description: w.Description,
-			CreatedAt:   w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:            w.ID,
+			Name:          w.Name,
+			Slug:          w.Slug,
+			Description:   w.Description,
+			CreatedAt:     w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			OwnerTeamID:   w.OwnerTeamID,
+			OwnerTeamName: w.OwnerTeamName,
 		})
 	}
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(workspaces))})
@@ -385,6 +389,26 @@ func (s *Server) handleDeleteWorkspace(ctx context.Context, c *app.RequestContex
 	rows, err := s.deps.Q.DeleteWorkspace(ctx, id)
 	if err != nil || rows == 0 {
 		apiNotFound(ctx, c, "workspace not found")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// handleSetWorkspaceOwnerTeam sets (or clears, with a null teamId) the team that
+// owns a workspace.
+func (s *Server) handleSetWorkspaceOwnerTeam(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req struct {
+		TeamID *string `json:"teamId"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request")
+		return
+	}
+	if err := s.deps.Q.SetWorkspaceOwnerTeam(ctx, db.SetWorkspaceOwnerTeamParams{
+		ID: id, OwnerTeamID: req.TeamID,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to set owning team")
 		return
 	}
 	c.JSON(consts.StatusOK, utils.H{"success": true})

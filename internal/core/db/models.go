@@ -443,4 +443,5 @@ type Workspace struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	OwnerTeamID *string   `json:"owner_team_id"`
 }

@@ -173,6 +173,9 @@ export const WorkspaceSchema = z.object({
   description: z.optional(z.string()),
   projectCount: z.number(),
   createdAt: z.string(),
+  // The team (group of users) that owns this workspace, if assigned.
+  ownerTeamId: z.optional(z.string()),
+  ownerTeamName: z.optional(z.string()),
 })
 
 export const UserSchema = z.object({

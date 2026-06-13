@@ -1,8 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Boxes, FolderGit2, Calendar } from 'lucide-react'
-import { orpc } from '#/lib/orpc'
+import { Boxes, FolderGit2, Calendar, Users } from 'lucide-react'
+import { client, orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
+import { useAction } from '#/hooks/use-action'
+import { FormSelect } from '#/components/FormSelect'
 
 export const Route = createFileRoute('/settings/workspaces')({
   component: WorkspacesPage,
@@ -11,6 +13,13 @@ export const Route = createFileRoute('/settings/workspaces')({
 function WorkspacesPage() {
   const { data: wsData } = useSuspenseQuery(orpc.workspaces.list.queryOptions({ input: {} }))
   const workspaces = wsData.items
+  const { data: teamsData } = useSuspenseQuery(orpc.teams.list.queryOptions({ input: {} }))
+  const teamOptions = teamsData.items.map((t) => ({ key: t.id, label: t.name }))
+
+  const setOwner = useAction(
+    (v: { id: string; teamId: string | null }) => client.workspaces.setOwnerTeam(v),
+    { invalidate: [orpc.workspaces.list.key()] },
+  )
 
   return (
     <div className="space-y-5">
@@ -52,6 +61,20 @@ function WorkspacesPage() {
                   <Calendar size={12} />
                   {formatTime(ws.createdAt)}
                 </span>
+              </div>
+
+              {/* Owning team (Team ──owns──▶ Workspace) */}
+              <div className="space-y-1.5 pt-1">
+                <label className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                  <Users size={11} />
+                  Owned by
+                </label>
+                <FormSelect
+                  value={ws.ownerTeamId ?? ''}
+                  placeholder="No owning team"
+                  options={teamOptions}
+                  onChange={(teamId) => setOwner.mutate({ id: ws.id, teamId: teamId || null })}
+                />
               </div>
             </div>
           ))}

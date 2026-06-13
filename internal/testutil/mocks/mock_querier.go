@@ -5712,6 +5712,24 @@ func (_m *Querier) SetUserTOTPSecret(ctx context.Context, arg db.SetUserTOTPSecr
 	return r0
 }
 
+// SetWorkspaceOwnerTeam provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetWorkspaceOwnerTeam(ctx context.Context, arg db.SetWorkspaceOwnerTeamParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetWorkspaceOwnerTeam")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetWorkspaceOwnerTeamParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SweepStaleRunningSteps provides a mock function with given fields: ctx
 func (_m *Querier) SweepStaleRunningSteps(ctx context.Context) (int64, error) {
 	ret := _m.Called(ctx)

@@ -150,6 +150,7 @@ func (s *Server) registerAPIRoutes() {
 	// Workspaces.
 	v1.GET("/workspaces", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleListWorkspaces)
 	v1.POST("/workspaces", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleCreateWorkspace)
+	v1.PUT("/workspaces/:id/owner-team", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleSetWorkspaceOwnerTeam)
 	v1.DELETE("/workspaces/:id", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleDeleteWorkspace)
 
 	// API keys.

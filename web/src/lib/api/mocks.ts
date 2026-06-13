@@ -1604,6 +1604,8 @@ function seedWorkspaces(): Workspace[] {
       description: 'Checkout, billing, and payment processing services',
       projectCount: 2,
       createdAt: '2023-06-01T00:00:00Z',
+      ownerTeamId: 't-1',
+      ownerTeamName: 'Backend Devs',
     },
     {
       id: 'ws-2',
@@ -1628,6 +1630,8 @@ function seedWorkspaces(): Workspace[] {
       description: 'Shared infrastructure, auth, and developer tooling',
       projectCount: 2,
       createdAt: '2023-08-15T00:00:00Z',
+      ownerTeamId: 't-3',
+      ownerTeamName: 'Platform Engineering',
     },
   ]
 }
@@ -2229,6 +2233,15 @@ export function deleteWorkspace(id: string): { success: true } {
   const list = getWorkspaces()
   const i = list.findIndex((w) => w.id === id)
   if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+export function setWorkspaceOwnerTeam(id: string, teamId: string | null): { success: true } {
+  const ws = getWorkspaces().find((w) => w.id === id)
+  if (ws) {
+    const team = teamId ? getTeams().find((t) => t.id === teamId) : undefined
+    ws.ownerTeamId = team?.id
+    ws.ownerTeamName = team?.name
+  }
   return { success: true }
 }
 
