@@ -74,7 +74,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Org policy: when "require workspace" is on, a project must declare
 	// spec.workspace — otherwise mark it NotReady and don't register it (rather
-	// than silently inferring a workspace).
+	// than letting it default into the Unsorted workspace).
 	if org, err := r.Q.GetOrg(ctx); err == nil && org.RequireProjectWorkspace && strings.TrimSpace(project.Spec.Workspace) == "" {
 		meta.SetStatusCondition(&project.Status.Conditions, metav1.Condition{
 			Type:               "Registered",

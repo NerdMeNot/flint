@@ -114,7 +114,7 @@ export function getProjects(): Project[] {
       id: 'p-4',
       name: 'Terraform Infra',
       repo: 'acme/terraform-infra',
-      workspace: 'acme',
+      workspace: 'unsorted',
       lastRun: {
         id: 'r-104',
         status: 'succeeded',
@@ -150,8 +150,8 @@ export function getProjects(): Project[] {
     {
       id: 'p-6',
       name: 'Web Storefront',
-      repo: 'globex/web-storefront',
-      workspace: 'globex',
+      repo: 'acme/web-storefront',
+      workspace: 'unsorted',
       tags: [],
       pipelineCount: 1,
       pipelineErrors: 0,
@@ -1611,7 +1611,6 @@ function seedWorkspaces(): Workspace[] {
       description: 'Checkout, billing, and payment processing services',
       projectCount: 2,
       createdAt: '2023-06-01T00:00:00Z',
-      isDefault: true,
     },
     {
       id: 'ws-2',
@@ -1637,23 +1636,15 @@ function seedWorkspaces(): Workspace[] {
       projectCount: 1,
       createdAt: '2023-08-15T00:00:00Z',
     },
-    // Owner-derived workspaces, auto-created for projects that didn't declare
-    // spec.workspace (inferred from the repo owner).
+    // Fallback bucket: projects that didn't declare a workspace land here.
     {
       id: 'ws-5',
-      name: 'acme',
-      slug: 'acme',
-      description: 'Auto-created from the acme/* repo owner',
-      projectCount: 1,
-      createdAt: '2024-01-05T00:00:00Z',
-    },
-    {
-      id: 'ws-6',
-      name: 'globex',
-      slug: 'globex',
-      description: 'Auto-created from the globex/* repo owner',
-      projectCount: 1,
-      createdAt: '2024-02-12T00:00:00Z',
+      name: 'Unsorted',
+      slug: 'unsorted',
+      description: 'Projects that have not been assigned a workspace yet',
+      projectCount: 2,
+      createdAt: '2023-06-01T00:00:00Z',
+      isDefault: true,
     },
   ]
 }

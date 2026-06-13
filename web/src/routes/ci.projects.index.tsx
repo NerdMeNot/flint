@@ -6,7 +6,6 @@ import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
-import { Badge } from '#/components/Badge'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const PROJECT_PAGE_SIZE = 12
@@ -163,12 +162,7 @@ function ProjectsPage() {
                     <p className="text-xs text-muted-foreground font-mono truncate">{project.repo}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  {project.inferred && (
-                    <Badge variant="warning" className="!text-[10px]" >auto-grouped</Badge>
-                  )}
-                  <span className="island-kicker !text-[11px]">{project.workspace}</span>
-                </div>
+                <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
               </div>
 
               {project.tags.length > 0 ? (
