@@ -83,7 +83,7 @@ func (q *Queries) CreateLocalUser(ctx context.Context, arg CreateLocalUserParams
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme FROM users
+SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme, totp_verified FROM users
 WHERE org_id = $1 AND email = $2
 `
 
@@ -93,13 +93,14 @@ type GetUserByEmailParams struct {
 }
 
 type GetUserByEmailRow struct {
-	ID         string  `json:"id"`
-	Email      string  `json:"email"`
-	ExternalID string  `json:"external_id"`
-	Name       *string `json:"name"`
-	AvatarUrl  *string `json:"avatar_url"`
-	ThemeMode  *string `json:"theme_mode"`
-	ColorTheme *string `json:"color_theme"`
+	ID           string  `json:"id"`
+	Email        string  `json:"email"`
+	ExternalID   string  `json:"external_id"`
+	Name         *string `json:"name"`
+	AvatarUrl    *string `json:"avatar_url"`
+	ThemeMode    *string `json:"theme_mode"`
+	ColorTheme   *string `json:"color_theme"`
+	TotpVerified bool    `json:"totp_verified"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) (GetUserByEmailRow, error) {
@@ -113,6 +114,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) 
 		&i.AvatarUrl,
 		&i.ThemeMode,
 		&i.ColorTheme,
+		&i.TotpVerified,
 	)
 	return i, err
 }

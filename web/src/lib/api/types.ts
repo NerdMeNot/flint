@@ -334,7 +334,28 @@ export const AuthUserSchema = z.object({
   // Appearance preferences, persisted server-side against the user.
   themeMode: z.optional(z.string()),
   colorTheme: z.optional(z.string()),
+  // Whether TOTP two-factor is enabled for this user.
+  mfaEnabled: z.optional(z.boolean()),
 })
+
+// An active sign-in session for the current user.
+export const SessionSchema = z.object({
+  id: z.string(),
+  ipAddress: z.optional(z.string()),
+  userAgent: z.optional(z.string()),
+  createdAt: z.string(),
+  lastActivity: z.string(),
+  current: z.optional(z.boolean()),
+})
+export type Session = z.infer<typeof SessionSchema>
+
+// TOTP enrollment payload returned when starting MFA setup.
+export const MfaSetupSchema = z.object({
+  secret: z.string(),
+  qrCodeURL: z.string(),
+  recoveryCodes: z.array(z.string()),
+})
+export type MfaSetup = z.infer<typeof MfaSetupSchema>
 
 export const SearchResultSchema = z.object({
   projects: z.array(ProjectSchema),

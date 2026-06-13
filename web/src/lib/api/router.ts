@@ -24,6 +24,8 @@ import {
   type ForgeConnection,
   type AuditEntry,
   type AuthUser,
+  type Session,
+  type MfaSetup,
   type WorkflowRun,
   type WorkflowRunDetail,
 } from './types'
@@ -811,6 +813,42 @@ const auth = {
     .handler(async ({ input }) => {
       return safe(() => backendPut('/auth/profile', input), () => mocks.updateAuthProfile(input))
     }),
+
+  changePassword: os
+    .input(z.object({ currentPassword: z.string(), newPassword: z.string() }))
+    .handler(async ({ input }) => {
+      return safe(() => backendPost('/auth/change-password', input), () => mocks.changePassword())
+    }),
+
+  sessions: {
+    list: os.handler(async () => {
+      return withFallback(
+        () => backendGet<{ items: Session[] }>('/auth/sessions').then((r) => r.items),
+        () => mocks.getSessions(),
+      )
+    }),
+    revoke: os
+      .input(z.object({ id: z.string() }))
+      .handler(async ({ input }) => {
+        return safe(() => backendDelete(`/auth/sessions/${input.id}`), () => mocks.revokeSession(input.id))
+      }),
+  },
+
+  mfa: {
+    setup: os.handler(async () => {
+      return safe(() => backendPost<MfaSetup>('/auth/mfa/setup'), () => mocks.mfaSetup())
+    }),
+    verifySetup: os
+      .input(z.object({ code: z.string() }))
+      .handler(async ({ input }) => {
+        return safe(() => backendPost('/auth/mfa/setup/verify', input), () => mocks.mfaVerifySetup())
+      }),
+    disable: os
+      .input(z.object({ code: z.string() }))
+      .handler(async () => {
+        return safe(() => backendDelete('/auth/mfa'), () => mocks.mfaDisable())
+      }),
+  },
 }
 
 // ---------------------------------------------------------------------------
