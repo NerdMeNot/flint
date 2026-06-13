@@ -26,6 +26,7 @@ import {
   type AuthUser,
   type Session,
   type MfaSetup,
+  type AuthProviders,
   type WorkflowRun,
   type WorkflowRunDetail,
 } from './types'
@@ -584,6 +585,24 @@ const teams = {
     .handler(async ({ input }) => {
       return safe(() => backendDelete(`/teams/${input.id}`), () => mocks.deleteTeam(input.id))
     }),
+
+  addMembers: os
+    .input(z.object({ teamId: z.string(), userIds: z.array(z.string()) }))
+    .handler(async ({ input }) => {
+      return safe(
+        () => backendPost(`/teams/${input.teamId}/members`, { userIds: input.userIds }),
+        () => mocks.addTeamMembers(input.teamId, input.userIds),
+      )
+    }),
+
+  removeMember: os
+    .input(z.object({ teamId: z.string(), userId: z.string() }))
+    .handler(async ({ input }) => {
+      return safe(
+        () => backendDelete(`/teams/${input.teamId}/members/${input.userId}`),
+        () => mocks.removeTeamMember(input.teamId, input.userId),
+      )
+    }),
 }
 
 // ---------------------------------------------------------------------------
@@ -847,6 +866,35 @@ const auth = {
       .input(z.object({ code: z.string() }))
       .handler(async () => {
         return safe(() => backendDelete('/auth/mfa'), () => mocks.mfaDisable())
+      }),
+  },
+
+  providers: {
+    list: os.handler(async () => {
+      return withFallback(
+        () => backendGet<AuthProviders>('/auth/providers'),
+        () => mocks.getAuthProviders(),
+      )
+    }),
+    save: os
+      .input(z.object({
+        providerType: z.enum(['oidc', 'saml']),
+        displayName: z.optional(z.string()),
+        config: z.object({
+          issuerUrl: z.optional(z.string()),
+          clientId: z.optional(z.string()),
+          clientSecret: z.optional(z.string()),
+          metadataUrl: z.optional(z.string()),
+          entityId: z.optional(z.string()),
+        }),
+      }))
+      .handler(async ({ input }) => {
+        return safe(() => backendPut('/auth/provider', input), () => mocks.saveAuthProvider(input))
+      }),
+    delete: os
+      .input(z.object({ providerType: z.string() }))
+      .handler(async ({ input }) => {
+        return safe(() => backendDelete(`/auth/provider/${input.providerType}`), () => mocks.deleteAuthProvider(input.providerType))
       }),
   },
 }

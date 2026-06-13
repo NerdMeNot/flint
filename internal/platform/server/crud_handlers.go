@@ -132,6 +132,37 @@ func (s *Server) handleDeleteTeam(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
+// handleAddTeamMembers adds one or more users to a team (internal membership).
+func (s *Server) handleAddTeamMembers(ctx context.Context, c *app.RequestContext) {
+	teamID := c.Param("id")
+	var req struct {
+		UserIDs []string `json:"userIds"`
+	}
+	if c.BindJSON(&req) != nil || len(req.UserIDs) == 0 {
+		apiBadRequest(ctx, c, "userIds required")
+		return
+	}
+	for _, uid := range req.UserIDs {
+		if err := s.deps.Q.AddTeamMember(ctx, db.AddTeamMemberParams{TeamID: teamID, UserID: uid}); err != nil {
+			apiInternal(ctx, c, "failed to add team member")
+			return
+		}
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "added": len(req.UserIDs)})
+}
+
+// handleRemoveTeamMember removes a single user from a team.
+func (s *Server) handleRemoveTeamMember(ctx context.Context, c *app.RequestContext) {
+	n, err := s.deps.Q.RemoveTeamMember(ctx, db.RemoveTeamMemberParams{
+		TeamID: c.Param("id"), UserID: c.Param("userId"),
+	})
+	if err != nil || n == 0 {
+		apiNotFound(ctx, c, "team member not found")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
 // ── Users ─────────────────────────────────────────────────
 
 func (s *Server) handleListUsers(ctx context.Context, c *app.RequestContext) {

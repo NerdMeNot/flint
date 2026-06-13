@@ -22,6 +22,7 @@ import type {
   AuthUser,
   Session,
   MfaSetup,
+  AuthProviders,
   PersonalToken,
   WorkflowRun,
   WorkflowRunDetail,
@@ -1649,21 +1650,43 @@ function seedTeams(): Team[] {
   ]
 }
 
-export function getTeamWithMembers(teamId: string): TeamWithMembers | undefined {
-  const teamMembers: Record<string, User[]> = {
+// Mutable membership store so add/remove behave like a real backend in mock mode.
+let _teamMembers: Record<string, User[]> | undefined
+function teamMemberStore(): Record<string, User[]> {
+  return (_teamMembers ??= {
     't-1': [users[0]!, users[1]!, users[4]!, users[5]!, users[7]!],   // alice, bob, eve, frank, hiro
     't-2': [users[2]!, users[8]!, users[9]!],                          // carol, iris, jake
     't-3': [users[3]!, users[5]!, users[6]!, users[7]!],               // dave, frank, grace, hiro
     't-4': [users[0]!, users[4]!, users[6]!],                          // alice, eve, grace
-  }
+  })
+}
 
+export function getTeamWithMembers(teamId: string): TeamWithMembers | undefined {
   const team = getTeams().find((t) => t.id === teamId)
   if (!team) return undefined
+  const members = teamMemberStore()[teamId] ?? []
+  return { ...team, members, memberCount: members.length }
+}
 
-  return {
-    ...team,
-    members: teamMembers[teamId] ?? [],
+export function addTeamMembers(teamId: string, userIds: string[]): { success: true } {
+  const store = teamMemberStore()
+  const current = store[teamId] ?? (store[teamId] = [])
+  for (const id of userIds) {
+    if (current.some((u) => u.id === id)) continue
+    const u = users.find((x) => x.id === id)
+    if (u) current.push(u)
   }
+  const team = getTeams().find((t) => t.id === teamId)
+  if (team) team.memberCount = current.length
+  return { success: true }
+}
+
+export function removeTeamMember(teamId: string, userId: string): { success: true } {
+  const store = teamMemberStore()
+  store[teamId] = (store[teamId] ?? []).filter((u) => u.id !== userId)
+  const team = getTeams().find((t) => t.id === teamId)
+  if (team) team.memberCount = store[teamId].length
+  return { success: true }
 }
 
 // ---------------------------------------------------------------------------
@@ -2176,6 +2199,28 @@ export function mfaVerifySetup(): { success: true } {
 }
 export function mfaDisable(): { success: true } {
   getAuthUser().mfaEnabled = false
+  return { success: true }
+}
+
+// ── SSO providers ───────────────────────────────────────────
+let _ssoProviders: { id: string; providerType: string; displayName: string }[] | undefined
+export function getAuthProviders(): AuthProviders {
+  const list = (_ssoProviders ??= [])
+  return {
+    providers: list,
+    oidcConfigured: list.some((p) => p.providerType === 'oidc'),
+    samlConfigured: list.some((p) => p.providerType === 'saml'),
+  }
+}
+export function saveAuthProvider(input: { providerType: string; displayName?: string }): { success: true } {
+  const list = (_ssoProviders ??= [])
+  const existing = list.find((p) => p.providerType === input.providerType)
+  if (existing) existing.displayName = input.displayName || input.providerType
+  else list.push({ id: nextId('sso'), providerType: input.providerType, displayName: input.displayName || input.providerType })
+  return { success: true }
+}
+export function deleteAuthProvider(providerType: string): { success: true } {
+  _ssoProviders = (_ssoProviders ?? []).filter((p) => p.providerType !== providerType)
   return { success: true }
 }
 

@@ -1,33 +1,33 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Globe, Eye, EyeOff, Check, Loader2, AlertCircle, ExternalLink } from 'lucide-react'
+import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
 
 export const Route = createFileRoute('/settings/sso')({
   component: SSOSettings,
 })
 
+function Alert({ variant, children }: { variant: 'error' | 'success'; children: React.ReactNode }) {
+  const isError = variant === 'error'
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg p-3 mb-4 text-sm ${
+        isError
+          ? 'bg-destructive/10 border border-destructive/25 text-destructive'
+          : 'bg-success/10 border border-success/30 text-success'
+      }`}
+    >
+      {isError ? <AlertCircle size={14} /> : <Check size={14} />}
+      <span>{children}</span>
+    </div>
+  )
+}
+
 function SSOSettings() {
   const [activeTab, setActiveTab] = useState<'oidc' | 'saml'>('oidc')
-  const [providers, setProviders] = useState<any>(null)
-  const [, setLoading] = useState(true)
-
-  useEffect(() => {
-    const fetchProviders = async () => {
-      try {
-        const token = localStorage.getItem('flint_access_token')
-        const res = await fetch('/api/v1/auth/providers', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        })
-        const data = await res.json()
-        setProviders(data)
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchProviders()
-  }, [])
+  const { data: providers } = useQuery(orpc.auth.providers.list.queryOptions({ input: {} }))
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -69,36 +69,20 @@ function OIDCForm() {
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [showSecret, setShowSecret] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
 
-  const handleSave = async (e: React.FormEvent) => {
+  const save = useAction(
+    () =>
+      client.auth.providers.save({
+        providerType: 'oidc',
+        displayName: 'OIDC',
+        config: { issuerUrl, clientId, clientSecret },
+      }),
+    { invalidate: [orpc.auth.providers.list.key()] },
+  )
+
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    setSuccess(false)
-    setLoading(true)
-
-    try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/api/v1/auth/provider', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          providerType: 'oidc',
-          displayName: 'OIDC',
-          config: { issuerUrl, clientId, clientSecret },
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Save failed')
-
-      setSuccess(true)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
+    save.mutate(undefined)
   }
 
   return (
@@ -110,20 +94,8 @@ function OIDCForm() {
         Works with Okta, Azure AD, Google Workspace, Auth0, Keycloak, and any OIDC-compliant provider.
       </p>
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg p-3 mb-4 text-sm"
-          style={{ background: 'rgba(220, 38, 38, 0.08)', border: '1px solid rgba(220, 38, 38, 0.2)' }}>
-          <AlertCircle size={14} className="text-destructive" />
-          <span className="text-destructive">{error}</span>
-        </div>
-      )}
-      {success && (
-        <div className="flex items-center gap-2 rounded-lg p-3 mb-4 text-sm"
-          style={{ background: 'rgba(5, 150, 105, 0.08)', border: '1px solid rgba(5, 150, 105, 0.2)' }}>
-          <Check size={14} className="text-[var(--success)]" />
-          <span className="text-[var(--success)]">OIDC provider configured and activated</span>
-        </div>
-      )}
+      {save.isError && <Alert variant="error">{save.error.message || 'Save failed'}</Alert>}
+      {save.isSuccess && <Alert variant="success">OIDC provider configured and activated</Alert>}
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
@@ -157,9 +129,9 @@ function OIDCForm() {
         </div>
 
         <div className="flex items-center gap-3 pt-2">
-          <button type="submit" disabled={loading || !issuerUrl || !clientId || !clientSecret}
+          <button type="submit" disabled={save.isPending || !issuerUrl || !clientId || !clientSecret}
             className="flex items-center gap-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm px-4 py-2 hover:opacity-90 disabled:opacity-50 transition-opacity">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            {save.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             Save & activate
           </button>
         </div>
@@ -171,36 +143,20 @@ function OIDCForm() {
 function SAMLForm() {
   const [metadataUrl, setMetadataUrl] = useState('')
   const [entityId, setEntityId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
 
-  const handleSave = async (e: React.FormEvent) => {
+  const save = useAction(
+    () =>
+      client.auth.providers.save({
+        providerType: 'saml',
+        displayName: 'SAML',
+        config: { metadataUrl, entityId },
+      }),
+    { invalidate: [orpc.auth.providers.list.key()] },
+  )
+
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    setSuccess(false)
-    setLoading(true)
-
-    try {
-      const token = localStorage.getItem('flint_access_token')
-      const res = await fetch('/api/v1/auth/provider', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          providerType: 'saml',
-          displayName: 'SAML',
-          config: { metadataUrl, entityId },
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Save failed')
-
-      setSuccess(true)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
+    save.mutate(undefined)
   }
 
   return (
@@ -212,20 +168,8 @@ function SAMLForm() {
         For enterprise IdPs that support SAML 2.0 (ADFS, Shibboleth, etc.)
       </p>
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg p-3 mb-4 text-sm"
-          style={{ background: 'rgba(220, 38, 38, 0.08)', border: '1px solid rgba(220, 38, 38, 0.2)' }}>
-          <AlertCircle size={14} className="text-destructive" />
-          <span className="text-destructive">{error}</span>
-        </div>
-      )}
-      {success && (
-        <div className="flex items-center gap-2 rounded-lg p-3 mb-4 text-sm"
-          style={{ background: 'rgba(5, 150, 105, 0.08)', border: '1px solid rgba(5, 150, 105, 0.2)' }}>
-          <Check size={14} className="text-[var(--success)]" />
-          <span className="text-[var(--success)]">SAML provider configured</span>
-        </div>
-      )}
+      {save.isError && <Alert variant="error">{save.error.message || 'Save failed'}</Alert>}
+      {save.isSuccess && <Alert variant="success">SAML provider configured</Alert>}
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
@@ -243,9 +187,9 @@ function SAMLForm() {
         </div>
 
         <div className="flex items-center gap-3 pt-2">
-          <button type="submit" disabled={loading || !metadataUrl || !entityId}
+          <button type="submit" disabled={save.isPending || !metadataUrl || !entityId}
             className="flex items-center gap-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm px-4 py-2 hover:opacity-90 disabled:opacity-50 transition-opacity">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            {save.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             Save & activate
           </button>
         </div>
