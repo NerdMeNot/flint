@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Ban, FolderGit2, RotateCcw, CheckCircle } from 'lucide-react'
+import { Ban, FolderGit2, RotateCcw, CheckCircle, Server } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import type { RunStatusValue } from '#/lib/api/types'
 import { RunRow } from '#/components/RunRow'
 import { useScope } from '#/lib/scope-context'
 import { useAction } from '#/hooks/use-action'
@@ -17,16 +18,17 @@ export const Route = createFileRoute('/ci/runs/')({
 })
 
 function RunsListPage() {
-  const { workspaces, environmentMatches } = useScope()
-  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const { workspaces } = useScope()
+  const [statusFilter, setStatusFilter] = useState<RunStatusValue | undefined>()
   const [projectFilter, setProjectFilter] = useState<string | undefined>()
+  const [envFilter, setEnvFilter] = useState<string | undefined>()
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const { page, cursor, goToPage, reset } = useCursorPagination()
 
   const { data } = useSuspenseQuery(
     orpc.runs.list.queryOptions({
       input: {
-        status: statusFilter as any,
+        status: statusFilter,
         projectId: projectFilter,
         limit: pageSize,
         cursor,
@@ -39,8 +41,9 @@ function RunsListPage() {
     reset()
   }
 
-  const setStatusAndReset = (v: string | undefined) => { setStatusFilter(v); reset() }
+  const setStatusAndReset = (v: RunStatusValue | undefined) => { setStatusFilter(v); reset() }
   const setProjectAndReset = (v: string | undefined) => { setProjectFilter(v); reset() }
+  const setEnvAndReset = (v: string | undefined) => { setEnvFilter(v); reset() }
 
   const { data: projectsData } = useSuspenseQuery(
     orpc.projects.list.queryOptions({ input: {} }),
@@ -56,11 +59,17 @@ function RunsListPage() {
 
   const filteredItems = data.items.filter((r) => {
     if (projectIds && !projectIds.has(r.projectId)) return false
-    if (!environmentMatches(r.environment)) return false
+    if (envFilter && r.environment !== envFilter) return false
     return true
   })
 
   const projects = projectsInScope
+
+  // Environment is a local run filter (not a global scope). Options come from the
+  // environments present on the runs in view.
+  const environments = [...new Set(
+    data.items.map((r) => r.environment).filter((e): e is string => !!e),
+  )].sort()
 
   return (
     <div className="space-y-6 rise-in">
@@ -75,7 +84,7 @@ function RunsListPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <FilterPill
+        <FilterPill<RunStatusValue>
           icon={<CheckCircle size={12} />}
           label={statusFilter ?? 'Status'}
           active={!!statusFilter}
@@ -103,6 +112,16 @@ function RunsListPage() {
           }))}
           onSelect={(key) => setProjectAndReset(key === projectFilter ? undefined : key)}
         />
+        {environments.length > 0 && (
+          <FilterPill
+            icon={<Server size={12} />}
+            label={envFilter ?? 'Environment'}
+            active={!!envFilter}
+            onClear={() => setEnvAndReset(undefined)}
+            items={environments.map((e) => ({ key: e, label: e, active: envFilter === e }))}
+            onSelect={(key) => setEnvAndReset(key === envFilter ? undefined : key)}
+          />
+        )}
         <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} runs</span>
       </div>
 

@@ -11,6 +11,7 @@ export const RunStatus = z.enum([
   'pending',
   'cancelled',
 ])
+export type RunStatusValue = z.infer<typeof RunStatus>
 
 export const StepStatus = z.enum([
   'pending',

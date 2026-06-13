@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban } from 'lucide-react'
+import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban, Server } from 'lucide-react'
 import { client, orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 import { useScope } from '#/lib/scope-context'
 import { useAction } from '#/hooks/use-action'
+import { FilterPill } from '#/components/FilterPill'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
@@ -24,8 +25,9 @@ type GateFilter = 'pending' | 'approved' | 'rejected'
 const GATE_PAGE_SIZE = 12
 
 function GatesPage() {
-  const { workspaceMatches, environmentMatches } = useScope()
+  const { workspaceMatches } = useScope()
   const [status, setStatus] = useState<GateFilter>('pending')
+  const [envFilter, setEnvFilter] = useState<string | undefined>()
   const { page, cursor, goToPage, reset } = useCursorPagination()
 
   const { data } = useSuspenseQuery(
@@ -42,11 +44,16 @@ function GatesPage() {
   )
   const deciding = approve.isPending || reject.isPending
 
-  const gates = data.items.filter((g: any) => {
+  const gates = data.items.filter((g) => {
     if (!workspaceMatches(g.workspace)) return false
-    if (!environmentMatches(g.environment)) return false
+    if (envFilter && g.environment !== envFilter) return false
     return true
   })
+
+  // Environment is a local filter here, not a global scope.
+  const environments = [...new Set(
+    data.items.map((g) => g.environment).filter((e): e is string => !!e),
+  )].sort()
 
   return (
     <div className="rise-in space-y-6">
@@ -75,7 +82,19 @@ function GatesPage() {
             {tab.label}
           </button>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground">{gates.length} gates</span>
+        <div className="ml-auto flex items-center gap-2">
+          {environments.length > 0 && (
+            <FilterPill
+              icon={<Server size={12} />}
+              label={envFilter ?? 'Environment'}
+              active={!!envFilter}
+              onClear={() => { setEnvFilter(undefined); reset() }}
+              items={environments.map((e) => ({ key: e, label: e, active: envFilter === e }))}
+              onSelect={(key) => { setEnvFilter(key === envFilter ? undefined : key); reset() }}
+            />
+          )}
+          <span className="text-xs text-muted-foreground">{gates.length} gates</span>
+        </div>
       </div>
 
       {gates.length === 0 ? (

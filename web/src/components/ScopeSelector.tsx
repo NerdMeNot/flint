@@ -1,34 +1,24 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Boxes, Server, Check, ChevronDown } from 'lucide-react'
+import { Boxes, Check, ChevronDown } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 
+// Global scope is the ownership axis only (workspaces). Environment is a local
+// run/deployment filter, not a global scope — see grouping-taxonomy.md.
 export function ScopeSelector() {
-  const {
-    workspaces, toggleWorkspace,
-    environments, toggleEnvironment,
-  } = useScope()
+  const { workspaces, toggleWorkspace } = useScope()
   const { data: wsData } = useQuery(orpc.workspaces.list.queryOptions({ input: {} }))
-  const { data: envData } = useQuery(orpc.environments.list.queryOptions({ input: {} }))
-  const wsItems = (wsData as any)?.items ?? []
-  const envItems = (envData as any)?.items ?? []
+  const wsItems = wsData?.items ?? []
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       <ScopeSegment
         icon={<Boxes size={13} />}
         label="Workspaces"
-        items={wsItems.map((w: any) => ({ key: w.slug, label: w.name }))}
+        items={wsItems.map((w) => ({ key: w.slug, label: w.name }))}
         selected={workspaces}
         onToggle={toggleWorkspace}
-      />
-      <ScopeSegment
-        icon={<Server size={13} />}
-        label="Environments"
-        items={envItems.map((e: any) => ({ key: e.name, label: e.name }))}
-        selected={environments}
-        onToggle={toggleEnvironment}
       />
     </div>
   )
