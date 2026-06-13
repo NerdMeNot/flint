@@ -1,7 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronRight, Check, ShieldCheck, Users, User, Lock } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Check, ShieldCheck, Users, User, Lock, Copy } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { PermissionMatrix, CI_CATALOG } from '#/components/PermissionMatrix'
@@ -108,33 +108,46 @@ export function RoleEditor({ role }: { role?: Role }) {
         )}
       </div>
 
+      {/* Quick-start: only when creating — copy a base role, then tweak. */}
+      {!role && templates.length > 0 && (
+        <div
+          className="rounded-xl border border-primary/20 p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+          style={{ background: 'color-mix(in oklab, var(--primary) 6%, var(--surface))' }}
+        >
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0" style={{ background: 'color-mix(in oklab, var(--primary) 14%, transparent)', color: 'var(--primary)' }}>
+              <Copy size={15} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Start from an existing role</p>
+              <p className="text-xs text-muted-foreground">Copy its permissions and scope as a starting point — optional.</p>
+            </div>
+          </div>
+          <div className="sm:w-60 shrink-0">
+            <FormSelect
+              value=""
+              onChange={applyTemplate}
+              placeholder="Choose a role to copy…"
+              options={templates.map((r) => ({ key: r.slug, label: r.name }))}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-[1fr_300px] gap-6 items-start">
         {/* ── Left: the builder ── */}
         <div className="space-y-6 min-w-0">
           {/* Identity */}
           <section className="island-shell p-5 space-y-4">
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Name {!readOnly && <span className="text-destructive">*</span>}</label>
-                <input
-                  type="text" value={name} disabled={readOnly}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Prod Release Manager"
-                  className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 disabled:opacity-60"
-                />
-                {slug && <p className="text-[11px] text-muted-foreground font-mono">slug: {slug}</p>}
-              </div>
-              {!readOnly && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Start from</label>
-                  <FormSelect
-                    value="" onChange={applyTemplate}
-                    placeholder="Copy another role…"
-                    options={templates.map((r) => ({ key: r.slug, label: r.name }))}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Optional — prefill from an existing role, then tweak.</p>
-                </div>
-              )}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Name {!readOnly && <span className="text-destructive">*</span>}</label>
+              <input
+                type="text" value={name} disabled={readOnly}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Prod Release Manager"
+                className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 disabled:opacity-60"
+              />
+              {slug && <p className="text-[11px] text-muted-foreground font-mono">slug: {slug}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">Description</label>
