@@ -1,13 +1,16 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag, AlertTriangle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag, AlertTriangle, LayoutGrid, List } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
 import { TagChip } from '#/components/TagChip'
+import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
+
+type ProjectView = 'grid' | 'list'
 
 const PROJECT_PAGE_SIZE = 12
 
@@ -21,6 +24,18 @@ function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [needsGrouping, setNeedsGrouping] = useState(false)
+  const [view, setView] = useState<ProjectView>('grid')
+
+  // Persist the grid/list preference (SSR-safe).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('flint-projects-view')
+    if (saved === 'grid' || saved === 'list') setView(saved)
+  }, [])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('flint-projects-view', view)
+  }, [view])
 
   const wsScope = workspaces.length > 0 ? workspaces : undefined
 
@@ -86,24 +101,43 @@ function ProjectsPage() {
             {projects.length} repositories{wsLabel}
           </p>
         </div>
-        <div className="relative w-64 lg:w-72 shrink-0">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); reset() }}
-            placeholder="Search projects..."
-            className="w-full pl-8 pr-8 py-2 text-sm rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X size={13} />
-            </button>
-          )}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="relative w-56 lg:w-72">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); reset() }}
+              placeholder="Search projects..."
+              className="w-full pl-8 pr-8 py-2 text-sm rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          <div className="inline-flex items-center rounded-lg border border-border p-0.5">
+            {([['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']] as const).map(([v, Icon, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                title={label}
+                aria-label={label}
+                aria-pressed={view === v}
+                className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+                  view === v ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon size={15} />
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -147,71 +181,19 @@ function ProjectsPage() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {projects.map((project, i) => (
-          <div
-            key={project.id}
-            className="feature-card rise-in overflow-hidden flex flex-col"
-            style={{ animationDelay: `${i * 50 + 30}ms` }}
-          >
-            <Link
-              to="/ci/projects/$id"
-              params={{ id: project.id }}
-              className="block p-5 space-y-3 hover:bg-accent/50 transition-colors group flex-1"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
-                  <div className="min-w-0">
-                    <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.name}</h3>
-                    <p className="text-xs text-muted-foreground font-mono truncate">{project.repo}</p>
-                  </div>
-                </div>
-                <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
-              </div>
-
-              {project.tags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {project.tags.map((tag) => (
-                    <TagChip key={tag} tag={tag} registry={registry} />
-                  ))}
-                </div>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground/60">
-                  <Tag size={11} /> untagged
-                </span>
-              )}
-            </Link>
-
-            {project.lastRun ? (
-              <Link
-                to="/ci/runs/$id"
-                params={{ id: project.lastRun.id }}
-                className="block px-5 py-2.5 border-t border-border hover:bg-accent transition-colors group"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <StatusIcon status={project.lastRun.status} />
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <GitBranch size={11} />
-                      <span className="font-mono">{project.lastRun.branch}</span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{project.lastRun.duration}</span>
-                    <span className="opacity-50">{project.lastRun.startedAt}</span>
-                    <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
-                  </div>
-                </div>
-              </Link>
-            ) : (
-              <div className="px-5 py-2.5 border-t border-border">
-                <span className="text-xs text-muted-foreground opacity-40">No runs yet</span>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {view === 'grid' ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {projects.map((project, i) => (
+            <ProjectCard key={project.id} project={project} registry={registry} index={i} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {projects.map((project, i) => (
+            <ProjectRow key={project.id} project={project} registry={registry} index={i} />
+          ))}
+        </div>
+      )}
 
       {projects.length > 0 && (
         <Pagination
@@ -234,4 +216,123 @@ function StatusIcon({ status }: { status: string }) {
     case 'running': return <Loader2 size={13} className="text-primary animate-spin" />
     default: return <Clock size={13} className="text-muted-foreground" />
   }
+}
+
+// Bounded tag display for index surfaces: at most `max` chips + a "+N" badge, so
+// an open-ended tag set can never drive card/row geometry. Full set lives on the
+// project detail page.
+function TagSummary({ tags, registry, max }: { tags: string[]; registry: Map<string, TagKey>; max: number }) {
+  if (tags.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground/60">
+        <Tag size={11} /> untagged
+      </span>
+    )
+  }
+  const overflow = tags.length - max
+  return (
+    <>
+      {tags.slice(0, max).map((tag) => (
+        <TagChip key={tag} tag={tag} registry={registry} />
+      ))}
+      {overflow > 0 && (
+        <span className="inline-flex items-center rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          +{overflow}
+        </span>
+      )}
+    </>
+  )
+}
+
+function ProjectCard({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
+  return (
+    <div className="feature-card rise-in overflow-hidden flex flex-col" style={{ animationDelay: `${index * 50 + 30}ms` }}>
+      <Link
+        to="/ci/projects/$id"
+        params={{ id: project.id }}
+        className="block p-5 space-y-3 hover:bg-accent/50 transition-colors group flex-1"
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.name}</h3>
+              <p className="text-xs text-muted-foreground font-mono truncate">{project.repo}</p>
+            </div>
+          </div>
+          <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
+        </div>
+
+        {/* Fixed-height tag row keeps every card the same height regardless of tag count. */}
+        <div className="flex items-center gap-1.5 h-6 overflow-hidden">
+          <TagSummary tags={project.tags} registry={registry} max={2} />
+        </div>
+      </Link>
+
+      {project.lastRun ? (
+        <Link
+          to="/ci/runs/$id"
+          params={{ id: project.lastRun.id }}
+          className="block px-5 py-2.5 border-t border-border hover:bg-accent transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <StatusIcon status={project.lastRun.status} />
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <GitBranch size={11} />
+                <span className="font-mono">{project.lastRun.branch}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{project.lastRun.duration}</span>
+              <span className="opacity-50">{project.lastRun.startedAt}</span>
+              <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+            </div>
+          </div>
+        </Link>
+      ) : (
+        <div className="px-5 py-2.5 border-t border-border">
+          <span className="text-xs text-muted-foreground opacity-40">No runs yet</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProjectRow({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
+  return (
+    <div className="feature-card rise-in flex items-center overflow-hidden" style={{ animationDelay: `${index * 25 + 20}ms` }}>
+      <Link
+        to="/ci/projects/$id"
+        params={{ id: project.id }}
+        className="flex items-center gap-3 min-w-0 flex-1 px-4 py-3 hover:bg-accent/50 transition-colors group"
+      >
+        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
+        <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate shrink-0 max-w-[14rem]">{project.name}</h3>
+        <span className="text-xs text-muted-foreground font-mono truncate hidden sm:inline">{project.repo}</span>
+        <span className="island-kicker !text-[11px] shrink-0 ml-auto">{project.workspace}</span>
+        <div className="hidden lg:flex items-center gap-1.5 shrink-0 overflow-hidden max-w-[22rem]">
+          <TagSummary tags={project.tags} registry={registry} max={3} />
+        </div>
+      </Link>
+
+      {project.lastRun ? (
+        <Link
+          to="/ci/runs/$id"
+          params={{ id: project.lastRun.id }}
+          className="flex items-center gap-2 shrink-0 px-4 py-3 border-l border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors group"
+        >
+          <StatusIcon status={project.lastRun.status} />
+          <span className="hidden md:flex items-center gap-1">
+            <GitBranch size={11} />
+            <span className="font-mono">{project.lastRun.branch}</span>
+          </span>
+          <span className="opacity-50">{project.lastRun.startedAt}</span>
+          <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+        </Link>
+      ) : (
+        <span className="shrink-0 px-4 py-3 border-l border-border text-xs text-muted-foreground opacity-40">No runs yet</span>
+      )}
+    </div>
+  )
 }
