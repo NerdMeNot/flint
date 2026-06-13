@@ -8,6 +8,8 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const archiveProject = `-- name: ArchiveProject :exec
@@ -142,6 +144,84 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 			&i.DefaultBranch,
 			&i.IsArchived,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectsWithLastRun = `-- name: ListProjectsWithLastRun :many
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at,
+       lr.id AS last_run_id, lr.status AS last_run_status,
+       lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
+       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+LEFT JOIN LATERAL (
+    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
+    FROM pipeline_runs
+    WHERE project_id = p.id
+    ORDER BY started_at DESC
+    LIMIT 1
+) lr ON true
+WHERE p.is_archived = false
+  AND (cardinality($1::text[]) = 0 OR w.slug = ANY($1::text[]))
+  AND (cardinality($2::text[]) = 0 OR p.tags && $2::text[])
+ORDER BY COALESCE(p.display_name, p.repo_path)
+`
+
+type ListProjectsWithLastRunParams struct {
+	Workspaces []string `json:"workspaces"`
+	Tags       []string `json:"tags"`
+}
+
+type ListProjectsWithLastRunRow struct {
+	ID                 string      `json:"id"`
+	Name               string      `json:"name"`
+	RepoPath           string      `json:"repo_path"`
+	Workspace          string      `json:"workspace"`
+	Colour             string      `json:"colour"`
+	Tags               []string    `json:"tags"`
+	CreatedAt          time.Time   `json:"created_at"`
+	LastRunID          string      `json:"last_run_id"`
+	LastRunStatus      string      `json:"last_run_status"`
+	LastRunBranch      *string     `json:"last_run_branch"`
+	LastRunTriggeredBy *string     `json:"last_run_triggered_by"`
+	LastRunStartedAt   time.Time   `json:"last_run_started_at"`
+	LastRunDurationMs  pgtype.Int4 `json:"last_run_duration_ms"`
+}
+
+// API project list: joins owning workspace + latest run, with optional
+// server-side workspace and tag filters (empty slice = no filter for that axis).
+func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error) {
+	rows, err := q.db.Query(ctx, listProjectsWithLastRun, arg.Workspaces, arg.Tags)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectsWithLastRunRow{}
+	for rows.Next() {
+		var i ListProjectsWithLastRunRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.RepoPath,
+			&i.Workspace,
+			&i.Colour,
+			&i.Tags,
+			&i.CreatedAt,
+			&i.LastRunID,
+			&i.LastRunStatus,
+			&i.LastRunBranch,
+			&i.LastRunTriggeredBy,
+			&i.LastRunStartedAt,
+			&i.LastRunDurationMs,
 		); err != nil {
 			return nil, err
 		}

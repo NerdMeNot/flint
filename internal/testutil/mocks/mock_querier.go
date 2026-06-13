@@ -898,6 +898,34 @@ func (_m *Querier) CreateSession(ctx context.Context, arg db.CreateSessionParams
 	return r0, r1
 }
 
+// CreateTagKey provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreateTagKey(ctx context.Context, arg db.CreateTagKeyParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateTagKey")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateTagKeyParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateTagKeyParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreateTagKeyParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateTeam provides a mock function with given fields: ctx, arg
 func (_m *Querier) CreateTeam(ctx context.Context, arg db.CreateTeamParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -1495,6 +1523,34 @@ func (_m *Querier) DeleteSecret(ctx context.Context, arg db.DeleteSecretParams) 
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.DeleteSecretParams) error); ok {
 		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// DeleteTagKey provides a mock function with given fields: ctx, id
+func (_m *Querier) DeleteTagKey(ctx context.Context, id string) (int64, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTagKey")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4268,6 +4324,36 @@ func (_m *Querier) ListProjects(ctx context.Context) ([]db.ListProjectsRow, erro
 	return r0, r1
 }
 
+// ListProjectsWithLastRun provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListProjectsWithLastRun(ctx context.Context, arg db.ListProjectsWithLastRunParams) ([]db.ListProjectsWithLastRunRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListProjectsWithLastRun")
+	}
+
+	var r0 []db.ListProjectsWithLastRunRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListProjectsWithLastRunParams) ([]db.ListProjectsWithLastRunRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListProjectsWithLastRunParams) []db.ListProjectsWithLastRunRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListProjectsWithLastRunRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListProjectsWithLastRunParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListProtectedEnvironments provides a mock function with given fields: ctx, orgID
 func (_m *Querier) ListProtectedEnvironments(ctx context.Context, orgID string) ([]db.ListProtectedEnvironmentsRow, error) {
 	ret := _m.Called(ctx, orgID)
@@ -4681,6 +4767,36 @@ func (_m *Querier) ListStepsByWorkflow(ctx context.Context, workflowID string) (
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
 		r1 = rf(ctx, workflowID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListTagKeys provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ListTagKeys(ctx context.Context, orgID string) ([]db.ListTagKeysRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListTagKeys")
+	}
+
+	var r0 []db.ListTagKeysRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListTagKeysRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListTagKeysRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListTagKeysRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -6024,6 +6140,24 @@ func (_m *Querier) UpdateStepResult(ctx context.Context, arg db.UpdateStepResult
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateStepResultParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateTagKey provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateTagKey(ctx context.Context, arg db.UpdateTagKeyParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateTagKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateTagKeyParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)

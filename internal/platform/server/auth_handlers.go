@@ -24,7 +24,7 @@ import (
 // Device authorization and MFA-pending state are stored in Postgres (see
 // device_codes / mfa_pending_tokens) rather than process memory, so the auth
 // layer is correct under concurrency, survives restarts, and works across
-// replicas. See migration 005_auth_stores.
+// replicas. See the auth_stores migration.
 
 const deviceCodeTTL = 15 * time.Minute
 

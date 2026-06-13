@@ -22,6 +22,7 @@ import { Route as SettingsWorkspacesRouteImport } from './routes/settings.worksp
 import { Route as SettingsVariablesRouteImport } from './routes/settings.variables'
 import { Route as SettingsUsersRouteImport } from './routes/settings.users'
 import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
+import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
 import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
 import { Route as SettingsSessionsRouteImport } from './routes/settings.sessions'
 import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
@@ -108,6 +109,11 @@ const SettingsUsersRoute = SettingsUsersRouteImport.update({
 const SettingsTeamsRoute = SettingsTeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTagsRoute = SettingsTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsSsoRoute = SettingsSsoRouteImport.update({
@@ -239,6 +245,7 @@ export interface FileRoutesByFullPath {
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
+  '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
@@ -273,6 +280,7 @@ export interface FileRoutesByTo {
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
+  '/settings/tags': typeof SettingsTagsRoute
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
@@ -309,6 +317,7 @@ export interface FileRoutesById {
   '/settings/security': typeof SettingsSecurityRoute
   '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
+  '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
   '/settings/users': typeof SettingsUsersRouteWithChildren
   '/settings/variables': typeof SettingsVariablesRoute
@@ -348,6 +357,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/sessions'
     | '/settings/sso'
+    | '/settings/tags'
     | '/settings/teams'
     | '/settings/users'
     | '/settings/variables'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/sessions'
     | '/settings/sso'
+    | '/settings/tags'
     | '/settings/variables'
     | '/settings/workspaces'
     | '/workflows/$id'
@@ -417,6 +428,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/sessions'
     | '/settings/sso'
+    | '/settings/tags'
     | '/settings/teams'
     | '/settings/users'
     | '/settings/variables'
@@ -545,6 +557,13 @@ declare module '@tanstack/react-router' {
       path: '/teams'
       fullPath: '/settings/teams'
       preLoaderRoute: typeof SettingsTeamsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/tags': {
+      id: '/settings/tags'
+      path: '/tags'
+      fullPath: '/settings/tags'
+      preLoaderRoute: typeof SettingsTagsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/sso': {
@@ -755,6 +774,7 @@ interface SettingsRouteChildren {
   SettingsSecurityRoute: typeof SettingsSecurityRoute
   SettingsSessionsRoute: typeof SettingsSessionsRoute
   SettingsSsoRoute: typeof SettingsSsoRoute
+  SettingsTagsRoute: typeof SettingsTagsRoute
   SettingsTeamsRoute: typeof SettingsTeamsRouteWithChildren
   SettingsUsersRoute: typeof SettingsUsersRouteWithChildren
   SettingsVariablesRoute: typeof SettingsVariablesRoute
@@ -772,6 +792,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSecurityRoute: SettingsSecurityRoute,
   SettingsSessionsRoute: SettingsSessionsRoute,
   SettingsSsoRoute: SettingsSsoRoute,
+  SettingsTagsRoute: SettingsTagsRoute,
   SettingsTeamsRoute: SettingsTeamsRouteWithChildren,
   SettingsUsersRoute: SettingsUsersRouteWithChildren,
   SettingsVariablesRoute: SettingsVariablesRoute,

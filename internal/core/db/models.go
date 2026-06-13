@@ -94,8 +94,8 @@ type EnvVariableValue struct {
 	VariableID    string    `json:"variable_id"`
 	EnvironmentID *string   `json:"environment_id"`
 	Value         string    `json:"value"`
-	UpdatedAt     time.Time `json:"updated_at"`
 	ValueEnc      []byte    `json:"value_enc"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Environment struct {
@@ -352,6 +352,16 @@ type Step struct {
 	DeadlineAt           *time.Time `json:"deadline_at"`
 }
 
+type TagKey struct {
+	ID            string    `json:"id"`
+	OrgID         string    `json:"org_id"`
+	Key           string    `json:"key"`
+	Label         string    `json:"label"`
+	AllowedValues []string  `json:"allowed_values"`
+	Color         string    `json:"color"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type Team struct {
 	ID       string  `json:"id"`
 	OrgID    string  `json:"org_id"`
@@ -442,6 +452,6 @@ type Workspace struct {
 	Name        string    `json:"name"`
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
 	IsDefault   bool      `json:"is_default"`
+	CreatedAt   time.Time `json:"created_at"`
 }

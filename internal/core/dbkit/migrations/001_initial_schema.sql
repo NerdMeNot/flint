@@ -133,6 +133,7 @@ CREATE TABLE public.env_variable_values (
     variable_id uuid NOT NULL,
     environment_id uuid,
     value text NOT NULL,
+    value_enc bytea,
     updated_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -286,7 +287,8 @@ CREATE TABLE public.pipeline_runs (
     repo text,
     environment text,
     error_message text,
-    kind text DEFAULT 'ci'::text NOT NULL
+    kind text DEFAULT 'ci'::text NOT NULL,
+    cleaned_at timestamptz
 );
 
 
@@ -320,7 +322,7 @@ CREATE TABLE public.projects (
     is_archived boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
-    workspace_id uuid
+    workspace_id uuid NOT NULL
 );
 
 
@@ -566,7 +568,8 @@ CREATE TABLE public.users (
     mfa_required_override boolean,
     password_changed_at timestamptz,
     recovery_codes text[],
-    force_password_change boolean DEFAULT false NOT NULL
+    force_password_change boolean DEFAULT false NOT NULL,
+    mfa_last_used_period bigint
 );
 
 
@@ -619,6 +622,7 @@ CREATE TABLE public.workspaces (
     name text NOT NULL,
     slug text NOT NULL,
     description text,
+    is_default boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -1736,6 +1740,20 @@ ALTER TABLE ONLY public.workspaces
 --
 -- PostgreSQL database dump complete
 --
+
+-- ---------------------------------------------------------------------------
+-- Indexes on columns folded into the baseline tables above. Pre-live, column
+-- additions live in the owning table's CREATE rather than as ALTER migrations.
+-- New *tables* added since the baseline are their own migration files (002+).
+-- ---------------------------------------------------------------------------
+
+-- Per-run executor-cleanup tracking (exactly-once teardown).
+CREATE INDEX idx_pipeline_runs_needs_cleanup
+    ON public.pipeline_runs (id)
+    WHERE cleaned_at IS NULL AND status IN ('succeeded', 'failed', 'cancelled');
+
+-- Exactly one default workspace per org (new projects land here).
+CREATE UNIQUE INDEX idx_workspaces_one_default_per_org ON public.workspaces (org_id) WHERE is_default;
 
 
 -- +goose Down

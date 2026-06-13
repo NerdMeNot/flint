@@ -177,6 +177,18 @@ export const WorkspaceSchema = z.object({
   isDefault: z.optional(z.boolean()),
 })
 
+// A curated tag key in the registry. Projects carry tags as `key:value`
+// strings (or bare free tags); a TagKey governs an allowed namespace —
+// optionally constraining values and giving the key a label + color.
+export const TagKeySchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  label: z.string(),
+  // Empty/absent = free-form values allowed for this key.
+  allowedValues: z.array(z.string()),
+  color: z.string(),
+})
+
 export const UserSchema = z.object({
   id: z.string(),
   email: z.string(),
@@ -337,6 +349,7 @@ export type PipelineDefinition = z.infer<typeof PipelineDefinitionSchema>
 export type DashboardSummary = z.infer<typeof DashboardSummarySchema>
 export type Gate = z.infer<typeof GateSchema>
 export type Workspace = z.infer<typeof WorkspaceSchema>
+export type TagKey = z.infer<typeof TagKeySchema>
 export type User = z.infer<typeof UserSchema>
 export type Team = z.infer<typeof TeamSchema>
 export type TeamWithMembers = z.infer<typeof TeamWithMembersSchema>

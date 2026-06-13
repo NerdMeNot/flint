@@ -51,6 +51,7 @@ const (
 	ObjSecret      = "secret"
 	ObjRole        = "role"
 	ObjAudit       = "audit"
+	ObjTag         = "tag" // the curated tag-key registry
 )
 
 // ────────────────────────────────────────────────────────────

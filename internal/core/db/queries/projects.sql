@@ -4,6 +4,28 @@ FROM projects
 WHERE is_archived = false
 ORDER BY display_name, repo_path;
 
+-- name: ListProjectsWithLastRun :many
+-- API project list: joins owning workspace + latest run, with optional
+-- server-side workspace and tag filters (empty slice = no filter for that axis).
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at,
+       lr.id AS last_run_id, lr.status AS last_run_status,
+       lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
+       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+LEFT JOIN LATERAL (
+    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
+    FROM pipeline_runs
+    WHERE project_id = p.id
+    ORDER BY started_at DESC
+    LIMIT 1
+) lr ON true
+WHERE p.is_archived = false
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
+  AND (cardinality(@tags::text[]) = 0 OR p.tags && @tags::text[])
+ORDER BY COALESCE(p.display_name, p.repo_path);
+
 -- name: GetProject :one
 SELECT id, repo_path, display_name, description, colour, tags, default_branch, is_archived, created_at
 FROM projects

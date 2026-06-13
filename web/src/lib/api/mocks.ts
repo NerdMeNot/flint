@@ -6,6 +6,7 @@ import type {
   DashboardSummary,
   Gate,
   Workspace,
+  TagKey,
   Team,
   TeamWithMembers,
   User,
@@ -64,7 +65,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'alice',
         startedAt: '3 min ago',
       },
-      tags: ['backend', 'critical'],
+      tags: ['backend', 'critical', 'domain:checkout', 'tier:1', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#3b82f6',
@@ -82,7 +83,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'bob',
         startedAt: '8 min ago',
       },
-      tags: ['backend', 'pci'],
+      tags: ['backend', 'pci', 'domain:checkout', 'tier:1', 'lang:go', 'compliance:pci'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#ef4444',
@@ -100,7 +101,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'carol',
         startedAt: '1 min ago',
       },
-      tags: ['backend', 'elasticsearch'],
+      tags: ['backend', 'elasticsearch', 'domain:catalog', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 1,
       colour: '#8b5cf6',
@@ -118,7 +119,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'dave',
         startedAt: '22 min ago',
       },
-      tags: ['iac'],
+      tags: ['iac', 'domain:platform', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#22c55e',
@@ -136,7 +137,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'eve',
         startedAt: '1 hour ago',
       },
-      tags: ['backend', 'security'],
+      tags: ['backend', 'security', 'domain:identity', 'tier:1', 'lang:go'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#f59e0b',
@@ -146,7 +147,7 @@ export function getProjects(): Project[] {
       name: 'Web Storefront',
       repo: 'acme/web-storefront',
       workspace: 'storefront',
-      tags: ['frontend', 'nextjs'],
+      tags: ['frontend', 'nextjs', 'domain:catalog', 'tier:2', 'lang:ts'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#06b6d4',
@@ -2229,6 +2230,45 @@ export function createWorkspace(input: { name: string; slug: string; description
 export function deleteWorkspace(id: string): { success: true } {
   const list = getWorkspaces()
   const i = list.findIndex((w) => w.id === id)
+  if (i >= 0) list.splice(i, 1)
+  return { success: true }
+}
+
+// Tag registry (curated namespaced keys)
+function seedTagKeys(): TagKey[] {
+  return [
+    { id: 'tk-1', key: 'domain', label: 'Domain', allowedValues: ['checkout', 'catalog', 'identity', 'platform'], color: '#6366f1' },
+    { id: 'tk-2', key: 'tier', label: 'Tier', allowedValues: ['1', '2', '3'], color: '#ef4444' },
+    { id: 'tk-3', key: 'lang', label: 'Language', allowedValues: ['go', 'ts', 'python', 'rust'], color: '#10b981' },
+    { id: 'tk-4', key: 'compliance', label: 'Compliance', allowedValues: ['pci', 'sox', 'gdpr'], color: '#f59e0b' },
+  ]
+}
+let _tagKeys: TagKey[] | undefined
+export function getTagKeys(): TagKey[] {
+  return (_tagKeys ??= seedTagKeys())
+}
+export function createTagKey(input: { key: string; label: string; allowedValues?: string[]; color?: string }): TagKey {
+  const tk: TagKey = {
+    id: nextId('tk'),
+    key: input.key,
+    label: input.label,
+    allowedValues: input.allowedValues ?? [],
+    color: input.color ?? '#64748b',
+  }
+  getTagKeys().unshift(tk)
+  return tk
+}
+export function updateTagKey(input: { id: string; label: string; allowedValues?: string[]; color?: string }): TagKey {
+  const tk = getTagKeys().find((t) => t.id === input.id)
+  if (!tk) throw new Error('Tag key not found')
+  tk.label = input.label
+  if (input.allowedValues !== undefined) tk.allowedValues = input.allowedValues
+  if (input.color !== undefined) tk.color = input.color
+  return tk
+}
+export function deleteTagKey(id: string): { success: true } {
+  const list = getTagKeys()
+  const i = list.findIndex((t) => t.id === id)
   if (i >= 0) list.splice(i, 1)
   return { success: true }
 }
