@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import {
@@ -17,6 +17,7 @@ import {
   Play,
   ChevronDown,
   Plus,
+  ArrowLeft,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -34,6 +35,7 @@ type Tab = 'runs' | 'dag' | 'yaml'
 
 function ProjectDetailPage() {
   const { id } = Route.useParams()
+  const router = useRouter()
   const [pipelineIdx, setPipelineIdx] = useState(0)
   const [tab, setTab] = useState<Tab>('dag')
   const [showTrigger, setShowTrigger] = useState(false)
@@ -65,8 +67,23 @@ function ProjectDetailPage() {
     { key: 'runs' as const, icon: List, label: 'Runs', count: filteredRuns.length },
   ]
 
+  // Prefer real back-navigation so the projects list returns with its filters
+  // intact (they live in the URL); fall back to the list on deep-link arrival.
+  const goBack = () => {
+    if (router.history.canGoBack()) router.history.back()
+    else router.navigate({ to: '/ci/projects' })
+  }
+
   return (
     <div className="rise-in space-y-5">
+      <button
+        type="button"
+        onClick={goBack}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft size={14} /> Back to projects
+      </button>
+
       {/* Project header */}
       <div className="island-shell p-4 sm:p-5 lg:p-6">
         <div className="flex items-start justify-between gap-4">

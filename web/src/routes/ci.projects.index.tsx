@@ -14,18 +14,44 @@ type ProjectView = 'grid' | 'list'
 
 const PROJECT_PAGE_SIZE = 12
 
+// Filters live in the URL so they survive navigation (e.g. into a project and
+// back) and are shareable/bookmarkable. View is a personal preference, kept in
+// localStorage rather than the URL.
+interface ProjectSearch {
+  q?: string
+  tags?: string[]
+  needsGrouping?: boolean
+}
+
 export const Route = createFileRoute('/ci/projects/')({
+  validateSearch: (s: Record<string, unknown>): ProjectSearch => ({
+    q: typeof s.q === 'string' && s.q ? s.q : undefined,
+    tags: Array.isArray(s.tags) ? s.tags.filter((t): t is string => typeof t === 'string') : undefined,
+    needsGrouping: s.needsGrouping === true || s.needsGrouping === 'true' ? true : undefined,
+  }),
   component: ProjectsPage,
 })
 
 function ProjectsPage() {
   const { workspaces } = useScope()
   const { page, cursor, goToPage, reset } = useCursorPagination()
-  const [search, setSearch] = useState('')
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [needsGrouping, setNeedsGrouping] = useState(false)
+  const sp = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const search = sp.q ?? ''
+  const selectedTags = sp.tags ?? []
+  const needsGrouping = sp.needsGrouping ?? false
   const [tagFilterOpen, setTagFilterOpen] = useState(false)
   const [view, setView] = useState<ProjectView>('grid')
+
+  // Filter mutations write to the URL (replace: keystrokes/toggles don't each
+  // add a history entry) and reset pagination.
+  const setFilters = (patch: Partial<ProjectSearch>) => {
+    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
+    reset()
+  }
+  const setSearch = (q: string) => setFilters({ q: q || undefined })
+  const setSelectedTags = (tags: string[]) => setFilters({ tags: tags.length > 0 ? tags : undefined })
+  const setNeedsGrouping = (on: boolean) => setFilters({ needsGrouping: on || undefined })
 
   // Persist the grid/list preference (SSR-safe).
   useEffect(() => {
@@ -77,8 +103,7 @@ function ProjectsPage() {
   const needsGroupingCount = tagUniverse.items.filter((p) => p.inferred || (p.tags ?? []).length === 0).length
 
   const toggleTag = (t: string) => {
-    setSelectedTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
-    reset()
+    setSelectedTags(selectedTags.includes(t) ? selectedTags.filter((x) => x !== t) : [...selectedTags, t])
   }
 
   const query = search.toLowerCase().trim()
@@ -116,7 +141,7 @@ function ProjectsPage() {
             <input
               type="text"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); reset() }}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search projects..."
               className="w-full pl-8 pr-8 py-2 text-sm rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
             />
@@ -155,7 +180,7 @@ function ProjectsPage() {
           {needsGroupingCount > 0 && (
             <button
               type="button"
-              onClick={() => { setNeedsGrouping((v) => !v); reset() }}
+              onClick={() => setNeedsGrouping(!needsGrouping)}
               title="Projects whose workspace was inferred (not declared) or that have no tags"
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                 needsGrouping ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'
@@ -184,7 +209,7 @@ function ProjectsPage() {
           {selectedTags.length > 0 && (
             <button
               type="button"
-              onClick={() => { setSelectedTags([]); reset() }}
+              onClick={() => setSelectedTags([])}
               className="text-xs font-medium text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors px-1"
             >
               Clear
@@ -199,7 +224,7 @@ function ProjectsPage() {
         groups={filterGroups}
         applied={new Set(selectedTags)}
         onToggle={toggleTag}
-        onClear={() => { setSelectedTags([]); reset() }}
+        onClear={() => setSelectedTags([])}
         counts={tagCounts}
         title="Filter by tags"
         subtitle="Show projects matching any selected tag"
