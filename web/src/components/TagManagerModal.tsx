@@ -103,7 +103,7 @@ export function TagManagerModal({
                             }
                           >
                             {v}
-                            {count != null && <span className="text-[10px] opacity-50 tabular-nums">{count}</span>}
+                            {counts != null && <span className="text-[10px] opacity-50 tabular-nums">{count ?? 0}</span>}
                             {on && <Check size={11} className="shrink-0" />}
                           </button>
                         )

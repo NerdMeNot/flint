@@ -64,13 +64,12 @@ function ProjectsPage() {
   const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
   const registry = new Map(regData.items.map((k) => [k.key, k]))
 
-  // Tag filter: how many in-scope projects carry each tag, and the registry-grouped
-  // options limited to declared tags that actually appear (filtering by an absent
-  // tag would just empty the list).
+  // Tag filter: the full declared registry, grouped by key, with a count of how
+  // many in-scope projects carry each tag (0 for unused — they still show).
   const tagCounts = new Map<string, number>()
   for (const p of tagUniverse.items) for (const t of p.tags ?? []) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
   const filterGroups: TagGroup[] = regData.items
-    .map((k) => ({ key: k.key, label: k.label, color: k.color, values: k.allowedValues.filter((v) => tagCounts.has(`${k.key}:${v}`)) }))
+    .map((k) => ({ key: k.key, label: k.label, color: k.color, values: k.allowedValues }))
     .filter((g) => g.values.length > 0)
 
   // Stable count of projects that need grouping: workspace inferred (not
