@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Tag, Plus, Trash2, Pencil } from 'lucide-react'
+import { Tag, Plus, Trash2, Pencil, X } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
@@ -106,6 +106,64 @@ function TagsPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Chip/token input — each committed value becomes a removable chip. Enter or
+// comma commits; Backspace on an empty field removes the last chip. Duplicates
+// and blanks are dropped. `prefix` previews the `key:` namespace on each chip.
+// ---------------------------------------------------------------------------
+
+function ChipInput({ values, onChange, prefix, placeholder }: {
+  values: string[]
+  onChange: (next: string[]) => void
+  prefix?: string
+  placeholder?: string
+}) {
+  const [draft, setDraft] = useState('')
+
+  function commit(raw: string) {
+    const v = raw.trim()
+    if (!v) return
+    if (!values.includes(v)) onChange([...values, v])
+    setDraft('')
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      commit(draft)
+    } else if (e.key === 'Backspace' && draft === '' && values.length > 0) {
+      onChange(values.slice(0, -1))
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-transparent px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
+      {values.map((v) => (
+        <span key={v} className="flex items-center gap-1 rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-mono text-foreground">
+          <span className="text-muted-foreground">{prefix}</span>{v}
+          <button
+            type="button"
+            onClick={() => onChange(values.filter((x) => x !== v))}
+            className="text-muted-foreground hover:text-destructive transition-colors"
+            aria-label={`Remove ${v}`}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => commit(draft)}
+        placeholder={placeholder}
+        className="flex-1 min-w-[8ch] bg-transparent px-1 py-0.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Create / edit modal — `key` is immutable once created (it's the namespace).
 // ---------------------------------------------------------------------------
 
@@ -113,7 +171,7 @@ function TagKeyModal({ tagKey, onClose }: { tagKey?: TagKey; onClose: () => void
   const isEdit = !!tagKey
   const [key, setKey] = useState(tagKey?.key ?? '')
   const [label, setLabel] = useState(tagKey?.label ?? '')
-  const [valuesText, setValuesText] = useState((tagKey?.allowedValues ?? []).join(', '))
+  const [values, setValues] = useState<string[]>(tagKey?.allowedValues ?? [])
   const [color, setColor] = useState(tagKey?.color ?? SWATCHES[0])
 
   const invalidate = [orpc.tags.registry.list.key()]
@@ -129,15 +187,11 @@ function TagKeyModal({ tagKey, onClose }: { tagKey?: TagKey; onClose: () => void
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!label.trim()) return
-    const allowedValues = valuesText
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean)
     if (isEdit) {
-      update.mutate({ id: tagKey.id, label: label.trim(), allowedValues, color })
+      update.mutate({ id: tagKey.id, label: label.trim(), allowedValues: values, color })
     } else {
       if (!key.trim()) return
-      create.mutate({ key: key.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''), label: label.trim(), allowedValues, color })
+      create.mutate({ key: key.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''), label: label.trim(), allowedValues: values, color })
     }
   }
 
@@ -175,14 +229,13 @@ function TagKeyModal({ tagKey, onClose }: { tagKey?: TagKey; onClose: () => void
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">Allowed values</label>
-            <input
-              type="text"
-              value={valuesText}
-              onChange={(e) => setValuesText(e.target.value)}
-              placeholder="checkout, catalog, identity"
-              className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+            <ChipInput
+              values={values}
+              onChange={setValues}
+              prefix={(key.trim() || 'key') + ':'}
+              placeholder={values.length === 0 ? 'Type a value, press Enter' : 'Add another…'}
             />
-            <p className="text-[11px] text-muted-foreground">Comma-separated. Leave empty to allow free-form values.</p>
+            <p className="text-[11px] text-muted-foreground">Press Enter to add each value. Leave empty to allow free-form values.</p>
           </div>
 
           <div className="space-y-2">
