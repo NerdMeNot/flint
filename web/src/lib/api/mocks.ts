@@ -20,6 +20,7 @@ import type {
   RunnerPool,
   ForgeConnection,
   AuthUser,
+  Org,
   Session,
   MfaSetup,
   AuthProviders,
@@ -113,7 +114,7 @@ export function getProjects(): Project[] {
       id: 'p-4',
       name: 'Terraform Infra',
       repo: 'acme/terraform-infra',
-      workspace: 'platform',
+      workspace: 'unsorted',
       lastRun: {
         id: 'r-104',
         status: 'succeeded',
@@ -150,7 +151,7 @@ export function getProjects(): Project[] {
       id: 'p-6',
       name: 'Web Storefront',
       repo: 'acme/web-storefront',
-      workspace: 'storefront',
+      workspace: 'unsorted',
       tags: [],
       pipelineCount: 1,
       pipelineErrors: 0,
@@ -1610,7 +1611,6 @@ function seedWorkspaces(): Workspace[] {
       description: 'Checkout, billing, and payment processing services',
       projectCount: 2,
       createdAt: '2023-06-01T00:00:00Z',
-      isDefault: true,
     },
     {
       id: 'ws-2',
@@ -1625,7 +1625,7 @@ function seedWorkspaces(): Workspace[] {
       name: 'Storefront',
       slug: 'storefront',
       description: 'Customer-facing web app and mobile backend',
-      projectCount: 1,
+      projectCount: 0,
       createdAt: '2023-07-10T00:00:00Z',
     },
     {
@@ -1633,8 +1633,18 @@ function seedWorkspaces(): Workspace[] {
       name: 'Platform',
       slug: 'platform',
       description: 'Shared infrastructure, auth, and developer tooling',
-      projectCount: 2,
+      projectCount: 1,
       createdAt: '2023-08-15T00:00:00Z',
+    },
+    // Fallback bucket: projects that didn't declare a workspace land here.
+    {
+      id: 'ws-5',
+      name: 'Unsorted',
+      slug: 'unsorted',
+      description: 'Projects that have not been assigned a workspace yet',
+      projectCount: 2,
+      createdAt: '2023-06-01T00:00:00Z',
+      isDefault: true,
     },
   ]
 }
@@ -2165,6 +2175,19 @@ export function updateAuthProfile(input: {
 }
 
 export function changePassword(): { success: true } {
+  return { success: true }
+}
+
+// ── Org + governance policy ─────────────────────────────────
+let _org: Org | undefined
+export function getOrg(): Org {
+  return (_org ??= {
+    id: 'org-1', name: 'Acme', slug: 'acme', concurrencyLimit: 20,
+    requireProjectWorkspace: false,
+  })
+}
+export function setOrgPolicy(input: { requireProjectWorkspace: boolean }): { success: true } {
+  getOrg().requireProjectWorkspace = input.requireProjectWorkspace
   return { success: true }
 }
 

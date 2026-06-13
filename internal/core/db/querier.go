@@ -292,6 +292,7 @@ type Querier interface {
 	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
+	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
 	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
 	SetStepQueued(ctx context.Context, id string) error
 	SetStepSkipped(ctx context.Context, id string) error
@@ -321,11 +322,10 @@ type Querier interface {
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)
 	UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error
-	// Workspace placement (the CRD is authoritative): use the declared
-	// spec.workspace slug if given, else infer from the repo owner (the part
-	// before "/"), else fall back to the org's default "Unsorted" bucket. The
-	// target workspace is created on the fly if it doesn't exist, and
-	// workspace_inferred records whether placement was declared or inferred.
+	// Workspace placement (the CRD is authoritative): if spec.workspace is declared
+	// use that workspace (created on the fly if it doesn't exist); otherwise the
+	// project lands in the org's default "Unsorted" workspace. workspace_inferred is
+	// true when no workspace was declared (i.e. it defaulted to Unsorted).
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
 	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error

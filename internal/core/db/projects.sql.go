@@ -248,10 +248,7 @@ target AS (
         fc.id AS forge_id,
         fc.org_id,
         (NULLIF($11::text, '') IS NULL) AS inferred,
-        COALESCE(
-            NULLIF($11::text, ''),
-            NULLIF(lower(split_part($1::text, '/', 1)), '')
-        ) AS ws_slug
+        NULLIF($11::text, '') AS ws_slug
     FROM fc
 ),
 ws AS (
@@ -304,11 +301,10 @@ type UpsertProjectParams struct {
 	Workspace      string   `json:"workspace"`
 }
 
-// Workspace placement (the CRD is authoritative): use the declared
-// spec.workspace slug if given, else infer from the repo owner (the part
-// before "/"), else fall back to the org's default "Unsorted" bucket. The
-// target workspace is created on the fly if it doesn't exist, and
-// workspace_inferred records whether placement was declared or inferred.
+// Workspace placement (the CRD is authoritative): if spec.workspace is declared
+// use that workspace (created on the fly if it doesn't exist); otherwise the
+// project lands in the org's default "Unsorted" workspace. workspace_inferred is
+// true when no workspace was declared (i.e. it defaulted to Unsorted).
 func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error) {
 	row := q.db.QueryRow(ctx, upsertProject,
 		arg.RepoPath,

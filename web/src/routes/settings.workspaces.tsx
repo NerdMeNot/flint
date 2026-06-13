@@ -41,6 +41,8 @@ function WorkspacesPage() {
         }
       />
 
+      <GroupingPolicy />
+
       {workspaces.length === 0 ? (
         <EmptyState icon={Boxes} message="No workspaces configured yet." />
       ) : (
@@ -83,6 +85,39 @@ function WorkspacesPage() {
       )}
 
       {showCreate && <CreateWorkspaceModal onClose={() => setShowCreate(false)} />}
+    </div>
+  )
+}
+
+// Org-level governance: require every project to declare a workspace.
+function GroupingPolicy() {
+  const { data: org } = useSuspenseQuery(orpc.org.get.queryOptions({}))
+  const set = useAction(
+    (requireProjectWorkspace: boolean) => client.org.setPolicy({ requireProjectWorkspace }),
+    { invalidate: [orpc.org.get.key()] },
+  )
+  const on = org.requireProjectWorkspace
+
+  return (
+    <div className="island-shell p-4 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">Require a workspace on every project</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          When on, a project must declare <span className="font-mono">spec.workspace</span> — those without one are
+          marked not-ready instead of being auto-grouped. Off by default; projects infer a workspace from their repo owner.
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        disabled={set.isPending}
+        onClick={() => set.mutate(!on)}
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+        title={on ? 'Required' : 'Optional'}
+      >
+        <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`} />
+      </button>
     </div>
   )
 }

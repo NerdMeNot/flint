@@ -5720,6 +5720,24 @@ func (_m *Querier) SetDeviceCodeOAuthState(ctx context.Context, arg db.SetDevice
 	return r0
 }
 
+// SetOrgRequireProjectWorkspace provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetOrgRequireProjectWorkspace(ctx context.Context, arg db.SetOrgRequireProjectWorkspaceParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetOrgRequireProjectWorkspace")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetOrgRequireProjectWorkspaceParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetStepK8sJobName provides a mock function with given fields: ctx, arg
 func (_m *Querier) SetStepK8sJobName(ctx context.Context, arg db.SetStepK8sJobNameParams) error {
 	ret := _m.Called(ctx, arg)

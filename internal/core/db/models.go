@@ -150,11 +150,12 @@ type MfaPendingToken struct {
 }
 
 type Org struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Slug             string    `json:"slug"`
-	CreatedAt        time.Time `json:"created_at"`
-	ConcurrencyLimit int32     `json:"concurrency_limit"`
+	ID                      string    `json:"id"`
+	Name                    string    `json:"name"`
+	Slug                    string    `json:"slug"`
+	CreatedAt               time.Time `json:"created_at"`
+	ConcurrencyLimit        int32     `json:"concurrency_limit"`
+	RequireProjectWorkspace bool      `json:"require_project_workspace"`
 }
 
 type PersonalToken struct {

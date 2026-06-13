@@ -48,11 +48,10 @@ UPDATE projects SET is_archived = true, updated_at = now() WHERE id = $1;
 SELECT org_id FROM projects WHERE id = $1;
 
 -- name: UpsertProject :one
--- Workspace placement (the CRD is authoritative): use the declared
--- spec.workspace slug if given, else infer from the repo owner (the part
--- before "/"), else fall back to the org's default "Unsorted" bucket. The
--- target workspace is created on the fly if it doesn't exist, and
--- workspace_inferred records whether placement was declared or inferred.
+-- Workspace placement (the CRD is authoritative): if spec.workspace is declared
+-- use that workspace (created on the fly if it doesn't exist); otherwise the
+-- project lands in the org's default "Unsorted" workspace. workspace_inferred is
+-- true when no workspace was declared (i.e. it defaulted to Unsorted).
 WITH fc AS (
     SELECT f.id, f.org_id FROM forge_connections f WHERE f.display_name = @forge_ref LIMIT 1
 ),
@@ -61,10 +60,7 @@ target AS (
         fc.id AS forge_id,
         fc.org_id,
         (NULLIF(@workspace::text, '') IS NULL) AS inferred,
-        COALESCE(
-            NULLIF(@workspace::text, ''),
-            NULLIF(lower(split_part(@repo_path::text, '/', 1)), '')
-        ) AS ws_slug
+        NULLIF(@workspace::text, '') AS ws_slug
     FROM fc
 ),
 ws AS (

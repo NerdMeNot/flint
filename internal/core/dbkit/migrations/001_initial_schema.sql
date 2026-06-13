@@ -227,7 +227,10 @@ CREATE TABLE public.orgs (
     name text NOT NULL,
     slug text NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
-    concurrency_limit integer DEFAULT 20 NOT NULL
+    concurrency_limit integer DEFAULT 20 NOT NULL,
+    -- When true, a Project must declare spec.workspace; the reconciler marks
+    -- projects without one NotReady instead of inferring a workspace.
+    require_project_workspace boolean DEFAULT false NOT NULL
 );
 
 
