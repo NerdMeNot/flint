@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { ScrollText, ChevronDown, ChevronRight, Globe } from 'lucide-react'
+import { ScrollText, ChevronDown, ChevronRight, Globe, ListFilter } from 'lucide-react'
 import { useState } from 'react'
 import { orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
@@ -8,6 +8,8 @@ import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { Badge, type BadgeVariant } from '#/components/Badge'
 import { PageHeader } from '#/components/PageHeader'
+import { EmptyState } from '#/components/EmptyState'
+import { FilterPill } from '#/components/FilterPill'
 
 export const Route = createFileRoute('/settings/audit-log')({
   component: AuditLogPage,
@@ -48,23 +50,42 @@ function MetadataExpander({ metadata }: { metadata: unknown }) {
 const PAGE_SIZE = 10
 
 function AuditLogPage() {
-  const { page, cursor, goToPage } = useCursorPagination()
+  const { page, cursor, goToPage, reset } = useCursorPagination()
+  const [action, setAction] = useState<string | undefined>(undefined)
 
   const { data } = useSuspenseQuery(
-    orpc.auditEntries.list.queryOptions({ input: { limit: PAGE_SIZE, cursor } }),
+    orpc.auditEntries.list.queryOptions({ input: { action, limit: PAGE_SIZE, cursor } }),
   )
+  // Unfiltered sample supplies a stable set of action options for the pill, so
+  // selecting one doesn't collapse the choices to just that action.
+  const { data: sample } = useSuspenseQuery(
+    orpc.auditEntries.list.queryOptions({ input: { limit: 100 } }),
+  )
+  const actions = [...new Set(sample.items.map((e) => e.action))].sort()
 
   const entries = data.items
+
+  const setActionAndReset = (a: string | undefined) => { setAction(a); reset() }
 
   return (
     <div className="space-y-5">
       <PageHeader title="Audit Log" />
 
-      {entries.length === 0 ? (
-        <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
-          <ScrollText size={32} strokeWidth={1.2} />
-          <span className="text-sm">No audit log entries yet.</span>
+      {actions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPill
+            icon={<ListFilter size={12} />}
+            label={action ?? 'Action'}
+            active={!!action}
+            onClear={() => setActionAndReset(undefined)}
+            items={actions.map((a) => ({ key: a, label: a, active: action === a }))}
+            onSelect={(key) => setActionAndReset(key === action ? undefined : key)}
+          />
         </div>
+      )}
+
+      {entries.length === 0 ? (
+        <EmptyState icon={ScrollText} message={action ? `No “${action}” entries.` : 'No audit log entries yet.'} />
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
           {/* Header */}
