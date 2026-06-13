@@ -26,6 +26,7 @@ export const CAPABILITIES: Capability[] = [
   { id: 'adm-workspaces', label: 'Manage workspaces', description: 'Create and delete workspaces', domain: 'Admin', grants: [p('workspace', 'manage')] },
   { id: 'adm-teams', label: 'Manage teams', description: 'Create teams and edit membership', domain: 'Admin', grants: [p('team', 'manage')] },
   { id: 'adm-roles', label: 'Manage roles & access', description: 'Create roles and assign them', domain: 'Admin', grants: [p('role', 'manage')] },
+  { id: 'adm-tags', label: 'Manage tags', description: 'Curate the project tag registry', domain: 'Admin', grants: [p('tag', 'manage')] },
   { id: 'adm-runners', label: 'Manage runners', description: 'Configure runner pools', domain: 'Admin', grants: [p('runner', 'manage')] },
   { id: 'adm-connections', label: 'Manage connections', description: 'Link and remove forge connections', domain: 'Admin', grants: [p('connection', 'manage')] },
   { id: 'adm-apikeys', label: 'Manage API keys', description: 'Issue and revoke org API keys', domain: 'Admin', grants: [p('apikey', 'manage')] },
