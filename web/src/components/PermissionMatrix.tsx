@@ -13,6 +13,7 @@ export const ADMIN_CATALOG: Record<string, string[]> = {
   apikey: ['read', 'manage'],
   secret: ['read', 'manage'],
   role: ['read', 'manage'],
+  tag: ['read', 'manage'],
   audit: ['read'],
 }
 
@@ -46,6 +47,7 @@ const IMPLICATIONS: Record<string, string[]> = {
   'apikey:manage': ['apikey:read'],
   'secret:manage': ['secret:read'],
   'role:manage': ['role:read'],
+  'tag:manage': ['tag:read'],
 }
 
 /** Compute the full set of implied permissions from explicit selections */

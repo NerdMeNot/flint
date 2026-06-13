@@ -27,7 +27,6 @@ import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
 import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
 import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
 import { Route as SettingsRunnersRouteImport } from './routes/settings.runners'
-import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsAuditLogRouteImport } from './routes/settings.audit-log'
@@ -39,11 +38,14 @@ import { Route as CiProjectsRouteImport } from './routes/ci.projects'
 import { Route as CiGatesRouteImport } from './routes/ci.gates'
 import { Route as SettingsUsersIndexRouteImport } from './routes/settings.users.index'
 import { Route as SettingsTeamsIndexRouteImport } from './routes/settings.teams.index'
+import { Route as SettingsRolesIndexRouteImport } from './routes/settings.roles.index'
 import { Route as SettingsEnvironmentsIndexRouteImport } from './routes/settings.environments.index'
 import { Route as CiRunsIndexRouteImport } from './routes/ci.runs.index'
 import { Route as CiProjectsIndexRouteImport } from './routes/ci.projects.index'
 import { Route as SettingsUsersIdRouteImport } from './routes/settings.users.$id'
 import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id'
+import { Route as SettingsRolesNewRouteImport } from './routes/settings.roles.new'
+import { Route as SettingsRolesIdRouteImport } from './routes/settings.roles.$id'
 import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
 import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
 import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
@@ -139,11 +141,6 @@ const SettingsRunnersRoute = SettingsRunnersRouteImport.update({
   path: '/runners',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsRolesRoute = SettingsRolesRouteImport.update({
-  id: '/roles',
-  path: '/roles',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsEnvironmentsRoute = SettingsEnvironmentsRouteImport.update({
   id: '/environments',
   path: '/environments',
@@ -199,6 +196,11 @@ const SettingsTeamsIndexRoute = SettingsTeamsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsTeamsRoute,
 } as any)
+const SettingsRolesIndexRoute = SettingsRolesIndexRouteImport.update({
+  id: '/roles/',
+  path: '/roles/',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsEnvironmentsIndexRoute =
   SettingsEnvironmentsIndexRouteImport.update({
     id: '/',
@@ -224,6 +226,16 @@ const SettingsTeamsIdRoute = SettingsTeamsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => SettingsTeamsRoute,
+} as any)
+const SettingsRolesNewRoute = SettingsRolesNewRouteImport.update({
+  id: '/roles/new',
+  path: '/roles/new',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRolesIdRoute = SettingsRolesIdRouteImport.update({
+  id: '/roles/$id',
+  path: '/roles/$id',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsEnvironmentsIdRoute = SettingsEnvironmentsIdRouteImport.update({
   id: '/$id',
@@ -262,7 +274,6 @@ export interface FileRoutesByFullPath {
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
-  '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
@@ -279,11 +290,14 @@ export interface FileRoutesByFullPath {
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
+  '/settings/roles/$id': typeof SettingsRolesIdRoute
+  '/settings/roles/new': typeof SettingsRolesNewRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
   '/ci/projects/': typeof CiProjectsIndexRoute
   '/ci/runs/': typeof CiRunsIndexRoute
   '/settings/environments/': typeof SettingsEnvironmentsIndexRoute
+  '/settings/roles/': typeof SettingsRolesIndexRoute
   '/settings/teams/': typeof SettingsTeamsIndexRoute
   '/settings/users/': typeof SettingsUsersIndexRoute
 }
@@ -299,7 +313,6 @@ export interface FileRoutesByTo {
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
@@ -314,11 +327,14 @@ export interface FileRoutesByTo {
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
+  '/settings/roles/$id': typeof SettingsRolesIdRoute
+  '/settings/roles/new': typeof SettingsRolesNewRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
   '/ci/projects': typeof CiProjectsIndexRoute
   '/ci/runs': typeof CiRunsIndexRoute
   '/settings/environments': typeof SettingsEnvironmentsIndexRoute
+  '/settings/roles': typeof SettingsRolesIndexRoute
   '/settings/teams': typeof SettingsTeamsIndexRoute
   '/settings/users': typeof SettingsUsersIndexRoute
 }
@@ -339,7 +355,6 @@ export interface FileRoutesById {
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
-  '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
@@ -356,11 +371,14 @@ export interface FileRoutesById {
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
+  '/settings/roles/$id': typeof SettingsRolesIdRoute
+  '/settings/roles/new': typeof SettingsRolesNewRoute
   '/settings/teams/$id': typeof SettingsTeamsIdRoute
   '/settings/users/$id': typeof SettingsUsersIdRoute
   '/ci/projects/': typeof CiProjectsIndexRoute
   '/ci/runs/': typeof CiRunsIndexRoute
   '/settings/environments/': typeof SettingsEnvironmentsIndexRoute
+  '/settings/roles/': typeof SettingsRolesIndexRoute
   '/settings/teams/': typeof SettingsTeamsIndexRoute
   '/settings/users/': typeof SettingsUsersIndexRoute
 }
@@ -382,7 +400,6 @@ export interface FileRouteTypes {
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/environments'
-    | '/settings/roles'
     | '/settings/runners'
     | '/settings/sso'
     | '/settings/tags'
@@ -399,11 +416,14 @@ export interface FileRouteTypes {
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/settings/environments/$id'
+    | '/settings/roles/$id'
+    | '/settings/roles/new'
     | '/settings/teams/$id'
     | '/settings/users/$id'
     | '/ci/projects/'
     | '/ci/runs/'
     | '/settings/environments/'
+    | '/settings/roles/'
     | '/settings/teams/'
     | '/settings/users/'
   fileRoutesByTo: FileRoutesByTo
@@ -419,7 +439,6 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
-    | '/settings/roles'
     | '/settings/runners'
     | '/settings/sso'
     | '/settings/tags'
@@ -434,11 +453,14 @@ export interface FileRouteTypes {
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/settings/environments/$id'
+    | '/settings/roles/$id'
+    | '/settings/roles/new'
     | '/settings/teams/$id'
     | '/settings/users/$id'
     | '/ci/projects'
     | '/ci/runs'
     | '/settings/environments'
+    | '/settings/roles'
     | '/settings/teams'
     | '/settings/users'
   id:
@@ -458,7 +480,6 @@ export interface FileRouteTypes {
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/environments'
-    | '/settings/roles'
     | '/settings/runners'
     | '/settings/sso'
     | '/settings/tags'
@@ -475,11 +496,14 @@ export interface FileRouteTypes {
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/settings/environments/$id'
+    | '/settings/roles/$id'
+    | '/settings/roles/new'
     | '/settings/teams/$id'
     | '/settings/users/$id'
     | '/ci/projects/'
     | '/ci/runs/'
     | '/settings/environments/'
+    | '/settings/roles/'
     | '/settings/teams/'
     | '/settings/users/'
   fileRoutesById: FileRoutesById
@@ -629,13 +653,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRunnersRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/roles': {
-      id: '/settings/roles'
-      path: '/roles'
-      fullPath: '/settings/roles'
-      preLoaderRoute: typeof SettingsRolesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/environments': {
       id: '/settings/environments'
       path: '/environments'
@@ -713,6 +730,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsTeamsIndexRouteImport
       parentRoute: typeof SettingsTeamsRoute
     }
+    '/settings/roles/': {
+      id: '/settings/roles/'
+      path: '/roles'
+      fullPath: '/settings/roles/'
+      preLoaderRoute: typeof SettingsRolesIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/environments/': {
       id: '/settings/environments/'
       path: '/'
@@ -747,6 +771,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/teams/$id'
       preLoaderRoute: typeof SettingsTeamsIdRouteImport
       parentRoute: typeof SettingsTeamsRoute
+    }
+    '/settings/roles/new': {
+      id: '/settings/roles/new'
+      path: '/roles/new'
+      fullPath: '/settings/roles/new'
+      preLoaderRoute: typeof SettingsRolesNewRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/roles/$id': {
+      id: '/settings/roles/$id'
+      path: '/roles/$id'
+      fullPath: '/settings/roles/$id'
+      preLoaderRoute: typeof SettingsRolesIdRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/settings/environments/$id': {
       id: '/settings/environments/$id'
@@ -842,7 +880,6 @@ interface SettingsRouteChildren {
   SettingsAuditLogRoute: typeof SettingsAuditLogRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsEnvironmentsRoute: typeof SettingsEnvironmentsRouteWithChildren
-  SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsRunnersRoute: typeof SettingsRunnersRoute
   SettingsSsoRoute: typeof SettingsSsoRoute
   SettingsTagsRoute: typeof SettingsTagsRoute
@@ -851,6 +888,9 @@ interface SettingsRouteChildren {
   SettingsVariablesRoute: typeof SettingsVariablesRoute
   SettingsWorkspacesRoute: typeof SettingsWorkspacesRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsRolesIdRoute: typeof SettingsRolesIdRoute
+  SettingsRolesNewRoute: typeof SettingsRolesNewRoute
+  SettingsRolesIndexRoute: typeof SettingsRolesIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -858,7 +898,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAuditLogRoute: SettingsAuditLogRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsEnvironmentsRoute: SettingsEnvironmentsRouteWithChildren,
-  SettingsRolesRoute: SettingsRolesRoute,
   SettingsRunnersRoute: SettingsRunnersRoute,
   SettingsSsoRoute: SettingsSsoRoute,
   SettingsTagsRoute: SettingsTagsRoute,
@@ -867,6 +906,9 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsVariablesRoute: SettingsVariablesRoute,
   SettingsWorkspacesRoute: SettingsWorkspacesRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsRolesIdRoute: SettingsRolesIdRoute,
+  SettingsRolesNewRoute: SettingsRolesNewRoute,
+  SettingsRolesIndexRoute: SettingsRolesIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

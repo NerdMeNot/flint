@@ -177,9 +177,9 @@ func (s *Server) registerAPIRoutes() {
 
 	// Forge connections (DB-managed; credentials envelope-encrypted server-side).
 	v1.GET("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActRead), s.handleListForgeConnections)
-	v1.POST("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleCreateForgeConnection)
-	v1.PUT("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleUpdateForgeConnection)
-	v1.DELETE("/forge-connections/:id", s.requirePermission(auth.ObjConnection, auth.ActWrite), s.handleDeleteForgeConnection)
+	v1.POST("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActManage), s.handleCreateForgeConnection)
+	v1.PUT("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActManage), s.handleUpdateForgeConnection)
+	v1.DELETE("/forge-connections/:id", s.requirePermission(auth.ObjConnection, auth.ActManage), s.handleDeleteForgeConnection)
 
 	// Runners.
 	v1.GET("/runners", s.requirePermission(auth.ObjRunner, auth.ActRead), s.listRunners)
