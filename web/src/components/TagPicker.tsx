@@ -39,12 +39,19 @@ export function TagPicker({ options, applied, onToggle, emptyHint }: {
       if (popRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
       setOpen(false)
     }
-    const onScroll = () => setOpen(false)
+    // Keep the popover anchored to the button as the page scrolls/resizes
+    // (it's position:fixed), rather than closing on scroll.
+    const reposition = () => {
+      const r = btnRef.current?.getBoundingClientRect()
+      if (r) setPos({ top: r.bottom + 6, left: r.left })
+    }
     document.addEventListener('mousedown', onDown)
-    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
     return () => {
       document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
     }
   }, [open])
 
