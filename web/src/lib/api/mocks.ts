@@ -69,7 +69,7 @@ function seedProjects(): Project[] {
         triggeredBy: 'alice',
         startedAt: '3 min ago',
       },
-      tags: ['backend', 'critical', 'domain:checkout', 'tier:1', 'lang:go'],
+      tags: ['domain:checkout', 'tier:1', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#3b82f6',
@@ -87,7 +87,7 @@ function seedProjects(): Project[] {
         triggeredBy: 'bob',
         startedAt: '8 min ago',
       },
-      tags: ['backend', 'pci', 'domain:checkout', 'tier:1', 'lang:go', 'compliance:pci'],
+      tags: ['domain:checkout', 'tier:1', 'lang:go', 'compliance:pci'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#ef4444',
@@ -105,7 +105,7 @@ function seedProjects(): Project[] {
         triggeredBy: 'carol',
         startedAt: '1 min ago',
       },
-      tags: ['backend', 'elasticsearch', 'domain:catalog', 'tier:2', 'lang:go'],
+      tags: ['domain:catalog', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 1,
       colour: '#8b5cf6',
@@ -123,7 +123,7 @@ function seedProjects(): Project[] {
         triggeredBy: 'dave',
         startedAt: '22 min ago',
       },
-      tags: ['iac', 'domain:platform', 'tier:2', 'lang:go'],
+      tags: ['domain:platform', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#22c55e',
@@ -142,7 +142,7 @@ function seedProjects(): Project[] {
         triggeredBy: 'eve',
         startedAt: '1 hour ago',
       },
-      tags: ['backend', 'security', 'domain:identity', 'tier:1', 'lang:go'],
+      tags: ['domain:identity', 'tier:1', 'lang:go'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#f59e0b',
@@ -167,8 +167,11 @@ export function getProjects(): Project[] {
 }
 
 export function setProjectTags(id: string, tags: string[]): { success: true } {
+  // Constrain to the registry: only declared key:value tags are accepted.
+  const allowed = new Set(getTagKeys().flatMap((k) => k.allowedValues.map((v) => `${k.key}:${v}`)))
+  const filtered = tags.filter((t) => allowed.has(t))
   const p = getProjects().find((x) => x.id === id)
-  if (p) p.tags = tags
+  if (p) p.tags = filtered
   return { success: true }
 }
 

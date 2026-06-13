@@ -616,85 +616,94 @@ function RunStatusIcon({ status, size = 16 }: { status: string; size?: number })
 }
 
 // ---------------------------------------------------------------------------
-// Project tags — UI-managed labels (curated key:value from the registry + free
-// tags). Add/remove writes straight to the project.
+// Project tags — UI-managed labels constrained to the curated registry. Add via
+// a searchable typeahead over declared key:value options (scales to many tags);
+// no free-form tags.
 // ---------------------------------------------------------------------------
 
 function ProjectTags({ projectId, tags }: { projectId: string; tags: string[] }) {
   const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
   const registry = new Map(regData.items.map((k) => [k.key, k]))
-  const [adding, setAdding] = useState(false)
-  const [free, setFree] = useState('')
+  // Flattened, searchable set of declared key:value options.
+  const options = regData.items.flatMap((k) =>
+    k.allowedValues.map((v) => ({ tag: `${k.key}:${v}`, label: `${k.label}: ${v}`, color: k.color })),
+  )
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
 
   const save = useAction(
     (next: string[]) => client.projects.setTags({ id: projectId, tags: next }),
     { invalidate: [orpc.projects.get.key(), orpc.projects.list.key()] },
   )
   const applied = new Set(tags)
-  const add = (t: string) => { const v = t.trim(); if (v && !applied.has(v)) save.mutate([...tags, v]) }
+  const add = (t: string) => { if (!applied.has(t)) save.mutate([...tags, t]); setQuery(''); setOpen(false) }
   const remove = (t: string) => save.mutate(tags.filter((x) => x !== t))
 
+  const q = query.toLowerCase().trim()
+  const avail = options.filter((o) =>
+    !applied.has(o.tag) && (!q || o.label.toLowerCase().includes(q) || o.tag.toLowerCase().includes(q)),
+  )
+
   return (
-    <div className="mt-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {tags.map((t) => <TagChip key={t} tag={t} registry={registry} onRemove={() => remove(t)} />)}
+    <div className="mt-3 flex flex-wrap items-center gap-1.5" ref={ref}>
+      {tags.map((t) => <TagChip key={t} tag={t} registry={registry} onRemove={() => remove(t)} />)}
+
+      <div className="relative">
         <button
           type="button"
-          onClick={() => setAdding((v) => !v)}
+          onClick={() => setOpen((v) => !v)}
           className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] font-medium transition-colors ${
-            adding ? 'border-primary/40 text-primary' : 'border-dashed border-border text-muted-foreground hover:text-foreground'
+            open ? 'border-primary/40 text-primary' : 'border-dashed border-border text-muted-foreground hover:text-foreground'
           }`}
         >
           <Plus size={11} /> tag
         </button>
-      </div>
 
-      {adding && (
-        <div className="island-shell p-3 space-y-2.5 max-w-xl">
-          {regData.items.map((k) => (
-            <div key={k.id} className="flex items-start gap-2">
-              <span className="text-[12px] font-medium shrink-0 w-24 truncate" style={{ color: k.color }}>{k.label}</span>
-              <div className="flex flex-wrap gap-1">
-                {k.allowedValues.length > 0 ? (
-                  k.allowedValues.map((v) => {
-                    const tag = `${k.key}:${v}`
-                    const used = applied.has(tag)
-                    return (
-                      <button
-                        key={v} type="button" disabled={used} onClick={() => add(tag)}
-                        className={`rounded-md border px-2 py-0.5 text-[12px] font-mono transition-colors ${
-                          used ? 'border-border text-muted-foreground/40 cursor-default' : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent'
-                        }`}
-                      >
-                        {v}
-                      </button>
-                    )
-                  })
-                ) : (
-                  <span className="text-[11px] text-muted-foreground/60 italic">free-form — add below</span>
-                )}
-              </div>
+        {open && (
+          <div
+            className="absolute left-0 top-full mt-1 w-72 rounded-lg border border-border shadow-lg overflow-hidden z-50"
+            style={{ background: 'var(--surface-strong)' }}
+          >
+            <div className="p-2 border-b border-border">
+              <input
+                type="text" autoFocus value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search tags…"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+              />
             </div>
-          ))}
-          <div className="flex items-center gap-2 border-t border-border/50 pt-2.5">
-            <span className="text-[12px] font-medium text-muted-foreground shrink-0 w-24">Free tag</span>
-            <input
-              type="text" value={free}
-              onChange={(e) => setFree(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { add(free); setFree('') } }}
-              placeholder="e.g. lang:rust or backend"
-              className="flex-1 rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
-            />
-            <button
-              type="button" onClick={() => { add(free); setFree('') }} disabled={!free.trim()}
-              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-white transition-colors disabled:opacity-40"
-              style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
-            >
-              Add
-            </button>
+            <div className="max-h-60 overflow-y-auto py-1">
+              {options.length === 0 ? (
+                <p className="px-3 py-3 text-xs text-muted-foreground text-center">No tags declared — add some in Settings → Tags.</p>
+              ) : avail.length === 0 ? (
+                <p className="px-3 py-3 text-xs text-muted-foreground text-center">{q ? 'No matching tags' : 'All declared tags applied'}</p>
+              ) : (
+                <>
+                  {avail.slice(0, 12).map((o) => (
+                    <button
+                      key={o.tag} type="button" onClick={() => add(o.tag)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.color }} />
+                      {o.label}
+                    </button>
+                  ))}
+                  {avail.length > 12 && (
+                    <p className="px-3 py-2 text-[11px] text-muted-foreground text-center">{avail.length - 12} more — refine your search</p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

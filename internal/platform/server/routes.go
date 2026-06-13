@@ -361,7 +361,10 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 
-// handleSetProjectTags replaces a project's UI-managed tags (key:value + free).
+// handleSetProjectTags replaces a project's tags. Tags are constrained to the
+// curated registry: only declared key:value pairs are accepted; anything else
+// (free tags, undeclared values) is dropped, so projects can only carry
+// predeclared tags and legacy free tags normalize away on the next edit.
 func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 	var req struct {
@@ -371,14 +374,32 @@ func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext
 		apiBadRequest(ctx, c, "invalid request body")
 		return
 	}
-	if req.Tags == nil {
-		req.Tags = []string{}
+
+	// Build the set of allowed "key:value" tags from the registry.
+	allowed := map[string]bool{}
+	if org, err := s.deps.Q.GetOrg(ctx); err == nil {
+		if keys, err := s.deps.Q.ListTagKeys(ctx, org.ID); err == nil {
+			for _, k := range keys {
+				for _, v := range k.AllowedValues {
+					allowed[k.Key+":"+v] = true
+				}
+			}
+		}
 	}
-	if err := s.deps.Q.UpdateProjectTags(ctx, db.UpdateProjectTagsParams{ID: id, Tags: req.Tags}); err != nil {
+	tags := make([]string, 0, len(req.Tags))
+	seen := map[string]bool{}
+	for _, t := range req.Tags {
+		if allowed[t] && !seen[t] {
+			tags = append(tags, t)
+			seen[t] = true
+		}
+	}
+
+	if err := s.deps.Q.UpdateProjectTags(ctx, db.UpdateProjectTagsParams{ID: id, Tags: tags}); err != nil {
 		apiInternal(ctx, c, "failed to update tags")
 		return
 	}
-	c.JSON(consts.StatusOK, utils.H{"success": true, "tags": req.Tags})
+	c.JSON(consts.StatusOK, utils.H{"success": true, "tags": tags})
 }
 
 func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
