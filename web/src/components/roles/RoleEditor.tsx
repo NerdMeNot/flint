@@ -33,6 +33,7 @@ export function RoleEditor({ role }: { role?: Role }) {
   const [envSpecific, setEnvSpecific] = useState(!!role && role.environments.length > 0)
   const [selectedEnv, setSelectedEnv] = useState<Set<string>>(new Set(role?.environments ?? []))
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [startFrom, setStartFrom] = useState('')
 
   const permSet = new Set(permissions.map(permKey))
   const slug = role?.slug ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -116,17 +117,21 @@ export function RoleEditor({ role }: { role?: Role }) {
         >
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0" style={{ background: 'color-mix(in oklab, var(--primary) 14%, transparent)', color: 'var(--primary)' }}>
-              <Copy size={15} />
+              {startFrom ? <Check size={15} /> : <Copy size={15} />}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">Start from an existing role</p>
-              <p className="text-xs text-muted-foreground">Copy its permissions and scope as a starting point — optional.</p>
+              <p className="text-xs text-muted-foreground">
+                {startFrom
+                  ? `Copied from ${templates.find((r) => r.slug === startFrom)?.name ?? 'role'} — adjust the permissions below.`
+                  : 'Copy its permissions and scope as a starting point — optional.'}
+              </p>
             </div>
           </div>
           <div className="sm:w-60 shrink-0">
             <FormSelect
-              value=""
-              onChange={applyTemplate}
+              value={startFrom}
+              onChange={(slug) => { setStartFrom(slug); applyTemplate(slug) }}
               placeholder="Choose a role to copy…"
               options={templates.map((r) => ({ key: r.slug, label: r.name }))}
             />
