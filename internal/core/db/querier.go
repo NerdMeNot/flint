@@ -84,7 +84,11 @@ type Querier interface {
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
+	// The default workspace can't be deleted (projects must always have a home).
 	DeleteWorkspace(ctx context.Context, id string) (int64, error)
+	// Idempotent: creates a "Default" workspace for the org if it has none. Called
+	// at startup so every org always has a landing workspace for new projects.
+	EnsureDefaultWorkspace(ctx context.Context, orgID string) error
 	FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error
 	// Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
 	// webhook retries all firing in lockstep when an endpoint recovers. Mirrors the
@@ -306,6 +310,8 @@ type Querier interface {
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)
 	UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error
+	// New projects land in their org's default workspace (workspace_id is NOT NULL).
+	// On conflict the existing workspace_id is preserved (it isn't in the SET list).
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
 	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error

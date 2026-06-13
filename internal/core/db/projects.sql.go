@@ -156,11 +156,13 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 const upsertProject = `-- name: UpsertProject :one
 INSERT INTO projects (
     org_id, forge_id, repo_path, repo_url, display_name, description,
-    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at
+    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at,
+    workspace_id
 )
 SELECT
     fc.org_id, fc.id, $1, $2, $3, $4,
-    $5, $6, $7, $8, $9::jsonb, false, now()
+    $5, $6, $7, $8, $9::jsonb, false, now(),
+    (SELECT w.id FROM workspaces w WHERE w.org_id = fc.org_id AND w.is_default LIMIT 1)
 FROM forge_connections fc WHERE fc.display_name = $10
 LIMIT 1
 ON CONFLICT (forge_id, repo_path)
@@ -190,6 +192,8 @@ type UpsertProjectParams struct {
 	ForgeRef       string   `json:"forge_ref"`
 }
 
+// New projects land in their org's default workspace (workspace_id is NOT NULL).
+// On conflict the existing workspace_id is preserved (it isn't in the SET list).
 func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error) {
 	row := q.db.QueryRow(ctx, upsertProject,
 		arg.RepoPath,

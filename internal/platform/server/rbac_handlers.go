@@ -35,6 +35,7 @@ type workspaceResponse struct {
 	Slug        string  `json:"slug"`
 	Description *string `json:"description,omitempty"`
 	CreatedAt   string  `json:"createdAt"`
+	IsDefault   bool    `json:"isDefault"`
 }
 
 // ── Roles ──────────────────────────────────────────────────
@@ -343,6 +344,7 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 			Slug:        w.Slug,
 			Description: w.Description,
 			CreatedAt:   w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			IsDefault:   w.IsDefault,
 		})
 	}
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(workspaces))})

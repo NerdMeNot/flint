@@ -23,13 +23,17 @@ UPDATE projects SET is_archived = true, updated_at = now() WHERE id = $1;
 SELECT org_id FROM projects WHERE id = $1;
 
 -- name: UpsertProject :one
+-- New projects land in their org's default workspace (workspace_id is NOT NULL).
+-- On conflict the existing workspace_id is preserved (it isn't in the SET list).
 INSERT INTO projects (
     org_id, forge_id, repo_path, repo_url, display_name, description,
-    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at
+    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at,
+    workspace_id
 )
 SELECT
     fc.org_id, fc.id, @repo_path, @repo_url, @display_name, @description,
-    @colour, @icon, @tags, @default_branch, @pipeline_source::jsonb, false, now()
+    @colour, @icon, @tags, @default_branch, @pipeline_source::jsonb, false, now(),
+    (SELECT w.id FROM workspaces w WHERE w.org_id = fc.org_id AND w.is_default LIMIT 1)
 FROM forge_connections fc WHERE fc.display_name = @forge_ref
 LIMIT 1
 ON CONFLICT (forge_id, repo_path)

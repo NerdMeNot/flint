@@ -31,12 +31,19 @@ function WorkspacesPage() {
               className="feature-card rise-in p-5 space-y-3"
               style={{ animationDelay: `${i * 50 + 30}ms` }}
             >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="font-semibold text-sm text-foreground truncate">{ws.name}</h3>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm text-foreground truncate">{ws.name}</h3>
+                    {ws.isDefault && (
+                      <span className="island-kicker !text-[10px] shrink-0 bg-primary/10 text-primary border-primary/20">
+                        Default
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground font-mono truncate">{ws.slug}</p>
                 </div>
-                <span className="island-kicker !text-[11px]">{ws.id}</span>
+                <span className="island-kicker !text-[11px] shrink-0">{ws.id}</span>
               </div>
 
               {ws.description && (

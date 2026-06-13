@@ -43,9 +43,19 @@ Adopt the **proven three-axis model**, optimized for **findability**, with
 **progressive disclosure** (flat for small teams, scales to enterprise without
 re-architecting):
 
-1. **Workspace — ownership spine.** Exactly one per project/workflow. The
-   permission, quota, and billing boundary. Kept shallow (flat, or ≤1 level of
-   nesting). Mostly invisible until a second workspace exists.
+1. **Workspace — the partition spine.** Each project belongs to **exactly one**
+   workspace (`workspace_id` is NOT NULL; each org has one **default** workspace
+   where new projects land). It is the RBAC-scope, quota, and billing boundary —
+   a governed, stable entity, which is *why* it must be first-class (you can't
+   safely scope permissions to a free-form label). Kept shallow (flat). Mostly
+   invisible until a second workspace exists.
+   - **Teams do not *own* a workspace.** The team↔workspace relationship is
+     **access**, which is many-to-many and already modeled by RBAC (role
+     assignments scoped to a workspace — 1, 2, 3, or all teams, at any permission
+     level). A single "owning team" was considered and dropped: it implies false
+     exclusivity and duplicates RBAC. If a feature ever needs an accountable team
+     (billing rollup, incident routing), add a `responsible_team_id` then, named
+     for what it does — distinct from access.
 2. **Tags — classification.** Many per project. A small set of **curated,
    namespaced** tags (`domain:`, `tier:`, `lang:`, `compliance:`) with
    autocomplete + optional allowed-values, governed by admins, that power
@@ -158,8 +168,9 @@ a browsing axis.
 ## Data model (target)
 
 ```
-Project/Workflow:  workspaceId (1)  ·  tags: {key?, value}[]   (no environment)
-Workspace:         ownership boundary · members · quota · parentId? (≤1 level)
+Project/Workflow:  workspaceId (1, NOT NULL)  ·  tags: {key?, value}[]   (no environment)
+Workspace:         RBAC-scope + quota boundary · is_default (one per org) · flat
+                   (teams relate via RBAC access, many-to-many — no single owner)
 Tag registry:      key → { label, allowedValues?, color }      (curated subset)
 View:              name · selector(workspace, tags, status, product)
                         · scope(personal|team|org) · owner
