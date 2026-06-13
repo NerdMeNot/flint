@@ -322,7 +322,10 @@ CREATE TABLE public.projects (
     is_archived boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
-    workspace_id uuid NOT NULL
+    workspace_id uuid NOT NULL,
+    -- true when workspace_id was inferred (from the repo owner / fell back to
+    -- the default) rather than declared on the Project's spec.workspace.
+    workspace_inferred boolean DEFAULT false NOT NULL
 );
 
 

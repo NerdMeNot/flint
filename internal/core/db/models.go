@@ -204,22 +204,23 @@ type PipelineRun struct {
 }
 
 type Project struct {
-	ID             string    `json:"id"`
-	OrgID          string    `json:"org_id"`
-	ForgeID        string    `json:"forge_id"`
-	RepoPath       string    `json:"repo_path"`
-	RepoUrl        string    `json:"repo_url"`
-	DisplayName    *string   `json:"display_name"`
-	Description    *string   `json:"description"`
-	Colour         string    `json:"colour"`
-	Icon           *string   `json:"icon"`
-	Tags           []string  `json:"tags"`
-	DefaultBranch  string    `json:"default_branch"`
-	PipelineSource []byte    `json:"pipeline_source"`
-	IsArchived     bool      `json:"is_archived"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	WorkspaceID    string    `json:"workspace_id"`
+	ID                string    `json:"id"`
+	OrgID             string    `json:"org_id"`
+	ForgeID           string    `json:"forge_id"`
+	RepoPath          string    `json:"repo_path"`
+	RepoUrl           string    `json:"repo_url"`
+	DisplayName       *string   `json:"display_name"`
+	Description       *string   `json:"description"`
+	Colour            string    `json:"colour"`
+	Icon              *string   `json:"icon"`
+	Tags              []string  `json:"tags"`
+	DefaultBranch     string    `json:"default_branch"`
+	PipelineSource    []byte    `json:"pipeline_source"`
+	IsArchived        bool      `json:"is_archived"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	WorkspaceID       string    `json:"workspace_id"`
+	WorkspaceInferred bool      `json:"workspace_inferred"`
 }
 
 type ProjectFavourite struct {

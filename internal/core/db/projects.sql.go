@@ -234,17 +234,40 @@ func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsW
 }
 
 const upsertProject = `-- name: UpsertProject :one
+WITH fc AS (
+    SELECT f.id, f.org_id FROM forge_connections f WHERE f.display_name = $10 LIMIT 1
+),
+target AS (
+    SELECT
+        fc.id AS forge_id,
+        fc.org_id,
+        (NULLIF($11::text, '') IS NULL) AS inferred,
+        COALESCE(
+            NULLIF($11::text, ''),
+            NULLIF(lower(split_part($1::text, '/', 1)), '')
+        ) AS ws_slug
+    FROM fc
+),
+ws AS (
+    INSERT INTO workspaces (org_id, name, slug)
+    SELECT org_id, ws_slug, ws_slug FROM target WHERE ws_slug IS NOT NULL
+    ON CONFLICT (org_id, slug) DO UPDATE SET slug = EXCLUDED.slug
+    RETURNING id
+)
 INSERT INTO projects (
     org_id, forge_id, repo_path, repo_url, display_name, description,
     colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at,
-    workspace_id
+    workspace_id, workspace_inferred
 )
 SELECT
-    fc.org_id, fc.id, $1, $2, $3, $4,
+    t.org_id, t.forge_id, $1, $2, $3, $4,
     $5, $6, $7, $8, $9::jsonb, false, now(),
-    (SELECT w.id FROM workspaces w WHERE w.org_id = fc.org_id AND w.is_default LIMIT 1)
-FROM forge_connections fc WHERE fc.display_name = $10
-LIMIT 1
+    COALESCE(
+        (SELECT id FROM ws),
+        (SELECT w.id FROM workspaces w WHERE w.org_id = t.org_id AND w.is_default LIMIT 1)
+    ),
+    t.inferred
+FROM target t
 ON CONFLICT (forge_id, repo_path)
 DO UPDATE SET
     display_name = EXCLUDED.display_name,
@@ -255,7 +278,9 @@ DO UPDATE SET
     default_branch = EXCLUDED.default_branch,
     pipeline_source = EXCLUDED.pipeline_source,
     is_archived = false,
-    updated_at = now()
+    updated_at = now(),
+    workspace_id = EXCLUDED.workspace_id,
+    workspace_inferred = EXCLUDED.workspace_inferred
 RETURNING id
 `
 
@@ -270,10 +295,14 @@ type UpsertProjectParams struct {
 	DefaultBranch  string   `json:"default_branch"`
 	PipelineSource []byte   `json:"pipeline_source"`
 	ForgeRef       string   `json:"forge_ref"`
+	Workspace      string   `json:"workspace"`
 }
 
-// New projects land in their org's default workspace (workspace_id is NOT NULL).
-// On conflict the existing workspace_id is preserved (it isn't in the SET list).
+// Workspace placement (the CRD is authoritative): use the declared
+// spec.workspace slug if given, else infer from the repo owner (the part
+// before "/"), else fall back to the org's default "Unsorted" bucket. The
+// target workspace is created on the fly if it doesn't exist, and
+// workspace_inferred records whether placement was declared or inferred.
 func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error) {
 	row := q.db.QueryRow(ctx, upsertProject,
 		arg.RepoPath,
@@ -286,6 +315,7 @@ func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (s
 		arg.DefaultBranch,
 		arg.PipelineSource,
 		arg.ForgeRef,
+		arg.Workspace,
 	)
 	var id string
 	err := row.Scan(&id)
