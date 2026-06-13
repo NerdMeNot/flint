@@ -29,6 +29,8 @@ import type {
   WorkflowRunDetail,
   RunStepSummary,
   StepStatusValue,
+  ProjectHealth,
+  RunStatusValue,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -163,9 +165,34 @@ function seedProjects(): Project[] {
   ]
 }
 
+// Derive a rolling health window for a project. Deterministic from the id so it
+// is stable across renders; archetypes give visible variety (healthy / flaky /
+// failing / mostly-healthy). A real backend would compute this from run history;
+// it lives in the mock data layer so the UI can consume project.health.
+function deriveHealth(p: Project): ProjectHealth {
+  let h = 0
+  for (const c of p.id) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  let seed = h
+  const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0xffffffff }
+  const failChance = [0.02, 0.30, 0.45, 0.12][h % 4]!
+  const total = 12
+  const recentRuns: RunStatusValue[] = Array.from({ length: total }, () =>
+    rng() < failChance ? 'failed' : 'succeeded',
+  )
+  // Most recent point reflects the actual last run, when known.
+  if (p.lastRun) recentRuns[0] = p.lastRun.status
+  const succeeded = recentRuns.filter((r) => r === 'succeeded').length
+  return {
+    recentRuns,
+    passRate: Math.round((succeeded / total) * 100),
+    failingNow: recentRuns[0] === 'failed',
+    totalRuns: total,
+  }
+}
+
 let _projects: Project[] | undefined
 export function getProjects(): Project[] {
-  return (_projects ??= seedProjects())
+  return (_projects ??= seedProjects().map((p) => ({ ...p, health: deriveHealth(p) })))
 }
 
 export function setProjectTags(id: string, tags: string[]): { success: true } {

@@ -1,26 +1,38 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
-import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag, AlertTriangle, LayoutGrid, List } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag, AlertTriangle, LayoutGrid, List, ArrowDownUp } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
+import { FilterPill } from '#/components/FilterPill'
 import { TagChip } from '#/components/TagChip'
 import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
+import { ProjectHealthBar } from '#/components/ProjectHealth'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
+import { relativeToMinutes } from '#/lib/run-feed'
 
 type ProjectView = 'grid' | 'list'
+type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
+
+const SORTS: { key: ProjectSort; label: string }[] = [
+  { key: 'recent', label: 'Recent activity' },
+  { key: 'failing', label: 'Failing first' },
+  { key: 'flaky', label: 'Flakiest' },
+  { key: 'name', label: 'Name' },
+]
 
 const PROJECT_PAGE_SIZE = 12
 
-// Filters live in the URL so they survive navigation (e.g. into a project and
-// back) and are shareable/bookmarkable. View is a personal preference, kept in
-// localStorage rather than the URL.
+// Filters + sort live in the URL so they survive navigation (e.g. into a project
+// and back) and are shareable/bookmarkable. View is a personal preference, kept
+// in localStorage rather than the URL.
 interface ProjectSearch {
   q?: string
   tags?: string[]
   needsGrouping?: boolean
+  sort?: ProjectSort
 }
 
 export const Route = createFileRoute('/ci/projects/')({
@@ -28,9 +40,39 @@ export const Route = createFileRoute('/ci/projects/')({
     q: typeof s.q === 'string' && s.q ? s.q : undefined,
     tags: Array.isArray(s.tags) ? s.tags.filter((t): t is string => typeof t === 'string') : undefined,
     needsGrouping: s.needsGrouping === true || s.needsGrouping === 'true' ? true : undefined,
+    sort: SORTS.some((o) => o.key === s.sort) ? (s.sort as ProjectSort) : undefined,
   }),
   component: ProjectsPage,
 })
+
+// Number of pass→fail / fail→pass transitions in a run window (flakiness proxy).
+function flakiness(runs: { recentRuns: string[] } | undefined): number {
+  const r = runs?.recentRuns
+  if (!r || r.length < 2) return 0
+  let t = 0
+  for (let i = 1; i < r.length; i++) if (r[i] !== r[i - 1]) t++
+  return t
+}
+
+function sortProjects(items: Project[], sort: ProjectSort): Project[] {
+  const copy = [...items]
+  switch (sort) {
+    case 'name':
+      return copy.sort((a, b) => a.name.localeCompare(b.name))
+    case 'failing':
+      // Failing-now first, then worst pass rate.
+      return copy.sort((a, b) =>
+        Number(b.health?.failingNow ?? false) - Number(a.health?.failingNow ?? false) ||
+        (a.health?.passRate ?? 101) - (b.health?.passRate ?? 101))
+    case 'flaky':
+      return copy.sort((a, b) => flakiness(b.health) - flakiness(a.health) || (a.health?.passRate ?? 101) - (b.health?.passRate ?? 101))
+    case 'recent':
+    default:
+      // Most recent last-run activity first; projects with no runs sink.
+      return copy.sort((a, b) =>
+        relativeToMinutes(a.lastRun?.startedAt ?? '') - relativeToMinutes(b.lastRun?.startedAt ?? ''))
+  }
+}
 
 function ProjectsPage() {
   const { workspaces } = useScope()
@@ -40,6 +82,7 @@ function ProjectsPage() {
   const search = sp.q ?? ''
   const selectedTags = sp.tags ?? []
   const needsGrouping = sp.needsGrouping ?? false
+  const sort = sp.sort ?? 'recent'
   const [tagFilterOpen, setTagFilterOpen] = useState(false)
   const [view, setView] = useState<ProjectView>('grid')
 
@@ -52,6 +95,7 @@ function ProjectsPage() {
   const setSearch = (q: string) => setFilters({ q: q || undefined })
   const setSelectedTags = (tags: string[]) => setFilters({ tags: tags.length > 0 ? tags : undefined })
   const setNeedsGrouping = (on: boolean) => setFilters({ needsGrouping: on || undefined })
+  const setSort = (s: ProjectSort) => setFilters({ sort: s === 'recent' ? undefined : s })
 
   // Persist the grid/list preference (SSR-safe).
   useEffect(() => {
@@ -107,7 +151,7 @@ function ProjectsPage() {
   }
 
   const query = search.toLowerCase().trim()
-  const projects = query
+  const filtered = query
     ? projectsData.items.filter(
         (p) =>
           p.name.toLowerCase().includes(query) ||
@@ -115,6 +159,7 @@ function ProjectsPage() {
           p.tags.some((t) => t.toLowerCase().includes(query)),
       )
     : projectsData.items
+  const projects = sortProjects(filtered, sort)
   const hasMore = !!projectsData.nextCursor
 
   // Subline: "in production", "in production, staging", "in production +2"
@@ -155,6 +200,14 @@ function ProjectsPage() {
               </button>
             )}
           </div>
+          <FilterPill
+            icon={<ArrowDownUp size={12} />}
+            label={SORTS.find((o) => o.key === sort)!.label}
+            active={sort !== 'recent'}
+            onClear={() => setSort('recent')}
+            items={SORTS.map((o) => ({ key: o.key, label: o.label, active: o.key === sort }))}
+            onSelect={(key) => setSort(key as ProjectSort)}
+          />
           <div className="inline-flex items-center rounded-lg border border-border p-0.5">
             {([['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']] as const).map(([v, Icon, label]) => (
               <button
@@ -312,6 +365,11 @@ function ProjectCard({ project, registry, index }: { project: Project; registry:
           <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
         </div>
 
+        {/* Health: recent-run sparkline + pass rate + failing flag. */}
+        <div className="h-5 flex items-center">
+          <ProjectHealthBar health={project.health} />
+        </div>
+
         {/* Fixed-height tag row keeps every card the same height regardless of tag count. */}
         <div className="flex items-center gap-1.5 h-6 overflow-hidden">
           <TagSummary tags={project.tags} registry={registry} max={2} />
@@ -356,11 +414,14 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
         params={{ id: project.id }}
         className="flex flex-col justify-center gap-1 min-w-0 flex-1 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
       >
-        {/* Line 1: name + workspace */}
+        {/* Line 1: name + health + workspace */}
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
           <h3 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.name}</h3>
-          <span className="island-kicker !text-[11px] shrink-0 ml-auto">{project.workspace}</span>
+          <div className="hidden md:flex ml-auto shrink-0">
+            <ProjectHealthBar health={project.health} />
+          </div>
+          <span className="island-kicker !text-[11px] shrink-0 md:ml-2 ml-auto">{project.workspace}</span>
         </div>
         {/* Line 2: repo + tags */}
         <div className="flex items-center gap-2 min-w-0 pl-[18px]">
