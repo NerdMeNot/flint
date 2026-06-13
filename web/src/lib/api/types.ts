@@ -357,6 +357,14 @@ export const MfaSetupSchema = z.object({
 })
 export type MfaSetup = z.infer<typeof MfaSetupSchema>
 
+// Configured SSO providers (secrets never leave the server).
+export const AuthProvidersSchema = z.object({
+  providers: z.array(z.object({ id: z.string(), providerType: z.string(), displayName: z.string() })),
+  oidcConfigured: z.boolean(),
+  samlConfigured: z.boolean(),
+})
+export type AuthProviders = z.infer<typeof AuthProvidersSchema>
+
 export const SearchResultSchema = z.object({
   projects: z.array(ProjectSchema),
   runs: z.array(PipelineRunSchema),

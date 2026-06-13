@@ -9,6 +9,7 @@ import { FormSelect } from '#/components/FormSelect'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { Badge } from '#/components/Badge'
 import { MemberAvatar } from '#/components/MemberAvatar'
+import { ConfirmButton } from '#/components/ConfirmButton'
 
 export const Route = createFileRoute('/settings/teams/$id')({
   component: TeamDetailPage,
@@ -27,6 +28,10 @@ function TeamDetailPage() {
   const { data: team } = useSuspenseQuery(
     orpc.teams.get.queryOptions({ input: { id } }),
   )
+
+  const remove = useAction(client.teams.removeMember, {
+    invalidate: [orpc.teams.get.key()],
+  })
 
   return (
     <div className="space-y-5">
@@ -151,6 +156,12 @@ function TeamDetailPage() {
                     {member.email}
                   </p>
                 </div>
+                {team.source === 'internal' && (
+                  <ConfirmButton
+                    onConfirm={() => remove.mutate({ teamId: id, userId: member.id })}
+                    title="Remove member"
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -159,6 +170,7 @@ function TeamDetailPage() {
 
       {showAddMember && (
         <AddMemberOverlay
+          teamId={id}
           teamName={team.name}
           existingMemberIds={new Set(team.members.map((m) => m.id))}
           onClose={() => setShowAddMember(false)}
@@ -258,10 +270,12 @@ function AssignRoleToTeamModal({
 // ---------------------------------------------------------------------------
 
 function AddMemberOverlay({
+  teamId,
   teamName,
   existingMemberIds,
   onClose,
 }: {
+  teamId: string
   teamName: string
   existingMemberIds: Set<string>
   onClose: () => void
@@ -271,6 +285,14 @@ function AddMemberOverlay({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [submitted, setSubmitted] = useState(false)
+
+  const add = useAction(client.teams.addMembers, {
+    invalidate: [orpc.teams.get.key()],
+    onSuccess: () => {
+      setSubmitted(true)
+      setTimeout(onClose, 1200)
+    },
+  })
 
   const available = allUsers.filter((u) => !existingMemberIds.has(u.id))
   const filtered = search
@@ -291,9 +313,7 @@ function AddMemberOverlay({
 
   function handleSubmit() {
     if (selected.size === 0) return
-    console.log(`[mock] Adding ${selected.size} members to team=${teamName}:`, [...selected])
-    setSubmitted(true)
-    setTimeout(onClose, 1200)
+    add.mutate({ teamId, userIds: [...selected] })
   }
 
   return (
@@ -362,11 +382,13 @@ function AddMemberOverlay({
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={selected.size === 0}
+              disabled={selected.size === 0 || add.isPending}
               className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
               style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
             >
-              Add {selected.size > 0 ? `${selected.size} ` : ''}member{selected.size !== 1 ? 's' : ''}
+              {add.isPending
+                ? 'Adding...'
+                : `Add ${selected.size > 0 ? `${selected.size} ` : ''}member${selected.size !== 1 ? 's' : ''}`}
             </button>
           </div>
         </>

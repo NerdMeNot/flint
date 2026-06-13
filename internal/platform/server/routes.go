@@ -120,6 +120,8 @@ func (s *Server) registerAPIRoutes() {
 	v1.GET("/teams/:id", s.requirePermission(auth.ObjTeam, auth.ActRead), s.handleGetTeam)
 	v1.POST("/teams", s.requirePermission(auth.ObjTeam, auth.ActManage), s.handleCreateTeam)
 	v1.DELETE("/teams/:id", s.requirePermission(auth.ObjTeam, auth.ActManage), s.handleDeleteTeam)
+	v1.POST("/teams/:id/members", s.requirePermission(auth.ObjTeam, auth.ActManage), s.handleAddTeamMembers)
+	v1.DELETE("/teams/:id/members/:userId", s.requirePermission(auth.ObjTeam, auth.ActManage), s.handleRemoveTeamMember)
 
 	// Users.
 	v1.GET("/users", s.requirePermission(auth.ObjTeam, auth.ActRead), s.handleListUsers)
