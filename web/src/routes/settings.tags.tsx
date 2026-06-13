@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { Tag, Plus, ChevronRight, ChevronDown, X, GripVertical } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -243,54 +243,93 @@ function ValueListEditor({ values, onChange, prefix }: {
   prefix?: string
 }) {
   const [draft, setDraft] = useState('')
-  // Local working copy so a drag reorders smoothly and persists once on drop,
-  // rather than firing an update on every dragged-over row.
-  const [items, setItems] = useState<string[]>(values)
-  const dragFrom = useRef<number | null>(null)
-  useEffect(() => { setItems(values) }, [values])
+  // Drag source/target indices. The list is NOT reordered during the drag (that
+  // moves the dragged DOM node and aborts the native drag, limiting it to one
+  // step) — we only commit the move on drop, so a single drag can span any range.
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
+  // Inline value editing.
+  const [editIndex, setEditIndex] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState('')
 
   function add() {
     const v = draft.trim()
-    if (!v || items.includes(v)) return
-    onChange([...items, v])
+    if (!v || values.includes(v)) return
+    onChange([...values, v])
     setDraft('')
   }
 
-  function commitIfChanged() {
-    dragFrom.current = null
-    if (items.length !== values.length || items.some((v, i) => v !== values[i])) onChange(items)
+  function commitEdit() {
+    if (editIndex === null) return
+    const v = editDraft.trim()
+    const i = editIndex
+    setEditIndex(null)
+    if (!v || v === values[i] || values.includes(v)) return // drop empties/dupes/no-ops
+    onChange(values.map((x, idx) => (idx === i ? v : x)))
+  }
+
+  function drop(to: number) {
+    if (dragFrom !== null && dragFrom !== to) onChange(reorder(values, dragFrom, to))
+    setDragFrom(null)
+    setDragOver(null)
   }
 
   return (
     <div className="space-y-1.5">
-      {items.map((v, i) => (
-        <div
-          key={v}
-          draggable
-          onDragStart={() => { dragFrom.current = i }}
-          onDragEnter={() => {
-            if (dragFrom.current === null || dragFrom.current === i) return
-            setItems((prev) => reorder(prev, dragFrom.current!, i))
-            dragFrom.current = i
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnd={commitIfChanged}
-          className={`flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 transition-opacity ${dragFrom.current === i ? 'opacity-50' : ''}`}
-        >
-          <GripVertical size={14} className="text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing shrink-0" />
-          <span className="flex-1 text-sm font-mono text-foreground truncate">
-            <span className="text-muted-foreground">{prefix}</span>{v}
-          </span>
-          <button
-            type="button"
-            onClick={() => onChange(items.filter((x) => x !== v))}
-            className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
-            aria-label={`Remove ${v}`}
+      {values.map((v, i) => {
+        const editing = editIndex === i
+        const isTarget = dragOver === i && dragFrom !== null && dragFrom !== i
+        return (
+          <div
+            key={v}
+            draggable={!editing}
+            onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move' }}
+            onDragOver={(e) => { e.preventDefault(); if (dragOver !== i) setDragOver(i) }}
+            onDrop={(e) => { e.preventDefault(); drop(i) }}
+            onDragEnd={() => { setDragFrom(null); setDragOver(null) }}
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-all ${
+              dragFrom === i ? 'opacity-40' : ''
+            } ${isTarget ? 'border-primary/50 ring-1 ring-primary/30' : 'border-border'}`}
           >
-            <X size={13} />
-          </button>
-        </div>
-      ))}
+            <GripVertical
+              size={14}
+              className={`shrink-0 ${editing ? 'text-muted-foreground/20' : 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing'}`}
+            />
+            {editing ? (
+              <div className="flex flex-1 items-center min-w-0">
+                {prefix && <span className="text-sm font-mono text-muted-foreground/50 shrink-0">{prefix}</span>}
+                <input
+                  type="text" autoFocus value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+                    if (e.key === 'Escape') setEditIndex(null)
+                  }}
+                  className="flex-1 min-w-0 bg-transparent text-sm font-mono text-foreground focus:outline-none"
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setEditIndex(i); setEditDraft(v) }}
+                title="Click to edit"
+                className="flex-1 text-left text-sm font-mono text-foreground truncate hover:text-primary transition-colors"
+              >
+                <span className="text-muted-foreground">{prefix}</span>{v}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
+              aria-label={`Remove ${v}`}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )
+      })}
       <div className="flex items-center gap-2">
         <div className="flex flex-1 items-center rounded-lg border border-dashed border-border focus-within:ring-2 focus-within:ring-ring/40">
           {prefix && <span className="pl-2.5 text-sm font-mono text-muted-foreground/50 shrink-0">{prefix}</span>}
