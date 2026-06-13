@@ -1,6 +1,17 @@
 import { Link } from '@tanstack/react-router'
-import { GitBranch, GitCommit, Timer } from 'lucide-react'
+import {
+  GitBranch,
+  GitCommitHorizontal,
+  GitPullRequest,
+  MousePointerClick,
+  CalendarClock,
+  Timer,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react'
 import { runStatusVisualFor } from '#/lib/status'
+import { parseDurationToSeconds } from '#/lib/run-feed'
+import type { RunStepSummary, StepStatusValue } from '#/lib/api/types'
 
 interface Run {
   id: string
@@ -16,31 +27,68 @@ interface Run {
   duration: string
   startedAt: string
   workflowFile: string
+  steps?: RunStepSummary[]
 }
 
 interface RunRowProps {
   run: Run
   showProject?: boolean
   action?: React.ReactNode
+  /** Project's median run duration (seconds) for the slower/faster indicator. */
+  baselineSecs?: number
 }
 
-// Parse duration string like "2m 34s" to seconds for relative bar
-function parseDurationToSeconds(dur: string): number {
-  let total = 0
-  const mMatch = dur.match(/(\d+)m/)
-  const sMatch = dur.match(/(\d+)s/)
-  if (mMatch) total += parseInt(mMatch[1]!) * 60
-  if (sMatch) total += parseInt(sMatch[1]!)
-  return total || 1
+const TRIGGERS: Record<string, { Icon: typeof GitBranch; label: string }> = {
+  push: { Icon: GitCommitHorizontal, label: 'Push' },
+  pull_request: { Icon: GitPullRequest, label: 'Pull request' },
+  manual: { Icon: MousePointerClick, label: 'Manual' },
+  schedule: { Icon: CalendarClock, label: 'Scheduled' },
 }
 
-export function RunRow({ run, showProject = true, action }: RunRowProps) {
+const PIP_CLASS: Record<StepStatusValue, string> = {
+  succeeded: 'bg-success',
+  failed: 'bg-destructive',
+  running: 'bg-primary animate-pulse',
+  cancelled: 'bg-muted-foreground/40',
+  skipped: 'bg-muted-foreground/15',
+  pending: 'bg-border',
+  queued: 'bg-border',
+  waiting: 'bg-border',
+}
+
+function StagePips({ steps }: { steps: RunStepSummary[] }) {
+  const shown = steps.slice(0, 10)
+  const overflow = steps.length - shown.length
+  return (
+    <div className="hidden sm:flex items-center gap-0.5 shrink-0" title={steps.map((s) => `${s.name}: ${s.status}`).join('\n')}>
+      {shown.map((s, i) => (
+        <span key={i} className={`w-3.5 h-1.5 rounded-[2px] ${PIP_CLASS[s.status] ?? 'bg-border'}`} />
+      ))}
+      {overflow > 0 && <span className="text-[10px] text-muted-foreground/60 ml-0.5">+{overflow}</span>}
+    </div>
+  )
+}
+
+function DurationDelta({ durationSecs, baselineSecs }: { durationSecs: number; baselineSecs?: number }) {
+  if (!baselineSecs || !durationSecs) return null
+  const ratio = durationSecs / baselineSecs
+  if (ratio >= 1.3) {
+    return <ChevronUp size={11} className="text-warning" aria-label="slower than usual" />
+  }
+  if (ratio <= 0.7) {
+    return <ChevronDown size={11} className="text-success" aria-label="faster than usual" />
+  }
+  return null
+}
+
+export function RunRow({ run, showProject = true, action, baselineSecs }: RunRowProps) {
   const status = runStatusVisualFor(run.status)
   const accent = status.accent
   const isRunning = run.status === 'running'
+  const steps = run.steps ?? []
   const durationSecs = parseDurationToSeconds(run.duration)
-  // Assume 5min (300s) as a "typical" run for the relative bar
-  const durationPct = Math.min(100, (durationSecs / 300) * 100)
+  const trigger = TRIGGERS[run.triggerType] ?? TRIGGERS.push!
+  const done = steps.filter((s) => s.status === 'succeeded').length
 
   return (
     <Link
@@ -51,36 +99,26 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
       {/* Left accent bar */}
       <div className={`w-[3px] shrink-0 ${accent} ${isRunning ? 'running-accent' : ''}`} />
 
-      {/* Content */}
-      <div className="flex-1 px-4 lg:px-5 py-3 lg:py-3.5 min-w-0 space-y-1.5">
-        {/* Row 1: Status + project + commit message */}
-        <div className="flex items-start gap-3">
-          <span className={`shrink-0 mt-2 ${status.text}`}>
+      <div className="flex-1 px-4 lg:px-5 py-2.5 min-w-0 space-y-1">
+        {/* Row 1: status · project · commit message · stage pips · action */}
+        <div className="flex items-center gap-2.5">
+          <span className={`shrink-0 ${status.text}`}>
             <status.Icon size={14} className={status.spin ? 'animate-spin' : undefined} />
           </span>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {showProject && (
-                <>
-                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: run.projectColour }} />
-                  <span className="font-semibold text-base text-foreground group-hover:text-primary transition-colors truncate">
-                    {run.projectName}
-                  </span>
-                  <span className="text-muted-foreground/30">·</span>
-                </>
-              )}
-              <span className="text-xs text-muted-foreground font-mono opacity-50">{run.workflowFile}</span>
-            </div>
+          {showProject && (
+            <span className="flex items-center gap-1.5 shrink-0 max-w-[40%] min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: run.projectColour }} />
+              <span className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate">
+                {run.projectName}
+              </span>
+            </span>
+          )}
 
-            {/* Commit message — prominent */}
-            <div className="flex items-center gap-1.5 mt-1">
-              <GitCommit size={12} className="text-muted-foreground/40 shrink-0" />
-              <p className="text-sm text-foreground/80 truncate">{run.commitMessage}</p>
-            </div>
-          </div>
+          <p className="flex-1 text-sm text-foreground/75 truncate min-w-0">{run.commitMessage}</p>
 
-          {/* Action button (cancel/retry) */}
+          {steps.length > 0 && <StagePips steps={steps} />}
+
           {action && (
             <div className="shrink-0" onClick={(e) => e.preventDefault()}>
               {action}
@@ -88,45 +126,30 @@ export function RunRow({ run, showProject = true, action }: RunRowProps) {
           )}
         </div>
 
-        {/* Row 2: Metadata — compact with dot separators */}
-        <div className="flex items-center gap-0 pl-[26px] text-[12px] text-muted-foreground">
-          <span className="flex items-center gap-1">
+        {/* Row 2: trigger · branch · sha · duration(±) · time · actor */}
+        <div className="flex items-center gap-2 pl-[26px] text-[12px] text-muted-foreground min-w-0">
+          <span className="flex items-center gap-1 shrink-0" title={`${trigger.label} · ${run.workflowFile}`}>
+            <trigger.Icon size={12} className="opacity-70" />
+          </span>
+          <span className="flex items-center gap-1 shrink-0">
             <GitBranch size={11} />
             <span className="font-mono">{run.branch}</span>
           </span>
-
-          <span className="mx-2 opacity-25">·</span>
-
-          <span className="font-mono opacity-60">{run.commitSha}</span>
-
-          <span className="mx-2 opacity-25">·</span>
-
-          <span className="flex items-center gap-1">
+          <span className="opacity-25">·</span>
+          <span className="font-mono opacity-60 shrink-0">{run.commitSha}</span>
+          <span className="opacity-25">·</span>
+          <span className="flex items-center gap-1 shrink-0">
             <Timer size={11} />
-            {run.duration}
+            {isRunning && steps.length > 0 ? `${done}/${steps.length}` : run.duration}
+            {!isRunning && <DurationDelta durationSecs={durationSecs} baselineSecs={baselineSecs} />}
           </span>
-
-          {/* Duration bar */}
-          <div className="hidden sm:flex items-center gap-1.5 ml-2">
-            <div className="w-[40px] h-[3px] rounded-full bg-border overflow-hidden">
-              <div
-                className={`h-full rounded-full ${accent} transition-all`}
-                style={{ width: `${durationPct}%` }}
-              />
-            </div>
-          </div>
-
-          <span className="mx-2 opacity-25">·</span>
-
-          <span className="opacity-50">{run.startedAt}</span>
-
-          <span className="mx-2 opacity-25">·</span>
-
-          <span className="opacity-40">{run.triggeredBy}</span>
+          <span className="opacity-25">·</span>
+          <span className="opacity-50 shrink-0">{run.startedAt}</span>
+          <span className="hidden md:inline opacity-25">·</span>
+          <span className="hidden md:inline opacity-50 shrink-0">{run.triggeredBy}</span>
         </div>
       </div>
 
-      {/* Running shimmer overlay */}
       {isRunning && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div className="running-shimmer" />
