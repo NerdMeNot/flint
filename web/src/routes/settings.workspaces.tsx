@@ -3,6 +3,8 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { Boxes, FolderGit2, Calendar } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
+import { PageHeader } from '#/components/PageHeader'
+import { Badge } from '#/components/Badge'
 
 export const Route = createFileRoute('/settings/workspaces')({
   component: WorkspacesPage,
@@ -14,9 +16,10 @@ function WorkspacesPage() {
 
   return (
     <div className="space-y-5">
-      <p className="text-muted-foreground text-sm">
-        {workspaces.length} {workspaces.length === 1 ? 'workspace' : 'workspaces'} configured
-      </p>
+      <PageHeader
+        title="Workspaces"
+        subtitle={`${workspaces.length} ${workspaces.length === 1 ? 'workspace' : 'workspaces'} configured`}
+      />
 
       {workspaces.length === 0 ? (
         <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
@@ -35,15 +38,10 @@ function WorkspacesPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-sm text-foreground truncate">{ws.name}</h3>
-                    {ws.isDefault && (
-                      <span className="island-kicker !text-[10px] shrink-0 bg-primary/10 text-primary border-primary/20">
-                        Default
-                      </span>
-                    )}
+                    {ws.isDefault && <Badge variant="primary">Default</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground font-mono truncate">{ws.slug}</p>
                 </div>
-                <span className="island-kicker !text-[11px] shrink-0">{ws.id}</span>
               </div>
 
               {ws.description && (

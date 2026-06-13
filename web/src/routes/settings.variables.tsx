@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Lock, Variable, Plus, Trash2, ChevronDown, ChevronRight, AlertTriangle, Globe, Pencil, Eye, EyeOff } from 'lucide-react'
+import { Lock, Variable, Plus, ChevronDown, ChevronRight, AlertTriangle, Globe, Pencil, Eye, EyeOff } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { Modal } from '#/components/Modal'
+import { Badge } from '#/components/Badge'
+import { ConfirmButton } from '#/components/ConfirmButton'
 
 export const Route = createFileRoute('/settings/variables')({
   component: VariablesPage,
@@ -113,7 +115,7 @@ function VariablesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-semibold text-sm text-foreground">{variable.name}</span>
-                        {variable.isSecret && <span className="text-[11px] font-medium text-warning">SECRET</span>}
+                        {variable.isSecret && <Badge variant="warning">SECRET</Badge>}
                       </div>
                       {variable.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{variable.description}</p>
@@ -128,13 +130,7 @@ function VariablesPage() {
                           {missingCount}
                         </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => delVar.mutate(variable.id)}
-                        className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      <ConfirmButton onConfirm={() => delVar.mutate(variable.id)} title="Delete variable" />
                     </div>
                   </div>
 
@@ -201,7 +197,7 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono font-semibold text-sm text-foreground">{variable.name}</span>
-          {variable.isSecret && <span className="text-[11px] font-medium text-warning">SECRET</span>}
+          {variable.isSecret && <Badge variant="warning">SECRET</Badge>}
         </div>
         {variable.description && (
           <p className="text-[12px] text-muted-foreground truncate">{variable.description}</p>
@@ -229,13 +225,7 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => delVar.mutate(variable.id)}
-        className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors shrink-0"
-      >
-        <Trash2 size={12} />
-      </button>
+      <ConfirmButton onConfirm={() => delVar.mutate(variable.id)} title="Delete variable" />
     </div>
 
     {editing && (
@@ -305,7 +295,7 @@ function ValueRow({ label, value, isSecret, onSave }: {
             </button>
           </div>
         ) : !editing ? (
-          <button type="button" onClick={startEdit} className="text-xs text-destructive/60 hover:text-destructive transition-colors">
+          <button type="button" onClick={startEdit} className="text-xs text-primary/70 hover:text-primary transition-colors">
             + set value
           </button>
         ) : null}

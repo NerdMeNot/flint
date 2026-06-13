@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Tag, Plus, Trash2, ChevronRight, ChevronDown, X } from 'lucide-react'
+import { Tag, Plus, ChevronRight, ChevronDown, X } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
+import { ConfirmButton } from '#/components/ConfirmButton'
 import type { TagKey } from '#/lib/api/types'
 
 export const Route = createFileRoute('/settings/tags')({
@@ -110,14 +111,7 @@ function TagKeyRow({ tagKey, expanded, onToggle }: {
         <span className="text-[12px] text-muted-foreground shrink-0">
           {values.length === 0 ? 'free-form' : `${values.length} ${values.length === 1 ? 'value' : 'values'}`}
         </span>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); del.mutate(tagKey.id) }}
-          className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/5 transition-colors shrink-0"
-          title="Delete key"
-        >
-          <Trash2 size={13} />
-        </button>
+        <ConfirmButton onConfirm={() => del.mutate(tagKey.id)} title="Delete key" />
       </div>
 
       {expanded && (

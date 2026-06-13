@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { GitFork, Clock } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/settings/connections')({
   component: ConnectionsPage,
@@ -31,9 +32,10 @@ function ConnectionsPage() {
 
   return (
     <div className="space-y-5">
-      <p className="text-muted-foreground text-sm">
-        {connections.length} forge {connections.length === 1 ? 'connection' : 'connections'}
-      </p>
+      <PageHeader
+        title="Connections"
+        subtitle={`${connections.length} forge ${connections.length === 1 ? 'connection' : 'connections'}`}
+      />
 
       {connections.length === 0 ? (
         <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">

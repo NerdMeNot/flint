@@ -1,13 +1,16 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useSuspenseQuery, useQueryClient } from '@tanstack/react-query'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { ArrowLeft, Mail, KeyRound, Users, Shield, Plus, Key, Trash2, Copy, Check, Clock, AlertTriangle, Calendar } from 'lucide-react'
+import { ArrowLeft, Mail, KeyRound, Users, Shield, Plus, Key, Copy, Check, Clock, AlertTriangle, Calendar } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { PermissionMatrix } from '#/components/PermissionMatrix'
 import { Modal } from '#/components/Modal'
 import { FormSelect } from '#/components/FormSelect'
+import { Badge } from '#/components/Badge'
+import { ConfirmButton } from '#/components/ConfirmButton'
+import { MemberAvatar } from '#/components/MemberAvatar'
 import { formatTime } from '#/lib/format-time'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 
@@ -73,7 +76,7 @@ function UserDetailPage() {
       {/* User header */}
       <div className="island-shell p-4 sm:p-5">
         <div className="flex items-center gap-4">
-          <MemberAvatar name={user.name ?? user.email} size="lg" />
+          <MemberAvatar name={user.name ?? user.email} size={48} />
           <div className="min-w-0">
             {user.name && (
               <h2 className="display-title text-lg font-bold text-foreground truncate">{user.name}</h2>
@@ -114,9 +117,7 @@ function UserDetailPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-foreground">{role.name}</span>
-                    {role.isSystem && (
-                      <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
-                    )}
+                    {role.isSystem && <Badge variant="primary">System</Badge>}
                   </div>
                   <ScopeBadges workspaces={role.workspaces} environments={role.environments} />
                 </div>
@@ -249,14 +250,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => del.mutate(token.id)}
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors shrink-0"
-                  title="Revoke token"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <ConfirmButton onConfirm={() => del.mutate(token.id)} title="Revoke token" />
               </div>
             )
           })}
@@ -275,20 +269,25 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
   const [expiry, setExpiry] = useState('90d')
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const { copied, copy } = useCopyToClipboard()
-  const queryClient = useQueryClient()
 
-  async function handleSubmit(e: React.FormEvent) {
+  const create = useAction(
+    (input: { userId: string; name: string; expiresAt: string | undefined }) =>
+      client.personalTokens.create(input),
+    {
+      invalidate: [orpc.personalTokens.list.key()],
+      onSuccess: (result) => setGeneratedToken((result as { token: string }).token),
+    },
+  )
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
 
-    const result = await client.personalTokens.create({
+    create.mutate({
       userId,
       name,
       expiresAt: computeExpiry(expiry),
     })
-
-    setGeneratedToken((result as any).token)
-    queryClient.invalidateQueries({ queryKey: orpc.personalTokens.list.key() })
   }
 
   return (
@@ -366,11 +365,11 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
             <button type="button" onClick={onClose} className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
               Cancel
             </button>
-            <button type="submit" disabled={!name.trim()}
+            <button type="submit" disabled={!name.trim() || create.isPending}
               className="flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
               style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}>
               <Key size={12} />
-              Generate token
+              {create.isPending ? 'Generating…' : 'Generate token'}
             </button>
           </div>
         </form>
@@ -460,6 +459,8 @@ function AssignRoleToSubjectModal({
 // Team memberships — need to fetch each team to check membership
 // ---------------------------------------------------------------------------
 
+type TeamRole = { id: string; name: string; slug: string; isSystem: boolean; workspaces: string[]; environments: string[] }
+
 function TeamMemberships({
   userId,
   teams,
@@ -467,57 +468,67 @@ function TeamMemberships({
 }: {
   userId: string
   teams: Array<{ id: string; name: string; slug: string; source: string; memberCount: number }>
-  teamRoleMap: Map<string, Array<{ id: string; name: string; slug: string; isSystem: boolean; workspaces: string[]; environments: string[] }>>
+  teamRoleMap: Map<string, Array<TeamRole>>
 }) {
-  // Fetch all teams with members to check actual membership
-  const teamQueries = teams.map((t) =>
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useSuspenseQuery(orpc.teams.get.queryOptions({ input: { id: t.id } })),
+  // Render one chip per team; each chip fetches its own team (with members) at
+  // the top of its component and only renders if the user is a member — keeping
+  // the hook call out of a `.map()` (Rules of Hooks).
+  return (
+    <>
+      {/* The chip container; each chip short-circuits to null when the user is
+          not a member, so we can't know the count up front. When every chip
+          renders null this <div> is `:empty`, which reveals the sibling empty
+          state via the `[&:empty+p]:block` rule below. */}
+      <div className="space-y-2 empty:hidden [&:empty+p]:block">
+        {teams.map((t) => (
+          <TeamMembershipChip
+            key={t.id}
+            teamId={t.id}
+            userId={userId}
+            inherited={teamRoleMap.get(`team:${t.slug}`) ?? []}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground opacity-50 pl-5 hidden">Not a member of any team.</p>
+    </>
   )
+}
 
-  const memberTeams = teamQueries
-    .map((q) => q.data)
-    .filter((t) => t.members.some((m) => m.id === userId))
-
-  if (memberTeams.length === 0) {
-    return <p className="text-xs text-muted-foreground opacity-50 pl-5">Not a member of any team.</p>
-  }
+function TeamMembershipChip({
+  teamId,
+  userId,
+  inherited,
+}: {
+  teamId: string
+  userId: string
+  inherited: Array<TeamRole>
+}) {
+  const { data: team } = useSuspenseQuery(orpc.teams.get.queryOptions({ input: { id: teamId } }))
+  if (!team.members.some((m) => m.id === userId)) return null
 
   return (
-    <div className="space-y-2">
-      {memberTeams.map((team) => {
-        const inherited = teamRoleMap.get(`team:${team.slug}`) ?? []
-        return (
-          <Link
-            key={team.id}
-            to="/settings/teams/$id"
-            params={{ id: team.id }}
-            className="island-shell p-3 flex items-center justify-between gap-3 hover:bg-accent/30 transition-colors group"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Users size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{team.name}</span>
-              <span className={`island-kicker !text-[11px] shrink-0 ${
-                team.source === 'idp' ? 'bg-primary/10 text-primary border-primary/20' : ''
-              }`}>
-                {team.source === 'idp' ? 'IdP' : 'Internal'}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1 shrink-0">
-              {inherited.length === 0 ? (
-                <span className="text-[11px] text-muted-foreground opacity-40">No team roles</span>
-              ) : (
-                inherited.map((role) => (
-                  <span key={role.slug} className="rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-secondary text-foreground border border-border">
-                    {role.name}
-                  </span>
-                ))
-              )}
-            </div>
-          </Link>
-        )
-      })}
-    </div>
+    <Link
+      to="/settings/teams/$id"
+      params={{ id: team.id }}
+      className="island-shell p-3 flex items-center justify-between gap-3 hover:bg-accent/30 transition-colors group"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Users size={14} className="text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{team.name}</span>
+        <Badge variant={team.source === 'idp' ? 'primary' : 'neutral'}>
+          {team.source === 'idp' ? 'IdP' : 'Internal'}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap gap-1 shrink-0">
+        {inherited.length === 0 ? (
+          <span className="text-[11px] text-muted-foreground opacity-40">No team roles</span>
+        ) : (
+          inherited.map((role) => (
+            <Badge key={role.slug} variant="neutral">{role.name}</Badge>
+          ))
+        )}
+      </div>
+    </Link>
   )
 }
 
@@ -544,30 +555,3 @@ function mergePermissions(
   })
 }
 
-// ---------------------------------------------------------------------------
-// Avatar
-// ---------------------------------------------------------------------------
-
-const avatarColors = [
-  'bg-blue-500/15 text-blue-400',
-  'bg-emerald-500/15 text-emerald-400',
-  'bg-violet-500/15 text-violet-400',
-  'bg-amber-500/15 text-amber-400',
-  'bg-rose-500/15 text-rose-400',
-  'bg-cyan-500/15 text-cyan-400',
-  'bg-pink-500/15 text-pink-400',
-  'bg-teal-500/15 text-teal-400',
-]
-
-function MemberAvatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'lg' }) {
-  const hash = name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const color = avatarColors[hash % avatarColors.length]!
-  const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
-  const dims = size === 'lg' ? 'w-12 h-12 text-base' : 'w-8 h-8 text-xs'
-
-  return (
-    <div className={`${dims} rounded-full flex items-center justify-center shrink-0 ${color}`}>
-      <span className="font-semibold">{initials}</span>
-    </div>
-  )
-}

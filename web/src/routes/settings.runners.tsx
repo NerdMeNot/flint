@@ -2,6 +2,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { Server, Cpu, HardDrive, Microchip } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
+import { PageHeader } from '#/components/PageHeader'
+import { Badge } from '#/components/Badge'
 
 export const Route = createFileRoute('/settings/runners')({
   component: RunnersPage,
@@ -13,9 +15,10 @@ function RunnersPage() {
 
   return (
     <div className="space-y-5">
-      <p className="text-muted-foreground text-sm">
-        {runners.length} runner {runners.length === 1 ? 'pool' : 'pools'} configured
-      </p>
+      <PageHeader
+        title="Runner Pools"
+        subtitle={`${runners.length} ${runners.length === 1 ? 'pool' : 'pools'}`}
+      />
 
       {runners.length === 0 ? (
         <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
@@ -40,20 +43,9 @@ function RunnersPage() {
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{runner.description}</p>
                   )}
                 </div>
-                <span
-                  className={`island-kicker !text-[11px] shrink-0 flex items-center gap-1 ${
-                    runner.ready
-                      ? 'bg-success/10 text-success border-success/20'
-                      : 'bg-destructive/10 text-destructive border-destructive/20'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      runner.ready ? 'bg-success' : 'bg-destructive'
-                    }`}
-                  />
-                  {runner.ready ? 'Ready' : 'Not Ready'}
-                </span>
+                <Badge variant={runner.ready ? 'success' : 'danger'}>
+                  {runner.ready ? 'Ready' : 'Not ready'}
+                </Badge>
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

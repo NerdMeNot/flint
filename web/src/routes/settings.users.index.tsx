@@ -1,8 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Mail } from 'lucide-react'
+import { Mail, Users } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { ScopeBadges } from '#/components/ScopeBadges'
+import { PageHeader } from '#/components/PageHeader'
+import { EmptyState } from '#/components/EmptyState'
+import { MemberAvatar } from '#/components/MemberAvatar'
+import { Badge } from '#/components/Badge'
 
 export const Route = createFileRoute('/settings/users/')({
   component: UsersPage,
@@ -41,11 +45,14 @@ function UsersPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="display-title text-2xl lg:text-3xl text-foreground">Users</h2>
-        <p className="text-muted-foreground text-sm lg:text-base mt-1">{users.length} users</p>
-      </div>
+      <PageHeader
+        title="Users"
+        subtitle={`${users.length} ${users.length === 1 ? 'user' : 'users'}`}
+      />
 
+      {users.length === 0 ? (
+        <EmptyState icon={Users} message="No users yet." />
+      ) : (
       <div className="island-shell !p-0 overflow-hidden">
         <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
           <span>User</span>
@@ -82,16 +89,9 @@ function UsersPage() {
                     <span className="text-xs text-muted-foreground opacity-40">No roles</span>
                   ) : (
                     directRoles.map((role) => (
-                      <span
-                        key={role.slug}
-                        className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
-                          role.isSystem
-                            ? 'bg-primary/10 text-primary border border-primary/20'
-                            : 'bg-secondary text-foreground border border-border'
-                        }`}
-                      >
+                      <Badge key={role.slug} variant={role.isSystem ? 'primary' : 'neutral'}>
                         {role.name}
-                      </span>
+                      </Badge>
                     ))
                   )}
                 </div>
@@ -115,29 +115,7 @@ function UsersPage() {
           })}
         </div>
       </div>
-    </div>
-  )
-}
-
-const avatarColors = [
-  'bg-blue-500/15 text-blue-400',
-  'bg-emerald-500/15 text-emerald-400',
-  'bg-violet-500/15 text-violet-400',
-  'bg-amber-500/15 text-amber-400',
-  'bg-rose-500/15 text-rose-400',
-  'bg-cyan-500/15 text-cyan-400',
-  'bg-pink-500/15 text-pink-400',
-  'bg-teal-500/15 text-teal-400',
-]
-
-function MemberAvatar({ name }: { name: string }) {
-  const hash = name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const color = avatarColors[hash % avatarColors.length]!
-  const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
-
-  return (
-    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${color}`}>
-      <span className="text-xs font-semibold">{initials}</span>
+      )}
     </div>
   )
 }
