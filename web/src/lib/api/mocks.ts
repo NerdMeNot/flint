@@ -114,7 +114,7 @@ export function getProjects(): Project[] {
       id: 'p-4',
       name: 'Terraform Infra',
       repo: 'acme/terraform-infra',
-      workspace: 'platform',
+      workspace: 'acme',
       lastRun: {
         id: 'r-104',
         status: 'succeeded',
@@ -150,8 +150,8 @@ export function getProjects(): Project[] {
     {
       id: 'p-6',
       name: 'Web Storefront',
-      repo: 'acme/web-storefront',
-      workspace: 'storefront',
+      repo: 'globex/web-storefront',
+      workspace: 'globex',
       tags: [],
       pipelineCount: 1,
       pipelineErrors: 0,
@@ -1626,7 +1626,7 @@ function seedWorkspaces(): Workspace[] {
       name: 'Storefront',
       slug: 'storefront',
       description: 'Customer-facing web app and mobile backend',
-      projectCount: 1,
+      projectCount: 0,
       createdAt: '2023-07-10T00:00:00Z',
     },
     {
@@ -1634,8 +1634,26 @@ function seedWorkspaces(): Workspace[] {
       name: 'Platform',
       slug: 'platform',
       description: 'Shared infrastructure, auth, and developer tooling',
-      projectCount: 2,
+      projectCount: 1,
       createdAt: '2023-08-15T00:00:00Z',
+    },
+    // Owner-derived workspaces, auto-created for projects that didn't declare
+    // spec.workspace (inferred from the repo owner).
+    {
+      id: 'ws-5',
+      name: 'acme',
+      slug: 'acme',
+      description: 'Auto-created from the acme/* repo owner',
+      projectCount: 1,
+      createdAt: '2024-01-05T00:00:00Z',
+    },
+    {
+      id: 'ws-6',
+      name: 'globex',
+      slug: 'globex',
+      description: 'Auto-created from the globex/* repo owner',
+      projectCount: 1,
+      createdAt: '2024-02-12T00:00:00Z',
     },
   ]
 }
