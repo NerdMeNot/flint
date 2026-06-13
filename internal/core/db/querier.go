@@ -305,6 +305,9 @@ type Querier interface {
 	TouchAPIKey(ctx context.Context, id string) error
 	TouchDeviceCodePoll(ctx context.Context, deviceCode string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
+	// UI-managed project labels (the registry curates the vocabulary; this stores
+	// the chosen key:value and free tags on the project).
+	UpdateProjectTags(ctx context.Context, arg UpdateProjectTagsParams) error
 	UpdateProtectedEnvironment(ctx context.Context, arg UpdateProtectedEnvironmentParams) (int64, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, error)
 	UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams) error
@@ -326,6 +329,8 @@ type Querier interface {
 	// use that workspace (created on the fly if it doesn't exist); otherwise the
 	// project lands in the org's default "Unsorted" workspace. workspace_inferred is
 	// true when no workspace was declared (i.e. it defaulted to Unsorted).
+	// tags are intentionally NOT written here — they're UI-managed (see
+	// UpdateProjectTags), so a reconcile never clobbers them.
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
 	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error

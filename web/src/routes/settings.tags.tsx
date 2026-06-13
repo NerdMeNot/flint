@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Tag, Plus, ChevronRight, ChevronDown, X } from 'lucide-react'
+import { Tag, Plus, ChevronRight, ChevronDown, X, GripVertical } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { ConfirmButton } from '#/components/ConfirmButton'
@@ -11,7 +11,12 @@ export const Route = createFileRoute('/settings/tags')({
   component: TagsPage,
 })
 
-const SWATCHES = ['#6366f1', '#ef4444', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#64748b']
+const SWATCHES = [
+  '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
+  '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#2563eb',
+  '#64748b', '#78716c', '#0d9488', '#7c3aed', '#db2777', '#475569',
+]
 
 function TagsPage() {
   const { data } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
@@ -146,13 +151,12 @@ function TagKeyRow({ tagKey, expanded, onToggle }: {
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">Allowed values</label>
-            <ChipInput
+            <ValueListEditor
               values={values}
               onChange={(next) => { setValues(next); persist({ values: next }) }}
               prefix={tagKey.key + ':'}
-              placeholder={values.length === 0 ? 'Type a value, press Enter' : 'Add another…'}
             />
-            <p className="text-[11px] text-muted-foreground">Leave empty to allow free-form values for this key.</p>
+            <p className="text-[11px] text-muted-foreground">Each value is one allowed option. Leave empty to allow free-form values for this key.</p>
           </div>
         </div>
       )}
@@ -221,59 +225,132 @@ function CreateRow({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Chip/token input — each committed value becomes a removable chip. Enter or
-// comma commits; Backspace on an empty field removes the last chip. Duplicates
-// and blanks are dropped. `prefix` previews the `key:` namespace on each chip.
+// Allowed-values editor — one row per value (prefix preview + remove), with a
+// dedicated add row. Rows are drag-to-reorder (the saved order is the order
+// projects see in pickers). Clearer than cramming every value into one field.
 // ---------------------------------------------------------------------------
 
-function ChipInput({ values, onChange, prefix, placeholder }: {
+function reorder(list: string[], from: number, to: number): string[] {
+  const next = [...list]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
+}
+
+function ValueListEditor({ values, onChange, prefix }: {
   values: string[]
   onChange: (next: string[]) => void
   prefix?: string
-  placeholder?: string
 }) {
   const [draft, setDraft] = useState('')
+  // Drag source/target indices. The list is NOT reordered during the drag (that
+  // moves the dragged DOM node and aborts the native drag, limiting it to one
+  // step) — we only commit the move on drop, so a single drag can span any range.
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
+  // Inline value editing.
+  const [editIndex, setEditIndex] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState('')
 
-  function commit(raw: string) {
-    const v = raw.trim()
-    if (!v) return
-    if (!values.includes(v)) onChange([...values, v])
+  function add() {
+    const v = draft.trim()
+    if (!v || values.includes(v)) return
+    onChange([...values, v])
     setDraft('')
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault()
-      commit(draft)
-    } else if (e.key === 'Backspace' && draft === '' && values.length > 0) {
-      onChange(values.slice(0, -1))
-    }
+  function commitEdit() {
+    if (editIndex === null) return
+    const v = editDraft.trim()
+    const i = editIndex
+    setEditIndex(null)
+    if (!v || v === values[i] || values.includes(v)) return // drop empties/dupes/no-ops
+    onChange(values.map((x, idx) => (idx === i ? v : x)))
+  }
+
+  function drop(to: number) {
+    if (dragFrom !== null && dragFrom !== to) onChange(reorder(values, dragFrom, to))
+    setDragFrom(null)
+    setDragOver(null)
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-transparent px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
-      {values.map((v) => (
-        <span key={v} className="flex items-center gap-1 rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-mono text-foreground">
-          <span className="text-muted-foreground">{prefix}</span>{v}
-          <button
-            type="button"
-            onClick={() => onChange(values.filter((x) => x !== v))}
-            className="text-muted-foreground hover:text-destructive transition-colors"
-            aria-label={`Remove ${v}`}
+    <div className="space-y-1.5">
+      {values.map((v, i) => {
+        const editing = editIndex === i
+        const isTarget = dragOver === i && dragFrom !== null && dragFrom !== i
+        return (
+          <div
+            key={v}
+            draggable={!editing}
+            onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move' }}
+            onDragOver={(e) => { e.preventDefault(); if (dragOver !== i) setDragOver(i) }}
+            onDrop={(e) => { e.preventDefault(); drop(i) }}
+            onDragEnd={() => { setDragFrom(null); setDragOver(null) }}
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-all ${
+              dragFrom === i ? 'opacity-40' : ''
+            } ${isTarget ? 'border-primary/50 ring-1 ring-primary/30' : 'border-border'}`}
           >
-            <X size={11} />
-          </button>
-        </span>
-      ))}
-      <input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={() => commit(draft)}
-        placeholder={placeholder}
-        className="flex-1 min-w-[8ch] bg-transparent px-1 py-0.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-      />
+            <GripVertical
+              size={14}
+              className={`shrink-0 ${editing ? 'text-muted-foreground/20' : 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing'}`}
+            />
+            {editing ? (
+              <div className="flex flex-1 items-center min-w-0">
+                {prefix && <span className="text-sm font-mono text-muted-foreground/50 shrink-0">{prefix}</span>}
+                <input
+                  type="text" autoFocus value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+                    if (e.key === 'Escape') setEditIndex(null)
+                  }}
+                  className="flex-1 min-w-0 bg-transparent text-sm font-mono text-foreground focus:outline-none"
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setEditIndex(i); setEditDraft(v) }}
+                title="Click to edit"
+                className="flex-1 text-left text-sm font-mono text-foreground truncate hover:text-primary transition-colors"
+              >
+                <span className="text-muted-foreground">{prefix}</span>{v}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
+              aria-label={`Remove ${v}`}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )
+      })}
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center rounded-lg border border-dashed border-border focus-within:ring-2 focus-within:ring-ring/40">
+          {prefix && <span className="pl-2.5 text-sm font-mono text-muted-foreground/50 shrink-0">{prefix}</span>}
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            placeholder="add a value"
+            className="flex-1 min-w-0 bg-transparent px-2 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={add}
+          disabled={!draft.trim()}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 shrink-0"
+        >
+          Add
+        </button>
+      </div>
     </div>
   )
 }

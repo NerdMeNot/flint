@@ -51,7 +51,7 @@ func TestUpsertProject_WorkspacePlacement(t *testing.T) {
 		return db.UpsertProjectParams{
 			ForgeRef: forgeRef, RepoPath: repo, RepoUrl: "https://example.com/" + repo,
 			Colour: "#6366f1", DefaultBranch: "main", PipelineSource: []byte(`{}`),
-			Tags: []string{}, Workspace: workspace,
+			Workspace: workspace,
 		}
 	}
 

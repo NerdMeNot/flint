@@ -54,7 +54,7 @@ export function getUsers(): User[] {
 // Projects (6 projects, 3 workspaces)
 // ---------------------------------------------------------------------------
 
-export function getProjects(): Project[] {
+function seedProjects(): Project[] {
   return [
     {
       id: 'p-1',
@@ -69,7 +69,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'alice',
         startedAt: '3 min ago',
       },
-      tags: ['backend', 'critical', 'domain:checkout', 'tier:1', 'lang:go'],
+      tags: ['domain:checkout', 'tier:1', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#3b82f6',
@@ -87,7 +87,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'bob',
         startedAt: '8 min ago',
       },
-      tags: ['backend', 'pci', 'domain:checkout', 'tier:1', 'lang:go', 'compliance:pci'],
+      tags: ['domain:payments', 'tier:1', 'lang:go', 'compliance:pci', 'compliance:soc2', 'team:bravo', 'region:us-east', 'criticality:tier0', 'data-class:pii', 'slo:99.99', 'oncall:yes'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#ef4444',
@@ -105,7 +105,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'carol',
         startedAt: '1 min ago',
       },
-      tags: ['backend', 'elasticsearch', 'domain:catalog', 'tier:2', 'lang:go'],
+      tags: ['domain:catalog', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 1,
       colour: '#8b5cf6',
@@ -123,7 +123,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'dave',
         startedAt: '22 min ago',
       },
-      tags: ['iac', 'domain:platform', 'tier:2', 'lang:go'],
+      tags: ['domain:platform', 'tier:2', 'lang:go'],
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#22c55e',
@@ -142,7 +142,7 @@ export function getProjects(): Project[] {
         triggeredBy: 'eve',
         startedAt: '1 hour ago',
       },
-      tags: ['backend', 'security', 'domain:identity', 'tier:1', 'lang:go'],
+      tags: ['domain:identity', 'tier:1', 'lang:go'],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#f59e0b',
@@ -159,6 +159,20 @@ export function getProjects(): Project[] {
       inferred: true,
     },
   ]
+}
+
+let _projects: Project[] | undefined
+export function getProjects(): Project[] {
+  return (_projects ??= seedProjects())
+}
+
+export function setProjectTags(id: string, tags: string[]): { success: true } {
+  // Constrain to the registry: only declared key:value tags are accepted.
+  const allowed = new Set(getTagKeys().flatMap((k) => k.allowedValues.map((v) => `${k.key}:${v}`)))
+  const filtered = tags.filter((t) => allowed.has(t))
+  const p = getProjects().find((x) => x.id === id)
+  if (p) p.tags = filtered
+  return { success: true }
 }
 
 // ---------------------------------------------------------------------------
@@ -2370,12 +2384,33 @@ export function deleteWorkspace(id: string): { success: true } {
 }
 
 // Tag registry (curated namespaced keys)
+// A deliberately large registry (23 keys / 150 allowed values) so the tag
+// manager can be exercised at scale in mock mode.
 function seedTagKeys(): TagKey[] {
   return [
-    { id: 'tk-1', key: 'domain', label: 'Domain', allowedValues: ['checkout', 'catalog', 'identity', 'platform'], color: '#6366f1' },
-    { id: 'tk-2', key: 'tier', label: 'Tier', allowedValues: ['1', '2', '3'], color: '#ef4444' },
-    { id: 'tk-3', key: 'lang', label: 'Language', allowedValues: ['go', 'ts', 'python', 'rust'], color: '#10b981' },
-    { id: 'tk-4', key: 'compliance', label: 'Compliance', allowedValues: ['pci', 'sox', 'gdpr'], color: '#f59e0b' },
+    { id: 'tk-1', key: 'domain', label: 'Domain', color: '#6366f1', allowedValues: ['checkout', 'catalog', 'identity', 'platform', 'payments', 'search', 'recommendations', 'fulfillment', 'inventory', 'pricing', 'notifications', 'accounts'] },
+    { id: 'tk-2', key: 'tier', label: 'Tier', color: '#ef4444', allowedValues: ['1', '2', '3', '4'] },
+    { id: 'tk-3', key: 'lang', label: 'Language', color: '#10b981', allowedValues: ['go', 'ts', 'python', 'rust', 'java', 'kotlin', 'ruby', 'csharp', 'cpp', 'scala', 'php', 'swift'] },
+    { id: 'tk-4', key: 'compliance', label: 'Compliance', color: '#f59e0b', allowedValues: ['pci', 'sox', 'gdpr', 'hipaa', 'soc2', 'iso27001'] },
+    { id: 'tk-5', key: 'team', label: 'Team', color: '#8b5cf6', allowedValues: ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet'] },
+    { id: 'tk-6', key: 'runtime', label: 'Runtime', color: '#06b6d4', allowedValues: ['node', 'jvm', 'native', 'container', 'serverless'] },
+    { id: 'tk-7', key: 'region', label: 'Region', color: '#ec4899', allowedValues: ['us-east', 'us-west', 'eu-west', 'eu-central', 'ap-south', 'ap-northeast', 'ap-east', 'ca-central', 'me-south', 'sa-east'] },
+    { id: 'tk-8', key: 'criticality', label: 'Criticality', color: '#f43f5e', allowedValues: ['tier0', 'tier1', 'tier2', 'tier3'] },
+    { id: 'tk-9', key: 'lifecycle', label: 'Lifecycle', color: '#14b8a6', allowedValues: ['experimental', 'beta', 'ga', 'deprecated', 'sunset'] },
+    { id: 'tk-10', key: 'datastore', label: 'Datastore', color: '#3b82f6', allowedValues: ['postgres', 'mysql', 'redis', 'mongo', 'cassandra', 'dynamo', 'elasticsearch', 'kafka', 'clickhouse', 'neo4j'] },
+    { id: 'tk-11', key: 'cloud', label: 'Cloud', color: '#eab308', allowedValues: ['aws', 'gcp', 'azure', 'on-prem'] },
+    { id: 'tk-12', key: 'role', label: 'Owner Role', color: '#22c55e', allowedValues: ['backend', 'frontend', 'platform', 'sre', 'data', 'ml', 'security', 'qa', 'design', 'product'] },
+    { id: 'tk-13', key: 'cadence', label: 'Release Cadence', color: '#a855f7', allowedValues: ['continuous', 'weekly', 'biweekly', 'monthly', 'quarterly'] },
+    { id: 'tk-14', key: 'cost-center', label: 'Cost Center', color: '#64748b', allowedValues: ['cc-100', 'cc-200', 'cc-300', 'cc-400', 'cc-500', 'cc-600', 'cc-700', 'cc-800', 'cc-900', 'cc-1000'] },
+    { id: 'tk-15', key: 'visibility', label: 'Visibility', color: '#0ea5e9', allowedValues: ['public', 'internal', 'private', 'restricted'] },
+    { id: 'tk-16', key: 'maturity', label: 'Maturity', color: '#d946ef', allowedValues: ['poc', 'mvp', 'hardened', 'legacy'] },
+    { id: 'tk-17', key: 'traffic', label: 'Traffic', color: '#f97316', allowedValues: ['low', 'medium', 'high', 'spiky', 'burst'] },
+    { id: 'tk-18', key: 'data-class', label: 'Data Class', color: '#dc2626', allowedValues: ['public', 'internal', 'confidential', 'secret', 'pii', 'phi'] },
+    { id: 'tk-19', key: 'slo', label: 'SLO', color: '#84cc16', allowedValues: ['99', '99.9', '99.99', '99.999'] },
+    { id: 'tk-20', key: 'build', label: 'Build System', color: '#2dd4bf', allowedValues: ['bazel', 'gradle', 'maven', 'cargo', 'npm', 'pnpm', 'yarn', 'go-modules'] },
+    { id: 'tk-21', key: 'pipeline', label: 'Pipeline Type', color: '#7c3aed', allowedValues: ['monorepo', 'polyrepo', 'library', 'service', 'batch', 'cron', 'webhook'] },
+    { id: 'tk-22', key: 'oncall', label: 'On Call', color: '#f87171', allowedValues: ['yes', 'no'] },
+    { id: 'tk-23', key: 'env-class', label: 'Env Class', color: '#34d399', allowedValues: ['ephemeral', 'shared', 'dedicated'] },
   ]
 }
 let _tagKeys: TagKey[] | undefined

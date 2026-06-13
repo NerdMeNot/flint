@@ -47,6 +47,11 @@ UPDATE projects SET is_archived = true, updated_at = now() WHERE id = $1;
 -- name: GetProjectOrgID :one
 SELECT org_id FROM projects WHERE id = $1;
 
+-- name: UpdateProjectTags :exec
+-- UI-managed project labels (the registry curates the vocabulary; this stores
+-- the chosen key:value and free tags on the project).
+UPDATE projects SET tags = @tags, updated_at = now() WHERE id = @id;
+
 -- name: UpsertProject :one
 -- Workspace placement (the CRD is authoritative): if spec.workspace is declared
 -- use that workspace (created on the fly if it doesn't exist); otherwise the
@@ -69,14 +74,16 @@ ws AS (
     ON CONFLICT (org_id, slug) DO UPDATE SET slug = EXCLUDED.slug
     RETURNING id
 )
+-- tags are intentionally NOT written here — they're UI-managed (see
+-- UpdateProjectTags), so a reconcile never clobbers them.
 INSERT INTO projects (
     org_id, forge_id, repo_path, repo_url, display_name, description,
-    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at,
+    colour, icon, default_branch, pipeline_source, is_archived, updated_at,
     workspace_id, workspace_inferred
 )
 SELECT
     t.org_id, t.forge_id, @repo_path, @repo_url, @display_name, @description,
-    @colour, @icon, @tags, @default_branch, @pipeline_source::jsonb, false, now(),
+    @colour, @icon, @default_branch, @pipeline_source::jsonb, false, now(),
     COALESCE(
         (SELECT id FROM ws),
         (SELECT w.id FROM workspaces w WHERE w.org_id = t.org_id AND w.is_default LIMIT 1)
@@ -89,7 +96,6 @@ DO UPDATE SET
     description = EXCLUDED.description,
     colour = EXCLUDED.colour,
     icon = EXCLUDED.icon,
-    tags = EXCLUDED.tags,
     default_branch = EXCLUDED.default_branch,
     pipeline_source = EXCLUDED.pipeline_source,
     is_archived = false,

@@ -53,9 +53,7 @@ type ProjectSpec struct {
 	// +optional
 	Workspace string `json:"workspace,omitempty"`
 
-	// Tags are arbitrary labels for filtering and grouping.
-	// +optional
-	Tags []string `json:"tags,omitempty"`
+	// Tags are managed in the UI (flexible labels), not declared here.
 
 	// DefaultBranch is the primary branch. Defaults to "main".
 	// +optional

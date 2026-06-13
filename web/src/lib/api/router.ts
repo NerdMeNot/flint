@@ -196,6 +196,15 @@ const projects = {
       )
     }),
 
+  setTags: os
+    .input(z.object({ id: z.string(), tags: z.array(z.string()) }))
+    .handler(async ({ input }) => {
+      return safe(
+        () => backendPut(`/projects/${input.id}/tags`, { tags: input.tags }),
+        () => mocks.setProjectTags(input.id, input.tags),
+      )
+    }),
+
   pipelines: os
     .input(z.object({ projectId: z.string() }))
     .handler(async ({ input }) => {

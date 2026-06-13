@@ -13,15 +13,29 @@ import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const DEFAULT_PAGE_SIZE = 15
 
+// Filters live in the URL so they survive navigating into a run and back.
+interface RunsSearch {
+  status?: RunStatusValue
+  project?: string
+  env?: string
+}
+
 export const Route = createFileRoute('/ci/runs/')({
+  validateSearch: (s: Record<string, unknown>): RunsSearch => ({
+    status: typeof s.status === 'string' && s.status ? (s.status as RunStatusValue) : undefined,
+    project: typeof s.project === 'string' && s.project ? s.project : undefined,
+    env: typeof s.env === 'string' && s.env ? s.env : undefined,
+  }),
   component: RunsListPage,
 })
 
 function RunsListPage() {
   const { workspaces } = useScope()
-  const [statusFilter, setStatusFilter] = useState<RunStatusValue | undefined>()
-  const [projectFilter, setProjectFilter] = useState<string | undefined>()
-  const [envFilter, setEnvFilter] = useState<string | undefined>()
+  const sp = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const statusFilter = sp.status
+  const projectFilter = sp.project
+  const envFilter = sp.env
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const { page, cursor, goToPage, reset } = useCursorPagination()
 
@@ -41,9 +55,15 @@ function RunsListPage() {
     reset()
   }
 
-  const setStatusAndReset = (v: RunStatusValue | undefined) => { setStatusFilter(v); reset() }
-  const setProjectAndReset = (v: string | undefined) => { setProjectFilter(v); reset() }
-  const setEnvAndReset = (v: string | undefined) => { setEnvFilter(v); reset() }
+  // Filter mutations write to the URL (replace, so toggles don't stack history)
+  // and reset pagination.
+  const setFilters = (patch: Partial<RunsSearch>) => {
+    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
+    reset()
+  }
+  const setStatusAndReset = (v: RunStatusValue | undefined) => setFilters({ status: v })
+  const setProjectAndReset = (v: string | undefined) => setFilters({ project: v })
+  const setEnvAndReset = (v: string | undefined) => setFilters({ env: v })
 
   const { data: projectsData } = useSuspenseQuery(
     orpc.projects.list.queryOptions({ input: {} }),

@@ -97,6 +97,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
 		v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
 		v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
+		v1.PUT("/projects/:id/tags", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleSetProjectTags)
 		v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
 		v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
 		v1.DELETE("/projects/:id/webhooks/:webhook", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
@@ -358,6 +359,47 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"items": result})
+}
+
+// handleSetProjectTags replaces a project's tags. Tags are constrained to the
+// curated registry: only declared key:value pairs are accepted; anything else
+// (free tags, undeclared values) is dropped, so projects can only carry
+// predeclared tags and legacy free tags normalize away on the next edit.
+func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+
+	// Build the set of allowed "key:value" tags from the registry.
+	allowed := map[string]bool{}
+	if org, err := s.deps.Q.GetOrg(ctx); err == nil {
+		if keys, err := s.deps.Q.ListTagKeys(ctx, org.ID); err == nil {
+			for _, k := range keys {
+				for _, v := range k.AllowedValues {
+					allowed[k.Key+":"+v] = true
+				}
+			}
+		}
+	}
+	tags := make([]string, 0, len(req.Tags))
+	seen := map[string]bool{}
+	for _, t := range req.Tags {
+		if allowed[t] && !seen[t] {
+			tags = append(tags, t)
+			seen[t] = true
+		}
+	}
+
+	if err := s.deps.Q.UpdateProjectTags(ctx, db.UpdateProjectTagsParams{ID: id, Tags: tags}); err != nil {
+		apiInternal(ctx, c, "failed to update tags")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "tags": tags})
 }
 
 func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {

@@ -28,6 +28,7 @@ import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
 import { StepRail } from '#/components/pipeline/step-rail'
 import { GatePanel } from '#/components/pipeline/gate-panel'
+import { BackLink } from '#/components/BackLink'
 
 const DagView = lazy(() =>
   import('#/components/pipeline/dag-view').then((m) => ({ default: m.DagView }))
@@ -98,6 +99,10 @@ function RunDetailPage() {
 
   return (
     <div className="rise-in">
+      <div className="mb-3">
+        <BackLink fallbackTo="/ci/runs" label="Back" />
+      </div>
+
       {/* Run header */}
       <RunHeader run={run} />
 

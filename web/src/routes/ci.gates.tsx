@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useState } from 'react'
 import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban, Server } from 'lucide-react'
 import { client, orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
@@ -10,7 +9,19 @@ import { FilterPill } from '#/components/FilterPill'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
+type GateFilter = 'pending' | 'approved' | 'rejected'
+
+// Filters live in the URL so they survive navigating into a run and back.
+interface GatesSearch {
+  status?: GateFilter
+  env?: string
+}
+
 export const Route = createFileRoute('/ci/gates')({
+  validateSearch: (s: Record<string, unknown>): GatesSearch => ({
+    status: s.status === 'approved' || s.status === 'rejected' ? s.status : undefined,
+    env: typeof s.env === 'string' && s.env ? s.env : undefined,
+  }),
   component: GatesPage,
 })
 
@@ -20,15 +31,24 @@ const statusTabs = [
   { key: 'rejected' as const, label: 'Rejected' },
 ] as const
 
-type GateFilter = 'pending' | 'approved' | 'rejected'
-
 const GATE_PAGE_SIZE = 12
 
 function GatesPage() {
   const { workspaceMatches } = useScope()
-  const [status, setStatus] = useState<GateFilter>('pending')
-  const [envFilter, setEnvFilter] = useState<string | undefined>()
+  const sp = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const status: GateFilter = sp.status ?? 'pending'
+  const envFilter = sp.env
   const { page, cursor, goToPage, reset } = useCursorPagination()
+
+  // Filter mutations write to the URL (replace, so toggles don't stack history)
+  // and reset pagination. 'pending' is the default, so it drops out of the URL.
+  const setFilters = (patch: Partial<GatesSearch>) => {
+    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
+    reset()
+  }
+  const setStatus = (v: GateFilter) => setFilters({ status: v === 'pending' ? undefined : v })
+  const setEnvFilter = (v: string | undefined) => setFilters({ env: v })
 
   const { data } = useSuspenseQuery(
     orpc.gates.list.queryOptions({ input: { status, limit: GATE_PAGE_SIZE, cursor } }),
@@ -72,7 +92,7 @@ function GatesPage() {
           <button
             key={tab.key}
             type="button"
-            onClick={() => { setStatus(tab.key); reset() }}
+            onClick={() => setStatus(tab.key)}
             className={`flex items-center gap-1.5 shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               status === tab.key
                 ? 'border-primary text-primary'
@@ -88,9 +108,9 @@ function GatesPage() {
               icon={<Server size={12} />}
               label={envFilter ?? 'Environment'}
               active={!!envFilter}
-              onClear={() => { setEnvFilter(undefined); reset() }}
+              onClear={() => setEnvFilter(undefined)}
               items={environments.map((e) => ({ key: e, label: e, active: envFilter === e }))}
-              onSelect={(key) => { setEnvFilter(key === envFilter ? undefined : key); reset() }}
+              onSelect={(key) => setEnvFilter(key === envFilter ? undefined : key)}
             />
           )}
           <span className="text-xs text-muted-foreground">{gates.length} gates</span>
