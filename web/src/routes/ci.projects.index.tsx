@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag, AlertTriangle } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
+import { Badge } from '#/components/Badge'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const PROJECT_PAGE_SIZE = 12
@@ -19,6 +20,7 @@ function ProjectsPage() {
   const { page, cursor, goToPage, reset } = useCursorPagination()
   const [search, setSearch] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [needsGrouping, setNeedsGrouping] = useState(false)
 
   const wsScope = workspaces.length > 0 ? workspaces : undefined
 
@@ -27,6 +29,7 @@ function ProjectsPage() {
       input: {
         workspace: wsScope,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
+        needsGrouping: needsGrouping || undefined,
         limit: PROJECT_PAGE_SIZE,
         cursor,
       },
@@ -41,6 +44,9 @@ function ProjectsPage() {
     }),
   )
   const allTags = [...new Set(tagUniverse.items.flatMap((p) => p.tags ?? []))].sort()
+  // Stable count of projects that need grouping: workspace inferred (not
+  // declared) or no tags — derived from the unfiltered, workspace-scoped set.
+  const needsGroupingCount = tagUniverse.items.filter((p) => p.inferred || (p.tags ?? []).length === 0).length
 
   const toggleTag = (t: string) => {
     setSelectedTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
@@ -97,8 +103,23 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {allTags.length > 0 && (
+      {(allTags.length > 0 || needsGroupingCount > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
+          {needsGroupingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => { setNeedsGrouping((v) => !v); reset() }}
+              title="Projects whose workspace was inferred (not declared) or that have no tags"
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                needsGrouping ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <AlertTriangle size={12} />
+              Needs grouping
+              <span className="rounded-full bg-warning/20 text-warning text-[10px] font-bold leading-none px-1.5 py-0.5">{needsGroupingCount}</span>
+            </button>
+          )}
+          {allTags.length > 0 && (
           <FilterPill
             icon={<Tag size={12} />}
             label={selectedTags.length > 0 ? `${selectedTags.length} tag${selectedTags.length > 1 ? 's' : ''}` : 'Tags'}
@@ -107,6 +128,7 @@ function ProjectsPage() {
             items={allTags.map((t) => ({ key: t, label: t, active: selectedTags.includes(t) }))}
             onSelect={toggleTag}
           />
+          )}
           {selectedTags.map((t) => (
             <button
               key={t}
@@ -141,10 +163,15 @@ function ProjectsPage() {
                     <p className="text-xs text-muted-foreground font-mono truncate">{project.repo}</p>
                   </div>
                 </div>
-                <span className="island-kicker !text-[11px] shrink-0 ml-2">{project.workspace}</span>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  {project.inferred && (
+                    <Badge variant="warning" className="!text-[10px]" >auto-grouped</Badge>
+                  )}
+                  <span className="island-kicker !text-[11px]">{project.workspace}</span>
+                </div>
               </div>
 
-              {project.tags.length > 0 && (
+              {project.tags.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {project.tags.map((tag) => (
                     <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
@@ -152,6 +179,10 @@ function ProjectsPage() {
                     </span>
                   ))}
                 </div>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground/60">
+                  <Tag size={11} /> untagged
+                </span>
               )}
             </Link>
 

@@ -36,6 +36,7 @@ type projectResponse struct {
 	PipelineErrors int              `json:"pipelineErrors"`
 	LastRun        *lastRunResponse `json:"lastRun,omitempty"`
 	CreatedAt      string           `json:"createdAt"`
+	Inferred       bool             `json:"inferred"`
 }
 
 type runResponse struct {
@@ -305,10 +306,12 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 	// Empty slice = no filter for that dimension.
 	workspaces := queryStrings(c, "workspace")
 	tags := queryStrings(c, "tags")
+	needsGrouping := string(c.Query("needsGrouping")) == "true"
 
 	rows, err := s.deps.Q.ListProjectsWithLastRun(ctx, db.ListProjectsWithLastRunParams{
-		Workspaces: workspaces,
-		Tags:       tags,
+		Workspaces:    workspaces,
+		Tags:          tags,
+		NeedsGrouping: needsGrouping,
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list projects")
@@ -325,6 +328,7 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 			Colour:    row.Colour,
 			Tags:      row.Tags,
 			CreatedAt: row.CreatedAt.Format(time.RFC3339),
+			Inferred:  row.Inferred,
 		}
 		if p.Tags == nil {
 			p.Tags = []string{}
