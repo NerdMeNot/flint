@@ -14,10 +14,12 @@ import {
   Globe,
   Shield,
   Monitor,
+  Tag,
 } from 'lucide-react'
 
 const adminNav = [
   { to: '/settings/workspaces', icon: Boxes, label: 'Workspaces' },
+  { to: '/settings/tags', icon: Tag, label: 'Tags' },
   { to: '/settings/users', icon: UserCircle, label: 'Users' },
   { to: '/settings/teams', icon: Users, label: 'Teams' },
   { to: '/settings/roles', icon: KeyRound, label: 'Roles' },

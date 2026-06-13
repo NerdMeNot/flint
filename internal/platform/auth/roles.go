@@ -35,6 +35,7 @@ var SystemRoles = []SystemRoleDefinition{
 			{ObjEnvironment, ActRead},
 			{ObjRunner, ActRead},
 			{ObjSecret, ActRead},
+			{ObjTag, ActRead},
 			// CI — full dev access.
 			{ObjProject, ActRead},
 			{ObjProject, ActWrite},
@@ -53,6 +54,7 @@ var SystemRoles = []SystemRoleDefinition{
 			{ObjTeam, ActRead},
 			{ObjEnvironment, ActRead},
 			{ObjRunner, ActRead},
+			{ObjTag, ActRead},
 			// CI — read-only.
 			{ObjProject, ActRead},
 			{ObjRun, ActRead},
@@ -72,6 +74,7 @@ var SystemRoles = []SystemRoleDefinition{
 			{ObjAPIKey, ActRead}, {ObjAPIKey, ActManage},
 			{ObjSecret, ActRead}, {ObjSecret, ActManage},
 			{ObjRole, ActRead}, {ObjRole, ActManage},
+			{ObjTag, ActRead}, {ObjTag, ActManage},
 			{ObjAudit, ActRead},
 			// CI — read-only.
 			{ObjProject, ActRead},

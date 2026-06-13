@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/NerdMeNot/flint/internal/core/httpx"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -43,6 +44,22 @@ func apiConflict(ctx context.Context, c *app.RequestContext, msg string) {
 
 func apiInternal(ctx context.Context, c *app.RequestContext, msg string) {
 	apiError(ctx, c, consts.StatusInternalServerError, "INTERNAL", msg)
+}
+
+// queryStrings reads a multi-valued query param, accepting both repeated keys
+// (?tags=a&tags=b) and comma-separated values (?tags=a,b). Blank entries are
+// dropped. Returns a non-nil empty slice when absent so callers can pass it
+// straight to a text[] sqlc filter (empty = "no filter for this dimension").
+func queryStrings(c *app.RequestContext, key string) []string {
+	out := []string{}
+	for _, raw := range c.QueryArgs().PeekAll(key) {
+		for _, part := range strings.Split(string(raw), ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 // ── Pagination ──────────────────────────────────────────────

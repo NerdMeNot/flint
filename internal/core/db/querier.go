@@ -52,6 +52,7 @@ type Querier interface {
 	CreateRetryStep(ctx context.Context, arg CreateRetryStepParams) error
 	CreateRole(ctx context.Context, arg CreateRoleParams) (string, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
+	CreateTagKey(ctx context.Context, arg CreateTagKeyParams) (string, error)
 	CreateTeam(ctx context.Context, arg CreateTeamParams) (string, error)
 	CreateTimer(ctx context.Context, arg CreateTimerParams) error
 	CreateWebhook(ctx context.Context, arg CreateWebhookParams) (string, error)
@@ -82,6 +83,7 @@ type Querier interface {
 	DeleteRoleWorkspaceScopes(ctx context.Context, roleID string) error
 	DeleteRunnerPool(ctx context.Context, name string) error
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
+	DeleteTagKey(ctx context.Context, id string) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
 	// The default workspace can't be deleted (projects must always have a home).
@@ -212,6 +214,9 @@ type Querier interface {
 	ListProjectSecrets(ctx context.Context, projectID *string) ([]ListProjectSecretsRow, error)
 	ListProjectWebhooks(ctx context.Context, projectID string) ([]Webhook, error)
 	ListProjects(ctx context.Context) ([]ListProjectsRow, error)
+	// API project list: joins owning workspace + latest run, with optional
+	// server-side workspace and tag filters (empty slice = no filter for that axis).
+	ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error)
 	ListProtectedEnvironments(ctx context.Context, orgID string) ([]ListProtectedEnvironmentsRow, error)
 	ListRoleAssignmentsByRole(ctx context.Context, roleID string) ([]ListRoleAssignmentsByRoleRow, error)
 	ListRoleAssignmentsBySubject(ctx context.Context, subject string) ([]ListRoleAssignmentsBySubjectRow, error)
@@ -235,6 +240,7 @@ type Querier interface {
 	ListSecrets(ctx context.Context, arg ListSecretsParams) ([]ListSecretsRow, error)
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]ListStepsByWorkflowRow, error)
+	ListTagKeys(ctx context.Context, orgID string) ([]ListTagKeysRow, error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]ListTeamMembersRow, error)
 	ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTeamsRow, error)
 	ListUserIdpTeams(ctx context.Context, userID string) ([]ListUserIdpTeamsRow, error)
@@ -306,6 +312,7 @@ type Querier interface {
 	UpdateSessionSyncedAt(ctx context.Context, id string) error
 	UpdateStepOutputs(ctx context.Context, arg UpdateStepOutputsParams) error
 	UpdateStepResult(ctx context.Context, arg UpdateStepResultParams) error
+	UpdateTagKey(ctx context.Context, arg UpdateTagKeyParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)

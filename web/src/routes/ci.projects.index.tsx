@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2, Clock, GitBranch, ExternalLink, Search, X, Tag } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
+import { FilterPill } from '#/components/FilterPill'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const PROJECT_PAGE_SIZE = 12
@@ -17,16 +18,34 @@ function ProjectsPage() {
   const { workspaces } = useScope()
   const { page, cursor, goToPage, reset } = useCursorPagination()
   const [search, setSearch] = useState('')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+
+  const wsScope = workspaces.length > 0 ? workspaces : undefined
 
   const { data: projectsData } = useSuspenseQuery(
     orpc.projects.list.queryOptions({
       input: {
-        workspace: workspaces.length > 0 ? workspaces : undefined,
+        workspace: wsScope,
+        tags: selectedTags.length > 0 ? selectedTags : undefined,
         limit: PROJECT_PAGE_SIZE,
         cursor,
       },
     }),
   )
+
+  // Unfiltered-by-tag, workspace-scoped fetch supplies the stable universe of
+  // tag options so the pill doesn't collapse as the user narrows the filter.
+  const { data: tagUniverse } = useSuspenseQuery(
+    orpc.projects.list.queryOptions({
+      input: { workspace: wsScope, limit: 100 },
+    }),
+  )
+  const allTags = [...new Set(tagUniverse.items.flatMap((p) => p.tags ?? []))].sort()
+
+  const toggleTag = (t: string) => {
+    setSelectedTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
+    reset()
+  }
 
   const query = search.toLowerCase().trim()
   const projects = query
@@ -77,6 +96,30 @@ function ProjectsPage() {
           )}
         </div>
       </div>
+
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPill
+            icon={<Tag size={12} />}
+            label={selectedTags.length > 0 ? `${selectedTags.length} tag${selectedTags.length > 1 ? 's' : ''}` : 'Tags'}
+            active={selectedTags.length > 0}
+            onClear={() => { setSelectedTags([]); reset() }}
+            items={allTags.map((t) => ({ key: t, label: t, active: selectedTags.includes(t) }))}
+            onSelect={toggleTag}
+          />
+          {selectedTags.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => toggleTag(t)}
+              className="flex items-center gap-1 rounded-md bg-primary/5 border border-primary/30 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              {t}
+              <X size={11} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {projects.map((project, i) => (

@@ -133,6 +133,7 @@ CREATE TABLE public.env_variable_values (
     variable_id uuid NOT NULL,
     environment_id uuid,
     value text NOT NULL,
+    value_enc bytea,
     updated_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -286,7 +287,8 @@ CREATE TABLE public.pipeline_runs (
     repo text,
     environment text,
     error_message text,
-    kind text DEFAULT 'ci'::text NOT NULL
+    kind text DEFAULT 'ci'::text NOT NULL,
+    cleaned_at timestamptz
 );
 
 
@@ -320,7 +322,7 @@ CREATE TABLE public.projects (
     is_archived boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
-    workspace_id uuid
+    workspace_id uuid NOT NULL
 );
 
 
@@ -566,7 +568,8 @@ CREATE TABLE public.users (
     mfa_required_override boolean,
     password_changed_at timestamptz,
     recovery_codes text[],
-    force_password_change boolean DEFAULT false NOT NULL
+    force_password_change boolean DEFAULT false NOT NULL,
+    mfa_last_used_period bigint
 );
 
 
@@ -619,6 +622,7 @@ CREATE TABLE public.workspaces (
     name text NOT NULL,
     slug text NOT NULL,
     description text,
+    is_default boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -1736,6 +1740,76 @@ ALTER TABLE ONLY public.workspaces
 --
 -- PostgreSQL database dump complete
 --
+
+-- ---------------------------------------------------------------------------
+-- Folded-in feature schema (kept in the baseline pre-live rather than as
+-- separate ALTER migrations). FKs reference tables defined above.
+-- ---------------------------------------------------------------------------
+
+-- Cron-scheduled workflow runs.
+CREATE TABLE public.workflow_schedules (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id      uuid NOT NULL REFERENCES public.orgs(id),
+    name        text NOT NULL,
+    cron        text NOT NULL,
+    definition  text NOT NULL,
+    enabled     boolean NOT NULL DEFAULT true,
+    next_run_at timestamptz NOT NULL,
+    last_run_at timestamptz,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_workflow_schedules_due ON public.workflow_schedules (next_run_at) WHERE enabled;
+
+-- Device authorization flow (TUI/CLI login).
+CREATE TABLE public.device_codes (
+    device_code    text PRIMARY KEY,
+    user_code      text NOT NULL,
+    oauth_state    text,
+    nonce          text,
+    completed      boolean NOT NULL DEFAULT false,
+    access_token   text,
+    refresh_token  text,
+    user_id        uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    interval_secs  int NOT NULL DEFAULT 5,
+    last_polled_at timestamptz,
+    expires_at     timestamptz NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_device_codes_user_code ON public.device_codes (user_code) WHERE NOT completed;
+CREATE INDEX idx_device_codes_oauth_state ON public.device_codes (oauth_state) WHERE oauth_state IS NOT NULL;
+CREATE INDEX idx_device_codes_expiry ON public.device_codes (expires_at);
+
+-- Temporary token bridging password verification and the MFA second factor.
+CREATE TABLE public.mfa_pending_tokens (
+    token      text PRIMARY KEY,
+    user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    email      text NOT NULL,
+    org_id     uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_mfa_pending_expiry ON public.mfa_pending_tokens (expires_at);
+
+-- Curated tag-key registry (governs `key:value` project tag namespaces).
+CREATE TABLE public.tag_keys (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id         uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+    key            text NOT NULL,
+    label          text NOT NULL,
+    allowed_values text[],
+    color          text NOT NULL DEFAULT '#6366f1',
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (org_id, key)
+);
+
+-- Per-run executor-cleanup tracking (exactly-once teardown).
+CREATE INDEX idx_pipeline_runs_needs_cleanup
+    ON public.pipeline_runs (id)
+    WHERE cleaned_at IS NULL AND status IN ('succeeded', 'failed', 'cancelled');
+
+-- Exactly one default workspace per org (new projects land here).
+CREATE UNIQUE INDEX idx_workspaces_one_default_per_org ON public.workspaces (org_id) WHERE is_default;
 
 
 -- +goose Down

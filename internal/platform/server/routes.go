@@ -152,6 +152,12 @@ func (s *Server) registerAPIRoutes() {
 	v1.POST("/workspaces", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleCreateWorkspace)
 	v1.DELETE("/workspaces/:id", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleDeleteWorkspace)
 
+	// Tag registry (curated tag keys).
+	v1.GET("/tags", s.requirePermission(auth.ObjTag, auth.ActRead), s.handleListTagKeys)
+	v1.POST("/tags", s.requirePermission(auth.ObjTag, auth.ActManage), s.handleCreateTagKey)
+	v1.PUT("/tags/:id", s.requirePermission(auth.ObjTag, auth.ActManage), s.handleUpdateTagKey)
+	v1.DELETE("/tags/:id", s.requirePermission(auth.ObjTag, auth.ActManage), s.handleDeleteTagKey)
+
 	// API keys.
 	v1.GET("/api-keys", s.requirePermission(auth.ObjAPIKey, auth.ActRead), s.handleListAPIKeys)
 	v1.POST("/api-keys", s.requirePermission(auth.ObjAPIKey, auth.ActManage), s.handleCreateAPIKey)
@@ -293,78 +299,50 @@ func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
 // ── Projects ──────────────────────────────────────────────────
 
 func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
-	// Use a raw query that joins workspace + computes last run info.
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT p.id, COALESCE(p.display_name, p.repo_path) AS name, p.repo_path,
-		       COALESCE(w.slug, '') AS workspace, p.colour, p.tags, p.created_at,
-		       lr.id AS last_run_id, lr.status AS last_run_status,
-		       lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
-		       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
-		FROM projects p
-		LEFT JOIN workspaces w ON w.id = p.workspace_id
-		LEFT JOIN LATERAL (
-		    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
-		    FROM pipeline_runs
-		    WHERE project_id = p.id
-		    ORDER BY started_at DESC
-		    LIMIT 1
-		) lr ON true
-		WHERE p.is_archived = false
-		ORDER BY COALESCE(p.display_name, p.repo_path)
-	`)
+	// Optional server-side filters (repeated query params): ?workspace=slug&tags=key:value
+	// Empty slice = no filter for that dimension.
+	workspaces := queryStrings(c, "workspace")
+	tags := queryStrings(c, "tags")
+
+	rows, err := s.deps.Q.ListProjectsWithLastRun(ctx, db.ListProjectsWithLastRunParams{
+		Workspaces: workspaces,
+		Tags:       tags,
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list projects")
 		return
 	}
-	defer rows.Close()
 
-	var result []projectResponse
-	for rows.Next() {
-		var p projectResponse
-		var createdAt time.Time
-		var lastRunID, lastRunStatus, lastRunBranch, lastRunTriggeredBy *string
-		var lastRunStartedAt *time.Time
-		var lastRunDurationMs *int32
-
-		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Repo,
-			&p.Workspace, &p.Colour, &p.Tags, &createdAt,
-			&lastRunID, &lastRunStatus,
-			&lastRunBranch, &lastRunTriggeredBy,
-			&lastRunStartedAt, &lastRunDurationMs,
-		); err != nil {
-			apiInternal(ctx, c, "failed to scan project")
-			return
+	result := make([]projectResponse, 0, len(rows))
+	for _, row := range rows {
+		p := projectResponse{
+			ID:        row.ID,
+			Name:      row.Name,
+			Repo:      row.RepoPath,
+			Workspace: row.Workspace,
+			Colour:    row.Colour,
+			Tags:      row.Tags,
+			CreatedAt: row.CreatedAt.Format(time.RFC3339),
 		}
-
 		if p.Tags == nil {
 			p.Tags = []string{}
 		}
-		p.CreatedAt = createdAt.Format(time.RFC3339)
 
-		if lastRunID != nil && *lastRunID != "" {
+		if row.LastRunID != "" {
 			duration := "0s"
-			if lastRunDurationMs != nil {
-				duration = formatDuration(*lastRunDurationMs)
-			}
-			branch := ""
-			if lastRunBranch != nil {
-				branch = *lastRunBranch
-			}
-			triggeredBy := ""
-			if lastRunTriggeredBy != nil {
-				triggeredBy = *lastRunTriggeredBy
+			if row.LastRunDurationMs.Valid {
+				duration = formatDuration(row.LastRunDurationMs.Int32)
 			}
 			startedAt := ""
-			if lastRunStartedAt != nil {
-				startedAt = lastRunStartedAt.Format(time.RFC3339)
+			if !row.LastRunStartedAt.IsZero() {
+				startedAt = row.LastRunStartedAt.Format(time.RFC3339)
 			}
 			p.LastRun = &lastRunResponse{
-				ID:          *lastRunID,
-				Status:      derefString(lastRunStatus),
-				Branch:      branch,
+				ID:          row.LastRunID,
+				Status:      row.LastRunStatus,
+				Branch:      derefString(row.LastRunBranch),
 				Duration:    duration,
-				TriggeredBy: triggeredBy,
+				TriggeredBy: derefString(row.LastRunTriggeredBy),
 				StartedAt:   startedAt,
 			}
 		}
@@ -372,9 +350,6 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 		result = append(result, p)
 	}
 
-	if result == nil {
-		result = []projectResponse{}
-	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
 

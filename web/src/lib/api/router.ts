@@ -9,6 +9,7 @@ import {
   type DashboardSummary,
   type Gate,
   type Workspace,
+  type TagKey,
   type Environment,
   type EnvVariable,
   type EnvVariableValue,
@@ -145,6 +146,7 @@ const projects = {
     .input(
       z.object({
         workspace: z.optional(z.array(z.string())),
+        tags: z.optional(z.array(z.string())),
         limit: z.optional(z.number()),
         cursor: z.optional(z.string()),
       }),
@@ -152,13 +154,18 @@ const projects = {
     .handler(async ({ input }) => {
       return withFallback(
         () => backendGet<Paginated<Project>>('/projects', {
-          workspace: input.workspace, limit: input.limit, cursor: input.cursor,
+          workspace: input.workspace, tags: input.tags, limit: input.limit, cursor: input.cursor,
         }),
         () => {
           let items = mocks.getProjects()
           if (input.workspace && input.workspace.length > 0) {
             const set = new Set(input.workspace)
             items = items.filter((p) => set.has(p.workspace))
+          }
+          if (input.tags && input.tags.length > 0) {
+            // Array-overlap semantics, matching the backend's `p.tags && $tags`.
+            const want = new Set(input.tags)
+            items = items.filter((p) => (p.tags ?? []).some((t) => want.has(t)))
           }
           return paginateMock(items, input)
         },
@@ -414,6 +421,51 @@ const workspaces = {
     .handler(async ({ input }) => {
       return safe(() => backendDelete(`/workspaces/${input.id}`), () => mocks.deleteWorkspace(input.id))
     }),
+}
+
+// ---------------------------------------------------------------------------
+// Tag registry (curated namespaced keys)
+// ---------------------------------------------------------------------------
+
+const tags = {
+  registry: {
+    list: os
+      .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
+      .handler(async ({ input }) => {
+        return withFallback(
+          () => backendGet<Paginated<TagKey>>('/tags', { limit: input.limit, cursor: input.cursor }),
+          () => paginateMock(mocks.getTagKeys(), input),
+        )
+      }),
+
+    create: os
+      .input(z.object({
+        key: z.string(),
+        label: z.string(),
+        allowedValues: z.optional(z.array(z.string())),
+        color: z.optional(z.string()),
+      }))
+      .handler(async ({ input }) => {
+        return safe(() => backendPost('/tags', input), () => mocks.createTagKey(input))
+      }),
+
+    update: os
+      .input(z.object({
+        id: z.string(),
+        label: z.string(),
+        allowedValues: z.optional(z.array(z.string())),
+        color: z.optional(z.string()),
+      }))
+      .handler(async ({ input }) => {
+        return safe(() => backendPut(`/tags/${input.id}`, input), () => mocks.updateTagKey(input))
+      }),
+
+    delete: os
+      .input(z.object({ id: z.string() }))
+      .handler(async ({ input }) => {
+        return safe(() => backendDelete(`/tags/${input.id}`), () => mocks.deleteTagKey(input.id))
+      }),
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -785,6 +837,7 @@ export const appRouter = os.router({
   workflows,
   gates,
   workspaces,
+  tags,
   environments,
   envVariables,
   teams,
