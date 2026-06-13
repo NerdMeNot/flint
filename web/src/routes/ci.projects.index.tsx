@@ -6,6 +6,7 @@ import { orpc } from '#/lib/orpc'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
+import { TagChip } from '#/components/TagChip'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 
 const PROJECT_PAGE_SIZE = 12
@@ -43,6 +44,10 @@ function ProjectsPage() {
     }),
   )
   const allTags = [...new Set(tagUniverse.items.flatMap((p) => p.tags ?? []))].sort()
+
+  // Registry → structured, colored tag chips.
+  const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
+  const registry = new Map(regData.items.map((k) => [k.key, k]))
   // Stable count of projects that need grouping: workspace inferred (not
   // declared) or no tags — derived from the unfiltered, workspace-scoped set.
   const needsGroupingCount = tagUniverse.items.filter((p) => p.inferred || (p.tags ?? []).length === 0).length
@@ -168,9 +173,7 @@ function ProjectsPage() {
               {project.tags.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {project.tags.map((tag) => (
-                    <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
-                      {tag}
-                    </span>
+                    <TagChip key={tag} tag={tag} registry={registry} />
                   ))}
                 </div>
               ) : (

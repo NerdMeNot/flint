@@ -46,20 +46,15 @@ func TestDeepCopy(t *testing.T) {
 	p := &v1.Project{
 		Spec: v1.ProjectSpec{
 			Repo:           "acme/svc",
-			Tags:           []string{"a", "b"},
 			PipelineSource: &v1.PipelineSourceSpec{Type: "self", Path: ".flint/"},
 		},
 	}
 
 	cp := p.DeepCopyObject().(*v1.Project)
 
-	// Modify original — copy should be unaffected (slice + pointer independence).
-	p.Spec.Tags[0] = "changed"
+	// Modify original — copy should be unaffected (pointer independence).
 	p.Spec.PipelineSource.Path = "changed"
 
-	if cp.Spec.Tags[0] != "a" {
-		t.Error("DeepCopy Tags slice is not independent")
-	}
 	if cp.Spec.PipelineSource.Path != ".flint/" {
 		t.Error("DeepCopy PipelineSource pointer is not independent")
 	}

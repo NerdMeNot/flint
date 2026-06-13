@@ -97,6 +97,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
 		v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
 		v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
+		v1.PUT("/projects/:id/tags", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleSetProjectTags)
 		v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
 		v1.POST("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateWebhook)
 		v1.DELETE("/projects/:id/webhooks/:webhook", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
@@ -358,6 +359,26 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"items": result})
+}
+
+// handleSetProjectTags replaces a project's UI-managed tags (key:value + free).
+func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+	if req.Tags == nil {
+		req.Tags = []string{}
+	}
+	if err := s.deps.Q.UpdateProjectTags(ctx, db.UpdateProjectTagsParams{ID: id, Tags: req.Tags}); err != nil {
+		apiInternal(ctx, c, "failed to update tags")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "tags": req.Tags})
 }
 
 func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {

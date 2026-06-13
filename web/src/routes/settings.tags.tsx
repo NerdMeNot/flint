@@ -146,13 +146,12 @@ function TagKeyRow({ tagKey, expanded, onToggle }: {
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">Allowed values</label>
-            <ChipInput
+            <ValueListEditor
               values={values}
               onChange={(next) => { setValues(next); persist({ values: next }) }}
               prefix={tagKey.key + ':'}
-              placeholder={values.length === 0 ? 'Type a value, press Enter' : 'Add another…'}
             />
-            <p className="text-[11px] text-muted-foreground">Leave empty to allow free-form values for this key.</p>
+            <p className="text-[11px] text-muted-foreground">Each value is one allowed option. Leave empty to allow free-form values for this key.</p>
           </div>
         </div>
       )}
@@ -221,59 +220,62 @@ function CreateRow({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Chip/token input — each committed value becomes a removable chip. Enter or
-// comma commits; Backspace on an empty field removes the last chip. Duplicates
-// and blanks are dropped. `prefix` previews the `key:` namespace on each chip.
+// Allowed-values editor — one row per value (prefix preview + remove), with a
+// dedicated add row. Clearer than cramming every value into one combo field.
 // ---------------------------------------------------------------------------
 
-function ChipInput({ values, onChange, prefix, placeholder }: {
+function ValueListEditor({ values, onChange, prefix }: {
   values: string[]
   onChange: (next: string[]) => void
   prefix?: string
-  placeholder?: string
 }) {
   const [draft, setDraft] = useState('')
 
-  function commit(raw: string) {
-    const v = raw.trim()
-    if (!v) return
-    if (!values.includes(v)) onChange([...values, v])
+  function add() {
+    const v = draft.trim()
+    if (!v || values.includes(v)) return
+    onChange([...values, v])
     setDraft('')
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault()
-      commit(draft)
-    } else if (e.key === 'Backspace' && draft === '' && values.length > 0) {
-      onChange(values.slice(0, -1))
-    }
-  }
-
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-transparent px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40">
+    <div className="space-y-1.5">
       {values.map((v) => (
-        <span key={v} className="flex items-center gap-1 rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-mono text-foreground">
-          <span className="text-muted-foreground">{prefix}</span>{v}
+        <div key={v} className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
+          <span className="flex-1 text-sm font-mono text-foreground truncate">
+            <span className="text-muted-foreground">{prefix}</span>{v}
+          </span>
           <button
             type="button"
             onClick={() => onChange(values.filter((x) => x !== v))}
-            className="text-muted-foreground hover:text-destructive transition-colors"
+            className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
             aria-label={`Remove ${v}`}
           >
-            <X size={11} />
+            <X size={13} />
           </button>
-        </span>
+        </div>
       ))}
-      <input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={() => commit(draft)}
-        placeholder={placeholder}
-        className="flex-1 min-w-[8ch] bg-transparent px-1 py-0.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-      />
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center rounded-lg border border-dashed border-border focus-within:ring-2 focus-within:ring-ring/40">
+          {prefix && <span className="pl-2.5 text-sm font-mono text-muted-foreground/50 shrink-0">{prefix}</span>}
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            placeholder="add a value"
+            className="flex-1 min-w-0 bg-transparent px-2 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={add}
+          disabled={!draft.trim()}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 shrink-0"
+        >
+          Add
+        </button>
+      </div>
     </div>
   )
 }

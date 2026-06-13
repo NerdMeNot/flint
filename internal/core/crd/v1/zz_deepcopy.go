@@ -31,10 +31,6 @@ func (in *Project) DeepCopyInto(out *Project) {
 
 func (in *ProjectSpec) DeepCopyInto(out *ProjectSpec) {
 	*out = *in
-	if in.Tags != nil {
-		out.Tags = make([]string, len(in.Tags))
-		copy(out.Tags, in.Tags)
-	}
 	if in.PipelineSource != nil {
 		out.PipelineSource = new(PipelineSourceSpec)
 		*out.PipelineSource = *in.PipelineSource

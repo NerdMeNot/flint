@@ -54,7 +54,7 @@ export function getUsers(): User[] {
 // Projects (6 projects, 3 workspaces)
 // ---------------------------------------------------------------------------
 
-export function getProjects(): Project[] {
+function seedProjects(): Project[] {
   return [
     {
       id: 'p-1',
@@ -159,6 +159,17 @@ export function getProjects(): Project[] {
       inferred: true,
     },
   ]
+}
+
+let _projects: Project[] | undefined
+export function getProjects(): Project[] {
+  return (_projects ??= seedProjects())
+}
+
+export function setProjectTags(id: string, tags: string[]): { success: true } {
+  const p = getProjects().find((x) => x.id === id)
+  if (p) p.tags = tags
+  return { success: true }
 }
 
 // ---------------------------------------------------------------------------

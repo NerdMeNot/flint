@@ -5974,6 +5974,24 @@ func (_m *Querier) UpdateForgeConnectionByName(ctx context.Context, arg db.Updat
 	return r0, r1
 }
 
+// UpdateProjectTags provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateProjectTags(ctx context.Context, arg db.UpdateProjectTagsParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateProjectTags")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateProjectTagsParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // UpdateProtectedEnvironment provides a mock function with given fields: ctx, arg
 func (_m *Querier) UpdateProtectedEnvironment(ctx context.Context, arg db.UpdateProtectedEnvironmentParams) (int64, error) {
 	ret := _m.Called(ctx, arg)

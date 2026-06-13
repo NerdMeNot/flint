@@ -239,16 +239,32 @@ func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsW
 	return items, nil
 }
 
+const updateProjectTags = `-- name: UpdateProjectTags :exec
+UPDATE projects SET tags = $1, updated_at = now() WHERE id = $2
+`
+
+type UpdateProjectTagsParams struct {
+	Tags []string `json:"tags"`
+	ID   string   `json:"id"`
+}
+
+// UI-managed project labels (the registry curates the vocabulary; this stores
+// the chosen key:value and free tags on the project).
+func (q *Queries) UpdateProjectTags(ctx context.Context, arg UpdateProjectTagsParams) error {
+	_, err := q.db.Exec(ctx, updateProjectTags, arg.Tags, arg.ID)
+	return err
+}
+
 const upsertProject = `-- name: UpsertProject :one
 WITH fc AS (
-    SELECT f.id, f.org_id FROM forge_connections f WHERE f.display_name = $10 LIMIT 1
+    SELECT f.id, f.org_id FROM forge_connections f WHERE f.display_name = $9 LIMIT 1
 ),
 target AS (
     SELECT
         fc.id AS forge_id,
         fc.org_id,
-        (NULLIF($11::text, '') IS NULL) AS inferred,
-        NULLIF($11::text, '') AS ws_slug
+        (NULLIF($10::text, '') IS NULL) AS inferred,
+        NULLIF($10::text, '') AS ws_slug
     FROM fc
 ),
 ws AS (
@@ -259,12 +275,12 @@ ws AS (
 )
 INSERT INTO projects (
     org_id, forge_id, repo_path, repo_url, display_name, description,
-    colour, icon, tags, default_branch, pipeline_source, is_archived, updated_at,
+    colour, icon, default_branch, pipeline_source, is_archived, updated_at,
     workspace_id, workspace_inferred
 )
 SELECT
     t.org_id, t.forge_id, $1, $2, $3, $4,
-    $5, $6, $7, $8, $9::jsonb, false, now(),
+    $5, $6, $7, $8::jsonb, false, now(),
     COALESCE(
         (SELECT id FROM ws),
         (SELECT w.id FROM workspaces w WHERE w.org_id = t.org_id AND w.is_default LIMIT 1)
@@ -277,7 +293,6 @@ DO UPDATE SET
     description = EXCLUDED.description,
     colour = EXCLUDED.colour,
     icon = EXCLUDED.icon,
-    tags = EXCLUDED.tags,
     default_branch = EXCLUDED.default_branch,
     pipeline_source = EXCLUDED.pipeline_source,
     is_archived = false,
@@ -288,23 +303,24 @@ RETURNING id
 `
 
 type UpsertProjectParams struct {
-	RepoPath       string   `json:"repo_path"`
-	RepoUrl        string   `json:"repo_url"`
-	DisplayName    *string  `json:"display_name"`
-	Description    *string  `json:"description"`
-	Colour         string   `json:"colour"`
-	Icon           *string  `json:"icon"`
-	Tags           []string `json:"tags"`
-	DefaultBranch  string   `json:"default_branch"`
-	PipelineSource []byte   `json:"pipeline_source"`
-	ForgeRef       string   `json:"forge_ref"`
-	Workspace      string   `json:"workspace"`
+	RepoPath       string  `json:"repo_path"`
+	RepoUrl        string  `json:"repo_url"`
+	DisplayName    *string `json:"display_name"`
+	Description    *string `json:"description"`
+	Colour         string  `json:"colour"`
+	Icon           *string `json:"icon"`
+	DefaultBranch  string  `json:"default_branch"`
+	PipelineSource []byte  `json:"pipeline_source"`
+	ForgeRef       string  `json:"forge_ref"`
+	Workspace      string  `json:"workspace"`
 }
 
 // Workspace placement (the CRD is authoritative): if spec.workspace is declared
 // use that workspace (created on the fly if it doesn't exist); otherwise the
 // project lands in the org's default "Unsorted" workspace. workspace_inferred is
 // true when no workspace was declared (i.e. it defaulted to Unsorted).
+// tags are intentionally NOT written here — they're UI-managed (see
+// UpdateProjectTags), so a reconcile never clobbers them.
 func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error) {
 	row := q.db.QueryRow(ctx, upsertProject,
 		arg.RepoPath,
@@ -313,7 +329,6 @@ func (q *Queries) UpsertProject(ctx context.Context, arg UpsertProjectParams) (s
 		arg.Description,
 		arg.Colour,
 		arg.Icon,
-		arg.Tags,
 		arg.DefaultBranch,
 		arg.PipelineSource,
 		arg.ForgeRef,

@@ -16,12 +16,14 @@ import {
   AlertTriangle,
   Play,
   ChevronDown,
+  Plus,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import type { PipelineDefinition } from '#/lib/api/types'
 import { Modal } from '#/components/Modal'
 import { DagView } from '#/components/pipeline/dag-view'
+import { TagChip } from '#/components/TagChip'
 
 export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
@@ -102,15 +104,7 @@ function ProjectDetailPage() {
           </div>
         </div>
 
-        {project.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {project.tags.map((tag) => (
-              <span key={tag} className="rounded-md bg-secondary border border-border px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+        <ProjectTags projectId={id} tags={project.tags} />
       </div>
 
       {/* Pipeline selector — always visible */}
@@ -619,4 +613,88 @@ function RunStatusIcon({ status, size = 16 }: { status: string; size?: number })
     case 'cancelled': return <Ban size={size} className="text-muted-foreground shrink-0" />
     default: return <Clock size={size} className="text-muted-foreground shrink-0" />
   }
+}
+
+// ---------------------------------------------------------------------------
+// Project tags — UI-managed labels (curated key:value from the registry + free
+// tags). Add/remove writes straight to the project.
+// ---------------------------------------------------------------------------
+
+function ProjectTags({ projectId, tags }: { projectId: string; tags: string[] }) {
+  const { data: regData } = useSuspenseQuery(orpc.tags.registry.list.queryOptions({ input: {} }))
+  const registry = new Map(regData.items.map((k) => [k.key, k]))
+  const [adding, setAdding] = useState(false)
+  const [free, setFree] = useState('')
+
+  const save = useAction(
+    (next: string[]) => client.projects.setTags({ id: projectId, tags: next }),
+    { invalidate: [orpc.projects.get.key(), orpc.projects.list.key()] },
+  )
+  const applied = new Set(tags)
+  const add = (t: string) => { const v = t.trim(); if (v && !applied.has(v)) save.mutate([...tags, v]) }
+  const remove = (t: string) => save.mutate(tags.filter((x) => x !== t))
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tags.map((t) => <TagChip key={t} tag={t} registry={registry} onRemove={() => remove(t)} />)}
+        <button
+          type="button"
+          onClick={() => setAdding((v) => !v)}
+          className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] font-medium transition-colors ${
+            adding ? 'border-primary/40 text-primary' : 'border-dashed border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Plus size={11} /> tag
+        </button>
+      </div>
+
+      {adding && (
+        <div className="island-shell p-3 space-y-2.5 max-w-xl">
+          {regData.items.map((k) => (
+            <div key={k.id} className="flex items-start gap-2">
+              <span className="text-[12px] font-medium shrink-0 w-24 truncate" style={{ color: k.color }}>{k.label}</span>
+              <div className="flex flex-wrap gap-1">
+                {k.allowedValues.length > 0 ? (
+                  k.allowedValues.map((v) => {
+                    const tag = `${k.key}:${v}`
+                    const used = applied.has(tag)
+                    return (
+                      <button
+                        key={v} type="button" disabled={used} onClick={() => add(tag)}
+                        className={`rounded-md border px-2 py-0.5 text-[12px] font-mono transition-colors ${
+                          used ? 'border-border text-muted-foreground/40 cursor-default' : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent'
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <span className="text-[11px] text-muted-foreground/60 italic">free-form — add below</span>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 border-t border-border/50 pt-2.5">
+            <span className="text-[12px] font-medium text-muted-foreground shrink-0 w-24">Free tag</span>
+            <input
+              type="text" value={free}
+              onChange={(e) => setFree(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { add(free); setFree('') } }}
+              placeholder="e.g. lang:rust or backend"
+              className="flex-1 rounded-md border border-border bg-transparent px-2.5 py-1 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
+            <button
+              type="button" onClick={() => { add(free); setFree('') }} disabled={!free.trim()}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-white transition-colors disabled:opacity-40"
+              style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

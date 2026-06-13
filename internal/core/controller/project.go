@@ -168,7 +168,6 @@ func (r *ProjectReconciler) upsertProject(ctx context.Context, p *flintv1.Projec
 		Description:    nilIfEmpty(p.Spec.Description),
 		Colour:         colour,
 		Icon:           nilIfEmpty(p.Spec.Icon),
-		Tags:           p.Spec.Tags,
 		DefaultBranch:  defaultBranch,
 		PipelineSource: []byte(pipelineSource),
 		ForgeRef:       p.Spec.ForgeRef,
