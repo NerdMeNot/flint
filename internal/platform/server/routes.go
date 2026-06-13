@@ -89,6 +89,7 @@ func (s *Server) registerAPIRoutes() {
 
 	// Org.
 	v1.GET("/org", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.getOrg)
+	v1.PUT("/org/policy", s.requirePermission(auth.ObjWorkspace, auth.ActManage), s.handleSetOrgPolicy)
 
 	// CI product routes — gated by products.ci.enabled (default on).
 	if s.deps.Config.Products.CIEnabled() {
@@ -688,7 +689,37 @@ func (s *Server) getOrg(ctx context.Context, c *app.RequestContext) {
 		apiNotFound(ctx, c, "no org configured")
 		return
 	}
-	c.JSON(consts.StatusOK, org)
+	c.JSON(consts.StatusOK, utils.H{
+		"id":                      org.ID,
+		"name":                    org.Name,
+		"slug":                    org.Slug,
+		"concurrencyLimit":        org.ConcurrencyLimit,
+		"requireProjectWorkspace": org.RequireProjectWorkspace,
+	})
+}
+
+// handleSetOrgPolicy updates org-level governance policies. Currently just the
+// "require a workspace on every project" switch.
+func (s *Server) handleSetOrgPolicy(ctx context.Context, c *app.RequestContext) {
+	var req struct {
+		RequireProjectWorkspace bool `json:"requireProjectWorkspace"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		apiNotFound(ctx, c, "no org configured")
+		return
+	}
+	if err := s.deps.Q.SetOrgRequireProjectWorkspace(ctx, db.SetOrgRequireProjectWorkspaceParams{
+		ID: org.ID, Require: req.RequireProjectWorkspace,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to update org policy")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // ── Teams -- get by ID ───────────────────────────────────────

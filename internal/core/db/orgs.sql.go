@@ -39,14 +39,15 @@ func (q *Queries) GetOrCreateDefaultOrg(ctx context.Context) (string, error) {
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, slug, concurrency_limit FROM orgs LIMIT 1
+SELECT id, name, slug, concurrency_limit, require_project_workspace FROM orgs LIMIT 1
 `
 
 type GetOrgRow struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Slug             string `json:"slug"`
-	ConcurrencyLimit int32  `json:"concurrency_limit"`
+	ID                      string `json:"id"`
+	Name                    string `json:"name"`
+	Slug                    string `json:"slug"`
+	ConcurrencyLimit        int32  `json:"concurrency_limit"`
+	RequireProjectWorkspace bool   `json:"require_project_workspace"`
 }
 
 func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
@@ -57,6 +58,7 @@ func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
 		&i.Name,
 		&i.Slug,
 		&i.ConcurrencyLimit,
+		&i.RequireProjectWorkspace,
 	)
 	return i, err
 }
@@ -70,4 +72,18 @@ func (q *Queries) GetOrgConcurrencyLimit(ctx context.Context, id string) (int32,
 	var concurrency_limit int32
 	err := row.Scan(&concurrency_limit)
 	return concurrency_limit, err
+}
+
+const setOrgRequireProjectWorkspace = `-- name: SetOrgRequireProjectWorkspace :exec
+UPDATE orgs SET require_project_workspace = $1 WHERE id = $2
+`
+
+type SetOrgRequireProjectWorkspaceParams struct {
+	Require bool   `json:"require"`
+	ID      string `json:"id"`
+}
+
+func (q *Queries) SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error {
+	_, err := q.db.Exec(ctx, setOrgRequireProjectWorkspace, arg.Require, arg.ID)
+	return err
 }

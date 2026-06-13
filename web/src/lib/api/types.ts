@@ -359,6 +359,16 @@ export const MfaSetupSchema = z.object({
 })
 export type MfaSetup = z.infer<typeof MfaSetupSchema>
 
+// The org and its governance policies.
+export const OrgSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  concurrencyLimit: z.optional(z.number()),
+  requireProjectWorkspace: z.boolean(),
+})
+export type Org = z.infer<typeof OrgSchema>
+
 // Configured SSO providers (secrets never leave the server).
 export const AuthProvidersSchema = z.object({
   providers: z.array(z.object({ id: z.string(), providerType: z.string(), displayName: z.string() })),

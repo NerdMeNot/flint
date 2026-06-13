@@ -1,5 +1,8 @@
 -- name: GetOrg :one
-SELECT id, name, slug, concurrency_limit FROM orgs LIMIT 1;
+SELECT id, name, slug, concurrency_limit, require_project_workspace FROM orgs LIMIT 1;
+
+-- name: SetOrgRequireProjectWorkspace :exec
+UPDATE orgs SET require_project_workspace = @require WHERE id = @id;
 
 -- name: GetOrCreateDefaultOrg :one
 INSERT INTO orgs (name, slug)

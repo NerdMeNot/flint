@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	flintv1 "github.com/NerdMeNot/flint/internal/core/crd/v1"
@@ -70,6 +71,22 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	log.Info().Str("repo", project.Spec.Repo).Msg("reconciling pipeline")
+
+	// Org policy: when "require workspace" is on, a project must declare
+	// spec.workspace — otherwise mark it NotReady and don't register it (rather
+	// than silently inferring a workspace).
+	if org, err := r.Q.GetOrg(ctx); err == nil && org.RequireProjectWorkspace && strings.TrimSpace(project.Spec.Workspace) == "" {
+		meta.SetStatusCondition(&project.Status.Conditions, metav1.Condition{
+			Type:               "Registered",
+			Status:             metav1.ConditionFalse,
+			Reason:             "WorkspaceRequired",
+			Message:            "spec.workspace is required by org policy",
+			LastTransitionTime: metav1.Now(),
+		})
+		_ = r.Status().Update(ctx, &project)
+		log.Warn().Str("repo", project.Spec.Repo).Msg("project rejected: spec.workspace required by org policy")
+		return ctrl.Result{}, nil
+	}
 
 	// Upsert project in database.
 	projectID, err := r.upsertProject(ctx, &project)

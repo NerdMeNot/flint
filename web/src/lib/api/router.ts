@@ -24,6 +24,7 @@ import {
   type ForgeConnection,
   type AuditEntry,
   type AuthUser,
+  type Org,
   type Session,
   type MfaSetup,
   type AuthProviders,
@@ -821,6 +822,17 @@ const auditEntries = {
 // Auth
 // ---------------------------------------------------------------------------
 
+const org = {
+  get: os.handler(async () => {
+    return withFallback(() => backendGet<Org>('/org'), () => mocks.getOrg())
+  }),
+  setPolicy: os
+    .input(z.object({ requireProjectWorkspace: z.boolean() }))
+    .handler(async ({ input }) => {
+      return safe(() => backendPut('/org/policy', input), () => mocks.setOrgPolicy(input))
+    }),
+}
+
 const auth = {
   me: os.handler(async () => {
     return withFallback(
@@ -952,6 +964,7 @@ export const appRouter = os.router({
   runners,
   forgeConnections,
   auditEntries,
+  org,
   auth,
   search,
 })

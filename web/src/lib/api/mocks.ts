@@ -20,6 +20,7 @@ import type {
   RunnerPool,
   ForgeConnection,
   AuthUser,
+  Org,
   Session,
   MfaSetup,
   AuthProviders,
@@ -2165,6 +2166,19 @@ export function updateAuthProfile(input: {
 }
 
 export function changePassword(): { success: true } {
+  return { success: true }
+}
+
+// ── Org + governance policy ─────────────────────────────────
+let _org: Org | undefined
+export function getOrg(): Org {
+  return (_org ??= {
+    id: 'org-1', name: 'Acme', slug: 'acme', concurrencyLimit: 20,
+    requireProjectWorkspace: false,
+  })
+}
+export function setOrgPolicy(input: { requireProjectWorkspace: boolean }): { success: true } {
+  getOrg().requireProjectWorkspace = input.requireProjectWorkspace
   return { success: true }
 }
 

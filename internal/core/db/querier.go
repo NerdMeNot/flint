@@ -292,6 +292,7 @@ type Querier interface {
 	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
+	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
 	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
 	SetStepQueued(ctx context.Context, id string) error
 	SetStepSkipped(ctx context.Context, id string) error
