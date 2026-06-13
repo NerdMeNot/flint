@@ -403,6 +403,8 @@ type User struct {
 	RecoveryCodes       []string    `json:"recovery_codes"`
 	ForcePasswordChange bool        `json:"force_password_change"`
 	MfaLastUsedPeriod   pgtype.Int8 `json:"mfa_last_used_period"`
+	ThemeMode           *string     `json:"theme_mode"`
+	ColorTheme          *string     `json:"color_theme"`
 }
 
 type Webhook struct {

@@ -2103,15 +2103,37 @@ export function getForgeConnections(): ForgeConnection[] {
 // Auth user (current session)
 // ---------------------------------------------------------------------------
 
+let _authUser: AuthUser | undefined
 export function getAuthUser(): AuthUser {
-  return {
+  // Seed appearance from localStorage so the mock "server" agrees with the
+  // local choice — otherwise reconcile (server-wins) would revert it on reload.
+  const ls = typeof window !== 'undefined' ? window.localStorage : undefined
+  return (_authUser ??= {
     userId: 'u-1',
     email: 'alice@acme.dev',
     name: 'Alice Chen',
+    avatarUrl: '',
     role: 'admin',
     permissions: ['*:*'],
     groups: ['backend-devs', 'release-mgrs'],
-  }
+    provider: 'local',
+    themeMode: ls?.getItem('theme') ?? 'auto',
+    colorTheme: ls?.getItem('flint-color-theme') ?? 'ocean',
+  })
+}
+
+export function updateAuthProfile(input: {
+  name?: string
+  avatarUrl?: string
+  themeMode?: string
+  colorTheme?: string
+}): { success: true } {
+  const u = getAuthUser()
+  if (input.name !== undefined) u.name = input.name
+  if (input.avatarUrl !== undefined) u.avatarUrl = input.avatarUrl
+  if (input.themeMode !== undefined) u.themeMode = input.themeMode
+  if (input.colorTheme !== undefined) u.colorTheme = input.colorTheme
+  return { success: true }
 }
 
 // ---------------------------------------------------------------------------

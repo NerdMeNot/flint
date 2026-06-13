@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react'
-import { Palette } from 'lucide-react'
+// Appearance preferences — light/dark mode + color palette. Pure (non-React)
+// so it can run from the pre-paint script, a root bootstrap, and the Profile UI
+// alike. Source of truth is the user's server profile; localStorage mirrors it
+// for instant, flash-free application on the next load.
 
-interface ColorTheme {
+export type ThemeMode = 'light' | 'dark' | 'auto'
+
+export interface ColorTheme {
   name: string
   label: string
   dot: string // preview color
@@ -9,7 +13,7 @@ interface ColorTheme {
   darkVars: Record<string, string>
 }
 
-const themes: ColorTheme[] = [
+export const themes: ColorTheme[] = [
   {
     name: 'ocean',
     label: 'Ocean',
@@ -354,9 +358,22 @@ const themes: ColorTheme[] = [
   },
 ]
 
-function getActiveThemeName(): string {
-  if (typeof window === 'undefined') return 'ocean'
-  return window.localStorage.getItem('flint-color-theme') ?? 'ocean'
+// ── Storage keys ────────────────────────────────────────────
+const MODE_KEY = 'theme'
+const COLOR_KEY = 'flint-color-theme'
+export const DEFAULT_MODE: ThemeMode = 'auto'
+export const DEFAULT_COLOR = 'ocean'
+
+export const themeModes: { value: ThemeMode; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'auto', label: 'System' },
+]
+
+// ── Color palette ───────────────────────────────────────────
+export function getStoredColorTheme(): string {
+  if (typeof window === 'undefined') return DEFAULT_COLOR
+  return window.localStorage.getItem(COLOR_KEY) ?? DEFAULT_COLOR
 }
 
 function isDark(): boolean {
@@ -364,7 +381,7 @@ function isDark(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
-function applyColorTheme(theme: ColorTheme) {
+export function applyColorTheme(theme: ColorTheme) {
   const vars = isDark() ? theme.darkVars : theme.vars
   const root = document.documentElement
   for (const [key, value] of Object.entries(vars)) {
@@ -374,82 +391,55 @@ function applyColorTheme(theme: ColorTheme) {
   document.body.style.background = ''
 }
 
-export function ThemeSwitcher() {
-  const [active, setActive] = useState('teal')
-  const [open, setOpen] = useState(false)
+// applyColorThemeByName applies a palette by name and persists the choice.
+export function setColorTheme(name: string) {
+  const theme = themes.find((t) => t.name === name) ?? themes[0]
+  if (typeof window !== 'undefined') window.localStorage.setItem(COLOR_KEY, theme.name)
+  applyColorTheme(theme)
+}
 
-  useEffect(() => {
-    const name = getActiveThemeName()
-    setActive(name)
-    const theme = themes.find((t) => t.name === name)
-    if (theme) applyColorTheme(theme)
+// ── Light/dark mode ─────────────────────────────────────────
+export function getStoredMode(): ThemeMode {
+  if (typeof window === 'undefined') return DEFAULT_MODE
+  const stored = window.localStorage.getItem(MODE_KEY)
+  return stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : DEFAULT_MODE
+}
 
-    // Re-apply when light/dark mode changes
-    const observer = new MutationObserver(() => {
-      const t = themes.find((t) => t.name === getActiveThemeName())
-      if (t) applyColorTheme(t)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    })
-    return () => observer.disconnect()
-  }, [])
+export function applyThemeMode(mode: ThemeMode) {
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const resolved = mode === 'auto' ? (prefersDark ? 'dark' : 'light') : mode
+  const root = document.documentElement
+  root.classList.remove('light', 'dark')
+  root.classList.add(resolved)
+  if (mode === 'auto') root.removeAttribute('data-theme')
+  else root.setAttribute('data-theme', mode)
+  root.style.colorScheme = resolved
+  // The active palette resolves different vars per mode, so re-apply it.
+  applyColorTheme(themes.find((t) => t.name === getStoredColorTheme()) ?? themes[0])
+}
 
-  function selectTheme(theme: ColorTheme) {
-    setActive(theme.name)
-    window.localStorage.setItem('flint-color-theme', theme.name)
-    applyColorTheme(theme)
-    setOpen(false)
+export function setThemeMode(mode: ThemeMode) {
+  if (typeof window !== 'undefined') window.localStorage.setItem(MODE_KEY, mode)
+  applyThemeMode(mode)
+}
+
+// reconcileAppearance is called once the server profile loads: server values
+// win, so we mirror them into localStorage and apply. Missing values keep the
+// local choice. Returns the effective {mode, color} for UI state.
+export function reconcileAppearance(prefs: { themeMode?: string; colorTheme?: string }): {
+  mode: ThemeMode
+  color: string
+} {
+  let mode = getStoredMode()
+  if (prefs.themeMode === 'light' || prefs.themeMode === 'dark' || prefs.themeMode === 'auto') {
+    mode = prefs.themeMode
+    if (typeof window !== 'undefined') window.localStorage.setItem(MODE_KEY, mode)
   }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
-        style={{ background: 'var(--surface)' }}
-      >
-        <Palette size={14} />
-        <span
-          className="w-3 h-3 rounded-full border border-border"
-          style={{ background: themes.find((t) => t.name === active)?.dot }}
-        />
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="absolute right-0 top-full mt-2 z-50 rounded-xl border border-border p-2 shadow-lg min-w-[160px]"
-            style={{ background: 'var(--surface-strong)', backdropFilter: 'blur(12px)' }}
-          >
-            {themes.map((theme) => (
-              <button
-                key={theme.name}
-                type="button"
-                onClick={() => selectTheme(theme)}
-                className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-                  active === theme.name
-                    ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                style={active === theme.name ? { background: 'var(--link-bg-hover)' } : undefined}
-              >
-                <span
-                  className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
-                  style={{ background: theme.dot }}
-                />
-                {theme.label}
-                {active === theme.name && (
-                  <span className="ml-auto text-xs opacity-50">active</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
+  let color = getStoredColorTheme()
+  if (prefs.colorTheme && themes.some((t) => t.name === prefs.colorTheme)) {
+    color = prefs.colorTheme
+    if (typeof window !== 'undefined') window.localStorage.setItem(COLOR_KEY, color)
+  }
+  applyThemeMode(mode) // also re-applies the palette
+  return { mode, color }
 }

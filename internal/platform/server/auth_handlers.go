@@ -35,6 +35,7 @@ func (s *Server) registerAuthRoutes() {
 	s.hertz.POST("/auth/refresh", s.handleRefresh)
 	s.hertz.POST("/auth/logout", s.handleLogout)
 	s.hertz.GET("/auth/me", s.authMiddleware(), s.handleAuthMe)
+	s.hertz.PUT("/auth/profile", s.authMiddleware(), s.handleUpdateProfile)
 	s.hertz.GET("/auth/sessions", s.authMiddleware(), s.handleListSessions)
 	s.hertz.DELETE("/auth/sessions/:id", s.authMiddleware(), s.handleRevokeSession)
 
@@ -339,16 +340,87 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		role = roles[0]
 	}
 
+	// Persisted profile fields (display name override, avatar, appearance prefs)
+	// live on the user row. Best-effort: fall back to JWT claims if absent.
+	name := claims.Name
+	var avatarURL, themeMode, colorTheme string
+	if user, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{
+		OrgID: claims.OrgID, Email: claims.Email,
+	}); err == nil {
+		if user.Name != nil && *user.Name != "" {
+			name = *user.Name
+		}
+		avatarURL = derefString(user.AvatarUrl)
+		themeMode = derefString(user.ThemeMode)
+		colorTheme = derefString(user.ColorTheme)
+	}
+
 	c.JSON(consts.StatusOK, utils.H{
 		"userId":      claims.Subject,
 		"email":       claims.Email,
-		"name":        claims.Name,
+		"name":        name,
+		"avatarUrl":   avatarURL,
 		"orgId":       claims.OrgID,
 		"role":        role,
 		"permissions": permissions,
 		"provider":    claims.Provider,
 		"groups":      claims.Groups,
+		"themeMode":   themeMode,
+		"colorTheme":  colorTheme,
 	})
+}
+
+// handleUpdateProfile is the self-service profile patch: display name, avatar,
+// and appearance preferences (theme mode + color palette). Any omitted field is
+// left unchanged. Persists against the current user's row so appearance follows
+// them across devices.
+func (s *Server) handleUpdateProfile(ctx context.Context, c *app.RequestContext) {
+	claims := claimsFromCtx(ctx)
+	if claims == nil {
+		apiUnauthorized(ctx, c, "not authenticated")
+		return
+	}
+
+	var req struct {
+		Name       *string `json:"name"`
+		AvatarURL  *string `json:"avatarUrl"`
+		ThemeMode  *string `json:"themeMode"`
+		ColorTheme *string `json:"colorTheme"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+
+	if req.ThemeMode != nil {
+		switch *req.ThemeMode {
+		case "light", "dark", "auto":
+		default:
+			apiBadRequest(ctx, c, "themeMode must be light, dark, or auto")
+			return
+		}
+	}
+
+	user, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{
+		OrgID: claims.OrgID, Email: claims.Email,
+	})
+	if err != nil {
+		apiNotFound(ctx, c, "user not found")
+		return
+	}
+
+	if err := s.deps.Q.UpdateUserProfile(ctx, db.UpdateUserProfileParams{
+		ID:         user.ID,
+		Name:       req.Name,
+		AvatarUrl:  req.AvatarURL,
+		ThemeMode:  req.ThemeMode,
+		ColorTheme: req.ColorTheme,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to update profile")
+		return
+	}
+
+	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
 // CompleteDeviceAuth is called when a user completes device flow auth (from browser).

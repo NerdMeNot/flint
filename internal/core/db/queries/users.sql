@@ -17,8 +17,18 @@ ON CONFLICT (org_id, external_id) DO UPDATE SET
 RETURNING id;
 
 -- name: GetUserByEmail :one
-SELECT id, email, external_id, name FROM users
+SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme FROM users
 WHERE org_id = $1 AND email = $2;
+
+-- name: UpdateUserProfile :exec
+-- Self-service profile update. NULL args leave the existing value untouched
+-- (COALESCE), so callers can patch any subset of {name, avatar, appearance}.
+UPDATE users SET
+    name = COALESCE(sqlc.narg('name'), name),
+    avatar_url = COALESCE(sqlc.narg('avatar_url'), avatar_url),
+    theme_mode = COALESCE(sqlc.narg('theme_mode'), theme_mode),
+    color_theme = COALESCE(sqlc.narg('color_theme'), color_theme)
+WHERE id = sqlc.arg('id');
 
 -- name: GetUserByID :one
 SELECT id, email, external_id, name, is_active FROM users

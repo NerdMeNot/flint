@@ -83,7 +83,7 @@ func (q *Queries) CreateLocalUser(ctx context.Context, arg CreateLocalUserParams
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, external_id, name FROM users
+SELECT id, email, external_id, name, avatar_url, theme_mode, color_theme FROM users
 WHERE org_id = $1 AND email = $2
 `
 
@@ -97,6 +97,9 @@ type GetUserByEmailRow struct {
 	Email      string  `json:"email"`
 	ExternalID string  `json:"external_id"`
 	Name       *string `json:"name"`
+	AvatarUrl  *string `json:"avatar_url"`
+	ThemeMode  *string `json:"theme_mode"`
+	ColorTheme *string `json:"color_theme"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) (GetUserByEmailRow, error) {
@@ -107,6 +110,9 @@ func (q *Queries) GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) 
 		&i.Email,
 		&i.ExternalID,
 		&i.Name,
+		&i.AvatarUrl,
+		&i.ThemeMode,
+		&i.ColorTheme,
 	)
 	return i, err
 }
@@ -326,6 +332,36 @@ type UpdateUserPasswordParams struct {
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :exec
+UPDATE users SET
+    name = COALESCE($1, name),
+    avatar_url = COALESCE($2, avatar_url),
+    theme_mode = COALESCE($3, theme_mode),
+    color_theme = COALESCE($4, color_theme)
+WHERE id = $5
+`
+
+type UpdateUserProfileParams struct {
+	Name       *string `json:"name"`
+	AvatarUrl  *string `json:"avatar_url"`
+	ThemeMode  *string `json:"theme_mode"`
+	ColorTheme *string `json:"color_theme"`
+	ID         string  `json:"id"`
+}
+
+// Self-service profile update. NULL args leave the existing value untouched
+// (COALESCE), so callers can patch any subset of {name, avatar, appearance}.
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error {
+	_, err := q.db.Exec(ctx, updateUserProfile,
+		arg.Name,
+		arg.AvatarUrl,
+		arg.ThemeMode,
+		arg.ColorTheme,
+		arg.ID,
+	)
 	return err
 }
 
