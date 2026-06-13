@@ -74,6 +74,8 @@ export const ProjectSchema = z.object({
   pipelineCount: z.number(),
   pipelineErrors: z.number(),
   lastRun: z.optional(LastRunSchema),
+  // true when the workspace was inferred (not declared) — surfaced for triage.
+  inferred: z.optional(z.boolean()),
 })
 
 export const PipelineStepSchema = z.object({

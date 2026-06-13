@@ -126,6 +126,7 @@ export function getProjects(): Project[] {
       pipelineCount: 2,
       pipelineErrors: 0,
       colour: '#22c55e',
+      inferred: true,
     },
     {
       id: 'p-5',
@@ -150,10 +151,11 @@ export function getProjects(): Project[] {
       name: 'Web Storefront',
       repo: 'acme/web-storefront',
       workspace: 'storefront',
-      tags: ['frontend', 'nextjs', 'domain:catalog', 'tier:2', 'lang:ts'],
+      tags: [],
       pipelineCount: 1,
       pipelineErrors: 0,
       colour: '#06b6d4',
+      inferred: true,
     },
   ]
 }

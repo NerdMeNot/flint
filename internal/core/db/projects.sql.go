@@ -158,6 +158,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 const listProjectsWithLastRun = `-- name: ListProjectsWithLastRun :many
 SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
        COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at,
+       p.workspace_inferred AS inferred,
        lr.id AS last_run_id, lr.status AS last_run_status,
        lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
        lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
@@ -173,12 +174,15 @@ LEFT JOIN LATERAL (
 WHERE p.is_archived = false
   AND (cardinality($1::text[]) = 0 OR w.slug = ANY($1::text[]))
   AND (cardinality($2::text[]) = 0 OR p.tags && $2::text[])
+  -- "needs grouping": workspace was inferred (not declared) or no tags.
+  AND (NOT $3::bool OR p.workspace_inferred OR cardinality(p.tags) = 0)
 ORDER BY COALESCE(p.display_name, p.repo_path)
 `
 
 type ListProjectsWithLastRunParams struct {
-	Workspaces []string `json:"workspaces"`
-	Tags       []string `json:"tags"`
+	Workspaces    []string `json:"workspaces"`
+	Tags          []string `json:"tags"`
+	NeedsGrouping bool     `json:"needs_grouping"`
 }
 
 type ListProjectsWithLastRunRow struct {
@@ -189,6 +193,7 @@ type ListProjectsWithLastRunRow struct {
 	Colour             string      `json:"colour"`
 	Tags               []string    `json:"tags"`
 	CreatedAt          time.Time   `json:"created_at"`
+	Inferred           bool        `json:"inferred"`
 	LastRunID          string      `json:"last_run_id"`
 	LastRunStatus      string      `json:"last_run_status"`
 	LastRunBranch      *string     `json:"last_run_branch"`
@@ -200,7 +205,7 @@ type ListProjectsWithLastRunRow struct {
 // API project list: joins owning workspace + latest run, with optional
 // server-side workspace and tag filters (empty slice = no filter for that axis).
 func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error) {
-	rows, err := q.db.Query(ctx, listProjectsWithLastRun, arg.Workspaces, arg.Tags)
+	rows, err := q.db.Query(ctx, listProjectsWithLastRun, arg.Workspaces, arg.Tags, arg.NeedsGrouping)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +221,7 @@ func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsW
 			&i.Colour,
 			&i.Tags,
 			&i.CreatedAt,
+			&i.Inferred,
 			&i.LastRunID,
 			&i.LastRunStatus,
 			&i.LastRunBranch,

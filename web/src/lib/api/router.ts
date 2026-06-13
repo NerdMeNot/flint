@@ -150,6 +150,7 @@ const projects = {
       z.object({
         workspace: z.optional(z.array(z.string())),
         tags: z.optional(z.array(z.string())),
+        needsGrouping: z.optional(z.boolean()),
         limit: z.optional(z.number()),
         cursor: z.optional(z.string()),
       }),
@@ -157,7 +158,9 @@ const projects = {
     .handler(async ({ input }) => {
       return withFallback(
         () => backendGet<Paginated<Project>>('/projects', {
-          workspace: input.workspace, tags: input.tags, limit: input.limit, cursor: input.cursor,
+          workspace: input.workspace, tags: input.tags,
+          needsGrouping: input.needsGrouping ? 'true' : undefined,
+          limit: input.limit, cursor: input.cursor,
         }),
         () => {
           let items = mocks.getProjects()
@@ -169,6 +172,10 @@ const projects = {
             // Array-overlap semantics, matching the backend's `p.tags && $tags`.
             const want = new Set(input.tags)
             items = items.filter((p) => (p.tags ?? []).some((t) => want.has(t)))
+          }
+          if (input.needsGrouping) {
+            // Inferred workspace (not declared) or no tags — matches the backend.
+            items = items.filter((p) => p.inferred || (p.tags ?? []).length === 0)
           }
           return paginateMock(items, input)
         },
