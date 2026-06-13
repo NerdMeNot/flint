@@ -17,6 +17,7 @@ import { Route as LoadtestRouteImport } from './routes/loadtest'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsIndexRouteImport } from './routes/workflows.index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as ProfileIndexRouteImport } from './routes/profile.index'
 import { Route as CiIndexRouteImport } from './routes/ci.index'
 import { Route as WorkflowsIdRouteImport } from './routes/workflows.$id'
 import { Route as SettingsWorkspacesRouteImport } from './routes/settings.workspaces'
@@ -25,14 +26,15 @@ import { Route as SettingsUsersRouteImport } from './routes/settings.users'
 import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
 import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
 import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
-import { Route as SettingsSessionsRouteImport } from './routes/settings.sessions'
-import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
 import { Route as SettingsRunnersRouteImport } from './routes/settings.runners'
 import { Route as SettingsRolesRouteImport } from './routes/settings.roles'
 import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsAuditLogRouteImport } from './routes/settings.audit-log'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings.api-keys'
+import { Route as ProfileTokensRouteImport } from './routes/profile.tokens'
+import { Route as ProfileSessionsRouteImport } from './routes/profile.sessions'
+import { Route as ProfileSecurityRouteImport } from './routes/profile.security'
 import { Route as CiProjectsRouteImport } from './routes/ci.projects'
 import { Route as CiGatesRouteImport } from './routes/ci.gates'
 import { Route as SettingsUsersIndexRouteImport } from './routes/settings.users.index'
@@ -87,6 +89,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
+const ProfileIndexRoute = ProfileIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ProfileRoute,
+} as any)
 const CiIndexRoute = CiIndexRouteImport.update({
   id: '/ci/',
   path: '/ci/',
@@ -127,16 +134,6 @@ const SettingsSsoRoute = SettingsSsoRouteImport.update({
   path: '/sso',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSessionsRoute = SettingsSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
-  id: '/security',
-  path: '/security',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsRunnersRoute = SettingsRunnersRouteImport.update({
   id: '/runners',
   path: '/runners',
@@ -166,6 +163,21 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
   getParentRoute: () => SettingsRoute,
+} as any)
+const ProfileTokensRoute = ProfileTokensRouteImport.update({
+  id: '/tokens',
+  path: '/tokens',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileSessionsRoute = ProfileSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileSecurityRoute = ProfileSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => ProfileRoute,
 } as any)
 const CiProjectsRoute = CiProjectsRouteImport.update({
   id: '/ci/projects',
@@ -238,19 +250,20 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
-  '/profile': typeof ProfileRoute
+  '/profile': typeof ProfileRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
   '/ci/projects': typeof CiProjectsRouteWithChildren
+  '/profile/security': typeof ProfileSecurityRoute
+  '/profile/sessions': typeof ProfileSessionsRoute
+  '/profile/tokens': typeof ProfileTokensRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
@@ -259,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci/': typeof CiIndexRoute
+  '/profile/': typeof ProfileIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -277,22 +291,23 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
-  '/profile': typeof ProfileRoute
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
+  '/profile/security': typeof ProfileSecurityRoute
+  '/profile/sessions': typeof ProfileSessionsRoute
+  '/profile/tokens': typeof ProfileTokensRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci': typeof CiIndexRoute
+  '/profile': typeof ProfileIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/workflows': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -312,19 +327,20 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/loadtest': typeof LoadtestRoute
   '/login': typeof LoginRoute
-  '/profile': typeof ProfileRoute
+  '/profile': typeof ProfileRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/ci/gates': typeof CiGatesRoute
   '/ci/projects': typeof CiProjectsRouteWithChildren
+  '/profile/security': typeof ProfileSecurityRoute
+  '/profile/sessions': typeof ProfileSessionsRoute
+  '/profile/tokens': typeof ProfileTokensRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/roles': typeof SettingsRolesRoute
   '/settings/runners': typeof SettingsRunnersRoute
-  '/settings/security': typeof SettingsSecurityRoute
-  '/settings/sessions': typeof SettingsSessionsRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
@@ -333,6 +349,7 @@ export interface FileRoutesById {
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci/': typeof CiIndexRoute
+  '/profile/': typeof ProfileIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -358,14 +375,15 @@ export interface FileRouteTypes {
     | '/teams'
     | '/ci/gates'
     | '/ci/projects'
+    | '/profile/security'
+    | '/profile/sessions'
+    | '/profile/tokens'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/environments'
     | '/settings/roles'
     | '/settings/runners'
-    | '/settings/security'
-    | '/settings/sessions'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/teams'
@@ -374,6 +392,7 @@ export interface FileRouteTypes {
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci/'
+    | '/profile/'
     | '/settings/'
     | '/workflows/'
     | '/api/rpc/$'
@@ -392,22 +411,23 @@ export interface FileRouteTypes {
     | '/'
     | '/loadtest'
     | '/login'
-    | '/profile'
     | '/teams'
     | '/ci/gates'
+    | '/profile/security'
+    | '/profile/sessions'
+    | '/profile/tokens'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/roles'
     | '/settings/runners'
-    | '/settings/security'
-    | '/settings/sessions'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/variables'
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci'
+    | '/profile'
     | '/settings'
     | '/workflows'
     | '/api/rpc/$'
@@ -431,14 +451,15 @@ export interface FileRouteTypes {
     | '/teams'
     | '/ci/gates'
     | '/ci/projects'
+    | '/profile/security'
+    | '/profile/sessions'
+    | '/profile/tokens'
     | '/settings/api-keys'
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/environments'
     | '/settings/roles'
     | '/settings/runners'
-    | '/settings/security'
-    | '/settings/sessions'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/teams'
@@ -447,6 +468,7 @@ export interface FileRouteTypes {
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci/'
+    | '/profile/'
     | '/settings/'
     | '/workflows/'
     | '/api/rpc/$'
@@ -466,7 +488,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoadtestRoute: typeof LoadtestRoute
   LoginRoute: typeof LoginRoute
-  ProfileRoute: typeof ProfileRoute
+  ProfileRoute: typeof ProfileRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
   CiGatesRoute: typeof CiGatesRoute
@@ -537,6 +559,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/profile/': {
+      id: '/profile/'
+      path: '/'
+      fullPath: '/profile/'
+      preLoaderRoute: typeof ProfileIndexRouteImport
+      parentRoute: typeof ProfileRoute
+    }
     '/ci/': {
       id: '/ci/'
       path: '/ci'
@@ -593,20 +622,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSsoRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/sessions': {
-      id: '/settings/sessions'
-      path: '/sessions'
-      fullPath: '/settings/sessions'
-      preLoaderRoute: typeof SettingsSessionsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/security': {
-      id: '/settings/security'
-      path: '/security'
-      fullPath: '/settings/security'
-      preLoaderRoute: typeof SettingsSecurityRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/runners': {
       id: '/settings/runners'
       path: '/runners'
@@ -648,6 +663,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/api-keys'
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof SettingsRoute
+    }
+    '/profile/tokens': {
+      id: '/profile/tokens'
+      path: '/tokens'
+      fullPath: '/profile/tokens'
+      preLoaderRoute: typeof ProfileTokensRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/sessions': {
+      id: '/profile/sessions'
+      path: '/sessions'
+      fullPath: '/profile/sessions'
+      preLoaderRoute: typeof ProfileSessionsRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/security': {
+      id: '/profile/security'
+      path: '/security'
+      fullPath: '/profile/security'
+      preLoaderRoute: typeof ProfileSecurityRouteImport
+      parentRoute: typeof ProfileRoute
     }
     '/ci/projects': {
       id: '/ci/projects'
@@ -743,6 +779,23 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ProfileRouteChildren {
+  ProfileSecurityRoute: typeof ProfileSecurityRoute
+  ProfileSessionsRoute: typeof ProfileSessionsRoute
+  ProfileTokensRoute: typeof ProfileTokensRoute
+  ProfileIndexRoute: typeof ProfileIndexRoute
+}
+
+const ProfileRouteChildren: ProfileRouteChildren = {
+  ProfileSecurityRoute: ProfileSecurityRoute,
+  ProfileSessionsRoute: ProfileSessionsRoute,
+  ProfileTokensRoute: ProfileTokensRoute,
+  ProfileIndexRoute: ProfileIndexRoute,
+}
+
+const ProfileRouteWithChildren =
+  ProfileRoute._addFileChildren(ProfileRouteChildren)
+
 interface SettingsEnvironmentsRouteChildren {
   SettingsEnvironmentsIdRoute: typeof SettingsEnvironmentsIdRoute
   SettingsEnvironmentsIndexRoute: typeof SettingsEnvironmentsIndexRoute
@@ -791,8 +844,6 @@ interface SettingsRouteChildren {
   SettingsEnvironmentsRoute: typeof SettingsEnvironmentsRouteWithChildren
   SettingsRolesRoute: typeof SettingsRolesRoute
   SettingsRunnersRoute: typeof SettingsRunnersRoute
-  SettingsSecurityRoute: typeof SettingsSecurityRoute
-  SettingsSessionsRoute: typeof SettingsSessionsRoute
   SettingsSsoRoute: typeof SettingsSsoRoute
   SettingsTagsRoute: typeof SettingsTagsRoute
   SettingsTeamsRoute: typeof SettingsTeamsRouteWithChildren
@@ -809,8 +860,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsEnvironmentsRoute: SettingsEnvironmentsRouteWithChildren,
   SettingsRolesRoute: SettingsRolesRoute,
   SettingsRunnersRoute: SettingsRunnersRoute,
-  SettingsSecurityRoute: SettingsSecurityRoute,
-  SettingsSessionsRoute: SettingsSessionsRoute,
   SettingsSsoRoute: SettingsSsoRoute,
   SettingsTagsRoute: SettingsTagsRoute,
   SettingsTeamsRoute: SettingsTeamsRouteWithChildren,
@@ -842,7 +891,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoadtestRoute: LoadtestRoute,
   LoginRoute: LoginRoute,
-  ProfileRoute: ProfileRoute,
+  ProfileRoute: ProfileRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,
   CiGatesRoute: CiGatesRoute,

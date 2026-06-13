@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import {
-  UserCircle, Users, KeyRound, Globe, Shield, Monitor, Key,
+  UserCircle, Users, KeyRound, Globe, Key,
   Boxes, Tag, ShieldCheck, Lock, Server, GitFork, ScrollText, ChevronRight,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
@@ -22,9 +22,7 @@ const groups = [
     section: 'Authentication',
     tiles: [
       { to: '/settings/sso', icon: Globe, label: 'SSO', desc: 'OIDC and SAML single sign-on' },
-      { to: '/settings/security', icon: Shield, label: 'Security', desc: 'Password and multi-factor auth' },
-      { to: '/settings/sessions', icon: Monitor, label: 'Sessions', desc: 'Active sign-ins on your account' },
-      { to: '/settings/api-keys', icon: Key, label: 'API Keys', desc: 'Programmatic access for the API and CLI' },
+      { to: '/settings/api-keys', icon: Key, label: 'API Keys', desc: 'Org-level keys for the API and CLI' },
     ],
   },
   {

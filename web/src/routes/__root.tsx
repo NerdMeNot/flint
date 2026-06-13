@@ -58,6 +58,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootLayout() {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const isAdmin = path.startsWith('/settings')
+  const isProfile = path === '/profile' || path.startsWith('/profile/')
   const isAuth = path === '/login'
   const palette = useCommandPalette()
 
@@ -66,11 +67,13 @@ function RootLayout() {
     return <Outlet />
   }
 
-  if (isAdmin) {
+  // Admin and the personal account area both use a focused shell (no product
+  // sidebar) — each route supplies its own left sub-nav.
+  if (isAdmin || isProfile) {
     return (
       <>
         <AppearanceSync />
-        <AdminShell onSearchClick={() => palette.setOpen(true)} />
+        <FocusedShell label={isAdmin ? 'Admin' : 'Account'} onSearchClick={() => palette.setOpen(true)} />
         <CommandPalette open={palette.open} onClose={() => palette.setOpen(false)} />
       </>
     )
@@ -133,10 +136,11 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Admin shell (clean, no sidebar, no scope filters)
+// Focused shell (no product sidebar) — used by Admin and the Account area. The
+// `label` distinguishes the two; each route renders its own left sub-nav.
 // ---------------------------------------------------------------------------
 
-function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
+function FocusedShell({ onSearchClick, label }: { onSearchClick: () => void; label: string }) {
   return (
     <div className="min-h-screen">
       <DemoModeBanner />
@@ -152,7 +156,7 @@ function AdminShell({ onSearchClick }: { onSearchClick: () => void }) {
           <span className="display-title font-bold text-foreground text-base lg:text-lg tracking-tight">
             Flint
           </span>
-          <span className="text-xs font-medium text-muted-foreground opacity-60 ml-1">Admin</span>
+          <span className="text-xs font-medium text-muted-foreground opacity-60 ml-1">{label}</span>
         </div>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <SearchTrigger onClick={onSearchClick} />

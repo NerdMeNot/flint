@@ -12,8 +12,6 @@ import {
   GitFork,
   ScrollText,
   Globe,
-  Shield,
-  Monitor,
   Tag,
 } from 'lucide-react'
 
@@ -21,7 +19,7 @@ import {
 // letting the groups share one item shape (mirrors Sidebar's NavItem pattern).
 type AdminTo =
   | '/settings/users' | '/settings/teams' | '/settings/roles'
-  | '/settings/sso' | '/settings/security' | '/settings/sessions' | '/settings/api-keys'
+  | '/settings/sso' | '/settings/api-keys'
   | '/settings/workspaces' | '/settings/tags' | '/settings/environments' | '/settings/variables'
   | '/settings/runners' | '/settings/connections' | '/settings/audit-log'
 
@@ -43,8 +41,6 @@ const adminNav: AdminGroup[] = [
     section: 'Authentication',
     items: [
       { to: '/settings/sso', icon: Globe, label: 'SSO' },
-      { to: '/settings/security', icon: Shield, label: 'Security' },
-      { to: '/settings/sessions', icon: Monitor, label: 'Sessions' },
       { to: '/settings/api-keys', icon: Key, label: 'API Keys' },
     ],
   },
