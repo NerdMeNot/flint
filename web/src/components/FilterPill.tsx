@@ -1,23 +1,23 @@
 import { ChevronDown, X } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
-export interface FilterPillItem {
-  key: string
+export interface FilterPillItem<K extends string = string> {
+  key: K
   label: string
   detail?: string
   active: boolean
 }
 
-interface FilterPillProps {
+interface FilterPillProps<K extends string> {
   icon: React.ReactNode
   label: string
   active: boolean
   onClear: () => void
-  items: FilterPillItem[]
-  onSelect: (key: string) => void
+  items: FilterPillItem<K>[]
+  onSelect: (key: K) => void
 }
 
-export function FilterPill({ icon, label, active, onClear, items, onSelect }: FilterPillProps) {
+export function FilterPill<K extends string = string>({ icon, label, active, onClear, items, onSelect }: FilterPillProps<K>) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 

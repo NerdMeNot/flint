@@ -17,7 +17,7 @@ export const Route = createFileRoute('/ci/')({
 })
 
 function DashboardPage() {
-  const { workspaceMatches, environmentMatches } = useScope()
+  const { workspaceMatches } = useScope()
   const { data: stats } = useSuspenseQuery(orpc.stats.get.queryOptions())
   const { data: runsData } = useSuspenseQuery(
     orpc.runs.list.queryOptions({ input: { limit: 20 } }),
@@ -27,14 +27,12 @@ function DashboardPage() {
   )
 
   // Resolve each run's workspace from its project (runs carry no workspace of
-  // their own), then apply the active workspace/environment scope. Server-side
-  // filtering would make this unnecessary, but the join is real data, not a map.
+  // their own), then apply the active workspace scope. Environment is a local
+  // run-level filter (see the Runs page), not a global dashboard scope.
   const projectWorkspace = new Map(projectsData.items.map((p) => [p.id, p.workspace]))
-  const runs = runsData.items.filter((r) => {
-    if (!workspaceMatches(projectWorkspace.get(r.projectId))) return false
-    if (!environmentMatches(r.environment)) return false
-    return true
-  }).slice(0, 10)
+  const runs = runsData.items
+    .filter((r) => workspaceMatches(projectWorkspace.get(r.projectId)))
+    .slice(0, 10)
 
   return (
     <div className="space-y-8 rise-in">
