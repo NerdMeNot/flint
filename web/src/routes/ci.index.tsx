@@ -15,6 +15,7 @@ import { RunRow } from '#/components/RunRow'
 import { ProjectHealthBar, RunSparkline } from '#/components/ProjectHealth'
 import { useScope } from '#/lib/scope-context'
 import { bucketOf } from '#/lib/run-feed'
+import { needsAttention } from '#/lib/project-health'
 import type { Project, RunStatusValue } from '#/lib/api/types'
 
 export const Route = createFileRoute('/ci/')({
@@ -41,11 +42,11 @@ function DashboardPage() {
   // recency-bound) and project health; counts deep-link into the filtered feeds.
   const running = runs.filter((r) => r.status === 'running').length
   const failedToday = runs.filter((r) => r.status === 'failed' && bucketOf(r.startedAt) === 'Today').length
-  const failingProjects = projects.filter((p) => p.health?.failingNow).length
+  const attentionProjects = projects.filter((p) => needsAttention(p.health)).length
 
-  // Projects worth watching: failing now or below a healthy pass rate.
+  // Projects worth watching: those needing attention, worst first.
   const watch = projects
-    .filter((p) => p.health && (p.health.failingNow || p.health.passRate < 90))
+    .filter((p) => needsAttention(p.health))
     .sort((a, b) =>
       Number(b.health!.failingNow) - Number(a.health!.failingNow) ||
       a.health!.passRate - b.health!.passRate)
@@ -69,8 +70,8 @@ function DashboardPage() {
           icon={<XCircle size={16} />} label="Failed today" count={failedToday} />
         <AttentionTile to="/ci/gates" tone="warning"
           icon={<Shield size={16} />} label="Pending gates" count={stats.pendingGates} />
-        <AttentionTile to="/ci/projects" search={{ sort: 'failing' }} tone="danger"
-          icon={<AlertTriangle size={16} />} label="Failing projects" count={failingProjects} />
+        <AttentionTile to="/ci/projects" search={{ attention: true }} tone="danger"
+          icon={<AlertTriangle size={16} />} label="Needs attention" count={attentionProjects} />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -155,7 +156,7 @@ function ProjectsToWatch({ projects }: { projects: Project[] }) {
     <div className="island-shell !p-0 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
         <span className="text-xs font-semibold text-foreground">Projects to watch</span>
-        <Link to="/ci/projects" search={{ sort: 'failing' } as never} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors">
+        <Link to="/ci/projects" search={{ attention: true } as never} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors">
           All projects <ArrowRight size={11} />
         </Link>
       </div>

@@ -13,7 +13,7 @@ export interface ViewDef {
 export const SMART_VIEWS: ViewDef[] = [
   { id: 'failing-runs', name: 'Failing runs', route: '/ci/runs', search: { status: 'failed' }, icon: XCircle },
   { id: 'running-now', name: 'Running now', route: '/ci/runs', search: { status: 'running' }, icon: Loader2 },
-  { id: 'failing-projects', name: 'Failing projects', route: '/ci/projects', search: { sort: 'failing' }, icon: AlertTriangle },
+  { id: 'needs-attention', name: 'Needs attention', route: '/ci/projects', search: { attention: true }, icon: AlertTriangle },
 ]
 
 export function smartViewById(id: string): ViewDef | undefined {
