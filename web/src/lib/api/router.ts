@@ -234,6 +234,8 @@ const runs = {
         projectId: z.optional(z.string()),
         status: z.optional(RunStatus),
         branch: z.optional(z.string()),
+        from: z.optional(z.number()),
+        to: z.optional(z.number()),
         limit: z.optional(z.number()),
         cursor: z.optional(z.string()),
       }),
@@ -242,12 +244,16 @@ const runs = {
       return withFallback(
         () => backendGet<Paginated<PipelineRun>>('/runs', {
           projectId: input.projectId, status: input.status, branch: input.branch,
+          from: input.from, to: input.to,
           limit: input.limit, cursor: input.cursor,
         }),
         () => {
           let items = mocks.getRuns()
           if (input.projectId) items = items.filter((r) => r.projectId === input.projectId)
           if (input.status) items = items.filter((r) => r.status === input.status)
+          // Time-range filter on the run's start time (epoch ms).
+          if (input.from != null) items = items.filter((r) => (r.startedAtTs ?? 0) >= input.from!)
+          if (input.to != null) items = items.filter((r) => (r.startedAtTs ?? Infinity) <= input.to!)
           return paginateMock(items, input)
         },
       )
