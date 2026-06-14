@@ -394,7 +394,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
             {/* Scope */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-foreground">Scope</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setScope('global')}
