@@ -35,9 +35,13 @@ export function StepSpine({ steps, selectedStep, onStepClick, now }: StepSpinePr
       const startMs = Date.parse(s.startedAt!)
       const schedMs = s.scheduledAt ? Date.parse(s.scheduledAt) : startMs
       const endMs = s.finishedAt ? Date.parse(s.finishedAt) : now
-      return { name: s.name, span: Math.max(0, endMs - schedMs) }
+      return { name: s.name, span: Math.max(0, endMs - schedMs), gate: s.execType === 'gate' }
     })
-  const maxSpan = Math.max(1, ...timed.map((t) => t.span))
+  // Scale bars to the slowest *executing* step — a human-approval gate is a
+  // wait, not slow work, and would otherwise dwarf every real step. Gates clamp
+  // to a full bar instead.
+  const execSpans = timed.filter((t) => !t.gate).map((t) => t.span)
+  const maxSpan = Math.max(1, ...(execSpans.length ? execSpans : timed.map((t) => t.span)))
   const spanOf = (name: string) => timed.find((t) => t.name === name)?.span ?? 0
 
   // Group consecutive steps by wave so parallel groups read as one block.
@@ -161,7 +165,7 @@ function SpineRow({
         </span>
         <span className="hidden sm:block w-16 lg:w-20 h-1.5 rounded-full bg-muted/50 overflow-hidden">
           {started && (
-            <span className="flex h-full rounded-full" style={{ width: `${Math.max(fillPct, 3)}%` }}>
+            <span className="flex h-full rounded-full" style={{ width: `${Math.min(Math.max(fillPct, 3), 100)}%` }}>
               {queuePct > 1 && (
                 <span
                   className="h-full shrink-0"

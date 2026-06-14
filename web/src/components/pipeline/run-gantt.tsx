@@ -288,8 +288,8 @@ export function PanelHeader({
   return (
     <div className="flex items-center justify-between gap-3 px-4 lg:px-5 py-3 border-b border-border min-h-[48px]">
       <div className="flex items-center gap-2 min-w-0">
-        {icon}
-        <span className="text-sm lg:text-base font-semibold text-foreground">{title}</span>
+        <span className="shrink-0">{icon}</span>
+        <span className="shrink-0 whitespace-nowrap text-sm lg:text-base font-semibold text-foreground">{title}</span>
         {subtitle && <span className="text-xs text-muted-foreground truncate">{subtitle}</span>}
       </div>
       {toolbar && <div className="shrink-0">{toolbar}</div>}

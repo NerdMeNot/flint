@@ -214,6 +214,10 @@ function RunDetailPage() {
         <RunProgress steps={steps} isLive={isLive} elapsedSecs={elapsedSecs} medianSecs={medianSecs} />
       </div>
 
+      {/* Body-level view switcher — controls the whole workspace, so it lives
+          above it (full width) rather than crammed into a panel header. */}
+      <div className="flex items-center justify-end mb-3">{tabs}</div>
+
       {/* Master/detail workspace. The Steps spine is the canonical navigator +
           duration chart; the detail pane shows the selected step's logs (or the
           run summary). Waterfall / DAG / Output are full-width opt-in views. */}
@@ -224,7 +228,6 @@ function RunDetailPage() {
               icon={<ListTree size={14} className="text-primary" />}
               title="Steps"
               subtitle={`${steps.filter((s) => s.startedAt).length}/${steps.length}`}
-              toolbar={tabs}
             />
             <StepSpine steps={steps} selectedStep={selectedStep} onStepClick={handleStepClick} now={now} />
           </div>
@@ -256,16 +259,15 @@ function RunDetailPage() {
           </div>
         </div>
       ) : view === 'waterfall' ? (
-        <RunGantt steps={steps} selectedStep={selectedStep} onStepClick={drillToStep} toolbar={tabs} />
+        <RunGantt steps={steps} selectedStep={selectedStep} onStepClick={drillToStep} />
       ) : view === 'output' ? (
-        <AllLogsPanel runId={id} steps={steps} toolbar={tabs} />
+        <AllLogsPanel runId={id} steps={steps} />
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
           <PanelHeader
             icon={<Network size={14} className="text-primary" />}
             title="DAG"
             subtitle={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
-            toolbar={tabs}
           />
           <div className="min-h-[420px] sm:min-h-[520px] lg:min-h-[600px] h-[calc(100vh-360px)] max-h-[1100px]">
             <Suspense fallback={
@@ -447,7 +449,8 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
   const passed = steps.filter((s) => s.status === 'succeeded').length
   const total = steps.length
 
-  // Per-step run/queue time, slowest first — the "where did the time go" list.
+  // Per-step run/queue time. Gates are human waits, not slow work, so they're
+  // excluded from the "slowest steps" ranking and its scale.
   const timed = started
     .map((s) => {
       const startMs = Date.parse(s.startedAt)
@@ -455,8 +458,10 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
       const endMs = s.finishedAt ? Date.parse(s.finishedAt) : now
       return { step: s, runMs: Math.max(0, endMs - startMs), waitMs: Math.max(0, startMs - schedMs) }
     })
+  const slowest = timed
+    .filter((t) => t.step.execType !== 'gate')
     .sort((a, b) => b.runMs - a.runMs)
-  const maxRun = Math.max(1, ...timed.map((t) => t.runMs))
+  const maxRun = Math.max(1, ...slowest.map((t) => t.runMs))
   const totalQueue = timed.reduce((sum, t) => sum + t.waitMs, 0)
 
   const wallMs = run.startedAtTs && run.finishedAtTs ? run.finishedAtTs - run.startedAtTs : 0
@@ -486,13 +491,13 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
         </div>
 
         {/* Where the time went */}
-        {timed.length > 0 && (
+        {slowest.length > 0 && (
           <div className="space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
               Slowest steps
             </p>
             <div className="space-y-1.5">
-              {timed.slice(0, 5).map(({ step, runMs }) => (
+              {slowest.slice(0, 5).map(({ step, runMs }) => (
                 <button
                   key={step.name}
                   type="button"
@@ -579,7 +584,7 @@ function highlight(line: string, q: string): React.ReactNode {
   return out
 }
 
-function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; toolbar: React.ReactNode }) {
+function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; toolbar?: React.ReactNode }) {
   const { data } = useQuery(orpc.runs.logs.queryOptions({ input: { runId } }))
   const logsMap = data?.logs ?? {}
   const { copied, copy } = useCopyToClipboard()
