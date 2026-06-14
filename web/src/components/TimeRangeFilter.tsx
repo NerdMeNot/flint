@@ -87,7 +87,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
       <button type="button" onClick={() => shift(1)} disabled={!canShift || atNow} title="Shift forward" className={navBtn}><ChevronRight size={14} /></button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] rounded-lg border border-border shadow-xl" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-xl" style={{ background: 'var(--surface-strong)' }}>
           <div className="flex items-center gap-1 p-1.5 border-b border-border">
             {(['quick', 'relative', 'absolute'] as Tab[]).map((t) => (
               <button

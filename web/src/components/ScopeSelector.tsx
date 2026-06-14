@@ -77,7 +77,7 @@ function ScopeSegment({ icon, label, items, selected, onToggle }: ScopeSegmentPr
 
       {open && (
         <div
-          className="absolute top-full left-0 mt-1.5 min-w-[220px] w-max rounded-lg border border-border shadow-xl overflow-hidden z-50"
+          className="absolute top-full left-0 mt-1.5 min-w-[220px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-xl overflow-hidden z-50"
           style={{ background: 'var(--surface-strong)' }}
         >
           {items.length === 0 && (

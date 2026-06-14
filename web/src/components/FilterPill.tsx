@@ -61,7 +61,7 @@ export function FilterPill<K extends string = string>({ icon, label, active, onC
 
       {open && (
         <div
-          className="absolute top-full left-0 mt-1 min-w-[160px] w-max rounded-lg border border-border shadow-lg overflow-hidden z-50"
+          className="absolute top-full left-0 mt-1 min-w-[160px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-lg overflow-hidden z-50"
           style={{ background: 'var(--surface-strong)' }}
         >
           {items.map((item) => (

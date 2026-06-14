@@ -65,7 +65,7 @@ export function SaveViewButton({ route, search }: { route: string; search: Recor
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border p-3 shadow-xl"
+          className="absolute right-0 top-full mt-1 z-50 w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-border p-3 shadow-xl"
           style={{ background: 'var(--surface-strong)' }}
         >
           <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5">

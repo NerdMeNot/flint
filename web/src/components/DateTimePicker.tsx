@@ -55,7 +55,7 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[256px] rounded-lg border border-border p-2.5 shadow-xl" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute left-0 top-full mt-1 z-50 w-[256px] max-w-[calc(100vw-1rem)] rounded-lg border border-border p-2.5 shadow-xl" style={{ background: 'var(--surface-strong)' }}>
           <Calendar view={view} onView={setView} dayClassName={dayClassName} onPickDay={pickDay} />
           <div className="mt-2.5 pt-2.5 border-t border-border">
             <TimeField hour={sel ? sel.getHours() : 0} minute={sel ? sel.getMinutes() : 0} onChange={setTime} />
