@@ -1,12 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Ban, FolderGit2, RotateCcw, CheckCircle, Server } from 'lucide-react'
-import { orpc, client } from '#/lib/orpc'
+import { FolderGit2, CheckCircle, Server } from 'lucide-react'
+import { orpc } from '#/lib/orpc'
 import type { RunStatusValue } from '#/lib/api/types'
 import { RunRow } from '#/components/RunRow'
 import { useScope } from '#/lib/scope-context'
-import { useAction } from '#/hooks/use-action'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
@@ -184,7 +183,6 @@ function RunsListPage() {
                     key={run.id}
                     run={run}
                     baselineSecs={baselineByProject.get(run.projectId)}
-                    action={<RunAction status={run.status} runId={run.id} />}
                   />
                 ))}
               </div>
@@ -204,42 +202,5 @@ function RunsListPage() {
       />
     </div>
   )
-}
-
-function RunAction({ status, runId }: { status: string; runId: string }) {
-  const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), {
-    invalidate: [orpc.runs.list.key()],
-  })
-  const retry = useAction((id: string) => client.runs.retry({ runId: id }), {
-    invalidate: [orpc.runs.list.key()],
-  })
-
-  if (status === 'running' || status === 'pending') {
-    return (
-      <button
-        type="button"
-        disabled={cancel.isPending}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancel.mutate(runId) }}
-        title="Cancel run"
-        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors disabled:opacity-50"
-      >
-        <Ban size={13} />
-      </button>
-    )
-  }
-  if (status === 'failed' || status === 'cancelled') {
-    return (
-      <button
-        type="button"
-        disabled={retry.isPending}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); retry.mutate(runId) }}
-        title="Retry run"
-        className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
-      >
-        <RotateCcw size={13} />
-      </button>
-    )
-  }
-  return null
 }
 
