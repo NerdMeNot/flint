@@ -40,7 +40,6 @@ import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
-import { StepRail } from '#/components/pipeline/step-rail'
 import { GatePanel } from '#/components/pipeline/gate-panel'
 import { BackLink } from '#/components/BackLink'
 
@@ -190,51 +189,39 @@ function RunDetailPage() {
         <RunProgress steps={steps} isLive={isLive} elapsedSecs={elapsedSecs} medianSecs={medianSecs} />
       </div>
 
-      {/* Two-column workspace: rail + content. Below lg the rail
-          collapses into a horizontal pill strip stacked above the
-          content. */}
-      <div className="flex flex-col gap-4 lg:gap-5 lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-[88px] lg:self-start">
-          <StepRail
+      {/* Full-width workspace. The Timeline (Gantt) is the step list + navigator
+          — clicking a step opens its logs; the DAG shows structure. */}
+      <div className="min-w-0">
+        {selectedStep && step ? (
+          isGateStep ? (
+            <GatePanel
+              step={step}
+              steps={steps}
+              run={run}
+              onSelectStep={setSelectedStep}
+              onBackToOverview={() => setSelectedStep(null)}
+            />
+          ) : (
+            <LogPanel
+              step={step}
+              steps={steps}
+              logs={logsData?.lines ?? null}
+              maximized={logsMaximized}
+              onToggleMaximize={() => setLogsMaximized((v) => !v)}
+              onSelectStep={setSelectedStep}
+              onBackToOverview={() => setSelectedStep(null)}
+            />
+          )
+        ) : (
+          <OverviewPanel
+            runId={id}
             steps={steps}
+            view={overview}
+            onViewChange={setOverview}
             selectedStep={selectedStep}
             onStepClick={handleStepClick}
-            now={isLive ? now : undefined}
           />
-        </aside>
-
-        <section className="min-w-0">
-          {selectedStep && step ? (
-            isGateStep ? (
-              <GatePanel
-                step={step}
-                steps={steps}
-                run={run}
-                onSelectStep={setSelectedStep}
-                onBackToOverview={() => setSelectedStep(null)}
-              />
-            ) : (
-              <LogPanel
-                step={step}
-                steps={steps}
-                logs={logsData?.lines ?? null}
-                maximized={logsMaximized}
-                onToggleMaximize={() => setLogsMaximized((v) => !v)}
-                onSelectStep={setSelectedStep}
-                onBackToOverview={() => setSelectedStep(null)}
-              />
-            )
-          ) : (
-            <OverviewPanel
-              runId={id}
-              steps={steps}
-              view={overview}
-              onViewChange={setOverview}
-              selectedStep={selectedStep}
-              onStepClick={handleStepClick}
-            />
-          )}
-        </section>
+        )}
       </div>
     </div>
   )
