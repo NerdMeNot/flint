@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { Clock, X } from 'lucide-react'
+import { useClickOutside } from '#/hooks/use-click-outside'
+import { FormSelect } from '#/components/FormSelect'
+import { DateTimePicker } from '#/components/DateTimePicker'
 import {
   QUICK_RANGES,
   UNIT_LABELS,
@@ -14,17 +17,7 @@ import {
 
 type Tab = 'quick' | 'relative' | 'absolute'
 
-function toLocalInput(ms?: number): string {
-  if (!ms) return ''
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
-}
-function fromLocalInput(s: string): number | undefined {
-  if (!s) return undefined
-  const ms = Date.parse(s)
-  return Number.isNaN(ms) ? undefined : ms
-}
+const UNIT_OPTIONS = (Object.keys(UNIT_LABELS) as RelUnit[]).map((u) => ({ key: u, label: UNIT_LABELS[u] }))
 
 // Kibana-style time picker: quick ranges, a relative builder, and an absolute
 // from/to range. Emits TimeRange tokens (relative stay live; absolute = epoch).
@@ -32,15 +25,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('quick')
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   const active = isActiveRange(value)
   const label = formatRange(value)
@@ -50,10 +35,10 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
   const [relN, setRelN] = useState(String(initRel?.n ?? 24))
   const [relU, setRelU] = useState<RelUnit>(initRel?.unit ?? 'h')
 
-  // Absolute tab state, seeded from the resolved current range.
+  // Absolute tab state (epoch ms), seeded from the resolved current range.
   const now = Date.now()
-  const [absFrom, setAbsFrom] = useState(toLocalInput(resolveTime(value.from, now) ?? now - 3_600_000))
-  const [absTo, setAbsTo] = useState(toLocalInput(value.to && value.to !== 'now' ? resolveTime(value.to, now) : now))
+  const [absFrom, setAbsFrom] = useState<number | undefined>(resolveTime(value.from, now) ?? now - 3_600_000)
+  const [absTo, setAbsTo] = useState<number | undefined>(value.to && value.to !== 'now' ? resolveTime(value.to, now) : now)
 
   const apply = (r: TimeRange) => { onChange(r); setOpen(false) }
   const applyRelative = () => {
@@ -61,9 +46,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
     apply({ from: relExpr(n, relU), to: 'now' })
   }
   const applyAbsolute = () => {
-    const f = fromLocalInput(absFrom)
-    const t = fromLocalInput(absTo)
-    apply({ from: f ? String(f) : undefined, to: t ? String(t) : undefined })
+    apply({ from: absFrom ? String(absFrom) : undefined, to: absTo ? String(absTo) : undefined })
   }
 
   return (
@@ -88,7 +71,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
       </div>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] rounded-lg border border-border shadow-xl overflow-hidden" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] rounded-lg border border-border shadow-xl" style={{ background: 'var(--surface-strong)' }}>
           {/* Tabs */}
           <div className="flex items-center gap-1 p-1.5 border-b border-border">
             {(['quick', 'relative', 'absolute'] as Tab[]).map((t) => (
@@ -130,22 +113,15 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Last…</p>
               <div className="flex items-center gap-2">
                 <input
-                  type="number"
-                  min={1}
+                  type="text" inputMode="numeric"
                   value={relN}
-                  onChange={(e) => setRelN(e.target.value)}
+                  onChange={(e) => setRelN(e.target.value.replace(/\D/g, ''))}
                   onKeyDown={(e) => { if (e.key === 'Enter') applyRelative() }}
-                  className="w-20 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
+                  className="w-16 rounded-lg border border-border bg-transparent px-2.5 py-2 text-sm text-center text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
                 />
-                <select
-                  value={relU}
-                  onChange={(e) => setRelU(e.target.value as RelUnit)}
-                  className="flex-1 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
-                >
-                  {(Object.keys(UNIT_LABELS) as RelUnit[]).map((u) => (
-                    <option key={u} value={u}>{UNIT_LABELS[u]}</option>
-                  ))}
-                </select>
+                <div className="flex-1">
+                  <FormSelect value={relU} onChange={(v) => setRelU(v as RelUnit)} options={UNIT_OPTIONS} />
+                </div>
               </div>
               <button type="button" onClick={applyRelative} className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
                 Apply
@@ -155,15 +131,15 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
 
           {tab === 'absolute' && (
             <div className="p-3 space-y-3">
-              <label className="block space-y-1">
+              <div className="space-y-1">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">From</span>
-                <input type="datetime-local" value={absFrom} onChange={(e) => setAbsFrom(e.target.value)} className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40" />
-              </label>
-              <label className="block space-y-1">
+                <DateTimePicker value={absFrom} onChange={setAbsFrom} />
+              </div>
+              <div className="space-y-1">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">To</span>
-                <input type="datetime-local" value={absTo} onChange={(e) => setAbsTo(e.target.value)} className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40" />
-              </label>
-              <button type="button" onClick={applyAbsolute} className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
+                <DateTimePicker value={absTo} onChange={setAbsTo} />
+              </div>
+              <button type="button" onClick={applyAbsolute} className="w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
                 Apply
               </button>
             </div>
