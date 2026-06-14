@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { runStatusVisualFor } from '#/lib/status'
 import { parseDurationToSeconds } from '#/lib/run-feed'
+import { formatClock, formatDateTime } from '#/lib/format-time'
 import type { RunStepSummary, StepStatusValue } from '#/lib/api/types'
 
 interface Run {
@@ -26,6 +27,8 @@ interface Run {
   triggerType: string
   duration: string
   startedAt: string
+  startedAtTs?: number
+  finishedAtTs?: number
   workflowFile: string
   steps?: RunStepSummary[]
 }
@@ -137,7 +140,14 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
             {!isRunning && <DurationDelta durationSecs={durationSecs} baselineSecs={baselineSecs} />}
           </span>
           <span className="opacity-25">·</span>
-          <span className="opacity-50 shrink-0">{run.startedAt}</span>
+          <span
+            className="opacity-50 shrink-0"
+            title={run.startedAtTs
+              ? `Started ${formatDateTime(run.startedAtTs)}${run.finishedAtTs ? `\nEnded ${formatDateTime(run.finishedAtTs)}` : ''}`
+              : undefined}
+          >
+            {run.startedAtTs ? formatClock(run.startedAtTs) : run.startedAt}
+          </span>
           <span className="hidden md:inline opacity-25">·</span>
           <span className="hidden md:inline opacity-50 shrink-0">{run.triggeredBy}</span>
         </div>

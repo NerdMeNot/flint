@@ -31,3 +31,17 @@ export function formatTime(iso: string): string {
 
   return dtf.format(date)
 }
+
+const clockFmt = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' })
+
+/** Absolute wall-clock time of day, e.g. "2:34 PM". */
+export function formatClock(ms?: number): string {
+  if (!ms) return ''
+  return clockFmt.format(new Date(ms))
+}
+
+/** Absolute date + time, e.g. "Jun 14, 2:34 PM". */
+export function formatDateTime(ms?: number): string {
+  if (!ms) return '—'
+  return dtf.format(new Date(ms))
+}

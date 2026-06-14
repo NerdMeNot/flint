@@ -33,6 +33,7 @@ import type {
   RunStatusValue,
   SavedView,
 } from './types'
+import { relativeToMinutes, parseDurationToSeconds } from '#/lib/run-feed'
 
 // ---------------------------------------------------------------------------
 // Users (shared across teams, audit log, etc.)
@@ -616,7 +617,19 @@ function deriveSteps(run: PipelineRun): RunStepSummary[] {
 
 let _runs: PipelineRun[] | undefined
 export function getRuns(): PipelineRun[] {
-  return (_runs ??= seedRuns().map((r) => ({ ...r, steps: deriveSteps(r) })))
+  if (!_runs) {
+    // Anchor real timestamps to a single "now" (computed once) so the relative
+    // seed strings map to stable wall-clock start/end times. A real backend
+    // supplies these directly.
+    const anchor = Date.now()
+    _runs = seedRuns().map((r) => {
+      const startedAtTs = anchor - Math.round(relativeToMinutes(r.startedAt) * 60_000)
+      const terminal = r.status === 'succeeded' || r.status === 'failed' || r.status === 'cancelled'
+      const finishedAtTs = terminal ? startedAtTs + parseDurationToSeconds(r.duration) * 1000 : undefined
+      return { ...r, startedAtTs, finishedAtTs, steps: deriveSteps(r) }
+    })
+  }
+  return _runs
 }
 
 let _mockRunSeq = 0
