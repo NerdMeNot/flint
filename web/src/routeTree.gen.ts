@@ -47,6 +47,7 @@ import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id
 import { Route as SettingsRolesNewRouteImport } from './routes/settings.roles.new'
 import { Route as SettingsRolesIdRouteImport } from './routes/settings.roles.$id'
 import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
+import { Route as CiViewsIdRouteImport } from './routes/ci.views.$id'
 import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
 import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
@@ -242,6 +243,11 @@ const SettingsEnvironmentsIdRoute = SettingsEnvironmentsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => SettingsEnvironmentsRoute,
 } as any)
+const CiViewsIdRoute = CiViewsIdRouteImport.update({
+  id: '/ci/views/$id',
+  path: '/ci/views/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CiRunsIdRoute = CiRunsIdRouteImport.update({
   id: '/ci/runs/$id',
   path: '/ci/runs/$id',
@@ -289,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
+  '/ci/views/$id': typeof CiViewsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/roles/$id': typeof SettingsRolesIdRoute
   '/settings/roles/new': typeof SettingsRolesNewRoute
@@ -326,6 +333,7 @@ export interface FileRoutesByTo {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
+  '/ci/views/$id': typeof CiViewsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/roles/$id': typeof SettingsRolesIdRoute
   '/settings/roles/new': typeof SettingsRolesNewRoute
@@ -370,6 +378,7 @@ export interface FileRoutesById {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
+  '/ci/views/$id': typeof CiViewsIdRoute
   '/settings/environments/$id': typeof SettingsEnvironmentsIdRoute
   '/settings/roles/$id': typeof SettingsRolesIdRoute
   '/settings/roles/new': typeof SettingsRolesNewRoute
@@ -415,6 +424,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
+    | '/ci/views/$id'
     | '/settings/environments/$id'
     | '/settings/roles/$id'
     | '/settings/roles/new'
@@ -452,6 +462,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
+    | '/ci/views/$id'
     | '/settings/environments/$id'
     | '/settings/roles/$id'
     | '/settings/roles/new'
@@ -495,6 +506,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
+    | '/ci/views/$id'
     | '/settings/environments/$id'
     | '/settings/roles/$id'
     | '/settings/roles/new'
@@ -522,6 +534,7 @@ export interface RootRouteChildren {
   WorkflowsIndexRoute: typeof WorkflowsIndexRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
   CiRunsIdRoute: typeof CiRunsIdRoute
+  CiViewsIdRoute: typeof CiViewsIdRoute
   CiRunsIndexRoute: typeof CiRunsIndexRoute
 }
 
@@ -793,6 +806,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsEnvironmentsIdRouteImport
       parentRoute: typeof SettingsEnvironmentsRoute
     }
+    '/ci/views/$id': {
+      id: '/ci/views/$id'
+      path: '/ci/views/$id'
+      fullPath: '/ci/views/$id'
+      preLoaderRoute: typeof CiViewsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ci/runs/$id': {
       id: '/ci/runs/$id'
       path: '/ci/runs/$id'
@@ -943,6 +963,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowsIndexRoute: WorkflowsIndexRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
   CiRunsIdRoute: CiRunsIdRoute,
+  CiViewsIdRoute: CiViewsIdRoute,
   CiRunsIndexRoute: CiRunsIndexRoute,
 }
 export const routeTree = rootRouteImport

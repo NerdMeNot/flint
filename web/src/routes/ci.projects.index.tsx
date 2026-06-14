@@ -9,12 +9,13 @@ import { FilterPill } from '#/components/FilterPill'
 import { TagChip } from '#/components/TagChip'
 import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import { ProjectHealthBar } from '#/components/ProjectHealth'
+import { SaveViewButton } from '#/components/SaveViewButton'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { relativeToMinutes } from '#/lib/run-feed'
 
 type ProjectView = 'grid' | 'list'
-type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
+export type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
 
 const SORTS: { key: ProjectSort; label: string }[] = [
   { key: 'recent', label: 'Recent activity' },
@@ -54,7 +55,7 @@ function flakiness(runs: { recentRuns: string[] } | undefined): number {
   return t
 }
 
-function sortProjects(items: Project[], sort: ProjectSort): Project[] {
+export function sortProjects(items: Project[], sort: ProjectSort): Project[] {
   const copy = [...items]
   switch (sort) {
     case 'name':
@@ -208,6 +209,7 @@ function ProjectsPage() {
             items={SORTS.map((o) => ({ key: o.key, label: o.label, active: o.key === sort }))}
             onSelect={(key) => setSort(key as ProjectSort)}
           />
+          <SaveViewButton route="/ci/projects" search={sp} />
           <div className="inline-flex items-center rounded-lg border border-border p-0.5">
             {([['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']] as const).map(([v, Icon, label]) => (
               <button
@@ -346,7 +348,7 @@ function TagSummary({ tags, registry, max }: { tags: string[]; registry: Map<str
   )
 }
 
-function ProjectCard({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
+export function ProjectCard({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
   return (
     <div className="feature-card rise-in overflow-hidden flex flex-col" style={{ animationDelay: `${index * 50 + 30}ms` }}>
       <Link

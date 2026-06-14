@@ -8,6 +8,7 @@ import { RunRow } from '#/components/RunRow'
 import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
+import { SaveViewButton } from '#/components/SaveViewButton'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { groupByBucket, parseDurationToSeconds, median } from '#/lib/run-feed'
 
@@ -161,7 +162,10 @@ function RunsListPage() {
             onSelect={(key) => setEnvAndReset(key === envFilter ? undefined : key)}
           />
         )}
-        <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} runs</span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{filteredItems.length} runs</span>
+          <SaveViewButton route="/ci/runs" search={sp} />
+        </div>
       </div>
 
       {/* Runs feed — grouped by time bucket */}

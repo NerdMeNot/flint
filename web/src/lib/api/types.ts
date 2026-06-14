@@ -405,6 +405,16 @@ export const SearchResultSchema = z.object({
 })
 export type SearchResult = z.infer<typeof SearchResultSchema>
 
+// A saved view is a named navigation target — a route plus its URL filters
+// (selector). Smart views are built-in client-side versions of the same.
+export const SavedViewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  route: z.string(),
+  search: z.record(z.string(), z.unknown()),
+})
+export type SavedView = z.infer<typeof SavedViewSchema>
+
 // ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------
