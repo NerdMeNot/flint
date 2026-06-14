@@ -32,10 +32,10 @@ const nodeTypes = { step: StepNode }
 // ---------------------------------------------------------------------------
 
 const NODE_WIDTH = 300
-const NODE_HEIGHT = 88
-const GAP_X = 130 // gap between waves (along the flow axis)
-const GAP_Y = 64 // gap between siblings inside a wave
-const PAD = 70
+const NODE_HEIGHT = 72
+const GAP_X = 48 // gap between waves (along the flow axis) — short edges, more in view
+const GAP_Y = 36 // gap between siblings inside a wave
+const PAD = 36
 
 // ---------------------------------------------------------------------------
 // Simple layered layout using wave numbers (no ELK needed)
@@ -105,7 +105,7 @@ function layoutGraph(
         // proper flowchart: lines run cleanly along the axis and turn at
         // 90° with a gentle radius, no dramatic bezier swoops.
         type: 'smoothstep',
-        pathOptions: { borderRadius: 20, offset: 24 },
+        pathOptions: { borderRadius: 12, offset: 12 },
         animated: step.status === 'running',
         style: { stroke: color, strokeWidth: 2, strokeOpacity: faded ? 0.4 : 0.9 },
         markerEnd: {
@@ -180,10 +180,10 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.18, maxZoom: 1.1 }}
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.35 }}
         proOptions={{ hideAttribution: true }}
         minZoom={0.4}
-        maxZoom={1.6}
+        maxZoom={1.8}
         nodesDraggable={false}
         nodesConnectable={false}
         nodesFocusable={clickable}

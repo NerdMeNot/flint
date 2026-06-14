@@ -66,8 +66,8 @@ export function StepNode({ data, sourcePosition, targetPosition }: NodeProps) {
 
         {/* Text */}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold truncate text-foreground leading-tight">{step.name}</p>
-          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{sublabel}</p>
+          <p className="text-[15px] font-semibold truncate text-foreground leading-tight">{step.name}</p>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">{sublabel}</p>
         </div>
       </div>
 
