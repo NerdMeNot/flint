@@ -33,7 +33,6 @@ interface Run {
 interface RunRowProps {
   run: Run
   showProject?: boolean
-  action?: React.ReactNode
   /** Project's median run duration (seconds) for the slower/faster indicator. */
   baselineSecs?: number
 }
@@ -81,7 +80,7 @@ function DurationDelta({ durationSecs, baselineSecs }: { durationSecs: number; b
   return null
 }
 
-export function RunRow({ run, showProject = true, action, baselineSecs }: RunRowProps) {
+export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
   const status = runStatusVisualFor(run.status)
   const accent = status.accent
   const isRunning = run.status === 'running'
@@ -100,7 +99,7 @@ export function RunRow({ run, showProject = true, action, baselineSecs }: RunRow
       <div className={`w-[3px] shrink-0 ${accent} ${isRunning ? 'running-accent' : ''}`} />
 
       <div className="flex-1 px-4 lg:px-5 py-2.5 min-w-0 space-y-1">
-        {/* Row 1: status · project · commit message · stage pips · action */}
+        {/* Row 1: status · project · commit message · stage pips */}
         <div className="flex items-center gap-2.5">
           <span className={`shrink-0 ${status.text}`}>
             <status.Icon size={14} className={status.spin ? 'animate-spin' : undefined} />
@@ -118,12 +117,6 @@ export function RunRow({ run, showProject = true, action, baselineSecs }: RunRow
           <p className="flex-1 text-sm text-foreground/75 truncate min-w-0">{run.commitMessage}</p>
 
           {steps.length > 0 && <StagePips steps={steps} />}
-
-          {action && (
-            <div className="shrink-0" onClick={(e) => e.preventDefault()}>
-              {action}
-            </div>
-          )}
         </div>
 
         {/* Row 2: trigger · branch · sha · duration(±) · time · actor */}
