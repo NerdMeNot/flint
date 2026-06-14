@@ -9,16 +9,22 @@ import { useScope } from '#/lib/scope-context'
 import { Pagination } from '#/components/Pagination'
 import { FilterPill } from '#/components/FilterPill'
 import { SaveViewButton } from '#/components/SaveViewButton'
+import { TimeRangeFilter } from '#/components/TimeRangeFilter'
+import { RefreshControl } from '#/components/RefreshControl'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { groupByBucket, parseDurationToSeconds, median } from '#/lib/run-feed'
+import { resolveTime } from '#/lib/time-range'
 
 const DEFAULT_PAGE_SIZE = 15
 
 // Filters live in the URL so they survive navigating into a run and back.
+// from/to are time-range tokens ("now-24h" / "now" / an epoch-ms string).
 interface RunsSearch {
   status?: RunStatusValue
   project?: string
   env?: string
+  from?: string
+  to?: string
 }
 
 export const Route = createFileRoute('/ci/runs/')({
@@ -26,6 +32,8 @@ export const Route = createFileRoute('/ci/runs/')({
     status: typeof s.status === 'string' && s.status ? (s.status as RunStatusValue) : undefined,
     project: typeof s.project === 'string' && s.project ? s.project : undefined,
     env: typeof s.env === 'string' && s.env ? s.env : undefined,
+    from: typeof s.from === 'string' && s.from ? s.from : undefined,
+    to: typeof s.to === 'string' && s.to ? s.to : undefined,
   }),
   component: RunsListPage,
 })
@@ -38,18 +46,28 @@ function RunsListPage() {
   const projectFilter = sp.project
   const envFilter = sp.env
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [refreshMs, setRefreshMs] = useState<number | null>(null)
   const { page, cursor, goToPage, reset } = useCursorPagination()
 
-  const { data } = useSuspenseQuery(
-    orpc.runs.list.queryOptions({
+  // Resolve relative time tokens against a minute-bucketed "now" so the query
+  // key stays stable within the minute (no refetch churn) yet stays live.
+  const nowBucket = Math.floor(Date.now() / 60_000) * 60_000
+  const fromMs = resolveTime(sp.from, nowBucket)
+  const toMs = resolveTime(sp.to, nowBucket)
+
+  const { data, refetch } = useSuspenseQuery({
+    ...orpc.runs.list.queryOptions({
       input: {
         status: statusFilter,
         projectId: projectFilter,
+        from: fromMs,
+        to: toMs,
         limit: pageSize,
         cursor,
       },
     }),
-  )
+    refetchInterval: refreshMs ?? false,
+  })
 
   function changePageSize(size: number) {
     setPageSize(size)
@@ -65,6 +83,7 @@ function RunsListPage() {
   const setStatusAndReset = (v: RunStatusValue | undefined) => setFilters({ status: v })
   const setProjectAndReset = (v: string | undefined) => setFilters({ project: v })
   const setEnvAndReset = (v: string | undefined) => setFilters({ env: v })
+  const setTimeRange = (r: { from?: string; to?: string }) => setFilters({ from: r.from, to: r.to })
 
   const { data: projectsData } = useSuspenseQuery(
     orpc.projects.list.queryOptions({ input: {} }),
@@ -162,6 +181,8 @@ function RunsListPage() {
             onSelect={(key) => setEnvAndReset(key === envFilter ? undefined : key)}
           />
         )}
+        <TimeRangeFilter value={{ from: sp.from, to: sp.to }} onChange={setTimeRange} />
+        <RefreshControl value={refreshMs} onChange={setRefreshMs} onRefresh={() => refetch()} />
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">{filteredItems.length} runs</span>
           <SaveViewButton route="/ci/runs" search={sp} />
