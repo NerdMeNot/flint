@@ -10,6 +10,7 @@ import { TagChip } from '#/components/TagChip'
 import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import { ProjectHealthBar } from '#/components/ProjectHealth'
 import { SaveViewButton } from '#/components/SaveViewButton'
+import { needsAttention } from '#/lib/project-health'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { relativeToMinutes } from '#/lib/run-feed'
@@ -33,6 +34,7 @@ interface ProjectSearch {
   q?: string
   tags?: string[]
   needsGrouping?: boolean
+  attention?: boolean
   sort?: ProjectSort
 }
 
@@ -41,6 +43,7 @@ export const Route = createFileRoute('/ci/projects/')({
     q: typeof s.q === 'string' && s.q ? s.q : undefined,
     tags: Array.isArray(s.tags) ? s.tags.filter((t): t is string => typeof t === 'string') : undefined,
     needsGrouping: s.needsGrouping === true || s.needsGrouping === 'true' ? true : undefined,
+    attention: s.attention === true || s.attention === 'true' ? true : undefined,
     sort: SORTS.some((o) => o.key === s.sort) ? (s.sort as ProjectSort) : undefined,
   }),
   component: ProjectsPage,
@@ -83,6 +86,7 @@ function ProjectsPage() {
   const search = sp.q ?? ''
   const selectedTags = sp.tags ?? []
   const needsGrouping = sp.needsGrouping ?? false
+  const attention = sp.attention ?? false
   const sort = sp.sort ?? 'recent'
   const [tagFilterOpen, setTagFilterOpen] = useState(false)
   const [view, setView] = useState<ProjectView>('grid')
@@ -96,6 +100,7 @@ function ProjectsPage() {
   const setSearch = (q: string) => setFilters({ q: q || undefined })
   const setSelectedTags = (tags: string[]) => setFilters({ tags: tags.length > 0 ? tags : undefined })
   const setNeedsGrouping = (on: boolean) => setFilters({ needsGrouping: on || undefined })
+  const setAttention = (on: boolean) => setFilters({ attention: on || undefined })
   const setSort = (s: ProjectSort) => setFilters({ sort: s === 'recent' ? undefined : s })
 
   // Persist the grid/list preference (SSR-safe).
@@ -117,6 +122,7 @@ function ProjectsPage() {
         workspace: wsScope,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
         needsGrouping: needsGrouping || undefined,
+        attention: attention || undefined,
         limit: PROJECT_PAGE_SIZE,
         cursor,
       },
@@ -143,9 +149,10 @@ function ProjectsPage() {
     .map((k) => ({ key: k.key, label: k.label, color: k.color, values: k.allowedValues }))
     .filter((g) => g.values.length > 0)
 
-  // Stable count of projects that need grouping: workspace inferred (not
-  // declared) or no tags — derived from the unfiltered, workspace-scoped set.
+  // Stable counts (from the unfiltered, workspace-scoped set) for the filter
+  // pills: projects needing grouping, and projects needing attention.
   const needsGroupingCount = tagUniverse.items.filter((p) => p.inferred || (p.tags ?? []).length === 0).length
+  const attentionCount = tagUniverse.items.filter((p) => needsAttention(p.health)).length
 
   const toggleTag = (t: string) => {
     setSelectedTags(selectedTags.includes(t) ? selectedTags.filter((x) => x !== t) : [...selectedTags, t])
@@ -230,8 +237,22 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {(filterGroups.length > 0 || needsGroupingCount > 0) && (
+      {(filterGroups.length > 0 || needsGroupingCount > 0 || attentionCount > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
+          {attentionCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAttention(!attention)}
+              title="Projects that are currently red or have a low pass rate"
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                attention ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <AlertTriangle size={12} />
+              Needs attention
+              <span className="rounded-full bg-destructive/20 text-destructive text-[10px] font-bold leading-none px-1.5 py-0.5">{attentionCount}</span>
+            </button>
+          )}
           {needsGroupingCount > 0 && (
             <button
               type="button"

@@ -178,6 +178,7 @@ function ProjectsResults({ search }: { search: Record<string, unknown> }) {
         workspace: wsScope,
         tags,
         needsGrouping: search.needsGrouping ? true : undefined,
+        attention: search.attention ? true : undefined,
         limit: 100,
       },
     }),

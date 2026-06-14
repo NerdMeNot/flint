@@ -43,6 +43,7 @@ import {
 } from './backend'
 import { apiMode } from './mode'
 import * as mocks from './mocks'
+import { needsAttention } from '#/lib/project-health'
 
 // ---------------------------------------------------------------------------
 // Shared types for backend responses
@@ -153,6 +154,7 @@ const projects = {
         workspace: z.optional(z.array(z.string())),
         tags: z.optional(z.array(z.string())),
         needsGrouping: z.optional(z.boolean()),
+        attention: z.optional(z.boolean()),
         limit: z.optional(z.number()),
         cursor: z.optional(z.string()),
       }),
@@ -162,6 +164,7 @@ const projects = {
         () => backendGet<Paginated<Project>>('/projects', {
           workspace: input.workspace, tags: input.tags,
           needsGrouping: input.needsGrouping ? 'true' : undefined,
+          attention: input.attention ? 'true' : undefined,
           limit: input.limit, cursor: input.cursor,
         }),
         () => {
@@ -178,6 +181,10 @@ const projects = {
           if (input.needsGrouping) {
             // Inferred workspace (not declared) or no tags — matches the backend.
             items = items.filter((p) => p.inferred || (p.tags ?? []).length === 0)
+          }
+          if (input.attention) {
+            // Currently red or a low pass rate — a persistent problem.
+            items = items.filter((p) => needsAttention(p.health))
           }
           return paginateMock(items, input)
         },
