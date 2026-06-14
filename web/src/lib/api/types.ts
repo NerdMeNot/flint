@@ -58,6 +58,10 @@ export const PipelineRunSchema = z.object({
   duration: z.string(),
   startedAt: z.string(),
   finishedAt: z.optional(z.string()),
+  // Real wall-clock timestamps (epoch ms). Backend should populate; the mock
+  // derives them. Optional so other producers stay valid.
+  startedAtTs: z.optional(z.number()),
+  finishedAtTs: z.optional(z.number()),
   workflowFile: z.string(),
   environment: z.optional(z.string()),
   errorMessage: z.optional(z.string()),

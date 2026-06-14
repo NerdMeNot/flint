@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
+import { formatDateTime } from '#/lib/format-time'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -286,10 +287,14 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
           <Timer size={13} className={isLive ? 'animate-pulse' : ''} />
           {isLive ? `${fmtSecs(elapsedSecs)} elapsed` : run.duration}
         </span>
-        {run.startedAt && (
+        <span className="flex items-center gap-1.5" title="Started">
+          <Clock size={13} />
+          Started {run.startedAtTs ? formatDateTime(run.startedAtTs) : run.startedAt}
+        </span>
+        {run.finishedAtTs && (
           <span className="flex items-center gap-1.5">
-            <Clock size={13} />
-            {run.startedAt}
+            <CheckCircle size={13} />
+            Ended {formatDateTime(run.finishedAtTs)}
           </span>
         )}
 
