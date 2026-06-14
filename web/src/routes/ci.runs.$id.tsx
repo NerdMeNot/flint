@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
-import { formatDateTime } from '#/lib/format-time'
+import { formatDateTime, formatAgo } from '#/lib/format-time'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -290,6 +290,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
         <span className="flex items-center gap-1.5" title="Started">
           <Clock size={13} />
           Started {run.startedAtTs ? formatDateTime(run.startedAtTs) : run.startedAt}
+          {run.startedAtTs && <span className="opacity-50">· {formatAgo(run.startedAtTs)}</span>}
         </span>
         {run.finishedAtTs && (
           <span className="flex items-center gap-1.5">

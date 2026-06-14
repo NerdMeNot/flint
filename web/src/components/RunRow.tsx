@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { runStatusVisualFor } from '#/lib/status'
 import { parseDurationToSeconds } from '#/lib/run-feed'
-import { formatClock, formatDateTime } from '#/lib/format-time'
+import { formatTimeline, formatExact } from '#/lib/format-time'
 import type { RunStepSummary, StepStatusValue } from '#/lib/api/types'
 
 interface Run {
@@ -143,10 +143,10 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
           <span
             className="opacity-50 shrink-0"
             title={run.startedAtTs
-              ? `Started ${formatDateTime(run.startedAtTs)}${run.finishedAtTs ? `\nEnded ${formatDateTime(run.finishedAtTs)}` : ''}`
+              ? `Started ${formatExact(run.startedAtTs)}${run.finishedAtTs ? `\nEnded ${formatExact(run.finishedAtTs)}` : ''}`
               : undefined}
           >
-            {run.startedAtTs ? formatClock(run.startedAtTs) : run.startedAt}
+            {run.startedAtTs ? formatTimeline(run.startedAtTs) : run.startedAt}
           </span>
           <span className="hidden md:inline opacity-25">·</span>
           <span className="hidden md:inline opacity-50 shrink-0">{run.triggeredBy}</span>
