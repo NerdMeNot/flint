@@ -279,6 +279,23 @@ const runs = {
       )
     }),
 
+  // All started steps' logs, for the contiguous "All output" view.
+  logs: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return withFallback(
+        () => backendGet<{ logs: Record<string, string> }>(`/runs/${input.runId}/logs`),
+        () => {
+          const all = mocks.getStepLogs()
+          const logs: Record<string, string> = {}
+          for (const s of mocks.getSteps(input.runId)) {
+            if (s.startedAt) logs[s.name] = all[s.name] ?? ''
+          }
+          return { logs }
+        },
+      )
+    }),
+
   trigger: os
     .input(z.object({ projectId: z.string(), branch: z.optional(z.string()) }))
     .handler(async ({ input }) => {
