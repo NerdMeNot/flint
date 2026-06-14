@@ -181,15 +181,15 @@ function ProjectsPage() {
 
   return (
     <div className="space-y-6 rise-in">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
           <h1 className="display-title text-3xl lg:text-4xl text-foreground">Projects</h1>
           <p className="text-muted-foreground text-sm lg:text-base mt-2">
             {projects.length} repositories{wsLabel}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="relative w-56 lg:w-72">
+        <div className="flex items-center gap-2 sm:shrink-0">
+          <div className="relative flex-1 sm:w-56 sm:flex-none lg:w-72">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input
               type="text"

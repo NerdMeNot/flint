@@ -254,7 +254,7 @@ export function Sidebar() {
 
       {/* Mobile drawer */}
       <aside
-        className={`lg:hidden fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-border transition-transform duration-250 ease-out ${
+        className={`lg:hidden fixed inset-y-0 left-0 z-50 flex w-[82vw] max-w-[300px] flex-col border-r border-border transition-transform duration-250 ease-out ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ background: 'linear-gradient(180deg, var(--surface-strong), var(--surface))', backdropFilter: 'blur(16px)' }}

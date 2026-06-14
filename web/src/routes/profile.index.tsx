@@ -129,7 +129,7 @@ function IdentityCard({ user }: {
           </div>
         </div>
       ) : (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
           <Field label="Role" value={user.role || '—'} />
           <Field label="Sign-in" value={user.provider || '—'} />
           <div className="col-span-2">
