@@ -30,12 +30,13 @@ type assignmentResponse struct {
 }
 
 type workspaceResponse struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"createdAt"`
-	IsDefault   bool    `json:"isDefault"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Slug         string  `json:"slug"`
+	Description  *string `json:"description,omitempty"`
+	CreatedAt    string  `json:"createdAt"`
+	IsDefault    bool    `json:"isDefault"`
+	ProjectCount int     `json:"projectCount"`
 }
 
 // ── Roles ──────────────────────────────────────────────────
@@ -328,7 +329,7 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
-	workspaces, err := s.deps.Q.ListWorkspaces(ctx, db.ListWorkspacesParams{
+	workspaces, err := s.deps.Q.ListWorkspacesWithCounts(ctx, db.ListWorkspacesWithCountsParams{
 		OrgID: org.ID, Limit: int32(lim), Offset: int32(off),
 	})
 	if err != nil {
@@ -339,12 +340,13 @@ func (s *Server) handleListWorkspaces(ctx context.Context, c *app.RequestContext
 	result := make([]workspaceResponse, 0, len(workspaces))
 	for _, w := range workspaces {
 		result = append(result, workspaceResponse{
-			ID:          w.ID,
-			Name:        w.Name,
-			Slug:        w.Slug,
-			Description: w.Description,
-			CreatedAt:   w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			IsDefault:   w.IsDefault,
+			ID:           w.ID,
+			Name:         w.Name,
+			Slug:         w.Slug,
+			Description:  w.Description,
+			CreatedAt:    w.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			IsDefault:    w.IsDefault,
+			ProjectCount: int(w.ProjectCount),
 		})
 	}
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(workspaces))})

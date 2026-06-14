@@ -38,7 +38,8 @@ func TestHandleStats_RealNumbers(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, int64(10), resp.TotalRuns)
-	assert.InDelta(t, 0.7, resp.SuccessRate, 0.001)
+	// successRate is a percent (0-100) to match the UI's "%" rendering.
+	assert.InDelta(t, 70, resp.SuccessRate, 0.001)
 	assert.Equal(t, int64(2), resp.PendingGates)
 	assert.Equal(t, int64(4), resp.ActiveProjects)
 	assert.Equal(t, int64(3), resp.RunsToday)

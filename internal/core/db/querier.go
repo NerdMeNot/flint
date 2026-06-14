@@ -48,6 +48,7 @@ type Querier interface {
 	CreateEnvVariable(ctx context.Context, arg CreateEnvVariableParams) (string, error)
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (string, error)
 	CreateLocalUser(ctx context.Context, arg CreateLocalUserParams) (string, error)
+	CreatePersonalToken(ctx context.Context, arg CreatePersonalTokenParams) (string, error)
 	CreateProtectedEnvironment(ctx context.Context, arg CreateProtectedEnvironmentParams) (string, error)
 	CreateRetryStep(ctx context.Context, arg CreateRetryStepParams) error
 	CreateRole(ctx context.Context, arg CreateRoleParams) (string, error)
@@ -76,6 +77,7 @@ type Querier interface {
 	DeleteForgeConnection(ctx context.Context, id string) (int64, error)
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
 	DeleteMFAPendingToken(ctx context.Context, token string) error
+	DeletePersonalToken(ctx context.Context, id string) error
 	DeleteProtectedEnvironment(ctx context.Context, id string) (int64, error)
 	DeleteRole(ctx context.Context, id string) (int64, error)
 	DeleteRoleAssignment(ctx context.Context, arg DeleteRoleAssignmentParams) error
@@ -126,6 +128,9 @@ type Querier interface {
 	GetOrgConcurrencyLimit(ctx context.Context, id string) (int32, error)
 	GetOriginalRunParams(ctx context.Context, id string) (GetOriginalRunParamsRow, error)
 	GetProject(ctx context.Context, id string) (GetProjectRow, error)
+	// Single project with workspace slug. The most recent run is fetched separately
+	// (ListRunsByProject with limit 1) to keep nullability clean.
+	GetProjectBasic(ctx context.Context, id string) (GetProjectBasicRow, error)
 	GetProjectByRepoPath(ctx context.Context, repoPath string) (GetProjectByRepoPathRow, error)
 	GetProjectOrgID(ctx context.Context, id string) (string, error)
 	GetProjectRepoInfo(ctx context.Context, id string) (GetProjectRepoInfoRow, error)
@@ -134,6 +139,9 @@ type Querier interface {
 	GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, error)
 	GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (GetRoleBySlugRow, error)
 	GetRun(ctx context.Context, id string) (GetRunRow, error)
+	// Single CI run with project display fields + the per-step summary, for
+	// GET /api/v1/runs/:id.
+	GetRunDetail(ctx context.Context, id string) (GetRunDetailRow, error)
 	GetRunOrgID(ctx context.Context, id string) (string, error)
 	// Resolves the RBAC scope (workspace slug + environment) for a run, used by the
 	// authorization middleware. Workflow runs have no project, so both fall back to
@@ -151,6 +159,7 @@ type Querier interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
 	GetStepByWorkflowAndName(ctx context.Context, arg GetStepByWorkflowAndNameParams) (GetStepByWorkflowAndNameRow, error)
 	GetStepStatus(ctx context.Context, arg GetStepStatusParams) (string, error)
+	GetTeam(ctx context.Context, id string) (GetTeamRow, error)
 	GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserForAuth(ctx context.Context, arg GetUserForAuthParams) (GetUserForAuthRow, error)
@@ -197,6 +206,8 @@ type Querier interface {
 	// ────────────────────────────────────────────────────────────
 	ListAPIKeyWorkspaceSlugs(ctx context.Context, apiKeyID string) ([]string, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
+	// API keys with role slug + creator email for the settings list.
+	ListAPIKeysDetailed(ctx context.Context, arg ListAPIKeysDetailedParams) ([]ListAPIKeysDetailedRow, error)
 	// ────────────────────────────────────────────────────────────
 	// Role assignments
 	// ────────────────────────────────────────────────────────────
@@ -211,9 +222,14 @@ type Querier interface {
 	ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error)
 	ListForgeConnectionNames(ctx context.Context) ([]ListForgeConnectionNamesRow, error)
 	ListForgeConnections(ctx context.Context, arg ListForgeConnectionsParams) ([]ListForgeConnectionsRow, error)
+	// Gate steps enriched with run/project/workspace context, filtered by step status
+	// (the handler maps UI status names: pending→waiting, approved→succeeded,
+	// rejected→failed). Powers GET /api/v1/gates.
+	ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error)
 	ListModules(ctx context.Context) ([]ListModulesRow, error)
 	ListOrgSecrets(ctx context.Context, orgID string) ([]ListOrgSecretsRow, error)
 	ListPendingGates(ctx context.Context) ([]ListPendingGatesRow, error)
+	ListPersonalTokensByUser(ctx context.Context, userID string) ([]ListPersonalTokensByUserRow, error)
 	ListProjectSecrets(ctx context.Context, projectID *string) ([]ListProjectSecretsRow, error)
 	ListProjectWebhooks(ctx context.Context, projectID string) ([]Webhook, error)
 	ListProjects(ctx context.Context) ([]ListProjectsRow, error)
@@ -238,8 +254,13 @@ type Querier interface {
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRolesRow, error)
 	ListRunnerPoolNames(ctx context.Context) ([]string, error)
 	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
+	ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsPagedParams) ([]ListRunnerPoolsPagedRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
 	ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error)
+	// Global CI run list with optional project/status filters, joined to the project
+	// for display, plus a compact per-step summary (name+status) the UI renders as
+	// stage pips. Powers GET /api/v1/runs.
+	ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error)
 	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]ListSavedViewsRow, error)
 	ListSecrets(ctx context.Context, arg ListSecretsParams) ([]ListSecretsRow, error)
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)
@@ -247,12 +268,16 @@ type Querier interface {
 	ListTagKeys(ctx context.Context, orgID string) ([]ListTagKeysRow, error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]ListTeamMembersRow, error)
 	ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTeamsRow, error)
+	ListTeamsPaged(ctx context.Context, arg ListTeamsPagedParams) ([]ListTeamsPagedRow, error)
 	ListUserIdpTeams(ctx context.Context, userID string) ([]ListUserIdpTeamsRow, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUserTeamIDs(ctx context.Context, userID string) ([]string, error)
 	ListUserTeams(ctx context.Context, userID string) ([]ListUserTeamsRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
 	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
+	// All non-expired personal tokens with their owner, for bearer-token auth
+	// (the caller bcrypt-compares each hash).
+	ListValidPersonalTokensWithUser(ctx context.Context) ([]ListValidPersonalTokensWithUserRow, error)
 	ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error)
 	ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error)
 	// Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
@@ -262,10 +287,15 @@ type Querier interface {
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error)
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
+	ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
 	NotifyEngine(ctx context.Context, pgNotify string) error
+	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
+	// Per-project run health for an org: recent statuses (newest first, capped at 10)
+	// plus totals — powers the dashboard health bars / "needs attention".
+	ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error)
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
@@ -293,6 +323,10 @@ type Querier interface {
 	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
 	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
 	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
+	// Project search by name / repo for the global ⌘K search.
+	SearchProjects(ctx context.Context, arg SearchProjectsParams) ([]SearchProjectsRow, error)
+	// Run search by branch / commit SHA for the global ⌘K search.
+	SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
 	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
@@ -307,6 +341,7 @@ type Querier interface {
 	SweepStaleWorkflows(ctx context.Context) error
 	TouchAPIKey(ctx context.Context, id string) error
 	TouchDeviceCodePoll(ctx context.Context, deviceCode string) error
+	TouchPersonalToken(ctx context.Context, id string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	// UI-managed project labels (the registry curates the vocabulary; this stores
 	// the chosen key:value and free tags on the project).
