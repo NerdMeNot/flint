@@ -23,6 +23,44 @@ SELECT id, project_id, workflow_file, trigger_type, trigger_ref, commit_sha,
 FROM pipeline_runs
 WHERE id = $1;
 
+-- name: ListRunsFiltered :many
+-- Global CI run list with optional project/status filters, joined to the project
+-- for display, plus a compact per-step summary (name+status) the UI renders as
+-- stage pips. Powers GET /api/v1/runs.
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE (sqlc.arg('project_id')::text = '' OR pr.project_id::text = sqlc.arg('project_id'))
+  AND (sqlc.arg('status')::text = '' OR pr.status = sqlc.arg('status'))
+ORDER BY pr.started_at DESC
+LIMIT sqlc.arg('lim');
+
+-- name: GetRunDetail :one
+-- Single CI run with project display fields + the per-step summary, for
+-- GET /api/v1/runs/:id.
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.id = $1;
+
 -- name: InsertPipelineRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
     trigger_type, trigger_ref, commit_sha, commit_message, triggered_by,

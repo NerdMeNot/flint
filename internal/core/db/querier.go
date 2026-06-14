@@ -134,6 +134,9 @@ type Querier interface {
 	GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, error)
 	GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (GetRoleBySlugRow, error)
 	GetRun(ctx context.Context, id string) (GetRunRow, error)
+	// Single CI run with project display fields + the per-step summary, for
+	// GET /api/v1/runs/:id.
+	GetRunDetail(ctx context.Context, id string) (GetRunDetailRow, error)
 	GetRunOrgID(ctx context.Context, id string) (string, error)
 	// Resolves the RBAC scope (workspace slug + environment) for a run, used by the
 	// authorization middleware. Workflow runs have no project, so both fall back to
@@ -240,6 +243,10 @@ type Querier interface {
 	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
 	ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error)
+	// Global CI run list with optional project/status filters, joined to the project
+	// for display, plus a compact per-step summary (name+status) the UI renders as
+	// stage pips. Powers GET /api/v1/runs.
+	ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error)
 	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]ListSavedViewsRow, error)
 	ListSecrets(ctx context.Context, arg ListSecretsParams) ([]ListSecretsRow, error)
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)

@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"math"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	pgtype "github.com/jackc/pgx/v5/pgtype"
 )
 
 // ── Response structs ──────────────────────────────────────────
@@ -55,7 +58,20 @@ type runResponse struct {
 	Duration      string  `json:"duration"`
 	StartedAt     string  `json:"startedAt"`
 	FinishedAt    *string `json:"finishedAt,omitempty"`
-	Environment   *string `json:"environment,omitempty"`
+	// Epoch-ms variants the UI uses for time-range filtering and adaptive
+	// timestamp rendering (alongside the RFC3339 strings above).
+	StartedAtTs  int64            `json:"startedAtTs"`
+	FinishedAtTs *int64           `json:"finishedAtTs,omitempty"`
+	Environment  *string          `json:"environment,omitempty"`
+	ErrorMessage *string          `json:"errorMessage,omitempty"`
+	Steps        []runStepSummary `json:"steps,omitempty"`
+}
+
+// runStepSummary is the compact per-step shape the run feed renders as stage
+// pips (UI RunStepSummary).
+type runStepSummary struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 type runnerResponse struct {
@@ -224,9 +240,10 @@ func (s *Server) handleStats(ctx context.Context, c *app.RequestContext) {
 	activeProjects, _ := s.deps.Q.CountActiveProjects(ctx)
 	pendingGates, _ := s.deps.Q.CountPendingGates(ctx)
 
+	// Percent (0-100) to match the UI, which renders the value with a "%" suffix.
 	successRate := 0.0
 	if stats.TotalRuns > 0 {
-		successRate = float64(stats.SuccessRuns) / float64(stats.TotalRuns)
+		successRate = math.Round(float64(stats.SuccessRuns) / float64(stats.TotalRuns) * 100)
 	}
 
 	c.JSON(consts.StatusOK, utils.H{
@@ -539,56 +556,43 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 	p := parsePagination(c)
 
 	// Use a raw query for global run list with optional filters.
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
-		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
-		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
-		       p.repo_path, pr.environment
-		FROM pipeline_runs pr
-		JOIN projects p ON p.id = pr.project_id
-		WHERE ($1::text = '' OR pr.project_id = $1)
-		  AND ($2::text = '' OR pr.status = $2)
-		ORDER BY pr.started_at DESC
-		LIMIT $3
-	`, projectID, status, int32(p.Limit+1))
+	rows, err := s.deps.Q.ListRunsFiltered(ctx, db.ListRunsFilteredParams{
+		ProjectID: projectID,
+		Status:    status,
+		Lim:       int32(p.Limit + 1),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runs")
 		return
 	}
-	defer rows.Close()
 
-	var result []runResponse
-	for rows.Next() {
-		var r runResponse
-		var startedAt time.Time
-		var finishedAt *time.Time
-		var durationMs *int32
-		var branch, commitSha, commitMessage, triggeredBy, projectName *string
-
-		if err := rows.Scan(
-			&r.ID, &r.Status, &startedAt, &r.WorkflowFile,
-			&branch, &r.TriggerType, &commitSha,
-			&commitMessage, &triggeredBy, &durationMs, &finishedAt,
-			&projectName, &r.ProjectID, &r.ProjectColour,
-			&r.Repo, &r.Environment,
-		); err != nil {
-			apiInternal(ctx, c, "failed to scan run")
-			return
+	result := make([]runResponse, 0, len(rows))
+	for _, row := range rows {
+		r := runResponse{
+			ID:            row.ID,
+			ProjectID:     row.ProjectID,
+			ProjectName:   derefString(row.ProjectName),
+			ProjectColour: row.ProjectColour,
+			Repo:          row.RepoPath,
+			Status:        row.Status,
+			TriggerType:   row.TriggerType,
+			Branch:        derefString(row.Branch),
+			CommitSha:     derefString(row.CommitSha),
+			CommitMessage: derefString(row.CommitMessage),
+			TriggeredBy:   derefString(row.TriggeredBy),
+			WorkflowFile:  derefString(row.WorkflowFile),
+			Duration:      durationFromInt4(row.DurationMs),
+			StartedAt:     row.StartedAt.Format(time.RFC3339),
+			StartedAtTs:   row.StartedAt.UnixMilli(),
+			FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+			Environment:   row.Environment,
+			ErrorMessage:  row.ErrorMessage,
+			Steps:         decodeStepSummaries(row.Steps),
 		}
-
-		r.Branch = derefString(branch)
-		r.CommitSha = derefString(commitSha)
-		r.CommitMessage = derefString(commitMessage)
-		r.TriggeredBy = derefString(triggeredBy)
-		r.ProjectName = derefString(projectName)
-		r.StartedAt = startedAt.Format(time.RFC3339)
-		r.FinishedAt = formatTimePtrOpt(finishedAt)
-		r.Duration = "0s"
-		if durationMs != nil {
-			r.Duration = formatDuration(*durationMs)
+		if row.FinishedAt != nil {
+			ts := row.FinishedAt.UnixMilli()
+			r.FinishedAtTs = &ts
 		}
-
 		result = append(result, r)
 	}
 
@@ -616,46 +620,59 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 func (s *Server) getRun(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	var r runResponse
-	var startedAt time.Time
-	var finishedAt *time.Time
-	var durationMs *int32
-	var branch, commitSha, commitMessage, triggeredBy, projectName *string
-
-	err := s.deps.DB.QueryRow(ctx, `
-		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
-		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
-		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
-		       p.repo_path, pr.environment
-		FROM pipeline_runs pr
-		JOIN projects p ON p.id = pr.project_id
-		WHERE pr.id = $1
-	`, id).Scan(
-		&r.ID, &r.Status, &startedAt, &r.WorkflowFile,
-		&branch, &r.TriggerType, &commitSha,
-		&commitMessage, &triggeredBy, &durationMs, &finishedAt,
-		&projectName, &r.ProjectID, &r.ProjectColour,
-		&r.Repo, &r.Environment,
-	)
+	row, err := s.deps.Q.GetRunDetail(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "run not found")
 		return
 	}
 
-	r.Branch = derefString(branch)
-	r.CommitSha = derefString(commitSha)
-	r.CommitMessage = derefString(commitMessage)
-	r.TriggeredBy = derefString(triggeredBy)
-	r.ProjectName = derefString(projectName)
-	r.StartedAt = startedAt.Format(time.RFC3339)
-	r.FinishedAt = formatTimePtrOpt(finishedAt)
-	r.Duration = "0s"
-	if durationMs != nil {
-		r.Duration = formatDuration(*durationMs)
+	r := runResponse{
+		ID:            row.ID,
+		ProjectID:     row.ProjectID,
+		ProjectName:   derefString(row.ProjectName),
+		ProjectColour: row.ProjectColour,
+		Repo:          row.RepoPath,
+		Status:        row.Status,
+		TriggerType:   row.TriggerType,
+		Branch:        derefString(row.Branch),
+		CommitSha:     derefString(row.CommitSha),
+		CommitMessage: derefString(row.CommitMessage),
+		TriggeredBy:   derefString(row.TriggeredBy),
+		WorkflowFile:  derefString(row.WorkflowFile),
+		Duration:      durationFromInt4(row.DurationMs),
+		StartedAt:     row.StartedAt.Format(time.RFC3339),
+		StartedAtTs:   row.StartedAt.UnixMilli(),
+		FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+		Environment:   row.Environment,
+		ErrorMessage:  row.ErrorMessage,
+		Steps:         decodeStepSummaries(row.Steps),
+	}
+	if row.FinishedAt != nil {
+		ts := row.FinishedAt.UnixMilli()
+		r.FinishedAtTs = &ts
 	}
 
 	c.JSON(consts.StatusOK, r)
+}
+
+// decodeStepSummaries parses the json_agg step array from the run queries.
+func decodeStepSummaries(b []byte) []runStepSummary {
+	if len(b) == 0 {
+		return nil
+	}
+	var out []runStepSummary
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// durationFromInt4 formats a nullable duration_ms column as a human string.
+func durationFromInt4(d pgtype.Int4) string {
+	if !d.Valid {
+		return "0s"
+	}
+	return formatDuration(d.Int32)
 }
 
 func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {

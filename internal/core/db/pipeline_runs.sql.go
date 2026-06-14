@@ -121,6 +121,71 @@ func (q *Queries) GetRun(ctx context.Context, id string) (GetRunRow, error) {
 	return i, err
 }
 
+const getRunDetail = `-- name: GetRunDetail :one
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.id = $1
+`
+
+type GetRunDetailRow struct {
+	ID            string      `json:"id"`
+	Status        string      `json:"status"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    *time.Time  `json:"finished_at"`
+	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	WorkflowFile  *string     `json:"workflow_file"`
+	Branch        *string     `json:"branch"`
+	TriggerType   string      `json:"trigger_type"`
+	CommitSha     *string     `json:"commit_sha"`
+	CommitMessage *string     `json:"commit_message"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
+	ProjectName   *string     `json:"project_name"`
+	ProjectID     string      `json:"project_id"`
+	ProjectColour string      `json:"project_colour"`
+	RepoPath      string      `json:"repo_path"`
+	Steps         []byte      `json:"steps"`
+}
+
+// Single CI run with project display fields + the per-step summary, for
+// GET /api/v1/runs/:id.
+func (q *Queries) GetRunDetail(ctx context.Context, id string) (GetRunDetailRow, error) {
+	row := q.db.QueryRow(ctx, getRunDetail, id)
+	var i GetRunDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.DurationMs,
+		&i.WorkflowFile,
+		&i.Branch,
+		&i.TriggerType,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.TriggeredBy,
+		&i.Environment,
+		&i.ErrorMessage,
+		&i.ProjectName,
+		&i.ProjectID,
+		&i.ProjectColour,
+		&i.RepoPath,
+		&i.Steps,
+	)
+	return i, err
+}
+
 const getRunOrgID = `-- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1
 `
@@ -392,6 +457,94 @@ func (q *Queries) ListRunsByProject(ctx context.Context, arg ListRunsByProjectPa
 			&i.FinishedAt,
 			&i.DurationMs,
 			&i.ErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunsFiltered = `-- name: ListRunsFiltered :many
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE ($1::text = '' OR pr.project_id::text = $1)
+  AND ($2::text = '' OR pr.status = $2)
+ORDER BY pr.started_at DESC
+LIMIT $3
+`
+
+type ListRunsFilteredParams struct {
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	Lim       int32  `json:"lim"`
+}
+
+type ListRunsFilteredRow struct {
+	ID            string      `json:"id"`
+	Status        string      `json:"status"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    *time.Time  `json:"finished_at"`
+	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	WorkflowFile  *string     `json:"workflow_file"`
+	Branch        *string     `json:"branch"`
+	TriggerType   string      `json:"trigger_type"`
+	CommitSha     *string     `json:"commit_sha"`
+	CommitMessage *string     `json:"commit_message"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
+	ProjectName   *string     `json:"project_name"`
+	ProjectID     string      `json:"project_id"`
+	ProjectColour string      `json:"project_colour"`
+	RepoPath      string      `json:"repo_path"`
+	Steps         []byte      `json:"steps"`
+}
+
+// Global CI run list with optional project/status filters, joined to the project
+// for display, plus a compact per-step summary (name+status) the UI renders as
+// stage pips. Powers GET /api/v1/runs.
+func (q *Queries) ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error) {
+	rows, err := q.db.Query(ctx, listRunsFiltered, arg.ProjectID, arg.Status, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunsFilteredRow{}
+	for rows.Next() {
+		var i ListRunsFilteredRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.DurationMs,
+			&i.WorkflowFile,
+			&i.Branch,
+			&i.TriggerType,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.TriggeredBy,
+			&i.Environment,
+			&i.ErrorMessage,
+			&i.ProjectName,
+			&i.ProjectID,
+			&i.ProjectColour,
+			&i.RepoPath,
+			&i.Steps,
 		); err != nil {
 			return nil, err
 		}

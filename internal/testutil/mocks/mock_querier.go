@@ -2694,6 +2694,34 @@ func (_m *Querier) GetRun(ctx context.Context, id string) (db.GetRunRow, error) 
 	return r0, r1
 }
 
+// GetRunDetail provides a mock function with given fields: ctx, id
+func (_m *Querier) GetRunDetail(ctx context.Context, id string) (db.GetRunDetailRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRunDetail")
+	}
+
+	var r0 db.GetRunDetailRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRunDetailRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRunDetailRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetRunDetailRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRunOrgID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetRunOrgID(ctx context.Context, id string) (string, error) {
 	ret := _m.Called(ctx, id)
@@ -4732,6 +4760,36 @@ func (_m *Querier) ListRunsByProject(ctx context.Context, arg db.ListRunsByProje
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.ListRunsByProjectParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListRunsFiltered provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListRunsFiltered(ctx context.Context, arg db.ListRunsFilteredParams) ([]db.ListRunsFilteredRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRunsFiltered")
+	}
+
+	var r0 []db.ListRunsFilteredRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRunsFilteredParams) ([]db.ListRunsFilteredRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRunsFilteredParams) []db.ListRunsFilteredRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListRunsFilteredRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListRunsFilteredParams) error); ok {
 		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
