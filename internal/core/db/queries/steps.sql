@@ -143,3 +143,24 @@ JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.consumed = false
 WHERE s.status = 'waiting' AND s.exec_type = 'gate'
 LIMIT 50;
+
+-- name: ListGatesByStatus :many
+-- Gate steps enriched with run/project/workspace context, filtered by step status
+-- (the handler maps UI status names: pending→waiting, approved→succeeded,
+-- rejected→failed). Powers GET /api/v1/gates.
+SELECT s.name AS step_name,
+       COALESCE(s.step_def->'gate'->>'message', '')::text AS message,
+       pr.id AS run_id, pr.trigger_ref AS branch, pr.triggered_by,
+       p.display_name AS project_name, p.colour AS project_colour,
+       COALESCE(w.slug, '')::text AS workspace,
+       COALESCE(s.step_def->'gate'->>'environment', '')::text AS environment,
+       s.status, s.created_at,
+       s.result->>'approvedBy' AS reviewed_by,
+       s.finished_at AS reviewed_at
+FROM steps s
+JOIN workflows wf ON s.workflow_id = wf.id
+JOIN pipeline_runs pr ON wf.run_id = pr.id
+JOIN projects p ON pr.project_id = p.id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE s.exec_type = 'gate' AND s.status = sqlc.arg('status')
+ORDER BY s.created_at ASC LIMIT 50;

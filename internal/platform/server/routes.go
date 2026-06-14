@@ -266,59 +266,25 @@ func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
 	pattern := "%" + q + "%"
 
-	// Search projects by name/repo.
-	projectRows, _ := s.deps.DB.Query(ctx,
-		`SELECT id, COALESCE(display_name, repo_path) AS name, repo_path, colour
-		 FROM projects WHERE org_id = $1 AND is_archived = false
-		 AND (display_name ILIKE $2 OR repo_path ILIKE $2)
-		 ORDER BY display_name LIMIT 10`, claims.OrgID, pattern)
-
-	var projects []utils.H
-	if projectRows != nil {
-		defer projectRows.Close()
-		for projectRows.Next() {
-			var id, name, repo, colour string
-			if projectRows.Scan(&id, &name, &repo, &colour) == nil {
-				projects = append(projects, utils.H{
-					"id": id, "name": name, "repo": repo, "colour": colour,
-				})
-			}
+	projects := []utils.H{}
+	if rows, err := s.deps.Q.SearchProjects(ctx, db.SearchProjectsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+		for _, p := range rows {
+			projects = append(projects, utils.H{"id": p.ID, "name": p.Name, "repo": p.RepoPath, "colour": p.Colour})
 		}
 	}
-	if projects == nil {
-		projects = []utils.H{}
-	}
 
-	// Search runs by commit SHA or branch.
-	runRows, _ := s.deps.DB.Query(ctx,
-		`SELECT pr.id, pr.status, pr.trigger_ref, pr.commit_sha,
-		        COALESCE(p.display_name, p.repo_path) AS project_name, p.colour
-		 FROM pipeline_runs pr
-		 JOIN projects p ON p.id = pr.project_id
-		 WHERE pr.org_id = $1
-		 AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
-		 ORDER BY pr.started_at DESC LIMIT 10`, claims.OrgID, pattern)
-
-	var runs []utils.H
-	if runRows != nil {
-		defer runRows.Close()
-		for runRows.Next() {
-			var id, status, projectName, colour string
-			var branch, sha *string
-			if runRows.Scan(&id, &status, &branch, &sha, &projectName, &colour) == nil {
-				r := utils.H{"id": id, "status": status, "projectName": projectName, "projectColour": colour}
-				if branch != nil {
-					r["branch"] = *branch
-				}
-				if sha != nil {
-					r["commitSha"] = *sha
-				}
-				runs = append(runs, r)
+	runs := []utils.H{}
+	if rows, err := s.deps.Q.SearchRuns(ctx, db.SearchRunsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+		for _, r := range rows {
+			h := utils.H{"id": r.ID, "status": r.Status, "projectName": r.ProjectName, "projectColour": r.ProjectColour}
+			if r.Branch != nil {
+				h["branch"] = *r.Branch
 			}
+			if r.CommitSha != nil {
+				h["commitSha"] = *r.CommitSha
+			}
+			runs = append(runs, h)
 		}
-	}
-	if runs == nil {
-		runs = []utils.H{}
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"projects": projects, "runs": runs})
@@ -428,57 +394,35 @@ func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext
 func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	var p projectResponse
-	var createdAt time.Time
-	var lastRunID, lastRunStatus, lastRunBranch, lastRunTriggeredBy *string
-	var lastRunStartedAt *time.Time
-	var lastRunDurationMs *int32
-
-	err := s.deps.DB.QueryRow(ctx, `
-		SELECT p.id, COALESCE(p.display_name, p.repo_path) AS name, p.repo_path,
-		       COALESCE(w.slug, '') AS workspace, p.colour, p.tags, p.created_at,
-		       lr.id AS last_run_id, lr.status AS last_run_status,
-		       lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
-		       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
-		FROM projects p
-		LEFT JOIN workspaces w ON w.id = p.workspace_id
-		LEFT JOIN LATERAL (
-		    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
-		    FROM pipeline_runs
-		    WHERE project_id = p.id
-		    ORDER BY started_at DESC
-		    LIMIT 1
-		) lr ON true
-		WHERE p.id = $1
-	`, id).Scan(
-		&p.ID, &p.Name, &p.Repo,
-		&p.Workspace, &p.Colour, &p.Tags, &createdAt,
-		&lastRunID, &lastRunStatus,
-		&lastRunBranch, &lastRunTriggeredBy,
-		&lastRunStartedAt, &lastRunDurationMs,
-	)
+	row, err := s.deps.Q.GetProjectBasic(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "project not found")
 		return
 	}
 
+	p := projectResponse{
+		ID:        row.ID,
+		Name:      row.Name,
+		Repo:      row.RepoPath,
+		Workspace: row.Workspace,
+		Colour:    row.Colour,
+		Tags:      row.Tags,
+		CreatedAt: row.CreatedAt.Format(time.RFC3339),
+	}
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
-	p.CreatedAt = createdAt.Format(time.RFC3339)
 
-	if lastRunID != nil && *lastRunID != "" {
-		duration := "0s"
-		if lastRunDurationMs != nil {
-			duration = formatDuration(*lastRunDurationMs)
-		}
+	// Most recent run for the project (separate query keeps nullability clean).
+	if runs, _ := s.deps.Q.ListRunsByProject(ctx, db.ListRunsByProjectParams{ProjectID: &id, Limit: 1}); len(runs) > 0 {
+		lr := runs[0]
 		p.LastRun = &lastRunResponse{
-			ID:          *lastRunID,
-			Status:      derefString(lastRunStatus),
-			Branch:      derefString(lastRunBranch),
-			Duration:    duration,
-			TriggeredBy: derefString(lastRunTriggeredBy),
-			StartedAt:   formatTimePtr(lastRunStartedAt),
+			ID:          lr.ID,
+			Status:      lr.Status,
+			Branch:      derefString(lr.TriggerRef),
+			Duration:    durationFromInt4(lr.DurationMs),
+			TriggeredBy: derefString(lr.TriggeredBy),
+			StartedAt:   lr.StartedAt.Format(time.RFC3339),
 		}
 	}
 
@@ -711,36 +655,34 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT id, name, description, cpu, memory, arch,
-		       gpu_vendor, gpu_model, gpu_count, ready, created_at
-		FROM runner_pools
-		ORDER BY name
-		LIMIT $1 OFFSET $2
-	`, lim, off)
+	rows, err := s.deps.Q.ListRunnerPoolsPaged(ctx, db.ListRunnerPoolsPagedParams{
+		Limit:  int32(lim),
+		Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runners")
 		return
 	}
-	defer rows.Close()
 
-	result := []runnerResponse{}
-	for rows.Next() {
-		var r runnerResponse
-		var createdAt time.Time
-		var gpuCount *int32
-
-		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Description, &r.CPU, &r.Memory, &r.Arch,
-			&r.GPUVendor, &r.GPUModel, &gpuCount, &r.Ready, &createdAt,
-		); err != nil {
-			apiInternal(ctx, c, "failed to scan runner")
-			return
+	result := make([]runnerResponse, 0, len(rows))
+	for _, r := range rows {
+		rr := runnerResponse{
+			ID:          r.ID,
+			Name:        r.Name,
+			Description: r.Description,
+			CPU:         r.Cpu,
+			Memory:      r.Memory,
+			Arch:        r.Arch,
+			GPUVendor:   r.GpuVendor,
+			GPUModel:    r.GpuModel,
+			Ready:       r.Ready,
+			CreatedAt:   r.CreatedAt.Format(time.RFC3339),
 		}
-
-		r.GPUCount = gpuCount
-		r.CreatedAt = createdAt.Format(time.RFC3339)
-		result = append(result, r)
+		if r.GpuCount.Valid {
+			v := r.GpuCount.Int32
+			rr.GPUCount = &v
+		}
+		result = append(result, rr)
 	}
 
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
@@ -808,25 +750,21 @@ type teamWithMembersResponse struct {
 func (s *Server) handleGetTeam(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	// Get team info.
-	var team teamWithMembersResponse
-	var source, idpGroup *string
-	err := s.deps.DB.QueryRow(ctx,
-		`SELECT id, name, slug,
-		        COALESCE(source, 'internal') AS source,
-		        idp_group
-		 FROM teams WHERE id = $1`, id,
-	).Scan(&team.ID, &team.Name, &team.Slug, &source, &idpGroup)
+	t, err := s.deps.Q.GetTeam(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "team not found")
 		return
 	}
-
-	team.Source = derefString(source)
+	team := teamWithMembersResponse{
+		ID:       t.ID,
+		Name:     t.Name,
+		Slug:     t.Slug,
+		Source:   t.Source,
+		IDPGroup: t.IdpGroup,
+	}
 	if team.Source == "" {
 		team.Source = "internal"
 	}
-	team.IDPGroup = idpGroup
 
 	// Get members.
 	members, err := s.deps.Q.ListTeamMembers(ctx, id)

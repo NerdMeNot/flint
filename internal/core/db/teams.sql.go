@@ -57,6 +57,32 @@ func (q *Queries) GetOrCreateTeamBySlug(ctx context.Context, arg GetOrCreateTeam
 	return id, err
 }
 
+const getTeam = `-- name: GetTeam :one
+SELECT id, name, slug, COALESCE(source, 'internal')::text AS source, idp_group
+FROM teams WHERE id = $1
+`
+
+type GetTeamRow struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Slug     string  `json:"slug"`
+	Source   string  `json:"source"`
+	IdpGroup *string `json:"idp_group"`
+}
+
+func (q *Queries) GetTeam(ctx context.Context, id string) (GetTeamRow, error) {
+	row := q.db.QueryRow(ctx, getTeam, id)
+	var i GetTeamRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.Source,
+		&i.IdpGroup,
+	)
+	return i, err
+}
+
 const listTeams = `-- name: ListTeams :many
 SELECT id, name, slug FROM teams ORDER BY name
 LIMIT $1 OFFSET $2
@@ -83,6 +109,55 @@ func (q *Queries) ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTea
 	for rows.Next() {
 		var i ListTeamsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.Slug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTeamsPaged = `-- name: ListTeamsPaged :many
+SELECT t.id, t.name, t.slug, COALESCE(t.source, 'internal')::text AS source,
+       t.idp_group, COUNT(tm.user_id) AS member_count
+FROM teams t LEFT JOIN team_members tm ON tm.team_id = t.id
+WHERE t.org_id = $1 GROUP BY t.id ORDER BY t.name LIMIT $2 OFFSET $3
+`
+
+type ListTeamsPagedParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
+
+type ListTeamsPagedRow struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Source      string  `json:"source"`
+	IdpGroup    *string `json:"idp_group"`
+	MemberCount int64   `json:"member_count"`
+}
+
+func (q *Queries) ListTeamsPaged(ctx context.Context, arg ListTeamsPagedParams) ([]ListTeamsPagedRow, error) {
+	rows, err := q.db.Query(ctx, listTeamsPaged, arg.OrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeamsPagedRow{}
+	for rows.Next() {
+		var i ListTeamsPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.Source,
+			&i.IdpGroup,
+			&i.MemberCount,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

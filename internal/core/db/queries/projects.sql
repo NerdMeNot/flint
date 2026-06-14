@@ -107,3 +107,21 @@ RETURNING id;
 -- name: GetProjectRepoInfo :one
 SELECT repo_path, org_id, COALESCE(pipeline_source->>'path', '.flint/')::text AS pipeline_path
 FROM projects WHERE id = $1;
+
+-- name: SearchProjects :many
+-- Project search by name / repo for the global ⌘K search.
+SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
+FROM projects
+WHERE org_id = sqlc.arg('org_id') AND is_archived = false
+  AND (display_name ILIKE sqlc.arg('pattern') OR repo_path ILIKE sqlc.arg('pattern'))
+ORDER BY display_name
+LIMIT 10;
+
+-- name: GetProjectBasic :one
+-- Single project with workspace slug. The most recent run is fetched separately
+-- (ListRunsByProject with limit 1) to keep nullability clean.
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.id = $1;

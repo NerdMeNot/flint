@@ -673,6 +673,60 @@ func (q *Queries) RunsNeedingCleanup(ctx context.Context, limit int32) ([]string
 	return items, nil
 }
 
+const searchRuns = `-- name: SearchRuns :many
+SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
+       COALESCE(p.display_name, p.repo_path)::text AS project_name,
+       p.colour AS project_colour
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.org_id = $1
+  AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
+ORDER BY pr.started_at DESC
+LIMIT 10
+`
+
+type SearchRunsParams struct {
+	OrgID   string  `json:"org_id"`
+	Pattern *string `json:"pattern"`
+}
+
+type SearchRunsRow struct {
+	ID            string  `json:"id"`
+	Status        string  `json:"status"`
+	Branch        *string `json:"branch"`
+	CommitSha     *string `json:"commit_sha"`
+	ProjectName   string  `json:"project_name"`
+	ProjectColour string  `json:"project_colour"`
+}
+
+// Run search by branch / commit SHA for the global ⌘K search.
+func (q *Queries) SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error) {
+	rows, err := q.db.Query(ctx, searchRuns, arg.OrgID, arg.Pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchRunsRow{}
+	for rows.Next() {
+		var i SearchRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Branch,
+			&i.CommitSha,
+			&i.ProjectName,
+			&i.ProjectColour,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateRunStatus = `-- name: UpdateRunStatus :exec
 UPDATE pipeline_runs SET status = $2 WHERE id = $1
 `

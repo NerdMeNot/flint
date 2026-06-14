@@ -276,6 +276,78 @@ func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) 
 	return items, nil
 }
 
+const listGatesByStatus = `-- name: ListGatesByStatus :many
+SELECT s.name AS step_name,
+       COALESCE(s.step_def->'gate'->>'message', '')::text AS message,
+       pr.id AS run_id, pr.trigger_ref AS branch, pr.triggered_by,
+       p.display_name AS project_name, p.colour AS project_colour,
+       COALESCE(w.slug, '')::text AS workspace,
+       COALESCE(s.step_def->'gate'->>'environment', '')::text AS environment,
+       s.status, s.created_at,
+       s.result->>'approvedBy' AS reviewed_by,
+       s.finished_at AS reviewed_at
+FROM steps s
+JOIN workflows wf ON s.workflow_id = wf.id
+JOIN pipeline_runs pr ON wf.run_id = pr.id
+JOIN projects p ON pr.project_id = p.id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE s.exec_type = 'gate' AND s.status = $1
+ORDER BY s.created_at ASC LIMIT 50
+`
+
+type ListGatesByStatusRow struct {
+	StepName      string      `json:"step_name"`
+	Message       string      `json:"message"`
+	RunID         string      `json:"run_id"`
+	Branch        *string     `json:"branch"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	ProjectName   *string     `json:"project_name"`
+	ProjectColour string      `json:"project_colour"`
+	Workspace     string      `json:"workspace"`
+	Environment   string      `json:"environment"`
+	Status        string      `json:"status"`
+	CreatedAt     time.Time   `json:"created_at"`
+	ReviewedBy    interface{} `json:"reviewed_by"`
+	ReviewedAt    *time.Time  `json:"reviewed_at"`
+}
+
+// Gate steps enriched with run/project/workspace context, filtered by step status
+// (the handler maps UI status names: pending→waiting, approved→succeeded,
+// rejected→failed). Powers GET /api/v1/gates.
+func (q *Queries) ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error) {
+	rows, err := q.db.Query(ctx, listGatesByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatesByStatusRow{}
+	for rows.Next() {
+		var i ListGatesByStatusRow
+		if err := rows.Scan(
+			&i.StepName,
+			&i.Message,
+			&i.RunID,
+			&i.Branch,
+			&i.TriggeredBy,
+			&i.ProjectName,
+			&i.ProjectColour,
+			&i.Workspace,
+			&i.Environment,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ReviewedBy,
+			&i.ReviewedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingGates = `-- name: ListPendingGates :many
 SELECT s.name AS step_name,
        s.step_def->'gate'->>'message' AS message,

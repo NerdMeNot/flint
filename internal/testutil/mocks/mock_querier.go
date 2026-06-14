@@ -796,6 +796,34 @@ func (_m *Querier) CreateLocalUser(ctx context.Context, arg db.CreateLocalUserPa
 	return r0, r1
 }
 
+// CreatePersonalToken provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreatePersonalToken(ctx context.Context, arg db.CreatePersonalTokenParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreatePersonalToken")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreatePersonalTokenParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreatePersonalTokenParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreatePersonalTokenParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateProtectedEnvironment provides a mock function with given fields: ctx, arg
 func (_m *Querier) CreateProtectedEnvironment(ctx context.Context, arg db.CreateProtectedEnvironmentParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -1377,6 +1405,24 @@ func (_m *Querier) DeleteMFAPendingToken(ctx context.Context, token string) erro
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, token)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// DeletePersonalToken provides a mock function with given fields: ctx, id
+func (_m *Querier) DeletePersonalToken(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePersonalToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2470,6 +2516,34 @@ func (_m *Querier) GetProject(ctx context.Context, id string) (db.GetProjectRow,
 	return r0, r1
 }
 
+// GetProjectBasic provides a mock function with given fields: ctx, id
+func (_m *Querier) GetProjectBasic(ctx context.Context, id string) (db.GetProjectBasicRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProjectBasic")
+	}
+
+	var r0 db.GetProjectBasicRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetProjectBasicRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetProjectBasicRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetProjectBasicRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetProjectByRepoPath provides a mock function with given fields: ctx, repoPath
 func (_m *Querier) GetProjectByRepoPath(ctx context.Context, repoPath string) (db.GetProjectByRepoPathRow, error) {
 	ret := _m.Called(ctx, repoPath)
@@ -3001,6 +3075,34 @@ func (_m *Querier) GetStepStatus(ctx context.Context, arg db.GetStepStatusParams
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.GetStepStatusParams) error); ok {
 		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetTeam provides a mock function with given fields: ctx, id
+func (_m *Querier) GetTeam(ctx context.Context, id string) (db.GetTeamRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTeam")
+	}
+
+	var r0 db.GetTeamRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetTeamRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetTeamRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetTeamRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3898,6 +4000,36 @@ func (_m *Querier) ListAPIKeys(ctx context.Context, arg db.ListAPIKeysParams) ([
 	return r0, r1
 }
 
+// ListAPIKeysDetailed provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListAPIKeysDetailed(ctx context.Context, arg db.ListAPIKeysDetailedParams) ([]db.ListAPIKeysDetailedRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAPIKeysDetailed")
+	}
+
+	var r0 []db.ListAPIKeysDetailedRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListAPIKeysDetailedParams) ([]db.ListAPIKeysDetailedRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListAPIKeysDetailedParams) []db.ListAPIKeysDetailedRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListAPIKeysDetailedRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListAPIKeysDetailedParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListAllRoleAssignments provides a mock function with given fields: ctx
 func (_m *Querier) ListAllRoleAssignments(ctx context.Context) ([]db.ListAllRoleAssignmentsRow, error) {
 	ret := _m.Called(ctx)
@@ -4228,6 +4360,36 @@ func (_m *Querier) ListForgeConnections(ctx context.Context, arg db.ListForgeCon
 	return r0, r1
 }
 
+// ListGatesByStatus provides a mock function with given fields: ctx, status
+func (_m *Querier) ListGatesByStatus(ctx context.Context, status string) ([]db.ListGatesByStatusRow, error) {
+	ret := _m.Called(ctx, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListGatesByStatus")
+	}
+
+	var r0 []db.ListGatesByStatusRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListGatesByStatusRow, error)); ok {
+		return rf(ctx, status)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListGatesByStatusRow); ok {
+		r0 = rf(ctx, status)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListGatesByStatusRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListModules provides a mock function with given fields: ctx
 func (_m *Querier) ListModules(ctx context.Context) ([]db.ListModulesRow, error) {
 	ret := _m.Called(ctx)
@@ -4311,6 +4473,36 @@ func (_m *Querier) ListPendingGates(ctx context.Context) ([]db.ListPendingGatesR
 
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListPersonalTokensByUser provides a mock function with given fields: ctx, userID
+func (_m *Querier) ListPersonalTokensByUser(ctx context.Context, userID string) ([]db.ListPersonalTokensByUserRow, error) {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPersonalTokensByUser")
+	}
+
+	var r0 []db.ListPersonalTokensByUserRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListPersonalTokensByUserRow, error)); ok {
+		return rf(ctx, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListPersonalTokensByUserRow); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListPersonalTokensByUserRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, userID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4708,6 +4900,36 @@ func (_m *Querier) ListRunnerPools(ctx context.Context) ([]db.ListRunnerPoolsRow
 	return r0, r1
 }
 
+// ListRunnerPoolsPaged provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListRunnerPoolsPaged(ctx context.Context, arg db.ListRunnerPoolsPagedParams) ([]db.ListRunnerPoolsPagedRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRunnerPoolsPaged")
+	}
+
+	var r0 []db.ListRunnerPoolsPagedRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRunnerPoolsPagedParams) ([]db.ListRunnerPoolsPagedRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRunnerPoolsPagedParams) []db.ListRunnerPoolsPagedRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListRunnerPoolsPagedRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListRunnerPoolsPagedParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListRunsAll provides a mock function with given fields: ctx, limit
 func (_m *Querier) ListRunsAll(ctx context.Context, limit int32) ([]db.ListRunsAllRow, error) {
 	ret := _m.Called(ctx, limit)
@@ -5008,6 +5230,36 @@ func (_m *Querier) ListTeams(ctx context.Context, arg db.ListTeamsParams) ([]db.
 	return r0, r1
 }
 
+// ListTeamsPaged provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListTeamsPaged(ctx context.Context, arg db.ListTeamsPagedParams) ([]db.ListTeamsPagedRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListTeamsPaged")
+	}
+
+	var r0 []db.ListTeamsPagedRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListTeamsPagedParams) ([]db.ListTeamsPagedRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListTeamsPagedParams) []db.ListTeamsPagedRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListTeamsPagedRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListTeamsPagedParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListUserIdpTeams provides a mock function with given fields: ctx, userID
 func (_m *Querier) ListUserIdpTeams(ctx context.Context, userID string) ([]db.ListUserIdpTeamsRow, error) {
 	ret := _m.Called(ctx, userID)
@@ -5176,6 +5428,36 @@ func (_m *Querier) ListValidAPIKeys(ctx context.Context) ([]db.ListValidAPIKeysR
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]db.ListValidAPIKeysRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListValidPersonalTokensWithUser provides a mock function with given fields: ctx
+func (_m *Querier) ListValidPersonalTokensWithUser(ctx context.Context) ([]db.ListValidPersonalTokensWithUserRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListValidPersonalTokensWithUser")
+	}
+
+	var r0 []db.ListValidPersonalTokensWithUserRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListValidPersonalTokensWithUserRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListValidPersonalTokensWithUserRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListValidPersonalTokensWithUserRow)
 		}
 	}
 
@@ -5816,6 +6098,66 @@ func (_m *Querier) RunsNeedingCleanup(ctx context.Context, limit int32) ([]strin
 	return r0, r1
 }
 
+// SearchProjects provides a mock function with given fields: ctx, arg
+func (_m *Querier) SearchProjects(ctx context.Context, arg db.SearchProjectsParams) ([]db.SearchProjectsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchProjects")
+	}
+
+	var r0 []db.SearchProjectsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SearchProjectsParams) ([]db.SearchProjectsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.SearchProjectsParams) []db.SearchProjectsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.SearchProjectsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.SearchProjectsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// SearchRuns provides a mock function with given fields: ctx, arg
+func (_m *Querier) SearchRuns(ctx context.Context, arg db.SearchRunsParams) ([]db.SearchRunsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchRuns")
+	}
+
+	var r0 []db.SearchRunsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SearchRunsParams) ([]db.SearchRunsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.SearchRunsParams) []db.SearchRunsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.SearchRunsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.SearchRunsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // SearchUsers provides a mock function with given fields: ctx, arg
 func (_m *Querier) SearchUsers(ctx context.Context, arg db.SearchUsersParams) ([]db.SearchUsersRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -6083,6 +6425,24 @@ func (_m *Querier) TouchDeviceCodePoll(ctx context.Context, deviceCode string) e
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, deviceCode)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// TouchPersonalToken provides a mock function with given fields: ctx, id
+func (_m *Querier) TouchPersonalToken(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TouchPersonalToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}

@@ -56,6 +56,41 @@ func (q *Queries) GetProject(ctx context.Context, id string) (GetProjectRow, err
 	return i, err
 }
 
+const getProjectBasic = `-- name: GetProjectBasic :one
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.id = $1
+`
+
+type GetProjectBasicRow struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	RepoPath  string    `json:"repo_path"`
+	Workspace string    `json:"workspace"`
+	Colour    string    `json:"colour"`
+	Tags      []string  `json:"tags"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Single project with workspace slug. The most recent run is fetched separately
+// (ListRunsByProject with limit 1) to keep nullability clean.
+func (q *Queries) GetProjectBasic(ctx context.Context, id string) (GetProjectBasicRow, error) {
+	row := q.db.QueryRow(ctx, getProjectBasic, id)
+	var i GetProjectBasicRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.RepoPath,
+		&i.Workspace,
+		&i.Colour,
+		&i.Tags,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getProjectByRepoPath = `-- name: GetProjectByRepoPath :one
 SELECT p.id, p.org_id, p.pipeline_source->>'path' AS pipeline_path
 FROM projects p
@@ -228,6 +263,53 @@ func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsW
 			&i.LastRunTriggeredBy,
 			&i.LastRunStartedAt,
 			&i.LastRunDurationMs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchProjects = `-- name: SearchProjects :many
+SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
+FROM projects
+WHERE org_id = $1 AND is_archived = false
+  AND (display_name ILIKE $2 OR repo_path ILIKE $2)
+ORDER BY display_name
+LIMIT 10
+`
+
+type SearchProjectsParams struct {
+	OrgID   string  `json:"org_id"`
+	Pattern *string `json:"pattern"`
+}
+
+type SearchProjectsRow struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	RepoPath string `json:"repo_path"`
+	Colour   string `json:"colour"`
+}
+
+// Project search by name / repo for the global ⌘K search.
+func (q *Queries) SearchProjects(ctx context.Context, arg SearchProjectsParams) ([]SearchProjectsRow, error) {
+	rows, err := q.db.Query(ctx, searchProjects, arg.OrgID, arg.Pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchProjectsRow{}
+	for rows.Next() {
+		var i SearchProjectsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.RepoPath,
+			&i.Colour,
 		); err != nil {
 			return nil, err
 		}

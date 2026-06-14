@@ -66,37 +66,30 @@ func (s *Server) handleListTeams(ctx context.Context, c *app.RequestContext) {
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
 
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT t.id, t.name, t.slug,
-		       COALESCE(t.source, 'internal') AS source,
-		       t.idp_group,
-		       COUNT(tm.user_id) AS member_count
-		FROM teams t
-		LEFT JOIN team_members tm ON tm.team_id = t.id
-		WHERE t.org_id = $1
-		GROUP BY t.id
-		ORDER BY t.name
-		LIMIT $2 OFFSET $3
-	`, claims.OrgID, lim, off)
+	rows, err := s.deps.Q.ListTeamsPaged(ctx, db.ListTeamsPagedParams{
+		OrgID:  claims.OrgID,
+		Limit:  int32(lim),
+		Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list teams")
 		return
 	}
-	defer rows.Close()
 
-	result := []teamResponse{}
-	for rows.Next() {
-		var t teamResponse
-		var source *string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Slug, &source, &t.IDPGroup, &t.MemberCount); err != nil {
-			apiInternal(ctx, c, "failed to scan team")
-			return
+	result := make([]teamResponse, 0, len(rows))
+	for _, t := range rows {
+		tr := teamResponse{
+			ID:          t.ID,
+			Name:        t.Name,
+			Slug:        t.Slug,
+			Source:      t.Source,
+			IDPGroup:    t.IdpGroup,
+			MemberCount: int(t.MemberCount),
 		}
-		t.Source = derefString(source)
-		if t.Source == "" {
-			t.Source = "internal"
+		if tr.Source == "" {
+			tr.Source = "internal"
 		}
-		result = append(result, t)
+		result = append(result, tr)
 	}
 
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
@@ -244,94 +237,44 @@ func (s *Server) handleListAPIKeys(ctx context.Context, c *app.RequestContext) {
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
 
-	// Use raw query to join role and scope tables.
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT ak.id, ak.name,
-		       COALESCE(r.slug, 'viewer') AS role,
-		       COALESCE(u.email, 'system') AS created_by,
-		       ak.expires_at, ak.last_used_at, ak.created_at
-		FROM api_keys ak
-		LEFT JOIN roles r ON r.id = ak.role_id
-		LEFT JOIN users u ON u.id = ak.user_id
-		WHERE ak.org_id = $1
-		ORDER BY ak.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, claims.OrgID, lim, off)
+	rows, err := s.deps.Q.ListAPIKeysDetailed(ctx, db.ListAPIKeysDetailedParams{
+		OrgID:  claims.OrgID,
+		Limit:  int32(lim),
+		Offset: int32(off),
+	})
 	if err != nil {
-		// Fall back to sqlc query if the role_id column doesn't exist yet.
-		keys, sqlcErr := s.deps.Q.ListAPIKeys(ctx, db.ListAPIKeysParams{
-			OrgID: claims.OrgID, Limit: int32(lim), Offset: int32(off),
-		})
-		if sqlcErr != nil {
-			apiInternal(ctx, c, "failed to list API keys")
-			return
-		}
-		result := make([]apiKeyResponse, 0, len(keys))
-		for _, k := range keys {
-			resp := apiKeyResponse{
-				ID:           k.ID,
-				Name:         k.Name,
-				Role:         "viewer",
-				Workspaces:   []string{},
-				Environments: []string{},
-				CreatedBy:    "system",
-				CreatedAt:    k.CreatedAt.Format(time.RFC3339),
-			}
-			if k.ExpiresAt != nil {
-				s := k.ExpiresAt.Format(time.RFC3339)
-				resp.ExpiresAt = &s
-			}
-			if k.LastUsedAt != nil {
-				s := k.LastUsedAt.Format(time.RFC3339)
-				resp.LastUsedAt = &s
-			}
-			result = append(result, resp)
-		}
-		paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(keys))})
+		apiInternal(ctx, c, "failed to list API keys")
 		return
 	}
-	defer rows.Close()
 
-	var result []apiKeyResponse
-	for rows.Next() {
-		var k apiKeyResponse
-		var expiresAt, lastUsedAt *time.Time
-		var createdAt time.Time
-
-		if err := rows.Scan(&k.ID, &k.Name, &k.Role, &k.CreatedBy,
-			&expiresAt, &lastUsedAt, &createdAt); err != nil {
-			apiInternal(ctx, c, "failed to scan API key")
-			return
+	result := make([]apiKeyResponse, 0, len(rows))
+	for _, row := range rows {
+		k := apiKeyResponse{
+			ID:           row.ID,
+			Name:         row.Name,
+			Role:         row.Role,
+			CreatedBy:    row.CreatedBy,
+			CreatedAt:    row.CreatedAt.Format(time.RFC3339),
+			Workspaces:   []string{},
+			Environments: []string{},
 		}
-
-		k.CreatedAt = createdAt.Format(time.RFC3339)
-		if expiresAt != nil {
-			s := expiresAt.Format(time.RFC3339)
+		if row.ExpiresAt != nil {
+			s := row.ExpiresAt.Format(time.RFC3339)
 			k.ExpiresAt = &s
 		}
-		if lastUsedAt != nil {
-			s := lastUsedAt.Format(time.RFC3339)
+		if row.LastUsedAt != nil {
+			s := row.LastUsedAt.Format(time.RFC3339)
 			k.LastUsedAt = &s
 		}
-
-		// Load workspace and environment scopes.
-		k.Workspaces = []string{}
-		k.Environments = []string{}
-
-		if wsSlugs, wsErr := s.deps.Q.ListAPIKeyWorkspaceSlugs(ctx, k.ID); wsErr == nil {
+		if wsSlugs, e := s.deps.Q.ListAPIKeyWorkspaceSlugs(ctx, k.ID); e == nil {
 			k.Workspaces = wsSlugs
 		}
-
-		if envSlugs, envErr := s.deps.Q.ListAPIKeyEnvironmentSlugs(ctx, k.ID); envErr == nil {
+		if envSlugs, e := s.deps.Q.ListAPIKeyEnvironmentSlugs(ctx, k.ID); e == nil {
 			k.Environments = envSlugs
 		}
-
 		result = append(result, k)
 	}
 
-	if result == nil {
-		result = []apiKeyResponse{}
-	}
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
 }
 

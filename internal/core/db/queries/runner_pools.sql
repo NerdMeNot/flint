@@ -29,3 +29,7 @@ ON CONFLICT (name) DO UPDATE SET
 
 -- name: DeleteRunnerPool :exec
 DELETE FROM runner_pools WHERE name = $1;
+
+-- name: ListRunnerPoolsPaged :many
+SELECT id, name, description, cpu, memory, arch, gpu_vendor, gpu_model, gpu_count, ready, created_at
+FROM runner_pools ORDER BY name LIMIT $1 OFFSET $2;

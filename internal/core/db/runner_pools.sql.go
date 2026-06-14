@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -80,6 +81,62 @@ func (q *Queries) ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, er
 			&i.GpuCount,
 			&i.Arch,
 			&i.SpotPreferred,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunnerPoolsPaged = `-- name: ListRunnerPoolsPaged :many
+SELECT id, name, description, cpu, memory, arch, gpu_vendor, gpu_model, gpu_count, ready, created_at
+FROM runner_pools ORDER BY name LIMIT $1 OFFSET $2
+`
+
+type ListRunnerPoolsPagedParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type ListRunnerPoolsPagedRow struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description *string     `json:"description"`
+	Cpu         string      `json:"cpu"`
+	Memory      string      `json:"memory"`
+	Arch        string      `json:"arch"`
+	GpuVendor   *string     `json:"gpu_vendor"`
+	GpuModel    *string     `json:"gpu_model"`
+	GpuCount    pgtype.Int4 `json:"gpu_count"`
+	Ready       bool        `json:"ready"`
+	CreatedAt   time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsPagedParams) ([]ListRunnerPoolsPagedRow, error) {
+	rows, err := q.db.Query(ctx, listRunnerPoolsPaged, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunnerPoolsPagedRow{}
+	for rows.Next() {
+		var i ListRunnerPoolsPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.Cpu,
+			&i.Memory,
+			&i.Arch,
+			&i.GpuVendor,
+			&i.GpuModel,
+			&i.GpuCount,
+			&i.Ready,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

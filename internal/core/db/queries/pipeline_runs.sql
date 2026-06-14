@@ -147,3 +147,15 @@ SELECT workflow_id FROM pipeline_runs WHERE id = $1;
 -- name: GetOriginalRunParams :one
 SELECT project_id, org_id, workflow_file, trigger_ref, commit_sha, environment
 FROM pipeline_runs WHERE id = $1;
+
+-- name: SearchRuns :many
+-- Run search by branch / commit SHA for the global ⌘K search.
+SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
+       COALESCE(p.display_name, p.repo_path)::text AS project_name,
+       p.colour AS project_colour
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.org_id = sqlc.arg('org_id')
+  AND (pr.trigger_ref ILIKE sqlc.arg('pattern') OR pr.commit_sha ILIKE sqlc.arg('pattern'))
+ORDER BY pr.started_at DESC
+LIMIT 10;
