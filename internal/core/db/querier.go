@@ -292,6 +292,10 @@ type Querier interface {
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
 	NotifyEngine(ctx context.Context, pgNotify string) error
+	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
+	// Per-project run health for an org: recent statuses (newest first, capped at 10)
+	// plus totals — powers the dashboard health bars / "needs attention".
+	ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error)
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error

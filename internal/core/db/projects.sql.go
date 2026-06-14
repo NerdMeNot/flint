@@ -274,6 +274,70 @@ func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsW
 	return items, nil
 }
 
+const projectHealthByID = `-- name: ProjectHealthByID :one
+SELECT (array_agg(status ORDER BY started_at DESC))[1:10]::text[] AS recent_statuses,
+       COUNT(*) AS total_runs,
+       COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded_runs
+FROM pipeline_runs WHERE project_id = $1
+`
+
+type ProjectHealthByIDRow struct {
+	RecentStatuses []string `json:"recent_statuses"`
+	TotalRuns      int64    `json:"total_runs"`
+	SucceededRuns  int64    `json:"succeeded_runs"`
+}
+
+func (q *Queries) ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error) {
+	row := q.db.QueryRow(ctx, projectHealthByID, projectID)
+	var i ProjectHealthByIDRow
+	err := row.Scan(&i.RecentStatuses, &i.TotalRuns, &i.SucceededRuns)
+	return i, err
+}
+
+const projectHealthByOrg = `-- name: ProjectHealthByOrg :many
+SELECT project_id::text AS project_id,
+       (array_agg(status ORDER BY started_at DESC))[1:10]::text[] AS recent_statuses,
+       COUNT(*) AS total_runs,
+       COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded_runs
+FROM pipeline_runs
+WHERE org_id = $1 AND project_id IS NOT NULL
+GROUP BY project_id
+`
+
+type ProjectHealthByOrgRow struct {
+	ProjectID      string   `json:"project_id"`
+	RecentStatuses []string `json:"recent_statuses"`
+	TotalRuns      int64    `json:"total_runs"`
+	SucceededRuns  int64    `json:"succeeded_runs"`
+}
+
+// Per-project run health for an org: recent statuses (newest first, capped at 10)
+// plus totals — powers the dashboard health bars / "needs attention".
+func (q *Queries) ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error) {
+	rows, err := q.db.Query(ctx, projectHealthByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectHealthByOrgRow{}
+	for rows.Next() {
+		var i ProjectHealthByOrgRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.RecentStatuses,
+			&i.TotalRuns,
+			&i.SucceededRuns,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchProjects = `-- name: SearchProjects :many
 SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
 FROM projects

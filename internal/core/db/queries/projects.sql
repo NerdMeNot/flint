@@ -125,3 +125,20 @@ SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE p.id = $1;
+
+-- name: ProjectHealthByOrg :many
+-- Per-project run health for an org: recent statuses (newest first, capped at 10)
+-- plus totals — powers the dashboard health bars / "needs attention".
+SELECT project_id::text AS project_id,
+       (array_agg(status ORDER BY started_at DESC))[1:10]::text[] AS recent_statuses,
+       COUNT(*) AS total_runs,
+       COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded_runs
+FROM pipeline_runs
+WHERE org_id = $1 AND project_id IS NOT NULL
+GROUP BY project_id;
+
+-- name: ProjectHealthByID :one
+SELECT (array_agg(status ORDER BY started_at DESC))[1:10]::text[] AS recent_statuses,
+       COUNT(*) AS total_runs,
+       COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded_runs
+FROM pipeline_runs WHERE project_id = $1;

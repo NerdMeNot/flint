@@ -38,8 +38,38 @@ type projectResponse struct {
 	PipelineCount  int              `json:"pipelineCount"`
 	PipelineErrors int              `json:"pipelineErrors"`
 	LastRun        *lastRunResponse `json:"lastRun,omitempty"`
+	Health         *projectHealth   `json:"health,omitempty"`
 	CreatedAt      string           `json:"createdAt"`
 	Inferred       bool             `json:"inferred"`
+}
+
+// projectHealth summarizes a project's recent run outcomes for the dashboard
+// health bars / "needs attention" (UI ProjectHealth). passRate is a percent.
+type projectHealth struct {
+	RecentRuns []string `json:"recentRuns"`
+	PassRate   int      `json:"passRate"`
+	FailingNow bool     `json:"failingNow"`
+	TotalRuns  int      `json:"totalRuns"`
+}
+
+// buildProjectHealth assembles a projectHealth from recent statuses (newest
+// first) and totals. Returns nil when the project has no runs.
+func buildProjectHealth(recent []string, total, succeeded int64) *projectHealth {
+	if total == 0 {
+		return nil
+	}
+	if recent == nil {
+		recent = []string{}
+	}
+	h := &projectHealth{
+		RecentRuns: recent,
+		PassRate:   int(math.Round(float64(succeeded) / float64(total) * 100)),
+		TotalRuns:  int(total),
+	}
+	if len(recent) > 0 {
+		h.FailingNow = recent[0] == "failed"
+	}
+	return h
 }
 
 type runResponse struct {
@@ -310,6 +340,16 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// Per-project health (recent run outcomes), keyed by project id.
+	health := map[string]*projectHealth{}
+	if org, oerr := s.deps.Q.GetOrg(ctx); oerr == nil {
+		if hrows, herr := s.deps.Q.ProjectHealthByOrg(ctx, org.ID); herr == nil {
+			for _, h := range hrows {
+				health[h.ProjectID] = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
+			}
+		}
+	}
+
 	result := make([]projectResponse, 0, len(rows))
 	for _, row := range rows {
 		p := projectResponse{
@@ -319,6 +359,7 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 			Workspace: row.Workspace,
 			Colour:    row.Colour,
 			Tags:      row.Tags,
+			Health:    health[row.ID],
 			CreatedAt: row.CreatedAt.Format(time.RFC3339),
 			Inferred:  row.Inferred,
 		}
@@ -425,6 +466,10 @@ func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
 			TriggeredBy: derefString(lr.TriggeredBy),
 			StartedAt:   lr.StartedAt.Format(time.RFC3339),
 		}
+	}
+
+	if h, herr := s.deps.Q.ProjectHealthByID(ctx, &id); herr == nil {
+		p.Health = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
 	}
 
 	c.JSON(consts.StatusOK, p)

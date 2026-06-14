@@ -5742,6 +5742,64 @@ func (_m *Querier) NotifyEngine(ctx context.Context, pgNotify string) error {
 	return r0
 }
 
+// ProjectHealthByID provides a mock function with given fields: ctx, projectID
+func (_m *Querier) ProjectHealthByID(ctx context.Context, projectID *string) (db.ProjectHealthByIDRow, error) {
+	ret := _m.Called(ctx, projectID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ProjectHealthByID")
+	}
+
+	var r0 db.ProjectHealthByIDRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *string) (db.ProjectHealthByIDRow, error)); ok {
+		return rf(ctx, projectID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *string) db.ProjectHealthByIDRow); ok {
+		r0 = rf(ctx, projectID)
+	} else {
+		r0 = ret.Get(0).(db.ProjectHealthByIDRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *string) error); ok {
+		r1 = rf(ctx, projectID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ProjectHealthByOrg provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ProjectHealthByOrg(ctx context.Context, orgID string) ([]db.ProjectHealthByOrgRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ProjectHealthByOrg")
+	}
+
+	var r0 []db.ProjectHealthByOrgRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ProjectHealthByOrgRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ProjectHealthByOrgRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ProjectHealthByOrgRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // RecentlyFailedWorkflowIDs provides a mock function with given fields: ctx
 func (_m *Querier) RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error) {
 	ret := _m.Called(ctx)
