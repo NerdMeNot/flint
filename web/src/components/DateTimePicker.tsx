@@ -5,6 +5,7 @@ import { formatDateTime } from '#/lib/format-time'
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
@@ -20,8 +21,10 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
+  // Calendar drill level for fast month/year jumps: days → months → years.
+  const [mode, setMode] = useState<'days' | 'months' | 'years'>('days')
   const ref = useRef<HTMLDivElement>(null)
-  useClickOutside(ref, () => setOpen(false), open)
+  useClickOutside(ref, () => { setOpen(false); setMode('days') }, open)
 
   const sel = value ? new Date(value) : null
   const [view, setView] = useState(() => {
@@ -79,36 +82,92 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
 
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-[256px] rounded-lg border border-border p-2.5 shadow-xl" style={{ background: 'var(--surface-strong)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <button type="button" onClick={() => stepMonth(-1)} className={iconBtn}><ChevronLeft size={15} /></button>
-            <span className="text-sm font-semibold text-foreground">{MONTHS[view.m]} {view.y}</span>
-            <button type="button" onClick={() => stepMonth(1)} className={iconBtn}><ChevronRight size={15} /></button>
-          </div>
+          {(() => {
+            const yearStart = Math.floor(view.y / 12) * 12
+            const step = (delta: number) =>
+              mode === 'days' ? stepMonth(delta)
+                : mode === 'months' ? setView((v) => ({ ...v, y: v.y + delta }))
+                  : setView((v) => ({ ...v, y: v.y + delta * 12 }))
+            const heading =
+              mode === 'days' ? `${MONTHS[view.m]} ${view.y}`
+                : mode === 'months' ? `${view.y}`
+                  : `${yearStart} – ${yearStart + 11}`
+            return (
+              <div className="flex items-center justify-between mb-2">
+                <button type="button" onClick={() => step(-1)} className={iconBtn}><ChevronLeft size={15} /></button>
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'days' ? 'months' : mode === 'months' ? 'years' : 'days')}
+                  className="rounded-md px-2 py-0.5 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+                >
+                  {heading}
+                </button>
+                <button type="button" onClick={() => step(1)} className={iconBtn}><ChevronRight size={15} /></button>
+              </div>
+            )
+          })()}
 
-          <div className="grid grid-cols-7 gap-0.5 mb-1">
-            {WEEKDAYS.map((w) => (
-              <span key={w} className="text-center text-[10px] font-medium text-muted-foreground/50 py-0.5">{w}</span>
-            ))}
-          </div>
+          {mode === 'days' && (
+            <>
+              <div className="grid grid-cols-7 gap-0.5 mb-1">
+                {WEEKDAYS.map((w) => (
+                  <span key={w} className="text-center text-[10px] font-medium text-muted-foreground/50 py-0.5">{w}</span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {cells.map((d, i) => d === null ? <span key={i} /> : (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => pickDay(d)}
+                    className={`h-7 rounded-md text-xs transition-colors ${
+                      isSel(d)
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : isToday(d)
+                          ? 'text-primary ring-1 ring-primary/30'
+                          : 'text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
-          <div className="grid grid-cols-7 gap-0.5">
-            {cells.map((d, i) => d === null ? <span key={i} /> : (
-              <button
-                key={i}
-                type="button"
-                onClick={() => pickDay(d)}
-                className={`h-7 rounded-md text-xs transition-colors ${
-                  isSel(d)
-                    ? 'bg-primary text-primary-foreground font-semibold'
-                    : isToday(d)
-                      ? 'text-primary ring-1 ring-primary/30'
-                      : 'text-foreground hover:bg-accent'
-                }`}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
+          {mode === 'months' && (
+            <div className="grid grid-cols-3 gap-1">
+              {MONTHS_SHORT.map((label, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => { setView((v) => ({ ...v, m: i })); setMode('days') }}
+                  className={`h-9 rounded-md text-xs font-medium transition-colors ${
+                    view.m === i ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode === 'years' && (
+            <div className="grid grid-cols-3 gap-1">
+              {Array.from({ length: 12 }, (_, i) => Math.floor(view.y / 12) * 12 + i).map((y) => (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => { setView((v) => ({ ...v, y })); setMode('months') }}
+                  className={`h-9 rounded-md text-xs font-medium transition-colors ${
+                    view.y === y ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-border">
             <Clock size={13} className="text-muted-foreground shrink-0" />
