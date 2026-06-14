@@ -45,7 +45,7 @@ export function RefreshControl({ value, onChange, onRefresh }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-24 rounded-lg border border-border shadow-lg overflow-hidden" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute right-0 top-full mt-1 z-50 w-24 max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-lg overflow-hidden" style={{ background: 'var(--surface-strong)' }}>
           {OPTIONS.map((o) => (
             <button
               key={o.label}
