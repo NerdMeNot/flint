@@ -2,7 +2,6 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import {
-  GitBranch,
   CheckCircle,
   XCircle,
   Loader2,
@@ -19,23 +18,25 @@ import {
   Layers,
   Shield,
   ArrowRight,
+  ScrollText,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
-import type { PipelineDefinition } from '#/lib/api/types'
+import type { PipelineDefinition, PipelineRun } from '#/lib/api/types'
 import { Modal } from '#/components/Modal'
 import { DagView } from '#/components/pipeline/dag-view'
+import { RunRow } from '#/components/RunRow'
 import { TagChip } from '#/components/TagChip'
 import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import { BackLink } from '#/components/BackLink'
 import { ProjectHealthBar } from '#/components/ProjectHealth'
-import { parseDurationToSeconds, median } from '#/lib/run-feed'
+import { parseDurationToSeconds, median, groupByBucket } from '#/lib/run-feed'
 
 export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
 })
 
-type Tab = 'dag' | 'yaml'
+type Tab = 'runs' | 'pipeline' | 'yaml'
 
 function fmtDuration(secs: number): string {
   if (!secs) return '—'
@@ -47,7 +48,7 @@ function fmtDuration(secs: number): string {
 function ProjectDetailPage() {
   const { id } = Route.useParams()
   const [pipelineIdx, setPipelineIdx] = useState(0)
-  const [tab, setTab] = useState<Tab>('dag')
+  const [tab, setTab] = useState<Tab>('runs')
   const [showTrigger, setShowTrigger] = useState(false)
 
   const { data: project } = useSuspenseQuery(
@@ -62,9 +63,6 @@ function ProjectDetailPage() {
 
   const allRuns = runsData.items
   const activePipeline = pipelines[pipelineIdx] ?? pipelines[0]
-  const dagSteps = activePipeline
-    ? activePipeline.steps.map((s) => ({ ...s, status: 'pending' as const }))
-    : []
 
   // Filter runs to the active pipeline's workflow file
   const filteredRuns = activePipeline
@@ -80,7 +78,8 @@ function ProjectDetailPage() {
   )
 
   const tabs = [
-    { key: 'dag' as const, icon: Network, label: 'Pipeline' },
+    { key: 'runs' as const, icon: ScrollText, label: 'Runs', count: filteredRuns.length },
+    { key: 'pipeline' as const, icon: Network, label: 'Pipeline' },
     { key: 'yaml' as const, icon: FileCode, label: 'YAML' },
   ]
 
@@ -182,35 +181,32 @@ function ProjectDetailPage() {
         <PipelineErrorBanner errors={activePipeline.errors} filename={activePipeline.filename} />
       )}
 
-      {/* Two-column body: pipeline view + side rail */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="space-y-3 min-w-0">
-          <div className="flex items-center gap-1 border-b border-border pb-px -mb-px">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                  tab === t.key
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                }`}
-              >
-                <t.icon size={13} />
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'dag' && activePipeline && <PipelineTab steps={dagSteps} />}
-          {tab === 'yaml' && activePipeline && <YamlTab yaml={activePipeline.yaml} />}
+      {/* Body — leads with run history; pipeline/YAML are reference tabs. */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-1 border-b border-border pb-px -mb-px">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-1.5 shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                tab === t.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+              }`}
+            >
+              <t.icon size={13} />
+              {t.label}
+              {'count' in t && t.count !== undefined && (
+                <span className="ml-0.5 text-[11px] opacity-60">{t.count}</span>
+              )}
+            </button>
+          ))}
         </div>
 
-        <div className="space-y-5">
-          <RecentRunsRail runs={filteredRuns} projectId={id} />
-          {activePipeline && <PipelineMeta pipeline={activePipeline} />}
-        </div>
+        {tab === 'runs' && <ProjectRunsTab runs={filteredRuns} projectId={id} />}
+        {tab === 'pipeline' && activePipeline && <PipelineTab pipeline={activePipeline} />}
+        {tab === 'yaml' && activePipeline && <YamlTab yaml={activePipeline.yaml} />}
       </div>
 
       {showTrigger && (
@@ -238,76 +234,53 @@ function StatCell({ label, children }: { label: string; children: React.ReactNod
 }
 
 // ---------------------------------------------------------------------------
-// Side rail: recent runs + pipeline details
+// Runs tab — the project's run history as a triage feed (the primary content).
 // ---------------------------------------------------------------------------
 
-function RecentRunsRail({ runs, projectId }: {
-  runs: Array<{ id: string; status: string; branch: string; commitMessage: string; startedAt: string }>
-  projectId: string
-}) {
-  const recent = runs.slice(0, 6)
+function ProjectRunsTab({ runs, projectId }: { runs: PipelineRun[]; projectId: string }) {
+  if (runs.length === 0) {
+    return (
+      <div className="island-shell p-12 flex flex-col items-center gap-3 text-muted-foreground">
+        <ScrollText size={32} strokeWidth={1.2} />
+        <span className="text-sm">No runs for this pipeline yet.</span>
+      </div>
+    )
+  }
+
+  // Single project → one duration baseline shared across rows.
+  const baselineSecs = median(
+    runs
+      .filter((r) => r.status === 'succeeded' || r.status === 'failed')
+      .map((r) => parseDurationToSeconds(r.duration))
+      .filter((s) => s > 0),
+  )
+  const grouped = groupByBucket(runs)
+
   return (
     <div className="island-shell !p-0 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <span className="text-xs font-semibold text-foreground">Recent runs</span>
+      <div className="flex items-center justify-between px-4 lg:px-5 py-2.5 border-b border-border">
+        <span className="text-xs font-semibold text-foreground">{runs.length} run{runs.length === 1 ? '' : 's'}</span>
         <Link
           to="/ci/runs"
           search={{ project: projectId }}
           className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
         >
-          View all <ArrowRight size={11} />
+          View in Runs <ArrowRight size={11} />
         </Link>
       </div>
-      {recent.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs text-muted-foreground">No runs yet.</p>
-      ) : (
-        <div className="divide-y divide-border">
-          {recent.map((run) => (
-            <Link
-              key={run.id}
-              to="/ci/runs/$id"
-              params={{ id: run.id }}
-              className="flex items-start gap-2.5 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
-            >
-              <span className="mt-0.5"><RunStatusIcon status={run.status} size={13} /></span>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-foreground/85 truncate group-hover:text-primary transition-colors">{run.commitMessage}</p>
-                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-                  <GitBranch size={10} />
-                  <span className="font-mono truncate">{run.branch}</span>
-                  <span className="opacity-40">·</span>
-                  <span className="opacity-60 shrink-0">{run.startedAt}</span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PipelineMeta({ pipeline }: { pipeline: PipelineDefinition }) {
-  const waves = pipeline.steps.length > 0 ? Math.max(...pipeline.steps.map((s) => s.wave)) + 1 : 0
-  const gates = pipeline.steps.filter((s) => s.execType === 'gate').length
-  const rows: { icon: typeof FileCode; label: string; value: string }[] = [
-    { icon: FileCode, label: 'File', value: pipeline.filename },
-    { icon: Network, label: 'Steps', value: String(pipeline.steps.length) },
-    { icon: Layers, label: 'Waves', value: String(waves) },
-    { icon: Shield, label: 'Gates', value: String(gates) },
-  ]
-  return (
-    <div className="island-shell p-4 space-y-3">
-      <span className="text-xs font-semibold text-foreground">Pipeline details</span>
-      <div className="space-y-2">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center gap-2 text-xs">
-            <r.icon size={13} className="text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground">{r.label}</span>
-            <span className="ml-auto font-mono text-foreground truncate max-w-[170px]">{r.value}</span>
+      {grouped.map(({ bucket, runs: bucketRuns }) => (
+        <div key={bucket}>
+          <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent/20 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {bucket}
+            <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{bucketRuns.length}</span>
           </div>
-        ))}
-      </div>
+          <div className="divide-y divide-border">
+            {bucketRuns.map((run) => (
+              <RunRow key={run.id} run={run} showProject={false} baselineSecs={baselineSecs} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -555,35 +528,26 @@ function PipelineErrorBanner({ errors, filename }: { errors: string[]; filename:
 // Pipeline tab (DAG view)
 // ---------------------------------------------------------------------------
 
-function PipelineTab({ steps }: { steps: Array<{ name: string; status: string; execType: string; wave: number; dependsOn?: string[] }> }) {
+function PipelineTab({ pipeline }: { pipeline: PipelineDefinition }) {
+  // The definition graph — every step shown "pending" (this is structure, not a
+  // run). Per-run status lives on the run detail page.
+  const steps = pipeline.steps.map((s) => ({ ...s, status: 'pending' as const }))
+  const waves = steps.length > 0 ? Math.max(...steps.map((s) => s.wave)) + 1 : 0
+  const gates = steps.filter((s) => s.execType === 'gate').length
+
   return (
     <div className="space-y-3">
-      {/* Vertical DAG — reads top → bottom like the pipeline runs. */}
-      <div className="island-shell !p-0 overflow-hidden h-[440px] lg:h-[600px]">
-        <DagView steps={steps as any} direction="DOWN" />
+      {/* Compact definition meta (replaces the old details rail + chip list). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="font-mono text-foreground">{pipeline.filename}</span>
+        <span className="flex items-center gap-1"><Network size={12} /> {steps.length} steps</span>
+        <span className="flex items-center gap-1"><Layers size={12} /> {waves} {waves === 1 ? 'wave' : 'waves'}</span>
+        {gates > 0 && <span className="flex items-center gap-1"><Shield size={12} /> {gates} {gates === 1 ? 'gate' : 'gates'}</span>}
       </div>
 
-      {/* Step list — compact, complements the graph. */}
-      <div className="flex flex-wrap gap-1.5">
-        {steps.map((step) => (
-          <div
-            key={step.name}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs ${
-              step.execType === 'gate'
-                ? 'border-warning/50 bg-warning/5 border-dashed'
-                : 'border-border'
-            }`}
-            style={{ borderWidth: '1px', borderStyle: step.execType === 'gate' ? 'dashed' : 'solid' }}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${step.execType === 'gate' ? 'bg-warning' : 'bg-muted-foreground opacity-40'}`} />
-            <span className={`font-mono font-medium ${step.execType === 'gate' ? 'text-warning' : 'text-foreground'}`}>{step.name}</span>
-            {step.dependsOn && step.dependsOn.length > 0 && (
-              <span className="text-muted-foreground opacity-40 text-[11px] truncate max-w-[200px]">
-                ← {step.dependsOn.join(', ')}
-              </span>
-            )}
-          </div>
-        ))}
+      {/* Vertical DAG — reads top → bottom like the pipeline runs. */}
+      <div className="island-shell !p-0 overflow-hidden h-[440px] lg:h-[640px]">
+        <DagView steps={steps as any} direction="DOWN" />
       </div>
     </div>
   )
