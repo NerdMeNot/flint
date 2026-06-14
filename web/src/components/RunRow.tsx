@@ -30,6 +30,7 @@ interface Run {
   startedAtTs?: number
   finishedAtTs?: number
   workflowFile: string
+  environment?: string
   steps?: RunStepSummary[]
 }
 
@@ -118,6 +119,12 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
           )}
 
           <p className="flex-1 text-sm text-foreground/75 truncate min-w-0">{run.commitMessage}</p>
+
+          {run.environment && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-secondary text-muted-foreground" title={`Environment: ${run.environment}`}>
+              {run.environment}
+            </span>
+          )}
 
           {steps.length > 0 && <StagePips steps={steps} />}
         </div>

@@ -14,7 +14,7 @@ import { orpc } from '#/lib/orpc'
 import { RunRow } from '#/components/RunRow'
 import { ProjectHealthBar, RunSparkline } from '#/components/ProjectHealth'
 import { useScope } from '#/lib/scope-context'
-import { bucketOf } from '#/lib/run-feed'
+import { bucketOf, runEpochMs } from '#/lib/run-feed'
 import { needsAttention } from '#/lib/project-health'
 import type { Project, RunStatusValue } from '#/lib/api/types'
 
@@ -41,7 +41,7 @@ function DashboardPage() {
   // "What needs me right now" — derived from recent runs (running/failed are
   // recency-bound) and project health; counts deep-link into the filtered feeds.
   const running = runs.filter((r) => r.status === 'running').length
-  const failedToday = runs.filter((r) => r.status === 'failed' && bucketOf(r.startedAt) === 'Today').length
+  const failedToday = runs.filter((r) => r.status === 'failed' && bucketOf(runEpochMs(r)) === 'Today').length
   const attentionProjects = projects.filter((p) => needsAttention(p.health)).length
 
   // Projects worth watching: those needing attention, worst first.

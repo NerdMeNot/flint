@@ -37,20 +37,37 @@ export function relativeToMinutes(s: string): number {
 
 export type FeedBucket = 'Today' | 'Yesterday' | 'Earlier'
 
-export function bucketOf(startedAt: string): FeedBucket {
-  const mins = relativeToMinutes(startedAt)
-  if (mins < 1440) return 'Today'
-  if (mins < 2880) return 'Yesterday'
+const DAY_MS = 86_400_000
+function startOfDay(ms: number): number {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+// A run's real start as epoch ms — prefers the actual timestamp, falling back to
+// parsing the relative display string.
+export function runEpochMs(run: { startedAt: string; startedAtTs?: number }): number {
+  return run.startedAtTs ?? Date.now() - relativeToMinutes(run.startedAt) * 60_000
+}
+
+// Calendar-accurate bucket (not rolling-24h): Today/Yesterday are real calendar
+// days, so an 11pm-yesterday run reads as Yesterday, not "23h ago → Today".
+export function bucketOf(epochMs: number): FeedBucket {
+  const todayStart = startOfDay(Date.now())
+  if (epochMs >= todayStart) return 'Today'
+  if (epochMs >= todayStart - DAY_MS) return 'Yesterday'
   return 'Earlier'
 }
 
 export const FEED_BUCKET_ORDER: FeedBucket[] = ['Today', 'Yesterday', 'Earlier']
 
-// Group runs into ordered time buckets, preserving each run's order within.
-export function groupByBucket<T extends { startedAt: string }>(runs: T[]): { bucket: FeedBucket; runs: T[] }[] {
+// Group runs into ordered time buckets, newest-first within each (a true
+// reverse-chronological timeline regardless of the source ordering).
+export function groupByBucket<T extends { startedAt: string; startedAtTs?: number }>(runs: T[]): { bucket: FeedBucket; runs: T[] }[] {
+  const sorted = [...runs].sort((a, b) => runEpochMs(b) - runEpochMs(a))
   const map = new Map<FeedBucket, T[]>()
-  for (const r of runs) {
-    const b = bucketOf(r.startedAt)
+  for (const r of sorted) {
+    const b = bucketOf(runEpochMs(r))
     const arr = map.get(b) ?? []
     arr.push(r)
     map.set(b, arr)
