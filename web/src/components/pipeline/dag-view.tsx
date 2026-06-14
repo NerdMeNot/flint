@@ -32,10 +32,10 @@ const nodeTypes = { step: StepNode }
 // ---------------------------------------------------------------------------
 
 const NODE_WIDTH = 300
-const NODE_HEIGHT = 88
-const GAP_X = 130 // gap between waves (along the flow axis)
-const GAP_Y = 64 // gap between siblings inside a wave
-const PAD = 70
+const NODE_HEIGHT = 72
+const GAP_X = 48 // gap between waves (along the flow axis) — short edges, more in view
+const GAP_Y = 36 // gap between siblings inside a wave
+const PAD = 36
 
 // ---------------------------------------------------------------------------
 // Simple layered layout using wave numbers (no ELK needed)
@@ -94,6 +94,9 @@ function layoutGraph(
   const edges: Edge[] = steps.flatMap((step) =>
     (step.dependsOn ?? []).map((dep) => {
       const color = edgeColor(step.status)
+      // Pending edges (the whole definition graph) are toned down so the graph
+      // reads as a soft accent thread rather than hard black lines.
+      const faded = step.status === 'pending'
       return {
         id: `${dep}->${step.name}`,
         source: dep,
@@ -102,13 +105,13 @@ function layoutGraph(
         // proper flowchart: lines run cleanly along the axis and turn at
         // 90° with a gentle radius, no dramatic bezier swoops.
         type: 'smoothstep',
-        pathOptions: { borderRadius: 18, offset: 24 },
+        pathOptions: { borderRadius: 12, offset: 12 },
         animated: step.status === 'running',
-        style: { stroke: color, strokeWidth: 1.75 },
+        style: { stroke: color, strokeWidth: 2, strokeOpacity: faded ? 0.4 : 0.9 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 16,
-          height: 16,
+          width: 14,
+          height: 14,
           color,
         },
       }
@@ -122,11 +125,11 @@ function edgeColor(status: PipelineStep['status']): string {
   switch (status) {
     case 'succeeded': return '#22c55e'
     case 'failed': return '#ef4444'
-    case 'running': return '#3b82f6'
+    case 'running': return '#6366f1'
     case 'waiting': return '#eab308'
     case 'skipped':
     case 'cancelled': return '#64748b'
-    default: return '#475569'
+    default: return '#6366f1' // pending — soft brand thread (faded via opacity)
   }
 }
 
@@ -156,8 +159,19 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
     [onStepClick],
   )
 
+  // The DAG is a read-only diagram: nodes can't be dragged or connected, and
+  // scroll doesn't hijack the page (zoom via the controls). Pan by dragging the
+  // canvas is kept for graphs larger than the viewport. Clicking a node only
+  // does something when a handler is provided (e.g. the run page).
+  const clickable = !!onStepClick
+
   return (
-    <div className="h-full w-full bg-card min-h-[300px]">
+    <div
+      className={`h-full w-full min-h-[300px] ${
+        clickable ? '[&_.react-flow__node]:cursor-pointer' : '[&_.react-flow__node]:cursor-default'
+      }`}
+      style={{ background: 'radial-gradient(120% 120% at 50% 0%, color-mix(in oklab, var(--ring) 6%, var(--card)), var(--card) 55%)' }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -166,18 +180,29 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.12, maxZoom: 1.3 }}
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.35 }}
         proOptions={{ hideAttribution: true }}
-        minZoom={0.5}
-        maxZoom={2}
+        minZoom={0.4}
+        maxZoom={1.8}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        nodesFocusable={clickable}
+        elementsSelectable={clickable}
+        edgesFocusable={false}
+        zoomOnScroll={false}
+        zoomOnDoubleClick={false}
+        panOnScroll={false}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          color="#334155"
-          gap={16}
+          color="var(--border)"
+          gap={18}
           size={1}
         />
-        <Controls className="!bg-card !border-border !text-foreground [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground" />
+        <Controls
+          showInteractive={false}
+          className="!shadow-none [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!text-foreground"
+        />
       </ReactFlow>
     </div>
   )
