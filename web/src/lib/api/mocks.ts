@@ -711,6 +711,15 @@ function failureFor(name: string): { exitCode: number; error: string } {
   return { exitCode: 1, error: errors[name] ?? 'process completed with exit code 1' }
 }
 
+// Stable per-run epoch (set once) so a running run's timestamps don't shift on
+// refetch — lets elapsed clocks tick up instead of resetting.
+const _runEpoch = new Map<string, number>()
+function runEpoch(runId: string): number {
+  let e = _runEpoch.get(runId)
+  if (e === undefined) { e = Date.now(); _runEpoch.set(runId, e) }
+  return e
+}
+
 export function getSteps(runId?: string): PipelineStep[] {
   if (runId === 'r-gate-1') return getGatePausedSteps()
 
@@ -725,12 +734,23 @@ export function getSteps(runId?: string): PipelineStep[] {
     : status === 'pending' ? 0
     : 1 + (h % (STEP_TEMPLATE.length - 1))
 
-  const base = Date.parse('2024-01-15T10:00:00Z')
+  const durs = STEP_TEMPLATE.map((_, i) => (15 + ((h + i * 7) % 45)) * 1000) // 15..59s
+
+  // A running run is anchored near "now" (stable per-run) so the in-progress
+  // step started ~25s ago and ticks forward; everything else uses a fixed past
+  // base where only durations matter.
+  let base: number
+  if (status === 'running') {
+    const preElapsed = durs.slice(0, stop).reduce((sum, d) => sum + d + 1000, 0)
+    base = runEpoch(runId ?? 'default') - preElapsed - 25_000
+  } else {
+    base = Date.parse('2024-01-15T10:00:00Z')
+  }
   let cursor = base
   const iso = (ms: number) => new Date(ms).toISOString()
 
   return STEP_TEMPLATE.map((t, i): PipelineStep => {
-    const dur = (15 + ((h + i * 7) % 45)) * 1000 // 15..59s, deterministic
+    const dur = durs[i]!
     const common = { name: t.name, execType: t.execType, wave: t.wave, attempt: 1, maxAttempts: 1, dependsOn: t.dependsOn }
 
     if (status === 'pending' || i > stop) {
