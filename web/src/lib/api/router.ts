@@ -30,6 +30,7 @@ import {
   type AuthProviders,
   type WorkflowRun,
   type WorkflowRunDetail,
+  type SavedView,
 } from './types'
 import {
   backendGet,
@@ -966,6 +967,31 @@ const search = {
     }),
 }
 
+const views = {
+  list: os.handler(async () => {
+    return withFallback(
+      () => backendGet<{ items: SavedView[] }>('/views'),
+      () => ({ items: mocks.getSavedViews() }),
+    )
+  }),
+
+  create: os
+    .input(z.object({
+      name: z.string(),
+      route: z.string(),
+      search: z.record(z.string(), z.unknown()),
+    }))
+    .handler(async ({ input }) => {
+      return safe(() => backendPost('/views', input), () => mocks.createSavedView(input))
+    }),
+
+  delete: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return safe(() => backendDelete(`/views/${input.id}`), () => mocks.deleteSavedView(input.id))
+    }),
+}
+
 // ---------------------------------------------------------------------------
 // App router
 // ---------------------------------------------------------------------------
@@ -993,6 +1019,7 @@ export const appRouter = os.router({
   org,
   auth,
   search,
+  views,
 })
 
 export type AppRouter = typeof appRouter

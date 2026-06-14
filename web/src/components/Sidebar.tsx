@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query'
 import { orpc } from '#/lib/orpc'
 import { ScopeSelector } from './ScopeSelector'
 import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
+import { ViewsNav } from './ViewsNav'
 
 // A single NavItem type keeps both section arrays unionable so `section.items`
 // is one array type (not a union of arrays, which breaks .map typing).
@@ -195,6 +196,7 @@ export function Sidebar() {
               </Link>
             )
           })}
+          {activeCap === 'ci' && <ViewsNav collapsed={collapsed} />}
         </nav>
       ) : (
         <div className="flex-1" />
@@ -305,6 +307,7 @@ export function Sidebar() {
                 </Link>
               )
             })}
+            {activeCap === 'ci' && <ViewsNav collapsed={false} />}
           </nav>
         ) : (
           <div className="flex-1" />

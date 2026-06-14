@@ -31,6 +31,7 @@ import type {
   StepStatusValue,
   ProjectHealth,
   RunStatusValue,
+  SavedView,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,31 @@ function deriveHealth(p: Project): ProjectHealth {
 let _projects: Project[] | undefined
 export function getProjects(): Project[] {
   return (_projects ??= seedProjects().map((p) => ({ ...p, health: deriveHealth(p) })))
+}
+
+// ---------------------------------------------------------------------------
+// Saved views — named route+filter selectors (smart views are client-side)
+// ---------------------------------------------------------------------------
+
+let _views: SavedView[] | undefined
+let _viewSeq = 100
+function seedViews(): SavedView[] {
+  return [
+    { id: 'v-1', name: 'Payments — failures', route: '/ci/runs', search: { project: 'p-2', status: 'failed' } },
+    { id: 'v-2', name: 'PCI projects', route: '/ci/projects', search: { tags: ['compliance:pci'] } },
+  ]
+}
+export function getSavedViews(): SavedView[] {
+  return (_views ??= seedViews())
+}
+export function createSavedView(input: { name: string; route: string; search: Record<string, unknown> }): SavedView {
+  const view: SavedView = { id: `v-${++_viewSeq}`, name: input.name, route: input.route, search: input.search }
+  getSavedViews().unshift(view)
+  return view
+}
+export function deleteSavedView(id: string): { success: true } {
+  _views = getSavedViews().filter((v) => v.id !== id)
+  return { success: true }
 }
 
 export function setProjectTags(id: string, tags: string[]): { success: true } {
