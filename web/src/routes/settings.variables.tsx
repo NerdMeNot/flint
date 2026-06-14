@@ -213,13 +213,13 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setRevealed(!revealed) }}
-              className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+              className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
               title={revealed ? 'Hide secret' : 'Reveal secret'}
             >
               {revealed ? <EyeOff size={11} /> : <Eye size={11} />}
             </button>
           )}
-          <button type="button" onClick={startEdit} className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors">
+          <button type="button" onClick={startEdit} className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors">
             <Pencil size={11} />
           </button>
         </div>
@@ -284,13 +284,13 @@ function ValueRow({ label, value, isSecret, onSave }: {
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setRevealed(!revealed) }}
-                className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 title={revealed ? 'Hide' : 'Reveal'}
               >
                 {revealed ? <EyeOff size={11} /> : <Eye size={11} />}
               </button>
             )}
-            <button type="button" onClick={startEdit} className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors shrink-0">
+            <button type="button" onClick={startEdit} className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors shrink-0">
               <Pencil size={11} />
             </button>
           </div>
