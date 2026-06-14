@@ -42,7 +42,9 @@ export function SaveViewButton({ route, search }: { route: string; search: Recor
         type="button"
         onClick={() => hasFilters && setOpen((v) => !v)}
         disabled={!hasFilters}
-        title={hasFilters ? 'Save these filters as a view' : 'Apply a filter to save a view'}
+        title={hasFilters
+          ? 'Save these filters as a view'
+          : 'Apply a filter (search, tag, status, sort…) first, then save it as a reusable view'}
         className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
           open ? 'border-primary/40 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
         } disabled:opacity-40 disabled:cursor-not-allowed`}

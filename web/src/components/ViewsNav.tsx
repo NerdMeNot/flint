@@ -56,6 +56,13 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
 
       {saved.length > 0 && <div className="h-px bg-border/40 my-1.5 mx-2" />}
 
+      {/* First-run nudge: tells people where saved views come from. */}
+      {saved.length === 0 && (
+        <p className="px-3 pt-1 text-[11px] leading-snug text-muted-foreground/45">
+          Filter a list, then <span className="font-medium text-muted-foreground/70">Save view</span> to pin it here.
+        </p>
+      )}
+
       {saved.map((v) => {
         const active = isActive(v.route, v.search)
         return (
