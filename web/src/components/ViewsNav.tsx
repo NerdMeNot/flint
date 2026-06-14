@@ -71,7 +71,7 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
               type="button"
               onClick={() => del.mutate(v.id)}
               title="Delete view"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-muted-foreground/50 opacity-0 group-hover/view:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded text-muted-foreground/50 opacity-0 group-hover/view:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
             >
               <X size={12} />
             </button>
