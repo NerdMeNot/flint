@@ -5,7 +5,6 @@ import {
   GitBranch,
   GitCommit,
   Clock,
-  User,
   CheckCircle,
   XCircle,
   Loader2,
@@ -20,6 +19,11 @@ import {
   Maximize2,
   Minimize2,
   X,
+  ArrowRight,
+  GitCommitHorizontal,
+  GitPullRequest,
+  MousePointerClick,
+  CalendarClock,
 } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
@@ -97,6 +101,10 @@ function RunDetailPage() {
     setSelectedStep(name === selectedStep ? null : name)
   }
 
+  // Lead with the failure: when the run failed, surface the failing step so its
+  // logs are one click away instead of buried in the overview.
+  const failedStep = run.status === 'failed' ? steps.find((s) => s.status === 'failed') : null
+
   return (
     <div className="rise-in">
       <div className="mb-3">
@@ -105,6 +113,11 @@ function RunDetailPage() {
 
       {/* Run header */}
       <RunHeader run={run} />
+
+      {/* Failure banner — names the failing step + error, jumps to its logs */}
+      {failedStep && selectedStep !== failedStep.name && (
+        <FailureBanner step={failedStep} onViewLogs={() => setSelectedStep(failedStep.name)} />
+      )}
 
       {/* Pipeline progress bar */}
       <div className="mb-4 lg:mb-5">
@@ -198,15 +211,20 @@ function RunHeader({ run }: { run: any }) {
           <GitCommit size={13} />
           <span className="font-mono">{run.commitSha}</span>
         </span>
-        <span className="flex items-center gap-1.5">
-          <User size={13} />
+        <span className="flex items-center gap-1.5" title={triggerLabel(run.triggerType)}>
+          <TriggerIcon type={run.triggerType} />
           {run.triggeredBy}
         </span>
         <span className="flex items-center gap-1.5">
-          <Clock size={13} />
+          <Timer size={13} />
           {run.duration}
         </span>
-        <span className="island-kicker !text-[11px]">{run.triggerType}</span>
+        {run.startedAt && (
+          <span className="flex items-center gap-1.5">
+            <Clock size={13} />
+            {run.startedAt}
+          </span>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           {(run.status === 'running' || run.status === 'pending') && (
@@ -526,6 +544,62 @@ function LogPanel({
       </div>
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Failure banner — leads with the failing step on a failed run
+// ---------------------------------------------------------------------------
+
+function FailureBanner({ step, onViewLogs }: { step: any; onViewLogs: () => void }) {
+  return (
+    <div className="island-shell !p-0 overflow-hidden border-destructive/30 mb-4 lg:mb-5">
+      <div className="flex items-center gap-3 px-4 py-3 bg-destructive/5">
+        <XCircle size={16} className="text-destructive shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-destructive">
+            Failed at <span className="font-mono">{step.name}</span>
+            {step.exitCode != null && (
+              <span className="font-normal text-destructive/70"> · exit {step.exitCode}</span>
+            )}
+          </p>
+          {step.error && (
+            <p className="text-xs text-destructive/80 mt-0.5 font-mono truncate">{step.error}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onViewLogs}
+          className="shrink-0 flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+        >
+          View logs <ArrowRight size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Trigger icon/label
+// ---------------------------------------------------------------------------
+
+function triggerLabel(type: string): string {
+  switch (type) {
+    case 'push': return 'Push'
+    case 'pull_request': return 'Pull request'
+    case 'manual': return 'Manual'
+    case 'schedule': return 'Scheduled'
+    default: return type
+  }
+}
+
+function TriggerIcon({ type }: { type: string }) {
+  const props = { size: 13 }
+  switch (type) {
+    case 'pull_request': return <GitPullRequest {...props} />
+    case 'manual': return <MousePointerClick {...props} />
+    case 'schedule': return <CalendarClock {...props} />
+    default: return <GitCommitHorizontal {...props} />
+  }
 }
 
 // ---------------------------------------------------------------------------

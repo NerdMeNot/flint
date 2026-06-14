@@ -654,109 +654,77 @@ export function retryRun(runId: string): PipelineRun {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline steps (11-step pipeline for default run)
+// Pipeline steps — a fixed 10-step pipeline shape whose statuses/timestamps are
+// derived from the run's status so the run detail page reflects each run (a
+// failed run has a real failed step with error + exit code, etc.). A real
+// backend supplies actual step records; this lives in the mock data layer.
 // ---------------------------------------------------------------------------
+
+const STEP_TEMPLATE: Array<{ name: string; execType: string; wave: number; dependsOn?: string[] }> = [
+  { name: 'install-deps', execType: 'run', wave: 0 },
+  { name: 'lint', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+  { name: 'unit-tests', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+  { name: 'integration-tests', execType: 'run', wave: 1, dependsOn: ['install-deps'] },
+  { name: 'build', execType: 'run', wave: 2, dependsOn: ['lint', 'unit-tests', 'integration-tests'] },
+  { name: 'docker-push', execType: 'run', wave: 3, dependsOn: ['build'] },
+  { name: 'deploy-staging', execType: 'run', wave: 4, dependsOn: ['docker-push'] },
+  { name: 'smoke-tests', execType: 'run', wave: 5, dependsOn: ['deploy-staging'] },
+  { name: 'approve-production', execType: 'gate', wave: 6, dependsOn: ['smoke-tests'] },
+  { name: 'deploy-prod', execType: 'run', wave: 7, dependsOn: ['approve-production'] },
+]
+
+function failureFor(name: string): { exitCode: number; error: string } {
+  const errors: Record<string, string> = {
+    lint: 'eslint: 3 problems (3 errors, 0 warnings)',
+    'unit-tests': '2 tests failed, 47 passed',
+    'integration-tests': 'context deadline exceeded after 120s',
+    build: 'go build: undefined reference to handler.New',
+    'docker-push': 'denied: requested access to the resource is denied',
+    'smoke-tests': 'health check returned 503',
+  }
+  return { exitCode: 1, error: errors[name] ?? 'process completed with exit code 1' }
+}
 
 export function getSteps(runId?: string): PipelineStep[] {
   if (runId === 'r-gate-1') return getGatePausedSteps()
-  return [
-    {
-      name: 'install-deps',
-      status: 'succeeded',
-      execType: 'run',
-      wave: 0,
-      attempt: 1,
-      maxAttempts: 1,
-      startedAt: '2024-01-15T10:00:00Z',
-      finishedAt: '2024-01-15T10:00:27Z',
-    },
-    {
-      name: 'lint',
-      status: 'succeeded',
-      execType: 'run',
-      wave: 1,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:28Z',
-      finishedAt: '2024-01-15T10:00:48Z',
-    },
-    {
-      name: 'unit-tests',
-      status: 'succeeded',
-      execType: 'run',
-      wave: 1,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:28Z',
-      finishedAt: '2024-01-15T10:01:15Z',
-    },
-    {
-      name: 'integration-tests',
-      status: 'running',
-      execType: 'run',
-      wave: 1,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['install-deps'],
-      startedAt: '2024-01-15T10:00:28Z',
-    },
-    {
-      name: 'build',
-      status: 'pending',
-      execType: 'run',
-      wave: 2,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['lint', 'unit-tests', 'integration-tests'],
-    },
-    {
-      name: 'docker-push',
-      status: 'pending',
-      execType: 'run',
-      wave: 3,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['build'],
-    },
-    {
-      name: 'deploy-staging',
-      status: 'pending',
-      execType: 'run',
-      wave: 4,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['docker-push'],
-    },
-    {
-      name: 'smoke-tests',
-      status: 'pending',
-      execType: 'run',
-      wave: 5,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['deploy-staging'],
-    },
-    {
-      name: 'approve-production',
-      status: 'pending',
-      execType: 'gate',
-      wave: 6,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['smoke-tests'],
-    },
-    {
-      name: 'deploy-prod',
-      status: 'pending',
-      execType: 'run',
-      wave: 7,
-      attempt: 1,
-      maxAttempts: 1,
-      dependsOn: ['approve-production'],
-    },
-  ]
+
+  const run = runId ? getRuns().find((r) => r.id === runId) : undefined
+  const status = run?.status ?? 'running'
+  let h = 0
+  for (const c of runId ?? 'default') h = (h * 31 + c.charCodeAt(0)) >>> 0
+
+  // How far the run got: succeeded → all; pending → none; otherwise stop at a
+  // deterministic step that fails / is running / was cancelled.
+  const stop = status === 'succeeded' ? STEP_TEMPLATE.length
+    : status === 'pending' ? 0
+    : 1 + (h % (STEP_TEMPLATE.length - 1))
+
+  const base = Date.parse('2024-01-15T10:00:00Z')
+  let cursor = base
+  const iso = (ms: number) => new Date(ms).toISOString()
+
+  return STEP_TEMPLATE.map((t, i): PipelineStep => {
+    const dur = (15 + ((h + i * 7) % 45)) * 1000 // 15..59s, deterministic
+    const common = { name: t.name, execType: t.execType, wave: t.wave, attempt: 1, maxAttempts: 1, dependsOn: t.dependsOn }
+
+    if (status === 'pending' || i > stop) {
+      // Not started (pending run) or downstream of the stopping step.
+      return { ...common, status: status !== 'pending' && status !== 'running' ? 'skipped' : 'pending' }
+    }
+    if (i < stop) {
+      const startedAt = iso(cursor)
+      const finishedAt = iso(cursor + dur)
+      cursor += dur + 1000
+      return { ...common, status: 'succeeded', startedAt, finishedAt }
+    }
+    // i === stop: the step that defines the run's outcome.
+    const startedAt = iso(cursor)
+    if (status === 'running') return { ...common, status: 'running', startedAt }
+    const finishedAt = iso(cursor + dur)
+    if (status === 'failed') return { ...common, status: 'failed', startedAt, finishedAt, ...failureFor(t.name) }
+    if (status === 'cancelled') return { ...common, status: 'cancelled', startedAt, finishedAt }
+    return { ...common, status: 'succeeded', startedAt, finishedAt }
+  })
 }
 
 /**
