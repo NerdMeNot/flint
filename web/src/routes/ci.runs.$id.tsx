@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery, useQuery } from '@tanstack/react-query'
-import { useState, lazy, Suspense, useEffect } from 'react'
+import { useState, lazy, Suspense, useEffect, useRef } from 'react'
 import {
   GitBranch,
   GitCommit,
@@ -30,8 +30,10 @@ import {
   Download,
   Check,
   ChevronDown,
+  Pause,
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
+import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
@@ -50,6 +52,32 @@ export const Route = createFileRoute('/ci/runs/$id')({
 })
 
 type OverviewView = 'timeline' | 'dag' | 'logs'
+
+// Ticking clock — re-renders every second only while a run is live.
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [active])
+  return now
+}
+
+function fmtSecs(secs: number): string {
+  if (secs < 60) return `${secs}s`
+  const m = Math.floor(secs / 60)
+  if (m < 60) return `${m}m ${secs % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+// Refetch while a run is in flight so its state advances on its own; stop once
+// it reaches a terminal status.
+const liveRefetch = (q: { state: { data?: { status?: string } } }) => {
+  const s = q.state.data?.status
+  return s === 'running' || s === 'pending' ? 4000 : false
+}
 
 function RunDetailPage() {
   const { id } = Route.useParams()
@@ -78,13 +106,43 @@ function RunDetailPage() {
     if (selectedStep === null && logsMaximized) setLogsMaximized(false)
   }, [selectedStep, logsMaximized])
 
-  const { data: run } = useSuspenseQuery(
-    orpc.runs.get.queryOptions({ input: { id } }),
-  )
-  const { data: stepsData } = useSuspenseQuery(
-    orpc.runs.steps.queryOptions({ input: { runId: id } }),
-  )
+  const { data: run } = useSuspenseQuery({
+    ...orpc.runs.get.queryOptions({ input: { id } }),
+    refetchInterval: liveRefetch,
+  })
+  const isLive = run.status === 'running' || run.status === 'pending'
+  const { data: stepsData } = useSuspenseQuery({
+    ...orpc.runs.steps.queryOptions({ input: { runId: id } }),
+    refetchInterval: isLive ? 4000 : false,
+  })
   const steps = stepsData?.steps ?? []
+
+  // Live elapsed clock. Prefer the earliest step start when it's recent
+  // (in-flight runs are anchored near now); otherwise derive a ticking baseline
+  // from the run's relative startedAt.
+  const now = useNow(isLive)
+  const mountedAt = useRef(Date.now())
+  const startMsList = steps.map((s) => (s.startedAt ? Date.parse(s.startedAt) : NaN)).filter((n) => !Number.isNaN(n))
+  const earliest = startMsList.length ? Math.min(...startMsList) : NaN
+  let elapsedSecs = 0
+  if (isLive) {
+    if (!Number.isNaN(earliest) && now - earliest < 86_400_000) {
+      elapsedSecs = Math.max(0, Math.floor((now - earliest) / 1000))
+    } else {
+      const baseline = Math.floor(relativeToMinutes(run.startedAt) * 60)
+      elapsedSecs = baseline + Math.floor((now - mountedAt.current) / 1000)
+    }
+  }
+
+  // Typical (median) duration of this project's finished runs, for an ETA-style
+  // hint. Supplementary, so non-blocking.
+  const { data: projRunsData } = useQuery(orpc.runs.list.queryOptions({ input: { projectId: run.projectId, limit: 30 } }))
+  const medianSecs = median(
+    (projRunsData?.items ?? [])
+      .filter((r) => r.status === 'succeeded' || r.status === 'failed')
+      .map((r) => parseDurationToSeconds(r.duration))
+      .filter((s) => s > 0),
+  )
   const step = selectedStep
     ? steps.find((s) => s.name === selectedStep)
     : null
@@ -119,16 +177,16 @@ function RunDetailPage() {
       </div>
 
       {/* Run header */}
-      <RunHeader run={run} />
+      <RunHeader run={run} isLive={isLive} elapsedSecs={elapsedSecs} />
 
       {/* Failure banner — names the failing step + error, jumps to its logs */}
       {failedStep && selectedStep !== failedStep.name && (
         <FailureBanner step={failedStep} onViewLogs={() => setSelectedStep(failedStep.name)} />
       )}
 
-      {/* Pipeline progress bar */}
+      {/* Progress — segmented bar + live step/elapsed/ETA context while running */}
       <div className="mb-4 lg:mb-5">
-        <PipelineProgress steps={steps} />
+        <RunProgress steps={steps} isLive={isLive} elapsedSecs={elapsedSecs} medianSecs={medianSecs} />
       </div>
 
       {/* Two-column workspace: rail + content. Below lg the rail
@@ -140,6 +198,7 @@ function RunDetailPage() {
             steps={steps}
             selectedStep={selectedStep}
             onStepClick={handleStepClick}
+            now={isLive ? now : undefined}
           />
         </aside>
 
@@ -184,7 +243,7 @@ function RunDetailPage() {
 // Run header
 // ---------------------------------------------------------------------------
 
-function RunHeader({ run }: { run: any }) {
+function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; elapsedSecs: number }) {
   const invalidate = [orpc.runs.get.key({ input: { id: run.id } }), orpc.runs.list.key()]
   const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), { invalidate })
   const retry = useAction((id: string) => client.runs.retry({ runId: id }), { invalidate })
@@ -223,9 +282,9 @@ function RunHeader({ run }: { run: any }) {
           <TriggerIcon type={run.triggerType} />
           {run.triggeredBy}
         </span>
-        <span className="flex items-center gap-1.5">
-          <Timer size={13} />
-          {run.duration}
+        <span className={`flex items-center gap-1.5 ${isLive ? 'text-primary font-medium' : ''}`}>
+          <Timer size={13} className={isLive ? 'animate-pulse' : ''} />
+          {isLive ? `${fmtSecs(elapsedSecs)} elapsed` : run.duration}
         </span>
         {run.startedAt && (
           <span className="flex items-center gap-1.5">
@@ -259,6 +318,54 @@ function RunHeader({ run }: { run: any }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Run progress — segmented bar + live step/elapsed/ETA context while running
+// ---------------------------------------------------------------------------
+
+const TERMINAL_STATUSES = ['succeeded', 'failed', 'skipped', 'cancelled']
+
+function RunProgress({ steps, isLive, elapsedSecs, medianSecs }: {
+  steps: any[]
+  isLive: boolean
+  elapsedSecs: number
+  medianSecs: number
+}) {
+  const total = steps.length
+  const done = steps.filter((s) => TERMINAL_STATUSES.includes(s.status)).length
+  const current = steps.find((s) => s.status === 'running') ?? steps.find((s) => s.status === 'waiting')
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+
+  return (
+    <div className="space-y-2">
+      <PipelineProgress steps={steps} />
+      {isLive && total > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+          <span className="text-foreground font-medium">Step {Math.min(done + 1, total)} of {total}</span>
+          <span className="opacity-40">·</span>
+          <span className="tabular-nums">{pct}%</span>
+          {current && (
+            <>
+              <span className="opacity-40">·</span>
+              <span className={`flex items-center gap-1 ${current.status === 'waiting' ? 'text-warning' : 'text-primary'}`}>
+                {current.status === 'waiting'
+                  ? <><Pause size={11} /> Awaiting approval:</>
+                  : <><Loader2 size={11} className="animate-spin" /> Running:</>}
+                <span className="font-mono">{current.name}</span>
+              </span>
+            </>
+          )}
+          <span className="opacity-40">·</span>
+          <span className="flex items-center gap-1">
+            <Timer size={11} />
+            <span className="tabular-nums">{fmtSecs(elapsedSecs)}</span> elapsed
+            {medianSecs > 0 && <span className="opacity-70"> · ~{fmtSecs(Math.round(medianSecs))} typical</span>}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

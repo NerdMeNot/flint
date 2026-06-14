@@ -16,6 +16,8 @@ interface StepRailProps {
   steps: PipelineStep[]
   selectedStep: string | null
   onStepClick: (name: string) => void
+  /** Current epoch ms while the run is live — drives the running step's clock. */
+  now?: number
 }
 
 /**
@@ -24,7 +26,7 @@ interface StepRailProps {
  * collapses into a single-row horizontal pill strip that scrolls
  * sideways — same data, just resorted for the available width.
  */
-export function StepRail({ steps, selectedStep, onStepClick }: StepRailProps) {
+export function StepRail({ steps, selectedStep, onStepClick, now }: StepRailProps) {
   return (
     <>
       {/* Mobile / tablet: horizontal pill strip */}
@@ -45,10 +47,22 @@ export function StepRail({ steps, selectedStep, onStepClick }: StepRailProps) {
           steps={steps}
           selectedStep={selectedStep}
           onStepClick={onStepClick}
+          now={now}
         />
       </div>
     </>
   )
+}
+
+// Live elapsed for an in-flight step, guarded so stale/absurd values (mock data
+// not anchored to now) silently fall back to no clock.
+function liveElapsed(startedAt: string | undefined, now?: number): string | null {
+  if (!startedAt || !now) return null
+  const ms = now - Date.parse(startedAt)
+  if (Number.isNaN(ms) || ms < 0 || ms > 86_400_000) return null
+  const secs = Math.floor(ms / 1000)
+  if (secs < 60) return `${secs}s`
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +105,7 @@ function StepPill({
 // ---------------------------------------------------------------------------
 
 function VerticalRail({
-  steps, selectedStep, onStepClick,
+  steps, selectedStep, onStepClick, now,
 }: StepRailProps) {
   // Group by wave for parallel labels.
   const waves = new Map<number, PipelineStep[]>()
@@ -127,6 +141,7 @@ function VerticalRail({
                 step={waveSteps[0]!}
                 isSelected={waveSteps[0]!.name === selectedStep}
                 onClick={() => onStepClick(waveSteps[0]!.name)}
+                now={now}
               />
             ) : (
               <div className="relative pl-3">
@@ -142,6 +157,7 @@ function VerticalRail({
                       isSelected={s.name === selectedStep}
                       onClick={() => onStepClick(s.name)}
                       parallel
+                      now={now}
                     />
                   ))}
                 </div>
@@ -155,18 +171,20 @@ function VerticalRail({
 }
 
 function RailRow({
-  step, isSelected, onClick, parallel,
+  step, isSelected, onClick, parallel, now,
 }: {
   step: PipelineStep
   isSelected: boolean
   onClick: () => void
   parallel?: boolean
+  now?: number
 }) {
   const isGate = step.execType === 'gate'
   const hasLogs = !!step.startedAt
   const duration = step.finishedAt && step.startedAt
     ? formatDuration(step.startedAt, step.finishedAt)
     : null
+  const runningFor = step.status === 'running' ? liveElapsed(step.startedAt, now) : null
 
   return (
     <button
@@ -196,7 +214,9 @@ function RailRow({
         {(duration || step.status === 'running' || step.status === 'waiting' || parallel) && (
           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
             {step.status === 'running' && (
-              <span className="text-primary font-medium">Running…</span>
+              <span className="flex items-center gap-1 text-primary font-medium">
+                Running{runningFor && <span className="font-mono">· {runningFor}</span>}
+              </span>
             )}
             {step.status === 'waiting' && (
               <span className="text-warning font-medium">Awaiting approval</span>
