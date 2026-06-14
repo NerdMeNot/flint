@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { runStatusVisualFor } from '#/lib/status'
 import { parseDurationToSeconds } from '#/lib/run-feed'
-import { formatClock, formatDateTime } from '#/lib/format-time'
+import { formatTimeline, formatExact } from '#/lib/format-time'
 import type { RunStepSummary, StepStatusValue } from '#/lib/api/types'
 
 interface Run {
@@ -30,6 +30,7 @@ interface Run {
   startedAtTs?: number
   finishedAtTs?: number
   workflowFile: string
+  environment?: string
   steps?: RunStepSummary[]
 }
 
@@ -119,6 +120,12 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
 
           <p className="flex-1 text-sm text-foreground/75 truncate min-w-0">{run.commitMessage}</p>
 
+          {run.environment && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-secondary text-muted-foreground" title={`Environment: ${run.environment}`}>
+              {run.environment}
+            </span>
+          )}
+
           {steps.length > 0 && <StagePips steps={steps} />}
         </div>
 
@@ -143,10 +150,10 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
           <span
             className="opacity-50 shrink-0"
             title={run.startedAtTs
-              ? `Started ${formatDateTime(run.startedAtTs)}${run.finishedAtTs ? `\nEnded ${formatDateTime(run.finishedAtTs)}` : ''}`
+              ? `Started ${formatExact(run.startedAtTs)}${run.finishedAtTs ? `\nEnded ${formatExact(run.finishedAtTs)}` : ''}`
               : undefined}
           >
-            {run.startedAtTs ? formatClock(run.startedAtTs) : run.startedAt}
+            {run.startedAtTs ? formatTimeline(run.startedAtTs) : run.startedAt}
           </span>
           <span className="hidden md:inline opacity-25">·</span>
           <span className="hidden md:inline opacity-50 shrink-0">{run.triggeredBy}</span>

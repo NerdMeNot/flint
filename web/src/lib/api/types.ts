@@ -112,6 +112,9 @@ export const PipelineStepSchema = z.object({
   attempt: z.number(),
   maxAttempts: z.number(),
   dependsOn: z.optional(z.array(z.string())),
+  // When the step became ready and was scheduled onto a runner. The gap
+  // between this and `startedAt` is runner-queue / pod cold-start wait.
+  scheduledAt: z.optional(z.string()),
   startedAt: z.optional(z.string()),
   finishedAt: z.optional(z.string()),
   exitCode: z.optional(z.number()),

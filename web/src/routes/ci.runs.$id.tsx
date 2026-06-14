@@ -31,16 +31,19 @@ import {
   Check,
   ChevronDown,
   Pause,
+  ListTree,
+  Hourglass,
+  Gauge,
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
-import { formatDateTime } from '#/lib/format-time'
+import { formatDateTime, formatAgo } from '#/lib/format-time'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
-import { StepRail } from '#/components/pipeline/step-rail'
+import { StepSpine, fmtDur } from '#/components/pipeline/step-spine'
 import { GatePanel } from '#/components/pipeline/gate-panel'
 import { BackLink } from '#/components/BackLink'
 
@@ -52,7 +55,7 @@ export const Route = createFileRoute('/ci/runs/$id')({
   component: RunDetailPage,
 })
 
-type OverviewView = 'timeline' | 'dag' | 'logs'
+type RunView = 'steps' | 'waterfall' | 'dag' | 'output'
 
 // Ticking clock — re-renders every second only while a run is live.
 function useNow(active: boolean): number {
@@ -83,8 +86,9 @@ const liveRefetch = (q: { state: { data?: { status?: string } } }) => {
 function RunDetailPage() {
   const { id } = Route.useParams()
   const [selectedStep, setSelectedStep] = useState<string | null>(null)
-  const [overview, setOverview] = useState<OverviewView>('timeline')
+  const [view, setView] = useState<RunView>('steps')
   const [logsMaximized, setLogsMaximized] = useState(false)
+  const didFocus = useRef(false)
 
   // Esc closes the maximized log overlay. Body scroll is locked while
   // the overlay is up so background content can't be scrolled behind it.
@@ -156,20 +160,40 @@ function RunDetailPage() {
     enabled: selectedStep !== null && !isGateStep,
   })
 
+  // Auto-focus the step that matters on first load: the failing step (failed
+  // run) or whatever's in flight (live run). A clean/pending run focuses
+  // nothing, so the detail pane shows the run summary instead.
+  useEffect(() => {
+    if (didFocus.current || steps.length === 0) return
+    didFocus.current = true
+    const focus =
+      steps.find((s) => s.status === 'failed') ??
+      steps.find((s) => s.status === 'running') ??
+      steps.find((s) => s.status === 'waiting')
+    if (focus) setSelectedStep(focus.name)
+  }, [steps])
+
   function handleStepClick(name: string) {
-    // Steps that haven't started have no logs, so we keep them out of
-    // the log panel entirely. The rail/Gantt also disable clicks on
-    // those rows, but we guard here too in case a new entry-point is
-    // added later.
+    // Steps that haven't started have no logs. Toggle: clicking the active
+    // step deselects (returns to the run summary).
     const target = steps.find((s) => s.name === name)
     if (!target?.startedAt) return
-    // Toggle: clicking the active step deselects (returns to overview).
     setSelectedStep(name === selectedStep ? null : name)
   }
 
-  // Lead with the failure: when the run failed, surface the failing step so its
-  // logs are one click away instead of buried in the overview.
+  // Drill in from a full-width analysis view (Waterfall / DAG) → open the
+  // step's logs in the master/detail Steps view.
+  function drillToStep(name: string) {
+    const target = steps.find((s) => s.name === name)
+    if (!target?.startedAt) return
+    setSelectedStep(name)
+    setView('steps')
+  }
+
+  // Lead with the failure: when the run failed, surface the failing step + error.
   const failedStep = run.status === 'failed' ? steps.find((s) => s.status === 'failed') : null
+
+  const tabs = <ViewTabs view={view} onChange={setView} />
 
   return (
     <div className="rise-in">
@@ -182,7 +206,7 @@ function RunDetailPage() {
 
       {/* Failure banner — names the failing step + error, jumps to its logs */}
       {failedStep && selectedStep !== failedStep.name && (
-        <FailureBanner step={failedStep} onViewLogs={() => setSelectedStep(failedStep.name)} />
+        <FailureBanner step={failedStep} onViewLogs={() => drillToStep(failedStep.name)} />
       )}
 
       {/* Progress — segmented bar + live step/elapsed/ETA context while running */}
@@ -190,52 +214,87 @@ function RunDetailPage() {
         <RunProgress steps={steps} isLive={isLive} elapsedSecs={elapsedSecs} medianSecs={medianSecs} />
       </div>
 
-      {/* Two-column workspace: rail + content. Below lg the rail
-          collapses into a horizontal pill strip stacked above the
-          content. */}
-      <div className="flex flex-col gap-4 lg:gap-5 lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-[88px] lg:self-start">
-          <StepRail
-            steps={steps}
-            selectedStep={selectedStep}
-            onStepClick={handleStepClick}
-            now={isLive ? now : undefined}
-          />
-        </aside>
+      {/* Body-level view switcher — controls the whole workspace, so it lives
+          above it (full width) rather than crammed into a panel header. */}
+      <div className="flex items-center justify-end mb-3">{tabs}</div>
 
-        <section className="min-w-0">
-          {selectedStep && step ? (
-            isGateStep ? (
-              <GatePanel
-                step={step}
-                steps={steps}
-                run={run}
-                onSelectStep={setSelectedStep}
-                onBackToOverview={() => setSelectedStep(null)}
-              />
-            ) : (
-              <LogPanel
-                step={step}
-                steps={steps}
-                logs={logsData?.lines ?? null}
-                maximized={logsMaximized}
-                onToggleMaximize={() => setLogsMaximized((v) => !v)}
-                onSelectStep={setSelectedStep}
-                onBackToOverview={() => setSelectedStep(null)}
-              />
-            )
-          ) : (
-            <OverviewPanel
-              runId={id}
-              steps={steps}
-              view={overview}
-              onViewChange={setOverview}
-              selectedStep={selectedStep}
-              onStepClick={handleStepClick}
+      {/* Master/detail workspace. The Steps spine is the canonical navigator +
+          duration chart; the detail pane shows the selected step's logs (or the
+          run summary). Waterfall / DAG / Output are full-width opt-in views. */}
+      {view === 'steps' ? (
+        <div className="grid gap-4 lg:gap-5 items-start lg:grid-cols-[clamp(300px,32%,400px)_minmax(0,1fr)]">
+          <div className="island-shell !p-0 overflow-hidden">
+            <PanelHeader
+              icon={<ListTree size={14} className="text-primary" />}
+              title="Steps"
+              subtitle={`${steps.filter((s) => s.startedAt).length}/${steps.length}`}
             />
-          )}
-        </section>
-      </div>
+            <StepSpine steps={steps} selectedStep={selectedStep} onStepClick={handleStepClick} now={now} />
+          </div>
+
+          <div className="min-w-0">
+            {selectedStep && step ? (
+              isGateStep ? (
+                <GatePanel
+                  step={step}
+                  steps={steps}
+                  run={run}
+                  onSelectStep={setSelectedStep}
+                  onBackToOverview={() => setSelectedStep(null)}
+                />
+              ) : (
+                <LogPanel
+                  step={step}
+                  steps={steps}
+                  logs={logsData?.lines ?? null}
+                  maximized={logsMaximized}
+                  onToggleMaximize={() => setLogsMaximized((v) => !v)}
+                  onSelectStep={setSelectedStep}
+                  onBackToOverview={() => setSelectedStep(null)}
+                />
+              )
+            ) : (
+              <RunSummary run={run} steps={steps} isLive={isLive} now={now} onStepClick={handleStepClick} />
+            )}
+          </div>
+        </div>
+      ) : view === 'waterfall' ? (
+        <RunGantt steps={steps} selectedStep={selectedStep} onStepClick={drillToStep} />
+      ) : view === 'output' ? (
+        <AllLogsPanel runId={id} steps={steps} />
+      ) : (
+        <div className="island-shell !p-0 overflow-hidden">
+          <PanelHeader
+            icon={<Network size={14} className="text-primary" />}
+            title="DAG"
+            subtitle={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
+          />
+          <div className="min-h-[420px] sm:min-h-[520px] lg:min-h-[600px] h-[calc(100vh-360px)] max-h-[1100px]">
+            <Suspense fallback={
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                Loading DAG…
+              </div>
+            }>
+              <DagView steps={steps} direction="DOWN" onStepClick={drillToStep} />
+            </Suspense>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// View tabs — Steps (master/detail) · Waterfall · DAG · Output
+// ---------------------------------------------------------------------------
+
+function ViewTabs({ view, onChange }: { view: RunView; onChange: (v: RunView) => void }) {
+  return (
+    <div className="flex items-center rounded-lg border border-border p-0.5" style={{ background: 'var(--surface)' }}>
+      <ViewToggle label="Steps" icon={<ListTree size={13} />} active={view === 'steps'} onClick={() => onChange('steps')} />
+      <ViewToggle label="Waterfall" icon={<Activity size={13} />} active={view === 'waterfall'} onClick={() => onChange('waterfall')} />
+      <ViewToggle label="DAG" icon={<Network size={13} />} active={view === 'dag'} onClick={() => onChange('dag')} />
+      <ViewToggle label="Output" icon={<ScrollText size={13} />} active={view === 'output'} onClick={() => onChange('output')} />
     </div>
   )
 }
@@ -249,28 +308,27 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
   const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), { invalidate })
   const retry = useAction((id: string) => client.runs.retry({ runId: id }), { invalidate })
   return (
-    <div className="island-shell p-4 sm:p-5 lg:p-6 mb-4 lg:mb-5">
-      <div className="space-y-2 lg:space-y-3">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <StatusBadge status={run.status} />
-          <Link
-            to="/ci/projects/$id"
-            params={{ id: run.projectId }}
-            className="display-title text-xl sm:text-2xl lg:text-3xl font-bold text-foreground hover:text-primary transition-colors truncate"
-          >
-            {run.projectName}
-          </Link>
-          <span className="text-xs text-muted-foreground font-mono opacity-60">
-            {run.workflowFile}
-          </span>
-        </div>
-        <p className="text-sm lg:text-base text-muted-foreground flex items-center gap-2">
-          <GitCommit size={14} className="shrink-0" />
+    <div className="island-shell p-4 sm:p-5 mb-4 lg:mb-5">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <StatusBadge status={run.status} />
+        <Link
+          to="/ci/projects/$id"
+          params={{ id: run.projectId }}
+          className="display-title text-lg sm:text-xl lg:text-2xl font-bold text-foreground hover:text-primary transition-colors truncate"
+        >
+          {run.projectName}
+        </Link>
+        <span className="hidden sm:inline text-muted-foreground/30">/</span>
+        <p className="text-sm text-muted-foreground flex items-center gap-1.5 min-w-0 flex-1">
+          <GitCommit size={13} className="shrink-0 opacity-60" />
           <span className="truncate">{run.commitMessage}</span>
         </p>
+        <span className="hidden lg:inline text-xs text-muted-foreground font-mono opacity-50 shrink-0">
+          {run.workflowFile}
+        </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-4 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <GitBranch size={13} />
           <span className="font-mono">{run.branch}</span>
@@ -290,6 +348,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
         <span className="flex items-center gap-1.5" title="Started">
           <Clock size={13} />
           Started {run.startedAtTs ? formatDateTime(run.startedAtTs) : run.startedAt}
+          {run.startedAtTs && <span className="opacity-50">· {formatAgo(run.startedAtTs)}</span>}
         </span>
         {run.finishedAtTs && (
           <span className="flex items-center gap-1.5">
@@ -376,89 +435,111 @@ function RunProgress({ steps, isLive, elapsedSecs, medianSecs }: {
 }
 
 // ---------------------------------------------------------------------------
-// Overview panel — Timeline / DAG toggle, no step selected
+// Run summary — the detail pane when no step is selected (clean/pending runs)
 // ---------------------------------------------------------------------------
 
-function OverviewPanel({
-  runId, steps, view, onViewChange, selectedStep, onStepClick,
-}: {
-  runId: string
+function RunSummary({ run, steps, isLive, now, onStepClick }: {
+  run: any
   steps: any[]
-  view: OverviewView
-  onViewChange: (v: OverviewView) => void
-  selectedStep: string | null
+  isLive: boolean
+  now: number
   onStepClick: (name: string) => void
 }) {
-  // Toolbar lives inside the card header so the card's top edge aligns
-  // with the Steps rail card.
-  const toolbar = (
-    <div
-      className="flex items-center rounded-lg border border-border p-0.5"
-      style={{ background: 'var(--surface)' }}
-    >
-      <ViewToggle
-        label="Timeline"
-        icon={<Activity size={13} />}
-        active={view === 'timeline'}
-        onClick={() => onViewChange('timeline')}
-      />
-      <ViewToggle
-        label="DAG"
-        icon={<Network size={13} />}
-        active={view === 'dag'}
-        onClick={() => onViewChange('dag')}
-      />
-      <ViewToggle
-        label="Logs"
-        icon={<ScrollText size={13} />}
-        active={view === 'logs'}
-        onClick={() => onViewChange('logs')}
-      />
-    </div>
-  )
+  const started = steps.filter((s) => s.startedAt)
+  const passed = steps.filter((s) => s.status === 'succeeded').length
+  const total = steps.length
 
-  if (view === 'logs') {
-    return <AllLogsPanel runId={runId} steps={steps} toolbar={toolbar} />
-  }
+  // Per-step run/queue time. Gates are human waits, not slow work, so they're
+  // excluded from the "slowest steps" ranking and its scale.
+  const timed = started
+    .map((s) => {
+      const startMs = Date.parse(s.startedAt)
+      const schedMs = s.scheduledAt ? Date.parse(s.scheduledAt) : startMs
+      const endMs = s.finishedAt ? Date.parse(s.finishedAt) : now
+      return { step: s, runMs: Math.max(0, endMs - startMs), waitMs: Math.max(0, startMs - schedMs) }
+    })
+  const slowest = timed
+    .filter((t) => t.step.execType !== 'gate')
+    .sort((a, b) => b.runMs - a.runMs)
+  const maxRun = Math.max(1, ...slowest.map((t) => t.runMs))
+  const totalQueue = timed.reduce((sum, t) => sum + t.waitMs, 0)
 
-  if (view === 'timeline') {
-    return (
-      <RunGantt
-        steps={steps}
-        selectedStep={selectedStep}
-        onStepClick={onStepClick}
-        toolbar={toolbar}
-      />
-    )
-  }
+  const wallMs = run.startedAtTs && run.finishedAtTs ? run.finishedAtTs - run.startedAtTs : 0
 
   return (
     <div className="island-shell !p-0 overflow-hidden">
-      <PanelHeader
-        icon={<Network size={14} className="text-primary" />}
-        title="DAG"
-        subtitle={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
-        toolbar={toolbar}
-      />
-      {/* DAG canvas: respects a comfortable minimum at every breakpoint
-          and grows to fill the remaining viewport when there's room
-          below. The calc subtracts the static stack above (header,
-          run-card, progress, gaps) so the DAG fits to the bottom edge
-          on tall windows without overflowing on short ones. The max
-          keeps it sane on ultrawide vertical monitors. */}
-      <div className="min-h-[420px] sm:min-h-[520px] lg:min-h-[600px] h-[calc(100vh-360px)] max-h-[1100px]">
-        <Suspense fallback={
-          <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-            Loading DAG…
-          </div>
-        }>
-          <DagView
-            steps={steps}
-            direction="DOWN"
-            onStepClick={onStepClick}
+      <PanelHeader icon={<Gauge size={14} className="text-primary" />} title="Run summary" />
+
+      <div className="p-4 sm:p-5 space-y-5">
+        {/* Headline stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <Stat
+            icon={<CheckCircle size={14} className={passed === total ? 'text-success' : 'text-muted-foreground'} />}
+            label="Steps passed"
+            value={`${passed}/${total}`}
           />
-        </Suspense>
+          <Stat
+            icon={<Timer size={14} className={isLive ? 'text-primary' : 'text-muted-foreground'} />}
+            label={isLive ? 'Elapsed' : 'Duration'}
+            value={wallMs ? fmtDur(wallMs) : run.duration}
+          />
+          <Stat
+            icon={<Hourglass size={14} className="text-muted-foreground" />}
+            label="Queued"
+            value={fmtDur(totalQueue)}
+          />
+        </div>
+
+        {/* Where the time went */}
+        {slowest.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+              Slowest steps
+            </p>
+            <div className="space-y-1.5">
+              {slowest.slice(0, 5).map(({ step, runMs }) => (
+                <button
+                  key={step.name}
+                  type="button"
+                  onClick={() => onStepClick(step.name)}
+                  className="group w-full flex items-center gap-3 text-left"
+                >
+                  <StatusIcon status={step.status} size={13} />
+                  <span className="text-[13px] text-foreground/90 group-hover:text-primary transition-colors w-32 sm:w-40 truncate shrink-0">
+                    {step.name}
+                  </span>
+                  <span className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                    <span
+                      className={`block h-full rounded-full ${step.status === 'failed' ? 'bg-destructive' : 'bg-success'}`}
+                      style={{ width: `${Math.max((runMs / maxRun) * 100, 4)}%` }}
+                    />
+                  </span>
+                  <span className="text-[11px] font-mono tabular-nums text-muted-foreground w-12 text-right shrink-0">
+                    {fmtDur(runMs)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border/60">
+          <ArrowRight size={12} className="text-muted-foreground/50" />
+          Select a step to view its logs
+        </p>
       </div>
+    </div>
+  )
+}
+
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <p className="mt-1 text-lg font-bold tabular-nums text-foreground">{value}</p>
     </div>
   )
 }
@@ -503,7 +584,7 @@ function highlight(line: string, q: string): React.ReactNode {
   return out
 }
 
-function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; toolbar: React.ReactNode }) {
+function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; toolbar?: React.ReactNode }) {
   const { data } = useQuery(orpc.runs.logs.queryOptions({ input: { runId } }))
   const logsMap = data?.logs ?? {}
   const { copied, copy } = useCopyToClipboard()

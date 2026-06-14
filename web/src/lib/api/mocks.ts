@@ -762,27 +762,44 @@ export function getSteps(runId?: string): PipelineStep[] {
   let cursor = base
   const iso = (ms: number) => new Date(ms).toISOString()
 
+  // Runner-queue / pod cold-start wait before a step actually starts. The
+  // first wave pays a real cold-start (scale-to-zero); the post-gate deploy
+  // spins a fresh runner; everything else just waits in the queue briefly.
+  const waitFor = (i: number, t: { wave: number; name: string }): number => {
+    if (t.wave === 0) return 6000 + (h % 5000)
+    if (t.name === 'deploy-prod') return 4000 + (h % 3000)
+    return 400 + ((h + i * 13) % 1400)
+  }
+
+  // One upstream step flakes and is retried (succeeds on a later attempt).
+  const retryIdx = 1 + (h % 4) // lint / unit-tests / integration-tests / build
+
   return STEP_TEMPLATE.map((t, i): PipelineStep => {
     const dur = durs[i]!
-    const common = { name: t.name, execType: t.execType, wave: t.wave, attempt: 1, maxAttempts: 1, dependsOn: t.dependsOn }
+    const retried = i === retryIdx
+    const common = { name: t.name, execType: t.execType, wave: t.wave, dependsOn: t.dependsOn }
 
     if (status === 'pending' || i > stop) {
       // Not started (pending run) or downstream of the stopping step.
-      return { ...common, status: status !== 'pending' && status !== 'running' ? 'skipped' : 'pending' }
+      return { ...common, attempt: 1, maxAttempts: 1, status: status !== 'pending' && status !== 'running' ? 'skipped' : 'pending' }
     }
+
+    // Started steps record when they were scheduled, then started after the wait.
+    const scheduledAt = iso(cursor)
+    cursor += waitFor(i, t)
+    const startedAt = iso(cursor)
+
     if (i < stop) {
-      const startedAt = iso(cursor)
       const finishedAt = iso(cursor + dur)
       cursor += dur + 1000
-      return { ...common, status: 'succeeded', startedAt, finishedAt }
+      return { ...common, attempt: retried ? 2 : 1, maxAttempts: retried ? 3 : 1, status: 'succeeded', scheduledAt, startedAt, finishedAt }
     }
     // i === stop: the step that defines the run's outcome.
-    const startedAt = iso(cursor)
-    if (status === 'running') return { ...common, status: 'running', startedAt }
+    if (status === 'running') return { ...common, attempt: 1, maxAttempts: 1, status: 'running', scheduledAt, startedAt }
     const finishedAt = iso(cursor + dur)
-    if (status === 'failed') return { ...common, status: 'failed', startedAt, finishedAt, ...failureFor(t.name) }
-    if (status === 'cancelled') return { ...common, status: 'cancelled', startedAt, finishedAt }
-    return { ...common, status: 'succeeded', startedAt, finishedAt }
+    if (status === 'failed') return { ...common, attempt: 3, maxAttempts: 3, status: 'failed', scheduledAt, startedAt, finishedAt, ...failureFor(t.name) }
+    if (status === 'cancelled') return { ...common, attempt: 1, maxAttempts: 1, status: 'cancelled', scheduledAt, startedAt, finishedAt }
+    return { ...common, attempt: 1, maxAttempts: 1, status: 'succeeded', scheduledAt, startedAt, finishedAt }
   })
 }
 
@@ -800,6 +817,7 @@ function getGatePausedSteps(): PipelineStep[] {
       wave: 0,
       attempt: 1,
       maxAttempts: 1,
+      scheduledAt: '2024-01-15T09:59:52Z',
       startedAt: '2024-01-15T10:00:00Z',
       finishedAt: '2024-01-15T10:00:24Z',
     },
@@ -819,9 +837,10 @@ function getGatePausedSteps(): PipelineStep[] {
       status: 'succeeded',
       execType: 'run',
       wave: 1,
-      attempt: 1,
-      maxAttempts: 1,
+      attempt: 2,
+      maxAttempts: 3,
       dependsOn: ['install-deps'],
+      scheduledAt: '2024-01-15T10:00:24Z',
       startedAt: '2024-01-15T10:00:25Z',
       finishedAt: '2024-01-15T10:01:08Z',
     },
@@ -891,6 +910,7 @@ function getGatePausedSteps(): PipelineStep[] {
       attempt: 1,
       maxAttempts: 1,
       dependsOn: ['smoke-tests'],
+      scheduledAt: '2024-01-15T10:04:13Z',
       startedAt: '2024-01-15T10:04:13Z',
     },
     {

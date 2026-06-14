@@ -1,24 +1,31 @@
 import { useEffect, useState } from 'react'
-import { Activity, ShieldCheck, Hourglass } from 'lucide-react'
+import { Activity, ShieldCheck, Hourglass, RotateCw } from 'lucide-react'
+import { formatClock } from '#/lib/format-time'
 import type { PipelineStep } from '#/lib/api/types'
 
 interface RunGanttProps {
   steps: PipelineStep[]
   selectedStep: string | null
   onStepClick: (name: string) => void
-  /** Optional content rendered in the top-right of the card header (e.g. view toggle). */
+  /** Optional content rendered in the top-right of the card header. */
   toolbar?: React.ReactNode
 }
 
+// Fixed column widths (plain Tailwind, not CSS vars) so the axis, gridlines,
+// and every row share one coordinate system without relying on inherited
+// custom properties.
+const NAME_COL = 'w-[120px] sm:w-[150px] lg:w-[180px]'
+const META_COL = 'w-12 sm:w-14'
+const GRID_PCTS = [0, 25, 50, 75, 100]
+
 /**
- * Gantt-style timeline. Each step that has begun is rendered as a bar
- * positioned by `startedAt..finishedAt` relative to the run's total
- * duration. Steps still pending appear in a small "queued" footer so
- * the eye can spot them without forcing fake placeholders into the bars.
+ * Wall-clock waterfall. Each started step is a bar positioned across the run's
+ * elapsed span, split into a faint **queue** segment (scheduled → started:
+ * runner / pod cold-start wait) and a solid **run** segment. Retried steps are
+ * striped; hovering reveals offsets from run start. This is the time-positioned
+ * view — for ranked durations the Steps spine is the better lens.
  */
 export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGanttProps) {
-  // Tick "now" once per second while anything is still running so the
-  // running bars grow live.
   const isLive = steps.some((s) => s.status === 'running' || s.status === 'waiting')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -33,11 +40,7 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
   if (startedSteps.length === 0) {
     return (
       <div className="island-shell !p-0 overflow-hidden">
-        <PanelHeader
-          icon={<Activity size={14} className="text-primary" />}
-          title="Timeline"
-          toolbar={toolbar}
-        />
+        <PanelHeader icon={<Activity size={14} className="text-primary" />} title="Timeline" toolbar={toolbar} />
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
           <Hourglass size={28} strokeWidth={1.4} className="opacity-50" />
           <p className="text-sm">Run hasn't started yet.</p>
@@ -47,23 +50,22 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
     )
   }
 
-  const startTimes = startedSteps.map((s) => new Date(s.startedAt!).getTime())
-  const endTimes = startedSteps.map((s) =>
-    s.finishedAt ? new Date(s.finishedAt).getTime() : now,
-  )
-  const runStart = Math.min(...startTimes)
-  const runEnd = Math.max(...endTimes, isLive ? now : runStart)
-  // Clamp to at least 1s so bars never collapse to zero width.
+  // Per-step times: scheduled (queue start) → started → ended (or live now).
+  const rows = startedSteps
+    .map((step) => {
+      const startMs = new Date(step.startedAt!).getTime()
+      const schedMs = step.scheduledAt ? new Date(step.scheduledAt).getTime() : startMs
+      const endMs = step.finishedAt ? new Date(step.finishedAt).getTime() : now
+      return { step, schedMs, startMs, endMs }
+    })
+    .sort((a, b) => a.schedMs - b.schedMs || a.step.wave - b.step.wave)
+
+  const runStart = Math.min(...rows.map((r) => r.schedMs))
+  const runEnd = Math.max(...rows.map((r) => r.endMs), isLive ? now : runStart)
   const totalMs = Math.max(runEnd - runStart, 1000)
 
-  // Build wave groupings preserving step order so we can stripe waves
-  // visually (subtle row-zebra) and label parallel groups.
-  const orderedSteps = [...startedSteps].sort((a, b) => {
-    const aStart = new Date(a.startedAt!).getTime()
-    const bStart = new Date(b.startedAt!).getTime()
-    if (aStart !== bStart) return aStart - bStart
-    return a.wave - b.wave
-  })
+  const totalWait = rows.reduce((sum, r) => sum + Math.max(0, r.startMs - r.schedMs), 0)
+  const anyWait = totalWait >= 1000
 
   return (
     <div className="island-shell !p-0 overflow-hidden">
@@ -72,40 +74,38 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
         title="Timeline"
         subtitle={
           <>
-            {orderedSteps.length} step{orderedSteps.length === 1 ? '' : 's'}
+            {rows.length} step{rows.length === 1 ? '' : 's'}
             {isLive && <span className="text-primary font-medium ml-1.5">· live</span>}
-            <span className="ml-2 font-mono opacity-70">{formatMs(totalMs)} total</span>
+            <span className="ml-2 font-mono opacity-70">{formatMs(totalMs)}</span>
+            {anyWait && <span className="ml-2 font-mono opacity-50">· {formatMs(totalWait)} queued</span>}
           </>
         }
         toolbar={toolbar}
       />
 
       <div className="px-3 sm:px-4 lg:px-5 py-3 lg:py-4">
-        <TimeAxis totalMs={totalMs} />
-        <div className="space-y-0.5 lg:space-y-1 mt-2">
-          {orderedSteps.map((step) => (
+        <TimeAxis totalMs={totalMs} showQueueLegend={anyWait} />
+        <div className="mt-2.5 space-y-0.5">
+          {rows.map((r) => (
             <GanttRow
-              key={step.name}
-              step={step}
+              key={r.step.name}
+              row={r}
               runStart={runStart}
               totalMs={totalMs}
-              now={now}
-              isSelected={step.name === selectedStep}
-              onClick={() => onStepClick(step.name)}
+              isSelected={r.step.name === selectedStep}
+              onClick={() => onStepClick(r.step.name)}
             />
           ))}
         </div>
 
         {pendingSteps.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">
-              Pending
-            </span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">Pending</span>
             {pendingSteps.map((s) => (
               <span
                 key={s.name}
                 title={`${s.name} — hasn't started yet`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-0.5 text-xs font-medium text-muted-foreground/60"
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-2 py-0.5 text-xs font-medium text-muted-foreground/60"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground opacity-30" />
                 {s.name}
@@ -122,68 +122,112 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
 // One Gantt row
 // ---------------------------------------------------------------------------
 
-const NAME_COL = 'w-[110px] sm:w-[140px] lg:w-[160px]'
-const META_COL = 'w-[58px] sm:w-[68px]'
+interface Row {
+  step: PipelineStep
+  schedMs: number
+  startMs: number
+  endMs: number
+}
 
 function GanttRow({
-  step, runStart, totalMs, now, isSelected, onClick,
+  row, runStart, totalMs, isSelected, onClick,
 }: {
-  step: PipelineStep
+  row: Row
   runStart: number
   totalMs: number
-  now: number
   isSelected: boolean
   onClick: () => void
 }) {
-  const startMs = new Date(step.startedAt!).getTime()
-  const endMs = step.finishedAt ? new Date(step.finishedAt).getTime() : now
+  const { step, schedMs, startMs, endMs } = row
   const isRunning = !step.finishedAt && (step.status === 'running' || step.status === 'waiting')
-  const leftPct = ((startMs - runStart) / totalMs) * 100
-  const widthPct = Math.max(((endMs - startMs) / totalMs) * 100, 1.5)
   const isGate = step.execType === 'gate'
+  const waitMs = Math.max(0, startMs - schedMs)
+  const runMs = Math.max(0, endMs - startMs)
+  const retried = step.attempt > 1
+
+  const leftPct = ((schedMs - runStart) / totalMs) * 100
+  const spanPct = Math.max(((endMs - schedMs) / totalMs) * 100, 1.2)
+  const waitFracPct = endMs > schedMs ? (waitMs / (endMs - schedMs)) * 100 : 0
+
+  const tip = [
+    step.name,
+    waitMs >= 500 ? `Queued  ${formatMs(waitMs)}  (runner wait)` : null,
+    `Started  +${formatMs(startMs - runStart)}  ·  ${formatClock(startMs)}`,
+    step.finishedAt ? `Ran  ${formatMs(runMs)}` : isRunning ? `Running…  ${formatMs(runMs)}` : null,
+    retried ? `Attempt ${step.attempt} of ${step.maxAttempts}` : null,
+  ].filter(Boolean).join('\n')
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group w-full flex items-center gap-2 sm:gap-3 rounded-md px-1.5 py-1.5 text-left transition-colors ${
-        isSelected
-          ? 'bg-primary/8 ring-1 ring-primary/20'
-          : 'hover:bg-accent'
+      title={tip}
+      className={`group flex w-full items-center gap-2 sm:gap-3 rounded-md px-1.5 py-1 text-left transition-colors ${
+        isSelected ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/20' : 'hover:bg-accent/60'
       }`}
     >
+      {/* Name + status dot + retry badge */}
       <div className={`${NAME_COL} shrink-0 flex items-center gap-1.5 min-w-0`}>
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass(step.status, isGate)} ${isRunning ? 'animate-pulse' : ''}`} />
         {isGate && <ShieldCheck size={11} className="text-warning shrink-0" />}
-        <span className={`text-xs font-medium truncate ${
-          isSelected ? 'text-primary' : 'text-foreground'
-        } group-hover:text-primary transition-colors`}>
+        <span className={`text-xs font-medium truncate transition-colors ${isSelected ? 'text-primary' : 'text-foreground'} group-hover:text-primary`}>
           {step.name}
         </span>
+        {retried && (
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning/15 px-1 text-[9px] font-mono font-semibold text-warning">
+            <RotateCw size={8} />{step.attempt}
+          </span>
+        )}
       </div>
 
-      <div className="flex-1 relative h-5 sm:h-6 rounded bg-muted/40 overflow-hidden">
+      {/* Plot — fixed height so the absolutely-positioned bar has room */}
+      <div className="relative flex-1 h-6">
+        {GRID_PCTS.map((p) => (
+          <span
+            key={p}
+            className={`absolute top-0 bottom-0 w-px ${p === 0 || p === 100 ? 'bg-border/40' : 'bg-border/20'}`}
+            style={{ left: `${p}%` }}
+          />
+        ))}
         <div
-          className={`absolute top-0 bottom-0 rounded transition-[width] duration-500 ease-out ${barClasses(step.status, isGate)}`}
-          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+          className="absolute top-1/2 -translate-y-1/2 h-2.5 flex rounded-full overflow-hidden ring-1 ring-inset ring-black/5 dark:ring-white/5"
+          style={{ left: `${leftPct}%`, width: `${spanPct}%` }}
         >
-          {isRunning && <span className="absolute inset-0 running-shimmer" />}
+          {waitFracPct > 0.5 && (
+            <span
+              className="h-full shrink-0"
+              style={{
+                width: `${waitFracPct}%`,
+                backgroundImage:
+                  'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 16%, transparent) 0 1.5px, transparent 1.5px 5px)',
+              }}
+            />
+          )}
+          <span className={`relative h-full flex-1 ${barClass(step.status, isGate)}`}>
+            {retried && (
+              <span
+                className="absolute inset-0"
+                style={{ backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,0.22) 0 3px, transparent 3px 7px)' }}
+              />
+            )}
+            {isRunning && <span className="absolute inset-0 running-shimmer" />}
+          </span>
         </div>
       </div>
 
-      <span className={`${META_COL} shrink-0 text-right text-[11px] font-mono whitespace-nowrap ${
-        isRunning ? 'text-primary' : 'text-muted-foreground'
-      }`}>
-        {formatMs(endMs - startMs)}
-      </span>
+      {/* Run duration */}
+      <div className={`${META_COL} shrink-0 text-right text-[11px] font-mono tabular-nums ${isRunning ? 'text-primary' : 'text-muted-foreground'}`}>
+        {step.finishedAt || isRunning ? formatMs(runMs) : '—'}
+      </div>
     </button>
   )
 }
 
-function TimeAxis({ totalMs }: { totalMs: number }) {
+function TimeAxis({ totalMs, showQueueLegend }: { totalMs: number; showQueueLegend: boolean }) {
   return (
-    <div className={`flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-muted-foreground/60`}>
-      <div className={`${NAME_COL} shrink-0`} />
-      <div className="flex-1 flex justify-between font-mono">
+    <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-muted-foreground/60">
+      <div className={`${NAME_COL} shrink-0 truncate`}>{showQueueLegend && <Legend />}</div>
+      <div className="flex-1 flex justify-between font-mono tabular-nums">
         <span>0:00</span>
         <span className="hidden sm:inline">{formatMs(totalMs * 0.25)}</span>
         <span>{formatMs(totalMs * 0.5)}</span>
@@ -195,8 +239,26 @@ function TimeAxis({ totalMs }: { totalMs: number }) {
   )
 }
 
+function Legend() {
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <span className="inline-flex items-center gap-1">
+        <span
+          className="h-2 w-3 rounded-full bg-foreground/10"
+          style={{ backgroundImage: 'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 16%, transparent) 0 1.5px, transparent 1.5px 5px)' }}
+        />
+        queue
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="h-2 w-3 rounded-full bg-muted-foreground/50" />
+        run
+      </span>
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
-// Shared panel header — used by Timeline and DAG cards so they share
+// Shared panel header — used by Timeline, DAG, and gate cards so they share
 // the same top-edge alignment and aesthetic.
 // ---------------------------------------------------------------------------
 
@@ -211,11 +273,9 @@ export function PanelHeader({
   return (
     <div className="flex items-center justify-between gap-3 px-4 lg:px-5 py-3 border-b border-border min-h-[48px]">
       <div className="flex items-center gap-2 min-w-0">
-        {icon}
-        <span className="text-sm lg:text-base font-semibold text-foreground">{title}</span>
-        {subtitle && (
-          <span className="text-xs text-muted-foreground truncate">{subtitle}</span>
-        )}
+        <span className="shrink-0">{icon}</span>
+        <span className="shrink-0 whitespace-nowrap text-sm lg:text-base font-semibold text-foreground">{title}</span>
+        {subtitle && <span className="text-xs text-muted-foreground truncate">{subtitle}</span>}
       </div>
       {toolbar && <div className="shrink-0">{toolbar}</div>}
     </div>
@@ -226,17 +286,29 @@ export function PanelHeader({
 // helpers
 // ---------------------------------------------------------------------------
 
-function barClasses(status: PipelineStep['status'], isGate: boolean): string {
-  if (isGate && status === 'pending') return 'bg-warning/30 border border-dashed border-warning/60'
+function barClass(status: PipelineStep['status'], isGate: boolean): string {
+  if (isGate && (status === 'waiting' || status === 'pending')) return 'bg-warning/70'
   switch (status) {
-    case 'succeeded': return 'bg-success/80'
-    case 'failed': return 'bg-destructive/80'
-    case 'running': return 'bg-primary/70'
-    case 'waiting': return 'bg-warning/70'
-    case 'cancelled': return 'bg-muted-foreground/30'
-    case 'skipped': return 'bg-muted-foreground/20'
-    case 'queued': return 'bg-purple-400/50'
-    default: return 'bg-muted-foreground/30'
+    case 'succeeded': return 'bg-success'
+    case 'failed': return 'bg-destructive'
+    case 'running': return 'bg-primary shadow-[0_0_8px_-1px] shadow-primary/50'
+    case 'waiting': return 'bg-warning'
+    case 'cancelled': return 'bg-muted-foreground/40'
+    case 'skipped': return 'bg-muted-foreground/25'
+    case 'queued': return 'bg-purple-400/60'
+    default: return 'bg-muted-foreground/40'
+  }
+}
+
+function dotClass(status: PipelineStep['status'], isGate: boolean): string {
+  if (isGate && (status === 'waiting' || status === 'pending')) return 'bg-warning'
+  switch (status) {
+    case 'succeeded': return 'bg-success'
+    case 'failed': return 'bg-destructive'
+    case 'running': return 'bg-primary'
+    case 'waiting': return 'bg-warning'
+    case 'queued': return 'bg-purple-400'
+    default: return 'bg-muted-foreground/40'
   }
 }
 
