@@ -156,8 +156,18 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
     [onStepClick],
   )
 
+  // The DAG is a read-only diagram: nodes can't be dragged or connected, and
+  // scroll doesn't hijack the page (zoom via the controls). Pan by dragging the
+  // canvas is kept for graphs larger than the viewport. Clicking a node only
+  // does something when a handler is provided (e.g. the run page).
+  const clickable = !!onStepClick
+
   return (
-    <div className="h-full w-full bg-card min-h-[300px]">
+    <div
+      className={`h-full w-full bg-card min-h-[300px] ${
+        clickable ? '[&_.react-flow__node]:cursor-pointer' : '[&_.react-flow__node]:cursor-default'
+      }`}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -166,18 +176,29 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.12, maxZoom: 1.3 }}
+        fitViewOptions={{ padding: 0.18, maxZoom: 1.1 }}
         proOptions={{ hideAttribution: true }}
-        minZoom={0.5}
-        maxZoom={2}
+        minZoom={0.4}
+        maxZoom={1.6}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        nodesFocusable={clickable}
+        elementsSelectable={clickable}
+        edgesFocusable={false}
+        zoomOnScroll={false}
+        zoomOnDoubleClick={false}
+        panOnScroll={false}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          color="#334155"
-          gap={16}
+          color="var(--border)"
+          gap={18}
           size={1}
         />
-        <Controls className="!bg-card !border-border !text-foreground [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground" />
+        <Controls
+          showInteractive={false}
+          className="!shadow-none [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!text-foreground"
+        />
       </ReactFlow>
     </div>
   )

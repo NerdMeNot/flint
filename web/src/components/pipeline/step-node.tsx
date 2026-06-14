@@ -25,23 +25,22 @@ export function StepNode({ data, sourcePosition, targetPosition }: NodeProps) {
       />
       {isGate ? (
         <div
-          className="flex items-center gap-3.5 rounded-xl px-6 py-5 w-[300px] shadow-md cursor-pointer"
+          className="flex items-center gap-3 rounded-lg border-[1.5px] border-dashed border-warning px-5 py-4 w-[300px] shadow-sm"
           style={{
             background: 'color-mix(in oklab, var(--warning) 8%, var(--card))',
             color: 'var(--card-foreground)',
-            border: '1.5px dashed var(--warning)',
           }}
         >
-          <ShieldCheck size={22} className="text-warning shrink-0" />
-          <span className="text-base lg:text-lg font-semibold truncate text-warning">{step.name}</span>
+          <ShieldCheck size={20} className="text-warning shrink-0" />
+          <span className="text-base font-semibold truncate text-warning">{step.name}</span>
         </div>
       ) : (
         <div
-          className={`flex items-center gap-3.5 rounded-xl px-6 py-5 w-[300px] shadow-md transition-colors cursor-pointer ${borderClass(step.status)}`}
-          style={{ background: 'var(--card)', color: 'var(--card-foreground)', border: '1px solid var(--border)' }}
+          className={`flex items-center gap-3 rounded-lg border px-5 py-4 w-[300px] shadow-sm transition-colors ${borderClass(step.status)}`}
+          style={{ background: 'var(--card)', color: 'var(--card-foreground)' }}
         >
           <StatusIcon status={step.status} />
-          <span className="text-base lg:text-lg font-medium truncate">{step.name}</span>
+          <span className="text-base font-medium truncate">{step.name}</span>
         </div>
       )}
       <Handle
@@ -54,7 +53,7 @@ export function StepNode({ data, sourcePosition, targetPosition }: NodeProps) {
 }
 
 function StatusIcon({ status }: { status: PipelineStep['status'] }) {
-  const size = 22
+  const size = 20
   switch (status) {
     case 'succeeded':
       return <CheckCircle size={size} className="text-success shrink-0" />
