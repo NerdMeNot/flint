@@ -294,6 +294,17 @@ type RunnerPool struct {
 	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
+type SavedView struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	OwnerUserID string    `json:"owner_user_id"`
+	Name        string    `json:"name"`
+	Route       string    `json:"route"`
+	Selector    []byte    `json:"selector"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type Secret struct {
 	ID             string    `json:"id"`
 	OrgID          string    `json:"org_id"`
