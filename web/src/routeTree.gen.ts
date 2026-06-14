@@ -50,6 +50,7 @@ import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.en
 import { Route as CiViewsIdRouteImport } from './routes/ci.views.$id'
 import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
 import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
+import { Route as ApiSseSplatRouteImport } from './routes/api/sse.$'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
 
 const TeamsRoute = TeamsRouteImport.update({
@@ -258,6 +259,11 @@ const CiProjectsIdRoute = CiProjectsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => CiProjectsRoute,
 } as any)
+const ApiSseSplatRoute = ApiSseSplatRouteImport.update({
+  id: '/api/sse/$',
+  path: '/api/sse/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
   id: '/api/rpc/$',
   path: '/api/rpc/$',
@@ -293,6 +299,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/api/sse/$': typeof ApiSseSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/ci/views/$id': typeof CiViewsIdRoute
@@ -331,6 +338,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsIndexRoute
   '/workflows': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/api/sse/$': typeof ApiSseSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/ci/views/$id': typeof CiViewsIdRoute
@@ -376,6 +384,7 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/api/sse/$': typeof ApiSseSplatRoute
   '/ci/projects/$id': typeof CiProjectsIdRoute
   '/ci/runs/$id': typeof CiRunsIdRoute
   '/ci/views/$id': typeof CiViewsIdRoute
@@ -422,6 +431,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/workflows/'
     | '/api/rpc/$'
+    | '/api/sse/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/ci/views/$id'
@@ -460,6 +470,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workflows'
     | '/api/rpc/$'
+    | '/api/sse/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/ci/views/$id'
@@ -504,6 +515,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/workflows/'
     | '/api/rpc/$'
+    | '/api/sse/$'
     | '/ci/projects/$id'
     | '/ci/runs/$id'
     | '/ci/views/$id'
@@ -533,6 +545,7 @@ export interface RootRouteChildren {
   CiIndexRoute: typeof CiIndexRoute
   WorkflowsIndexRoute: typeof WorkflowsIndexRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
+  ApiSseSplatRoute: typeof ApiSseSplatRoute
   CiRunsIdRoute: typeof CiRunsIdRoute
   CiViewsIdRoute: typeof CiViewsIdRoute
   CiRunsIndexRoute: typeof CiRunsIndexRoute
@@ -827,6 +840,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CiProjectsIdRouteImport
       parentRoute: typeof CiProjectsRoute
     }
+    '/api/sse/$': {
+      id: '/api/sse/$'
+      path: '/api/sse/$'
+      fullPath: '/api/sse/$'
+      preLoaderRoute: typeof ApiSseSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/rpc/$': {
       id: '/api/rpc/$'
       path: '/api/rpc/$'
@@ -962,6 +982,7 @@ const rootRouteChildren: RootRouteChildren = {
   CiIndexRoute: CiIndexRoute,
   WorkflowsIndexRoute: WorkflowsIndexRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
+  ApiSseSplatRoute: ApiSseSplatRoute,
   CiRunsIdRoute: CiRunsIdRoute,
   CiViewsIdRoute: CiViewsIdRoute,
   CiRunsIndexRoute: CiRunsIndexRoute,
