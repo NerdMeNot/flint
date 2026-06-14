@@ -28,6 +28,7 @@ var (
 	commit     = "unknown"
 	configPath string
 	mode       string
+	demoMode   bool
 )
 
 func main() {
@@ -40,6 +41,7 @@ func main() {
 
 	root.Flags().StringVar(&configPath, "config", "", "path to config file")
 	root.Flags().StringVar(&mode, "mode", "all", "server mode: all | webhook | api")
+	root.Flags().BoolVar(&demoMode, "demo", false, "demo mode: in-process engine loop + fake executor + seeded data (dev only)")
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -269,6 +271,13 @@ func run(cmd *cobra.Command, args []string) error {
 
 	srv := flintserver.New(deps)
 	srv.StartAuthStoreCleanup(ctx) // prune expired device codes + MFA tokens
+
+	// Demo mode: run the engine loop in-process with a fake executor and seed
+	// data, so the UI can be driven end-to-end without Kubernetes. Dev only.
+	if demoMode || os.Getenv("FLINT_DEMO") == "1" || os.Getenv("FLINT_DEMO") == "true" {
+		flintserver.StartDemo(ctx, cfg, eng, deps)
+	}
+
 	srv.Run()
 
 	return nil

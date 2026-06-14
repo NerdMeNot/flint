@@ -245,6 +245,14 @@ tasks:
         trap "kill $WORKER_PID 2>/dev/null" EXIT
         go run ./cmd/server --config config.local.yaml --mode all
 
+  dev-demo:
+    desc: Run the server in demo mode — seeded data + fake executor on local Postgres, no Kubernetes (pair with `task web-dev`, FLINT_API_MODE=live)
+    deps:
+      - dev-db
+    cmds:
+      - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
+      - go run ./cmd/server --config config.local.yaml --demo
+
   # --- Docker ---
 
   docker:
