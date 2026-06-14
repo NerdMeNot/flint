@@ -51,6 +51,7 @@ type Querier interface {
 	CreateProtectedEnvironment(ctx context.Context, arg CreateProtectedEnvironmentParams) (string, error)
 	CreateRetryStep(ctx context.Context, arg CreateRetryStepParams) error
 	CreateRole(ctx context.Context, arg CreateRoleParams) (string, error)
+	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (string, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateTagKey(ctx context.Context, arg CreateTagKeyParams) (string, error)
 	CreateTeam(ctx context.Context, arg CreateTeamParams) (string, error)
@@ -82,6 +83,7 @@ type Querier interface {
 	DeleteRolePermissions(ctx context.Context, roleID string) error
 	DeleteRoleWorkspaceScopes(ctx context.Context, roleID string) error
 	DeleteRunnerPool(ctx context.Context, name string) error
+	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
 	DeleteTagKey(ctx context.Context, id string) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
@@ -238,6 +240,7 @@ type Querier interface {
 	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
 	ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error)
+	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]ListSavedViewsRow, error)
 	ListSecrets(ctx context.Context, arg ListSecretsParams) ([]ListSecretsRow, error)
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]ListStepsByWorkflowRow, error)

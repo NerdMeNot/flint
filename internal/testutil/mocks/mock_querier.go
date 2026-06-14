@@ -870,6 +870,34 @@ func (_m *Querier) CreateRole(ctx context.Context, arg db.CreateRoleParams) (str
 	return r0, r1
 }
 
+// CreateSavedView provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreateSavedView(ctx context.Context, arg db.CreateSavedViewParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateSavedView")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateSavedViewParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateSavedViewParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreateSavedViewParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateSession provides a mock function with given fields: ctx, arg
 func (_m *Querier) CreateSession(ctx context.Context, arg db.CreateSessionParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -1500,6 +1528,34 @@ func (_m *Querier) DeleteRunnerPool(ctx context.Context, name string) error {
 	}
 
 	return r0
+}
+
+// DeleteSavedView provides a mock function with given fields: ctx, arg
+func (_m *Querier) DeleteSavedView(ctx context.Context, arg db.DeleteSavedViewParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteSavedView")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.DeleteSavedViewParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.DeleteSavedViewParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.DeleteSavedViewParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // DeleteSecret provides a mock function with given fields: ctx, arg
@@ -4676,6 +4732,36 @@ func (_m *Querier) ListRunsByProject(ctx context.Context, arg db.ListRunsByProje
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.ListRunsByProjectParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListSavedViews provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListSavedViews(ctx context.Context, arg db.ListSavedViewsParams) ([]db.ListSavedViewsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListSavedViews")
+	}
+
+	var r0 []db.ListSavedViewsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListSavedViewsParams) ([]db.ListSavedViewsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListSavedViewsParams) []db.ListSavedViewsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListSavedViewsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListSavedViewsParams) error); ok {
 		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)

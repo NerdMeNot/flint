@@ -163,6 +163,12 @@ func (s *Server) registerAPIRoutes() {
 	v1.PUT("/tags/:id", s.requirePermission(auth.ObjTag, auth.ActManage), s.handleUpdateTagKey)
 	v1.DELETE("/tags/:id", s.requirePermission(auth.ObjTag, auth.ActManage), s.handleDeleteTagKey)
 
+	// Saved views — personal navigation targets (route + filters), scoped to the
+	// owning user. Gated at CI read level; handlers isolate by owner.
+	v1.GET("/views", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListSavedViews)
+	v1.POST("/views", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleCreateSavedView)
+	v1.DELETE("/views/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleDeleteSavedView)
+
 	// API keys.
 	v1.GET("/api-keys", s.requirePermission(auth.ObjAPIKey, auth.ActRead), s.handleListAPIKeys)
 	v1.POST("/api-keys", s.requirePermission(auth.ObjAPIKey, auth.ActManage), s.handleCreateAPIKey)
