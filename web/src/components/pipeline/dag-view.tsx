@@ -94,6 +94,9 @@ function layoutGraph(
   const edges: Edge[] = steps.flatMap((step) =>
     (step.dependsOn ?? []).map((dep) => {
       const color = edgeColor(step.status)
+      // Pending edges (the whole definition graph) are toned down so the graph
+      // reads as a soft accent thread rather than hard black lines.
+      const faded = step.status === 'pending'
       return {
         id: `${dep}->${step.name}`,
         source: dep,
@@ -102,13 +105,13 @@ function layoutGraph(
         // proper flowchart: lines run cleanly along the axis and turn at
         // 90° with a gentle radius, no dramatic bezier swoops.
         type: 'smoothstep',
-        pathOptions: { borderRadius: 18, offset: 24 },
+        pathOptions: { borderRadius: 20, offset: 24 },
         animated: step.status === 'running',
-        style: { stroke: color, strokeWidth: 1.75 },
+        style: { stroke: color, strokeWidth: 2, strokeOpacity: faded ? 0.4 : 0.9 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 16,
-          height: 16,
+          width: 14,
+          height: 14,
           color,
         },
       }
@@ -122,11 +125,11 @@ function edgeColor(status: PipelineStep['status']): string {
   switch (status) {
     case 'succeeded': return '#22c55e'
     case 'failed': return '#ef4444'
-    case 'running': return '#3b82f6'
+    case 'running': return '#6366f1'
     case 'waiting': return '#eab308'
     case 'skipped':
     case 'cancelled': return '#64748b'
-    default: return '#475569'
+    default: return '#6366f1' // pending — soft brand thread (faded via opacity)
   }
 }
 
@@ -164,9 +167,10 @@ export function DagView({ steps, direction = 'RIGHT', onStepClick }: DagViewProp
 
   return (
     <div
-      className={`h-full w-full bg-card min-h-[300px] ${
+      className={`h-full w-full min-h-[300px] ${
         clickable ? '[&_.react-flow__node]:cursor-pointer' : '[&_.react-flow__node]:cursor-default'
       }`}
+      style={{ background: 'radial-gradient(120% 120% at 50% 0%, color-mix(in oklab, var(--ring) 6%, var(--card)), var(--card) 55%)' }}
     >
       <ReactFlow
         nodes={nodes}
