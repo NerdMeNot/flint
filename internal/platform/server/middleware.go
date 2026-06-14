@@ -34,6 +34,13 @@ func (s *Server) authMiddleware() app.HandlerFunc {
 		// Try Bearer token.
 		header := string(c.GetHeader("Authorization"))
 		if header == "" {
+			// Browser EventSource (SSE) can't set an Authorization header, so for
+			// streaming endpoints accept the token as an ?access_token= query param.
+			if qt := string(c.Query("access_token")); qt != "" {
+				header = "Bearer " + qt
+			}
+		}
+		if header == "" {
 			apiUnauthorized(ctx, c, "missing authorization header")
 			c.Abort()
 			return
