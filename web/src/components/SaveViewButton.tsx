@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { BookmarkPlus } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
+import type { SavedView } from '#/lib/api/types'
 
 // Captures the current route + active URL filters as a named saved view.
 // Disabled until at least one filter is applied (an unfiltered view just
@@ -16,9 +18,17 @@ export function SaveViewButton({ route, search }: { route: string; search: Recor
   )
   const hasFilters = Object.keys(cleaned).length > 0
 
+  const navigate = useNavigate()
   const create = useAction(
-    (input: { name: string; route: string; search: Record<string, unknown> }) => client.views.create(input),
-    { invalidate: [orpc.views.list.key()], onSuccess: () => { setOpen(false); setName('') } },
+    (input: { name: string; route: string; search: Record<string, unknown> }) => client.views.create(input) as Promise<SavedView>,
+    {
+      invalidate: [orpc.views.list.key()],
+      onSuccess: (view) => {
+        setOpen(false)
+        setName('')
+        navigate({ to: '/ci/views/$id', params: { id: view.id } })
+      },
+    },
   )
 
   useEffect(() => {

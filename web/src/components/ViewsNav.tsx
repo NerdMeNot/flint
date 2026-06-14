@@ -1,19 +1,11 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { XCircle, Loader2, Shield, AlertTriangle, Bookmark, X } from 'lucide-react'
+import { Bookmark, X } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
+import { SMART_VIEWS } from '#/lib/views'
 
 const activeStyle = { background: 'color-mix(in oklab, var(--ring), black 35%)' }
-
-// Built-in, zero-setup views — client-side selectors over the URL filters the
-// list pages already understand.
-const SMART_VIEWS: { icon: typeof XCircle; label: string; route: string; search: Record<string, unknown> }[] = [
-  { icon: XCircle, label: 'Failing runs', route: '/ci/runs', search: { status: 'failed' } },
-  { icon: Loader2, label: 'Running now', route: '/ci/runs', search: { status: 'running' } },
-  { icon: Shield, label: 'Needs approval', route: '/ci/gates', search: {} },
-  { icon: AlertTriangle, label: 'Failing projects', route: '/ci/projects', search: { sort: 'failing' } },
-]
 
 function rowClass(active: boolean) {
   return `group flex items-center gap-2.5 rounded-lg py-1.5 px-3 text-sm font-medium transition-all duration-150 ${
@@ -24,32 +16,31 @@ function rowClass(active: boolean) {
 export function ViewsNav({ collapsed }: { collapsed: boolean }) {
   const { data } = useQuery(orpc.views.list.queryOptions({}))
   const saved = data?.items ?? []
-  const loc = useRouterState({ select: (s) => s.location })
+  const currentPath = useRouterState({ select: (s) => s.location.pathname })
   const del = useAction((id: string) => client.views.delete({ id }), { invalidate: [orpc.views.list.key()] })
 
   // Views need their labels — hidden while the sidebar is collapsed.
   if (collapsed) return null
 
-  const isActive = (route: string, search: Record<string, unknown>) =>
-    loc.pathname === route &&
-    Object.entries(search).every(([k, v]) => JSON.stringify((loc.search as Record<string, unknown>)?.[k]) === JSON.stringify(v))
+  const isActive = (id: string) => currentPath === `/ci/views/${id}`
 
   return (
     <div className="pt-3 mt-2 border-t border-border/60 space-y-0.5">
       <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">Views</p>
 
       {SMART_VIEWS.map((v) => {
-        const active = isActive(v.route, v.search)
+        const active = isActive(v.id)
+        const Icon = v.icon ?? Bookmark
         return (
           <Link
-            key={v.label}
-            to={v.route as never}
-            search={v.search as never}
+            key={v.id}
+            to="/ci/views/$id"
+            params={{ id: v.id }}
             className={rowClass(active)}
             style={active ? activeStyle : undefined}
           >
-            <v.icon size={15} strokeWidth={active ? 2.2 : 1.8} className="shrink-0" />
-            <span className="truncate">{v.label}</span>
+            <Icon size={15} strokeWidth={active ? 2.2 : 1.8} className="shrink-0" />
+            <span className="truncate">{v.name}</span>
           </Link>
         )
       })}
@@ -64,12 +55,12 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
       )}
 
       {saved.map((v) => {
-        const active = isActive(v.route, v.search)
+        const active = isActive(v.id)
         return (
           <div key={v.id} className="relative group/view">
             <Link
-              to={v.route as never}
-              search={v.search as never}
+              to="/ci/views/$id"
+              params={{ id: v.id }}
               className={`${rowClass(active)} pr-7`}
               style={active ? activeStyle : undefined}
             >

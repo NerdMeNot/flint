@@ -15,7 +15,7 @@ import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { relativeToMinutes } from '#/lib/run-feed'
 
 type ProjectView = 'grid' | 'list'
-type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
+export type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
 
 const SORTS: { key: ProjectSort; label: string }[] = [
   { key: 'recent', label: 'Recent activity' },
@@ -55,7 +55,7 @@ function flakiness(runs: { recentRuns: string[] } | undefined): number {
   return t
 }
 
-function sortProjects(items: Project[], sort: ProjectSort): Project[] {
+export function sortProjects(items: Project[], sort: ProjectSort): Project[] {
   const copy = [...items]
   switch (sort) {
     case 'name':
@@ -348,7 +348,7 @@ function TagSummary({ tags, registry, max }: { tags: string[]; registry: Map<str
   )
 }
 
-function ProjectCard({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
+export function ProjectCard({ project, registry, index }: { project: Project; registry: Map<string, TagKey>; index: number }) {
   return (
     <div className="feature-card rise-in overflow-hidden flex flex-col" style={{ animationDelay: `${index * 50 + 30}ms` }}>
       <Link
