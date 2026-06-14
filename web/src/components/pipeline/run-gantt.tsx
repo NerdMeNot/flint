@@ -7,27 +7,25 @@ interface RunGanttProps {
   steps: PipelineStep[]
   selectedStep: string | null
   onStepClick: (name: string) => void
-  /** Optional content rendered in the top-right of the card header (e.g. view toggle). */
+  /** Optional content rendered in the top-right of the card header. */
   toolbar?: React.ReactNode
 }
 
-// Column widths are driven by CSS vars so the axis, gridlines, and every row
-// share one coordinate system — that alignment is what makes it read as a
-// chart rather than a stack of boxes.
-const TRACK_VARS =
-  '[--gantt-name:108px] sm:[--gantt-name:140px] lg:[--gantt-name:168px] [--gantt-meta:52px] sm:[--gantt-meta:64px]'
-const TRACK_COLS = 'grid-cols-[var(--gantt-name)_minmax(0,1fr)_var(--gantt-meta)]'
+// Fixed column widths (plain Tailwind, not CSS vars) so the axis, gridlines,
+// and every row share one coordinate system without relying on inherited
+// custom properties.
+const NAME_COL = 'w-[120px] sm:w-[150px] lg:w-[180px]'
+const META_COL = 'w-12 sm:w-14'
+const GRID_PCTS = [0, 25, 50, 75, 100]
 
 /**
- * Gantt-style timeline. Each started step is a bar positioned across the run's
+ * Wall-clock waterfall. Each started step is a bar positioned across the run's
  * elapsed span, split into a faint **queue** segment (scheduled → started:
- * runner / pod cold-start wait) and a solid **run** segment (started →
- * finished). Retried steps are striped, and hovering a bar reveals its offsets
- * from run start. Steps that haven't begun sit in a small "pending" footer.
+ * runner / pod cold-start wait) and a solid **run** segment. Retried steps are
+ * striped; hovering reveals offsets from run start. This is the time-positioned
+ * view — for ranked durations the Steps spine is the better lens.
  */
 export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGanttProps) {
-  // Tick "now" once per second while anything is still running so the
-  // running bars grow live.
   const isLive = steps.some((s) => s.status === 'running' || s.status === 'waiting')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -85,33 +83,19 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
         toolbar={toolbar}
       />
 
-      <div className={`px-3 sm:px-4 lg:px-5 py-3 lg:py-4 ${TRACK_VARS}`}>
+      <div className="px-3 sm:px-4 lg:px-5 py-3 lg:py-4">
         <TimeAxis totalMs={totalMs} showQueueLegend={anyWait} />
-
-        <div className="relative mt-2.5">
-          {/* Continuous gridlines behind every row — aligned to the plot column. */}
-          <div className="pointer-events-none absolute inset-y-0" style={{ left: 'var(--gantt-name)', right: 'var(--gantt-meta)' }}>
-            {[0, 25, 50, 75, 100].map((p) => (
-              <span
-                key={p}
-                className={`absolute top-0 bottom-0 w-px ${p === 0 || p === 100 ? 'bg-border/40' : 'bg-border/20'}`}
-                style={{ left: `${p}%` }}
-              />
-            ))}
-          </div>
-
-          <div>
-            {rows.map((r) => (
-              <GanttRow
-                key={r.step.name}
-                row={r}
-                runStart={runStart}
-                totalMs={totalMs}
-                isSelected={r.step.name === selectedStep}
-                onClick={() => onStepClick(r.step.name)}
-              />
-            ))}
-          </div>
+        <div className="mt-2.5 space-y-0.5">
+          {rows.map((r) => (
+            <GanttRow
+              key={r.step.name}
+              row={r}
+              runStart={runStart}
+              totalMs={totalMs}
+              isSelected={r.step.name === selectedStep}
+              onClick={() => onStepClick(r.step.name)}
+            />
+          ))}
         </div>
 
         {pendingSteps.length > 0 && (
@@ -161,8 +145,6 @@ function GanttRow({
   const runMs = Math.max(0, endMs - startMs)
   const retried = step.attempt > 1
 
-  // Bar geometry: the whole bar spans scheduled→end; the queue portion is the
-  // leading fraction up to "started".
   const leftPct = ((schedMs - runStart) / totalMs) * 100
   const spanPct = Math.max(((endMs - schedMs) / totalMs) * 100, 1.2)
   const waitFracPct = endMs > schedMs ? (waitMs / (endMs - schedMs)) * 100 : 0
@@ -180,42 +162,47 @@ function GanttRow({
       type="button"
       onClick={onClick}
       title={tip}
-      className={`group relative grid items-center ${TRACK_COLS} h-8 rounded-md text-left transition-colors ${
+      className={`group flex w-full items-center gap-2 sm:gap-3 rounded-md px-1.5 py-1 text-left transition-colors ${
         isSelected ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/20' : 'hover:bg-accent/60'
       }`}
     >
       {/* Name + status dot + retry badge */}
-      <div className="pr-2 sm:pr-3 flex items-center gap-1.5 min-w-0">
+      <div className={`${NAME_COL} shrink-0 flex items-center gap-1.5 min-w-0`}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass(step.status, isGate)} ${isRunning ? 'animate-pulse' : ''}`} />
         {isGate && <ShieldCheck size={11} className="text-warning shrink-0" />}
         <span className={`text-xs font-medium truncate transition-colors ${isSelected ? 'text-primary' : 'text-foreground'} group-hover:text-primary`}>
           {step.name}
         </span>
         {retried && (
-          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning/15 px-1 text-[9px] font-mono font-semibold text-warning" title={`Retried — attempt ${step.attempt}/${step.maxAttempts}`}>
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning/15 px-1 text-[9px] font-mono font-semibold text-warning">
             <RotateCw size={8} />{step.attempt}
           </span>
         )}
       </div>
 
-      {/* Plot */}
-      <div className="relative h-full">
+      {/* Plot — fixed height so the absolutely-positioned bar has room */}
+      <div className="relative flex-1 h-6">
+        {GRID_PCTS.map((p) => (
+          <span
+            key={p}
+            className={`absolute top-0 bottom-0 w-px ${p === 0 || p === 100 ? 'bg-border/40' : 'bg-border/20'}`}
+            style={{ left: `${p}%` }}
+          />
+        ))}
         <div
           className="absolute top-1/2 -translate-y-1/2 h-2.5 flex rounded-full overflow-hidden ring-1 ring-inset ring-black/5 dark:ring-white/5"
           style={{ left: `${leftPct}%`, width: `${spanPct}%` }}
         >
-          {/* Queue / wait segment */}
           {waitFracPct > 0.5 && (
             <span
-              className="h-full shrink-0 bg-foreground/[0.09]"
+              className="h-full shrink-0"
               style={{
                 width: `${waitFracPct}%`,
                 backgroundImage:
-                  'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 14%, transparent) 0 1.5px, transparent 1.5px 5px)',
+                  'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 16%, transparent) 0 1.5px, transparent 1.5px 5px)',
               }}
             />
           )}
-          {/* Run segment */}
           <span className={`relative h-full flex-1 ${barClass(step.status, isGate)}`}>
             {retried && (
               <span
@@ -229,27 +216,25 @@ function GanttRow({
       </div>
 
       {/* Run duration */}
-      <span className={`pl-2 sm:pl-3 text-right text-[11px] font-mono tabular-nums whitespace-nowrap ${isRunning ? 'text-primary' : 'text-muted-foreground'}`}>
+      <div className={`${META_COL} shrink-0 text-right text-[11px] font-mono tabular-nums ${isRunning ? 'text-primary' : 'text-muted-foreground'}`}>
         {step.finishedAt || isRunning ? formatMs(runMs) : '—'}
-      </span>
+      </div>
     </button>
   )
 }
 
 function TimeAxis({ totalMs, showQueueLegend }: { totalMs: number; showQueueLegend: boolean }) {
   return (
-    <div>
-      <div className={`grid items-center ${TRACK_COLS} text-[10px] sm:text-[11px] text-muted-foreground/60`}>
-        <span className="pr-2 sm:pr-3 truncate">{showQueueLegend && <Legend />}</span>
-        <span className="flex justify-between font-mono tabular-nums">
-          <span>0:00</span>
-          <span className="hidden sm:inline">{formatMs(totalMs * 0.25)}</span>
-          <span>{formatMs(totalMs * 0.5)}</span>
-          <span className="hidden sm:inline">{formatMs(totalMs * 0.75)}</span>
-          <span>{formatMs(totalMs)}</span>
-        </span>
-        <span />
+    <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-muted-foreground/60">
+      <div className={`${NAME_COL} shrink-0 truncate`}>{showQueueLegend && <Legend />}</div>
+      <div className="flex-1 flex justify-between font-mono tabular-nums">
+        <span>0:00</span>
+        <span className="hidden sm:inline">{formatMs(totalMs * 0.25)}</span>
+        <span>{formatMs(totalMs * 0.5)}</span>
+        <span className="hidden sm:inline">{formatMs(totalMs * 0.75)}</span>
+        <span>{formatMs(totalMs)}</span>
       </div>
+      <div className={`${META_COL} shrink-0`} />
     </div>
   )
 }
@@ -260,7 +245,7 @@ function Legend() {
       <span className="inline-flex items-center gap-1">
         <span
           className="h-2 w-3 rounded-full bg-foreground/10"
-          style={{ backgroundImage: 'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 14%, transparent) 0 1.5px, transparent 1.5px 5px)' }}
+          style={{ backgroundImage: 'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 16%, transparent) 0 1.5px, transparent 1.5px 5px)' }}
         />
         queue
       </span>
