@@ -1,19 +1,16 @@
 import { useState, useRef } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { CalendarDays } from 'lucide-react'
 import { useClickOutside } from '#/hooks/use-click-outside'
 import { formatDateTime } from '#/lib/format-time'
+import { Calendar, type CalendarView } from '#/components/Calendar'
+import { TimeField } from '#/components/TimeField'
 
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-const pad2 = (n: number) => String(n).padStart(2, '0')
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+const sameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 
 /**
- * Reusable themed date + time picker. A popover field with a month calendar and
- * an HH:MM time row — fully on-theme (no native datetime-local). Value/onChange
- * are epoch ms.
+ * Reusable themed date + time picker (popover field). Composes the shared
+ * Calendar + TimeField. Value/onChange are epoch ms.
  */
 export function DateTimePicker({ value, onChange, placeholder = 'Pick date & time' }: {
   value?: number
@@ -21,51 +18,28 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
-  // Calendar drill level for fast month/year jumps: days → months → years.
-  const [mode, setMode] = useState<'days' | 'months' | 'years'>('days')
   const ref = useRef<HTMLDivElement>(null)
-  useClickOutside(ref, () => { setOpen(false); setMode('days') }, open)
+  useClickOutside(ref, () => setOpen(false), open)
 
   const sel = value ? new Date(value) : null
-  const [view, setView] = useState(() => {
+  const [view, setView] = useState<CalendarView>(() => {
     const d = sel ?? new Date()
     return { y: d.getFullYear(), m: d.getMonth() }
   })
 
-  const hour = sel ? sel.getHours() : 0
-  const minute = sel ? sel.getMinutes() : 0
-  // 12-hour display derived from the 24-hour value.
-  const h12 = hour % 12 === 0 ? 12 : hour % 12
-  const meridiem: 'AM' | 'PM' = hour < 12 ? 'AM' : 'PM'
-  const to24 = (h: number, mer: 'AM' | 'PM') => (mer === 'PM' ? (h % 12) + 12 : h % 12)
-
-  const pickDay = (day: number) => {
+  const pickDay = (date: Date) => {
     const base = sel ?? new Date()
-    onChange(new Date(view.y, view.m, day, base.getHours(), base.getMinutes(), 0, 0).getTime())
+    onChange(new Date(date.getFullYear(), date.getMonth(), date.getDate(), base.getHours(), base.getMinutes(), 0, 0).getTime())
   }
-  const setHM = (h: number, mi: number) => {
-    const base = sel ?? new Date(view.y, view.m, new Date().getDate())
-    onChange(new Date(base.getFullYear(), base.getMonth(), base.getDate(), clamp(h, 0, 23), clamp(mi, 0, 59), 0, 0).getTime())
+  const setTime = (h: number, mi: number) => {
+    const base = sel ?? new Date()
+    onChange(new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, mi, 0, 0).getTime())
   }
-
-  const stepMonth = (delta: number) => setView((v) => {
-    const m = v.m + delta
-    if (m < 0) return { y: v.y - 1, m: 11 }
-    if (m > 11) return { y: v.y + 1, m: 0 }
-    return { y: v.y, m }
-  })
-
-  const startWeekday = new Date(view.y, view.m, 1).getDay()
-  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate()
-  const cells: (number | null)[] = [
-    ...Array.from({ length: startWeekday }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ]
-  const today = new Date()
-  const isToday = (d: number) => today.getFullYear() === view.y && today.getMonth() === view.m && today.getDate() === d
-  const isSel = (d: number) => !!sel && sel.getFullYear() === view.y && sel.getMonth() === view.m && sel.getDate() === d
-
-  const iconBtn = 'flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
+  const dayClassName = (d: Date) => {
+    if (sel && sameDay(d, sel)) return 'rounded-md bg-primary text-primary-foreground font-semibold'
+    if (sameDay(d, new Date())) return 'rounded-md text-primary ring-1 ring-primary/30'
+    return 'rounded-md text-foreground hover:bg-accent'
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -82,122 +56,9 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
 
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-[256px] rounded-lg border border-border p-2.5 shadow-xl" style={{ background: 'var(--surface-strong)' }}>
-          {(() => {
-            const yearStart = Math.floor(view.y / 12) * 12
-            const step = (delta: number) =>
-              mode === 'days' ? stepMonth(delta)
-                : mode === 'months' ? setView((v) => ({ ...v, y: v.y + delta }))
-                  : setView((v) => ({ ...v, y: v.y + delta * 12 }))
-            const heading =
-              mode === 'days' ? `${MONTHS[view.m]} ${view.y}`
-                : mode === 'months' ? `${view.y}`
-                  : `${yearStart} – ${yearStart + 11}`
-            return (
-              <div className="flex items-center justify-between mb-2">
-                <button type="button" onClick={() => step(-1)} className={iconBtn}><ChevronLeft size={15} /></button>
-                <button
-                  type="button"
-                  onClick={() => setMode(mode === 'days' ? 'months' : mode === 'months' ? 'years' : 'days')}
-                  className="rounded-md px-2 py-0.5 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
-                >
-                  {heading}
-                </button>
-                <button type="button" onClick={() => step(1)} className={iconBtn}><ChevronRight size={15} /></button>
-              </div>
-            )
-          })()}
-
-          {mode === 'days' && (
-            <>
-              <div className="grid grid-cols-7 gap-0.5 mb-1">
-                {WEEKDAYS.map((w) => (
-                  <span key={w} className="text-center text-[10px] font-medium text-muted-foreground/50 py-0.5">{w}</span>
-                ))}
-              </div>
-              <div className="grid grid-cols-7 gap-0.5">
-                {cells.map((d, i) => d === null ? <span key={i} /> : (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => pickDay(d)}
-                    className={`h-7 rounded-md text-xs transition-colors ${
-                      isSel(d)
-                        ? 'bg-primary text-primary-foreground font-semibold'
-                        : isToday(d)
-                          ? 'text-primary ring-1 ring-primary/30'
-                          : 'text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          {mode === 'months' && (
-            <div className="grid grid-cols-3 gap-1">
-              {MONTHS_SHORT.map((label, i) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => { setView((v) => ({ ...v, m: i })); setMode('days') }}
-                  className={`h-9 rounded-md text-xs font-medium transition-colors ${
-                    view.m === i ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {mode === 'years' && (
-            <div className="grid grid-cols-3 gap-1">
-              {Array.from({ length: 12 }, (_, i) => Math.floor(view.y / 12) * 12 + i).map((y) => (
-                <button
-                  key={y}
-                  type="button"
-                  onClick={() => { setView((v) => ({ ...v, y })); setMode('months') }}
-                  className={`h-9 rounded-md text-xs font-medium transition-colors ${
-                    view.y === y ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
-                  }`}
-                >
-                  {y}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-border">
-            <Clock size={13} className="text-muted-foreground shrink-0" />
-            <input
-              type="text" inputMode="numeric" aria-label="Hour"
-              value={String(h12)}
-              onChange={(e) => setHM(to24(clamp(parseInt(e.target.value.replace(/\D/g, '') || '12', 10), 1, 12), meridiem), minute)}
-              className="w-10 rounded-md border border-border bg-transparent px-1.5 py-1 text-sm text-center text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
-            />
-            <span className="text-muted-foreground">:</span>
-            <input
-              type="text" inputMode="numeric" aria-label="Minute"
-              value={pad2(minute)}
-              onChange={(e) => setHM(hour, parseInt(e.target.value.replace(/\D/g, '') || '0', 10))}
-              className="w-10 rounded-md border border-border bg-transparent px-1.5 py-1 text-sm text-center text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
-            />
-            <div className="ml-auto inline-flex items-center rounded-md border border-border p-0.5">
-              {(['AM', 'PM'] as const).map((mer) => (
-                <button
-                  key={mer}
-                  type="button"
-                  onClick={() => setHM(to24(h12, mer), minute)}
-                  className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
-                    meridiem === mer ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {mer}
-                </button>
-              ))}
-            </div>
+          <Calendar view={view} onView={setView} dayClassName={dayClassName} onPickDay={pickDay} />
+          <div className="mt-2.5 pt-2.5 border-t border-border">
+            <TimeField hour={sel ? sel.getHours() : 0} minute={sel ? sel.getMinutes() : 0} onChange={setTime} />
           </div>
         </div>
       )}
