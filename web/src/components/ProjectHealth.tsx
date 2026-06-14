@@ -9,12 +9,12 @@ const SPARK: Record<RunStatusValue, string> = {
 }
 
 // A pass/fail run-history sparkline — newest-first input, rendered oldest→newest.
-function HealthSparkline({ runs }: { runs: RunStatusValue[] }) {
+export function RunSparkline({ runs, barClass = 'w-1 h-3' }: { runs: RunStatusValue[]; barClass?: string }) {
   const ordered = [...runs].reverse()
   return (
     <div className="flex items-end gap-[2px] shrink-0">
       {ordered.map((s, i) => (
-        <span key={i} className={`w-1 h-3 rounded-[1px] ${SPARK[s] ?? 'bg-border'}`} />
+        <span key={i} className={`${barClass} rounded-[1px] ${SPARK[s] ?? 'bg-border'}`} />
       ))}
     </div>
   )
@@ -29,7 +29,7 @@ export function ProjectHealthBar({ health }: { health?: ProjectHealth }) {
   const rateColor = rate >= 90 ? 'text-success' : rate >= 70 ? 'text-warning' : 'text-destructive'
   return (
     <div className="flex items-center gap-2 min-w-0" title={`${rate}% pass over last ${health.totalRuns} runs`}>
-      <HealthSparkline runs={health.recentRuns} />
+      <RunSparkline runs={health.recentRuns} />
       <span className={`text-[12px] font-medium tabular-nums ${rateColor}`}>{rate}%</span>
       {health.failingNow && (
         <span className="flex items-center gap-1 text-[11px] font-medium text-destructive">
