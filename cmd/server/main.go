@@ -240,15 +240,16 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	deps := flintserver.Deps{
-		Config:       cfg,
-		DB:           pool,
-		Q:            q,
-		Engine:       eng,
-		Forge:        forgeProvider,
-		Secrets:      secretStore,
-		Logs:         &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
-		LogBroadcast: flintserver.NewLogStream(),
-		Mode:         mode,
+		Config:         cfg,
+		DB:             pool,
+		Q:              q,
+		Engine:         eng,
+		Forge:          forgeProvider,
+		Secrets:        secretStore,
+		Logs:           &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
+		LogBroadcast:   flintserver.NewLogStream(),
+		StateBroadcast: flintserver.NewStateStream(),
+		Mode:           mode,
 		Sessions: auth.NewSessionManager(auth.SessionConfig{
 			SigningKey: []byte(cfg.Auth.JWT.Secret),
 			Issuer:     cfg.Server.BaseURL,
@@ -257,6 +258,11 @@ func run(cmd *cobra.Command, args []string) error {
 		SAMLProvider: samlProvider,
 		Enforcer:     enforcer,
 	}
+
+	// Push run-state changes to SSE subscribers on each committed transition
+	// (step completion / cancellation happen in this process via the agent
+	// callback and cancel handler; the SSE handler polls for the rest).
+	flintserver.WireStateObserver(eng, q, deps.StateBroadcast)
 
 	// Mount product surfaces here (composition root), so the platform server
 	// never imports product packages.

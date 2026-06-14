@@ -5,8 +5,18 @@
 // The router catches this and falls back to mock data.
 
 import { apiMode } from './mode'
+import { currentAuthHeader } from './server-token'
 
 const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
+
+// Build request headers, forwarding the browser's Authorization (carried via the
+// /api/rpc route's AsyncLocalStorage) to the Go API.
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  const auth = currentAuthHeader()
+  if (auth) h.Authorization = auth
+  return h
+}
 
 // Whether the most recent backend attempt found it unreachable. Only meaningful
 // in 'auto' mode (in 'mock' we never try; in 'live' we never fall back). Exposed
@@ -72,14 +82,14 @@ export async function backendGet<T>(
     }
   }
   return doFetch<T>(url.toString(), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
   })
 }
 
 export async function backendPost<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -87,7 +97,7 @@ export async function backendPost<T>(path: string, body?: unknown): Promise<T> {
 export async function backendPut<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -95,7 +105,7 @@ export async function backendPut<T>(path: string, body?: unknown): Promise<T> {
 export async function backendPatch<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -103,6 +113,6 @@ export async function backendPatch<T>(path: string, body?: unknown): Promise<T> 
 export async function backendDelete<T>(path: string): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
   })
 }

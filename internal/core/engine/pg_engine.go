@@ -20,6 +20,24 @@ import (
 type PgEngine struct {
 	pool       db.Pool
 	signingKey []byte // HMAC key for task tokens; empty = unsigned (dev/test)
+	// stateObserver, if set, is called with a workflowID after each committed
+	// state transition (step completion, cancellation) so an outer layer (the
+	// server's SSE broadcaster) can push updates. The engine emits only an id —
+	// it never imports the server — staying product-agnostic. Optional; nil = off.
+	stateObserver func(ctx context.Context, workflowID string)
+}
+
+// SetStateObserver registers a callback invoked after each committed state
+// transition. Not safe to call concurrently with engine operation; set it once
+// at wiring time.
+func (e *PgEngine) SetStateObserver(fn func(ctx context.Context, workflowID string)) {
+	e.stateObserver = fn
+}
+
+func (e *PgEngine) notifyState(ctx context.Context, workflowID string) {
+	if e.stateObserver != nil {
+		e.stateObserver(ctx, workflowID)
+	}
 }
 
 // New creates a new PgEngine. signingKey signs/verifies task tokens — it must
@@ -267,6 +285,7 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 	}
 
 	_ = db.New(e.pool).NotifyEngine(ctx, token.WorkflowID)
+	e.notifyState(ctx, token.WorkflowID)
 	return nil
 }
 
@@ -319,6 +338,7 @@ func (e *PgEngine) CancelWorkflow(ctx context.Context, workflowID string) error 
 	}
 	// Wake the loop so cleanup runs promptly rather than at the next poll/sweep.
 	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
+	e.notifyState(ctx, workflowID)
 	return nil
 }
 
