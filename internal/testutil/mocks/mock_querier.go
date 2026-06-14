@@ -5620,6 +5620,36 @@ func (_m *Querier) ListWorkspaces(ctx context.Context, arg db.ListWorkspacesPara
 	return r0, r1
 }
 
+// ListWorkspacesWithCounts provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListWorkspacesWithCounts(ctx context.Context, arg db.ListWorkspacesWithCountsParams) ([]db.ListWorkspacesWithCountsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWorkspacesWithCounts")
+	}
+
+	var r0 []db.ListWorkspacesWithCountsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkspacesWithCountsParams) ([]db.ListWorkspacesWithCountsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListWorkspacesWithCountsParams) []db.ListWorkspacesWithCountsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListWorkspacesWithCountsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListWorkspacesWithCountsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LockStep provides a mock function with given fields: ctx, arg
 func (_m *Querier) LockStep(ctx context.Context, arg db.LockStepParams) (db.LockStepRow, error) {
 	ret := _m.Called(ctx, arg)

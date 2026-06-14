@@ -33,3 +33,9 @@ DELETE FROM workspaces WHERE id = $1 AND is_default = false;
 SELECT w.slug FROM workspaces w
 JOIN projects p ON p.workspace_id = w.id
 WHERE p.id = $1;
+
+-- name: ListWorkspacesWithCounts :many
+SELECT w.id, w.name, w.slug, w.description, w.created_at, w.is_default,
+       (SELECT COUNT(*) FROM projects p WHERE p.workspace_id = w.id) AS project_count
+FROM workspaces w WHERE w.org_id = $1 ORDER BY w.is_default DESC, w.name
+LIMIT $2 OFFSET $3;

@@ -287,6 +287,7 @@ type Querier interface {
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error)
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
+	ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error

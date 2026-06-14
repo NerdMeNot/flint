@@ -285,7 +285,15 @@ const runs = {
     .input(z.object({ runId: z.string(), stepName: z.string() }))
     .handler(async ({ input }) => {
       return withFallback(
-        () => backendGet<{ lines: string }>(`/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`),
+        async () => {
+          // The server returns structured lines ({timestamp,stream,content});
+          // the log view wants a single string, so join the content here.
+          const res = await backendGet<{ lines: Array<{ content?: string }> }>(
+            `/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`,
+          )
+          const lines = Array.isArray(res.lines) ? res.lines.map((l) => l.content ?? '').join('\n') : ''
+          return { lines }
+        },
         () => {
           const logs = mocks.getStepLogs()
           return { lines: logs[input.stepName] || '' }

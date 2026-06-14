@@ -184,3 +184,54 @@ func (q *Queries) ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) 
 	}
 	return items, nil
 }
+
+const listWorkspacesWithCounts = `-- name: ListWorkspacesWithCounts :many
+SELECT w.id, w.name, w.slug, w.description, w.created_at, w.is_default,
+       (SELECT COUNT(*) FROM projects p WHERE p.workspace_id = w.id) AS project_count
+FROM workspaces w WHERE w.org_id = $1 ORDER BY w.is_default DESC, w.name
+LIMIT $2 OFFSET $3
+`
+
+type ListWorkspacesWithCountsParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
+
+type ListWorkspacesWithCountsRow struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Description  *string   `json:"description"`
+	CreatedAt    time.Time `json:"created_at"`
+	IsDefault    bool      `json:"is_default"`
+	ProjectCount int64     `json:"project_count"`
+}
+
+func (q *Queries) ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error) {
+	rows, err := q.db.Query(ctx, listWorkspacesWithCounts, arg.OrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspacesWithCountsRow{}
+	for rows.Next() {
+		var i ListWorkspacesWithCountsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.Description,
+			&i.CreatedAt,
+			&i.IsDefault,
+			&i.ProjectCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
