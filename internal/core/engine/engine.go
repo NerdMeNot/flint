@@ -176,6 +176,9 @@ type StepState struct {
 	DependsOn   []string   `json:"dependsOn,omitempty"`
 	ExitCode    *int       `json:"exitCode,omitempty"`
 	Error       string     `json:"error,omitempty"`
+	// ScheduledAt is when the step was queued onto a runner; the gap to
+	// StartedAt is runner-queue / pod cold-start wait (UI timeline).
+	ScheduledAt *time.Time `json:"scheduledAt,omitempty"`
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
 	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
 }

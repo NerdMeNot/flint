@@ -34,7 +34,7 @@ ORDER BY name, attempt DESC;
 
 -- name: ListStepsByWorkflow :many
 SELECT DISTINCT ON (name) name, status, wave, attempt, max_attempts, result,
-    exec_type, started_at, finished_at,
+    exec_type, queued_at, started_at, finished_at,
     step_def->'dependsOn' AS depends_on
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC;

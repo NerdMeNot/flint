@@ -349,6 +349,7 @@ func (e *PgEngine) QueryWorkflow(ctx context.Context, workflowID string) (*Workf
 			Wave:        int(row.Wave),
 			Attempt:     int(row.Attempt),
 			MaxAttempts: int(row.MaxAttempts),
+			ScheduledAt: row.QueuedAt,
 			StartedAt:   row.StartedAt,
 			FinishedAt:  row.FinishedAt,
 		}
