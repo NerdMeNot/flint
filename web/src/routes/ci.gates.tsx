@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban, Server } from 'lucide-react'
+import { Shield, GitBranch, Clock, User, CheckCircle, XCircle, Ban, Server, Loader2 } from 'lucide-react'
 import { client, orpc } from '#/lib/orpc'
 import { formatTime } from '#/lib/format-time'
 import { useScope } from '#/lib/scope-context'
@@ -190,24 +190,32 @@ function GatesPage() {
                 </Link>
                 {gate.status === 'pending' && (
                   <>
-                    <button
-                      type="button"
-                      disabled={deciding}
-                      onClick={() => reject.mutate({ runId: gate.runId, stepName: gate.stepName })}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors border-r border-border disabled:opacity-50"
-                    >
-                      <XCircle size={13} />
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      disabled={deciding}
-                      onClick={() => approve.mutate({ runId: gate.runId, stepName: gate.stepName })}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success/5 transition-colors disabled:opacity-50"
-                    >
-                      <CheckCircle size={13} />
-                      Approve
-                    </button>
+                    {(() => {
+                      const rejecting = reject.isPending && reject.variables?.runId === gate.runId && reject.variables?.stepName === gate.stepName
+                      const approving = approve.isPending && approve.variables?.runId === gate.runId && approve.variables?.stepName === gate.stepName
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={() => reject.mutate({ runId: gate.runId, stepName: gate.stepName })}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors border-r border-border disabled:opacity-50"
+                          >
+                            {rejecting ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                            {rejecting ? 'Rejecting…' : 'Reject'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deciding}
+                            onClick={() => approve.mutate({ runId: gate.runId, stepName: gate.stepName })}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success/5 transition-colors disabled:opacity-50"
+                          >
+                            {approving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                            {approving ? 'Approving…' : 'Approve'}
+                          </button>
+                        </>
+                      )
+                    })()}
                   </>
                 )}
               </div>

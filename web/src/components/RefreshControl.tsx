@@ -12,27 +12,44 @@ const OPTIONS: { label: string; ms: number | null }[] = [
 ]
 
 // Manual refresh + auto-refresh cadence, the way observability tools pair it
-// with a time range. `value` is the interval in ms (null = off).
+// with a time range. `value` is the interval in ms (null = off). `onRefresh` may
+// return a promise (e.g. React Query's refetch()) — the icon spins until it
+// settles, with a short floor so instant (cached) refetches still register.
 export function RefreshControl({ value, onChange, onRefresh }: {
   value: number | null
   onChange: (ms: number | null) => void
-  onRefresh: () => void
+  onRefresh: () => void | Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
+  const [spinning, setSpinning] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useClickOutside(ref, () => setOpen(false), open)
 
   const current = OPTIONS.find((o) => o.ms === value) ?? OPTIONS[0]!
 
+  async function handleRefresh() {
+    if (spinning) return
+    setSpinning(true)
+    const started = Date.now()
+    try {
+      await onRefresh()
+    } finally {
+      const wait = Math.max(0, 500 - (Date.now() - started))
+      if (wait) await new Promise((r) => setTimeout(r, wait))
+      setSpinning(false)
+    }
+  }
+
   return (
     <div ref={ref} className="relative inline-flex items-center rounded-lg border border-border text-xs font-medium">
       <button
         type="button"
-        onClick={onRefresh}
+        onClick={handleRefresh}
+        disabled={spinning}
         title="Refresh now"
         className="flex items-center px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
       >
-        <RefreshCw size={13} className={value ? 'text-primary' : ''} />
+        <RefreshCw size={13} className={`${value ? 'text-primary' : ''} ${spinning ? 'animate-spin' : ''}`} />
       </button>
       <button
         type="button"
