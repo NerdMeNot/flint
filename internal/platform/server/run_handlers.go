@@ -28,6 +28,9 @@ func (s *Server) handleGetRunSteps(ctx context.Context, c *app.RequestContext) {
 	}
 
 	dagWaves, _ := s.deps.Q.GetWorkflowDAGWaves(ctx, *workflowID)
+	if len(dagWaves) == 0 {
+		dagWaves = []byte("[]")
+	}
 
 	c.JSON(consts.StatusOK, utils.H{
 		"workflowId": state.WorkflowID,
@@ -35,8 +38,9 @@ func (s *Server) handleGetRunSteps(ctx context.Context, c *app.RequestContext) {
 		"status":     state.Status,
 		"startedAt":  state.StartedAt,
 		"finishedAt": state.FinishedAt,
-		"dagWaves":   dagWaves,
-		"steps":      state.Steps,
+		// Raw JSON so the array isn't base64-encoded (it's a jsonb []byte column).
+		"dagWaves": json.RawMessage(dagWaves),
+		"steps":    state.Steps,
 	})
 }
 
