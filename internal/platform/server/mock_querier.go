@@ -15,11 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// mockQuerier serves canned data with no database. It embeds db.Querier (a nil
-// interface) so it satisfies the type at compile time; the ~50 methods the
-// display + mutation handlers use are implemented below, and the auth-flow tail
-// (device codes, MFA, sessions, login) is never reached because mock mode
-// bypasses authentication.
+// mockQuerier serves canned data with no database. It embeds db.Querier so it
+// satisfies the interface at compile time, but EVERY method a server handler can
+// call is implemented explicitly — the display/CRUD methods with canned data
+// here, and the auth / session / MFA / device-flow / role-scope tail in
+// mock_querier_auth.go — so no route can hit the nil embedded interface and
+// panic. (The embed is kept only so this stays compiling if new queries are
+// added; a panic on an unimplemented method is the signal to add it here.)
 type mockQuerier struct {
 	db.Querier
 	data *mockData
@@ -145,7 +147,9 @@ func (q *mockQuerier) SearchProjects(_ context.Context, arg db.SearchProjectsPar
 	return out, nil
 }
 
-func (q *mockQuerier) UpdateProjectTags(context.Context, db.UpdateProjectTagsParams) error { return nil }
+func (q *mockQuerier) UpdateProjectTags(context.Context, db.UpdateProjectTagsParams) error {
+	return nil
+}
 
 // ── runs ────────────────────────────────────────────────────────────────────
 
@@ -285,12 +289,12 @@ func (q *mockQuerier) SearchRuns(_ context.Context, arg db.SearchRunsParams) ([]
 	return out, nil
 }
 
-func (q *mockQuerier) GetRunOrgID(context.Context, string) (string, error)     { return mockOrgID, nil }
+func (q *mockQuerier) GetRunOrgID(context.Context, string) (string, error) { return mockOrgID, nil }
 func (q *mockQuerier) GetRunWorkflowID(_ context.Context, id string) (*string, error) {
-	if q.data.run(id) == nil {
+	if q.data.anyRun(id) == nil {
 		return nil, errNotFound
 	}
-	return sp(id), nil // mock uses runID as workflowID
+	return sp(id), nil // mock uses runID as workflowID (CI or workflow run)
 }
 
 func (q *mockQuerier) GetRunScope(_ context.Context, id string) (db.GetRunScopeRow, error) {
@@ -740,8 +744,8 @@ func (q *mockQuerier) InsertAuditEntry(context.Context, db.InsertAuditEntryParam
 func (q *mockQuerier) CreateTagKey(context.Context, db.CreateTagKeyParams) (string, error) {
 	return "tag-new", nil
 }
-func (q *mockQuerier) UpdateTagKey(context.Context, db.UpdateTagKeyParams) error      { return nil }
-func (q *mockQuerier) DeleteTagKey(context.Context, string) (int64, error)            { return 1, nil }
+func (q *mockQuerier) UpdateTagKey(context.Context, db.UpdateTagKeyParams) error { return nil }
+func (q *mockQuerier) DeleteTagKey(context.Context, string) (int64, error)       { return 1, nil }
 func (q *mockQuerier) CreateEnvironment(context.Context, db.CreateEnvironmentParams) (string, error) {
 	return "env-new", nil
 }
@@ -752,7 +756,7 @@ func (q *mockQuerier) CreateEnvVariable(context.Context, db.CreateEnvVariablePar
 func (q *mockQuerier) UpsertEnvVariableValue(context.Context, db.UpsertEnvVariableValueParams) error {
 	return nil
 }
-func (q *mockQuerier) DeleteEnvVariable(context.Context, string) error { return nil }
+func (q *mockQuerier) DeleteEnvVariable(context.Context, string) error           { return nil }
 func (q *mockQuerier) IsEnvVariableSecret(context.Context, string) (bool, error) { return false, nil }
 func (q *mockQuerier) CreateSavedView(context.Context, db.CreateSavedViewParams) (string, error) {
 	return "view-new", nil

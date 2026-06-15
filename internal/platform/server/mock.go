@@ -75,6 +75,11 @@ var pipelines = map[string][]mockStep{
 	"lint-only": {
 		{name: "lint", wave: 0},
 	},
+	// Workflows product (http-step DAG, no gate).
+	"workflow": {
+		{name: "snapshot-db", wave: 0}, {name: "export-orders", wave: 1}, {name: "export-users", wave: 1},
+		{name: "transform", wave: 2}, {name: "load-warehouse", wave: 3}, {name: "notify-slack", wave: 4},
+	},
 }
 
 type mockProject struct {
@@ -104,12 +109,22 @@ type runOverride struct {
 	at        time.Time
 }
 
+// mockWorkflowSchedule is a cron-scheduled workflow (Workflows product).
+type mockWorkflowSchedule struct {
+	id, name, cron string
+	enabled        bool
+	nextInMin      int // next run, minutes from now
+	lastAgoMin     int // last run, minutes ago (0 == never)
+}
+
 type mockData struct {
-	boot      time.Time
-	projects  []mockProject
-	runs      []mockRun
-	mu        sync.RWMutex
-	overrides map[string]*runOverride
+	boot         time.Time
+	projects     []mockProject
+	runs         []mockRun
+	workflowRuns []mockRun // Workflows product runs (separate from CI runs)
+	wfSchedules  []mockWorkflowSchedule
+	mu           sync.RWMutex
+	overrides    map[string]*runOverride
 }
 
 func newMockData() *mockData {
@@ -137,10 +152,28 @@ func newMockData() *mockData {
 		{id: "proj-sandbox", name: "Sandbox", repo: "github.com/acme/sandbox", workspace: "unsorted", colour: "#94a3b8", pipe: "lint-only", tags: nil, recent: nil, total: 0, succeeded: 0},
 	}
 	return &mockData{
-		boot:      time.Now(),
-		projects:  projects,
-		runs:      buildMockRuns(projects),
+		boot:         time.Now(),
+		projects:     projects,
+		runs:         buildMockRuns(projects),
+		workflowRuns: buildMockWorkflowRuns(),
+		wfSchedules: []mockWorkflowSchedule{
+			{id: "wfs-nightly", name: "Nightly warehouse load", cron: "0 2 * * *", enabled: true, nextInMin: 540, lastAgoMin: 900},
+			{id: "wfs-hourly", name: "Hourly metrics rollup", cron: "0 * * * *", enabled: true, nextInMin: 35, lastAgoMin: 25},
+			{id: "wfs-weekly", name: "Weekly compliance export", cron: "0 6 * * 1", enabled: false, nextInMin: 4320, lastAgoMin: 0},
+		},
 		overrides: map[string]*runOverride{},
+	}
+}
+
+// buildMockWorkflowRuns seeds the Workflows product's run feed (http-step DAGs,
+// no gates), kept separate from CI runs so the two lists don't bleed together.
+func buildMockWorkflowRuns() []mockRun {
+	return []mockRun{
+		{id: "wf-run-1", branch: "—", sha: "—", msg: "Nightly warehouse load", by: "scheduler", trigger: "schedule", status: "running", startedAgo: 40 * time.Second, live: true, pipe: "workflow"},
+		{id: "wf-run-2", branch: "—", sha: "—", msg: "Hourly metrics rollup", by: "scheduler", trigger: "schedule", status: "succeeded", startedAgo: 25 * time.Minute, pipe: "workflow"},
+		{id: "wf-run-3", branch: "—", sha: "—", msg: "Manual backfill 2024-Q4", by: "api", trigger: "manual", status: "failed", startedAgo: 2 * time.Hour, failStep: "transform", pipe: "workflow"},
+		{id: "wf-run-4", branch: "—", sha: "—", msg: "Nightly warehouse load", by: "scheduler", trigger: "schedule", status: "succeeded", startedAgo: 15 * time.Hour, pipe: "workflow"},
+		{id: "wf-run-5", branch: "—", sha: "—", msg: "Hourly metrics rollup", by: "scheduler", trigger: "schedule", status: "succeeded", startedAgo: 85 * time.Minute, pipe: "workflow"},
 	}
 }
 
@@ -247,6 +280,19 @@ func (m *mockData) run(id string) *mockRun {
 	for i := range m.runs {
 		if m.runs[i].id == id {
 			return &m.runs[i]
+		}
+	}
+	return nil
+}
+
+// anyRun looks up a CI run OR a Workflows-product run by id.
+func (m *mockData) anyRun(id string) *mockRun {
+	if r := m.run(id); r != nil {
+		return r
+	}
+	for i := range m.workflowRuns {
+		if m.workflowRuns[i].id == id {
+			return &m.workflowRuns[i]
 		}
 	}
 	return nil
@@ -509,7 +555,7 @@ type mockEngine struct {
 }
 
 func (e *mockEngine) QueryWorkflow(_ context.Context, workflowID string) (*engine.WorkflowState, error) {
-	r := e.data.run(workflowID) // mock uses runID as workflowID
+	r := e.data.anyRun(workflowID) // mock uses runID as workflowID (CI or workflow run)
 	if r == nil {
 		return &engine.WorkflowState{WorkflowID: workflowID, RunID: workflowID, Status: "pending"}, nil
 	}

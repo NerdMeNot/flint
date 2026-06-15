@@ -318,6 +318,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 
 	// Derive permissions from Casbin policies for this user.
 	var permissions []string
+	role := ""
 	if s.deps.Enforcer != nil {
 		policies, _ := s.deps.Enforcer.GetImplicitPermissionsForUser(claims.Email)
 		seen := make(map[string]bool, len(policies))
@@ -331,13 +332,14 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 				}
 			}
 		}
-	}
-
-	// Derive role from Casbin grouping policies.
-	roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email)
-	role := ""
-	if len(roles) > 0 {
-		role = roles[0]
+		// Derive role from Casbin grouping policies.
+		if roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email); len(roles) > 0 {
+			role = roles[0]
+		}
+	} else if s.deps.MockMode {
+		// No Casbin in mock mode — the mock admin is omnipotent.
+		permissions = []string{"*:*"}
+		role = "admin"
 	}
 
 	// Persisted profile fields (display name override, avatar, appearance prefs)
@@ -685,6 +687,13 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 	}
 	if err := c.BindJSON(&req); err != nil || req.Email == "" || req.Password == "" {
 		apiBadRequest(ctx, c, "email and password are required")
+		return
+	}
+
+	// Mock mode has no users table — accept any credentials and issue a session
+	// for the fixed mock admin (authMiddleware injects that identity anyway).
+	if s.deps.MockMode {
+		s.issueLocalAuthTokens(ctx, c, "user-mock", "admin@flint.dev", mockOrgID, false)
 		return
 	}
 

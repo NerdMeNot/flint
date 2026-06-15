@@ -193,10 +193,14 @@ func (s *Server) handleMetrics(_ context.Context, c *app.RequestContext) {
 	// The OTel Prometheus exporter registers with the default Prometheus
 	// gatherer, so promhttp.Handler() picks up all OTel metrics.
 	c.Response.Header.SetContentType("text/plain; version=0.0.4; charset=utf-8")
-	// Use the prometheus client_golang handler via an adapter.
+	// Use the prometheus client_golang handler via an adapter. promhttp reads
+	// req.Header (content negotiation), so pass a real request with the incoming
+	// headers — never nil, which would nil-deref inside expfmt.Negotiate.
 	promHandler := promhttp.Handler()
+	httpReq, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
+	httpReq.Header = hertzToHTTPHeaders(c)
 	writer := &hertzResponseWriter{ctx: c}
-	promHandler.ServeHTTP(writer, nil)
+	promHandler.ServeHTTP(writer, httpReq)
 }
 
 // hertzResponseWriter adapts Hertz's RequestContext to http.ResponseWriter
