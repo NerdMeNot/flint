@@ -10,6 +10,9 @@ vars:
   # air (live reload) pinned + run project-locally — no global install, no go.mod
   # tool directive (its dep tree would bloat the module). Config: .air.toml.
   AIR: go run github.com/air-verse/air@v1.65.3
+  # Process Compose (local process orchestrator) — same project-local pattern.
+  # Config: process-compose.yaml.
+  PC: go run github.com/f1bonacc1/process-compose@v1.110.0
 
 tasks:
   default:
@@ -253,8 +256,18 @@ tasks:
     cmds:
       - "{{.AIR}}"
 
+  dev-up:
+    desc: Run the full mock stack (server + web) under Process Compose — hot reload, health-gated startup, one TUI. NO database or Kubernetes.
+    cmds:
+      - "{{.PC}} up"
+
+  dev-down:
+    desc: Stop a detached Process Compose stack (started with `{{.PC}} up -D`)
+    cmds:
+      - "{{.PC}} down"
+
   dev-mock-all:
-    desc: Run server (mock mode, hot reload) + web dev server together — full UI, NO database or Kubernetes
+    desc: Run server (mock mode, hot reload) + web dev server together — full UI, NO database or Kubernetes (shell fallback for dev-up)
     cmds:
       # air rebuilds + restarts the server on any .go change (run via `go run
       # <pkg>@version` — no global install, no go.mod pollution). Wait until the
