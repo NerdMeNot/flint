@@ -250,6 +250,15 @@ tasks:
     cmds:
       - go run ./cmd/server --config config.local.yaml --mock
 
+  dev-mock-all:
+    desc: Run server (mock mode) + web dev server together — full UI, NO database or Kubernetes
+    cmds:
+      - |
+        go run ./cmd/server --config config.local.yaml --mock &
+        SERVER_PID=$!
+        trap "kill $SERVER_PID 2>/dev/null" EXIT
+        cd web && FLINT_BACKEND_URL=http://localhost:8080 bun run dev
+
   # --- Docker ---
 
   docker:
