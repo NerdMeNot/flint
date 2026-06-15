@@ -22,12 +22,16 @@ processes:
     readiness_probe:
       http_get:
         host: 127.0.0.1
-        port: 8080
+        scheme: http
+        port: "8080" # Process Compose's http_get.port is a STRING — an unquoted
+        # 8080 doesn't populate it, so the probe would hit :80 and never pass.
         path: /api/v1/meta
-      initial_delay_seconds: 2
+      initial_delay_seconds: 3
       period_seconds: 1
       timeout_seconds: 2
-      failure_threshold: 60
+      # Generous: the very first `go run air` cold-compiles air AND the server,
+      # which can take a couple minutes before :8080 answers.
+      failure_threshold: 300
     availability:
       restart: on_failure
       backoff_seconds: 2

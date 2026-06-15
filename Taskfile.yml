@@ -11,8 +11,9 @@ vars:
   # tool directive (its dep tree would bloat the module). Config: .air.toml.
   AIR: go run github.com/air-verse/air@v1.65.3
   # Process Compose (local process orchestrator) — same project-local pattern.
-  # Config: process-compose.yaml.
-  PC: go run github.com/f1bonacc1/process-compose@v1.110.0
+  # Config: process-compose.yaml. Its REST API defaults to :8080, which collides
+  # with the app server — pin it to :8088 so they coexist (up & down must agree).
+  PC: go run github.com/f1bonacc1/process-compose@v1.110.0 -p 8088
 
 tasks:
   default:
