@@ -1,0 +1,30 @@
+# air — live reload for the Flint server in mock mode.
+#
+# Run it project-locally (no global install, pinned) via Task:
+#   go tool task dev-mock        (server only, hot reload)
+#   go tool task dev-mock-all    (server + web, hot reload)
+# or directly:
+#   go run github.com/air-verse/air@v1.65.3
+#
+# (air is invoked via `go run <pkg>@<version>` rather than a go.mod tool directive
+# because its dependency tree — gohugoio/hugo et al. — would bloat the module and
+# bump a shared production dependency.)
+#
+# On any .go change air rebuilds ./cmd/server and restarts it with the mock
+# flags; the web dev server just re-fetches once the API is back.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/flint-server ./cmd/server"
+  bin = "./tmp/flint-server"
+  args_bin = ["--config", "config.local.yaml", "--mock"]
+  include_ext = ["go"]
+  exclude_dir = ["web", "tmp", "bin", "vendor", "node_modules", "_reference", "docs", ".git", "helm", "testdata"]
+  exclude_regex = ["_test\\.go"]
+  delay = 800          # ms to debounce rapid saves
+  stop_on_error = true # don't run a binary that failed to build
+  kill_delay = "2s"
+
+[misc]
+  clean_on_exit = true

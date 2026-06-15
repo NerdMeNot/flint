@@ -7,6 +7,9 @@ vars:
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   LDFLAGS: -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}
+  # air (live reload) pinned + run project-locally — no global install, no go.mod
+  # tool directive (its dep tree would bloat the module). Config: .air.toml.
+  AIR: go run github.com/air-verse/air@v1.65.3
 
 tasks:
   default:
@@ -246,20 +249,19 @@ tasks:
         go run ./cmd/server --config config.local.yaml --mode all
 
   dev-mock:
-    desc: Run the server in mock mode — canned in-memory data, NO database or Kubernetes (pair with `FLINT_BACKEND_URL=http://localhost:8080 task web-dev`)
+    desc: Run the server in mock mode with hot reload (air) — canned in-memory data, NO database/Kubernetes (pair with `FLINT_BACKEND_URL=http://localhost:8080 task web-dev`)
     cmds:
-      - go run ./cmd/server --config config.local.yaml --mock
+      - "{{.AIR}}"
 
   dev-mock-all:
-    desc: Run server (mock mode) + web dev server together — full UI, NO database or Kubernetes
+    desc: Run server (mock mode, hot reload) + web dev server together — full UI, NO database or Kubernetes
     cmds:
-      # Build first so the server boots instantly — `go run` compiles for several
-      # seconds, during which the web server would start and the first page load
-      # would fail with "fetch failed". Then wait until the API answers before
-      # starting the web dev server.
-      - go build -o bin/flint-server ./cmd/server
+      # air rebuilds + restarts the server on any .go change (run via `go run
+      # <pkg>@version` — no global install, no go.mod pollution). Wait until the
+      # API answers before starting the web dev server, so the first page load
+      # never races air's initial build ("fetch failed").
       - |
-        ./bin/flint-server --config config.local.yaml --mock &
+        {{.AIR}} &
         SERVER_PID=$!
         trap "kill $SERVER_PID 2>/dev/null" EXIT
         printf 'waiting for mock API on :8080'

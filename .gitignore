@@ -3,6 +3,8 @@ _reference/
 
 # Binaries
 bin/
+# air (live reload) build artifacts
+tmp/
 # Root-level compiled binaries (built without -o bin/)
 /server
 /worker
@@ -24,8 +26,8 @@ coverage.html
 dist/
 build/
 
-# Vendor (committed selectively)
-# vendor/
+# Vendor — not committed; `go mod vendor` is a local-only convenience.
+vendor/
 
 # Go
 *.test
