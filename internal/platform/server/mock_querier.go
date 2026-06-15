@@ -51,7 +51,10 @@ func (q *mockQuerier) CountPendingGates(context.Context) (int64, error) {
 	var n int64
 	for i := range q.data.runs {
 		if q.data.runs[i].gate {
-			n++
+			ov := q.data.override(q.data.runs[i].id)
+			if !ov.approved && !ov.rejected && !ov.cancelled {
+				n++
+			}
 		}
 	}
 	return n, nil
@@ -200,22 +203,39 @@ func (q *mockQuerier) GetRunDetail(_ context.Context, id string) (db.GetRunDetai
 func (q *mockQuerier) runRow(r *mockRun, status string) db.ListRunsFilteredRow {
 	p := q.data.project(r.projectID)
 	started := time.Now().Add(-r.startedAgo)
+	steps := q.data.steps(r)
 	row := db.ListRunsFilteredRow{
 		ID: r.id, Status: status, StartedAt: started,
-		DurationMs: i4(r.durationMs, r.durationMs > 0),
 		WorkflowFile: sp("ci.yaml"), Branch: sp(r.branch), TriggerType: r.trigger,
 		CommitSha: sp(r.sha), CommitMessage: sp(r.msg), TriggeredBy: sp(r.by),
-		ProjectID: r.projectID, RepoPath: "", Steps: q.data.stepSummaryJSON(r),
+		ProjectID: r.projectID, RepoPath: "", Steps: stepSummaryJSON(steps),
 	}
 	if r.env != "" {
 		row.Environment = sp(r.env)
 	}
-	if r.durationMs > 0 {
-		fin := started.Add(time.Duration(r.durationMs) * time.Millisecond)
-		row.FinishedAt = &fin
+	// Finish + duration are derived from the steps when the run is terminal, so
+	// the header matches the timeline (the consistency contract).
+	if status == "succeeded" || status == "failed" || status == "cancelled" {
+		var last time.Time
+		for _, s := range steps {
+			if s.FinishedAt != nil && s.FinishedAt.After(last) {
+				last = *s.FinishedAt
+			}
+		}
+		if !last.IsZero() {
+			row.FinishedAt = &last
+			row.DurationMs = i4(int32(last.Sub(started)/time.Millisecond), true)
+		}
 	}
 	if status == "failed" {
-		row.ErrorMessage = sp("build failed: command exited 1")
+		msg := "build failed: command exited 1"
+		for _, s := range steps {
+			if s.Status == "failed" {
+				msg = s.Name + " failed: command exited with code 1"
+				break
+			}
+		}
+		row.ErrorMessage = sp(msg)
 	}
 	if p != nil {
 		row.ProjectName = sp(p.name)
@@ -312,9 +332,25 @@ func (q *mockQuerier) ListGatesByStatus(_ context.Context, status string) ([]db.
 		if !r.gate {
 			continue
 		}
+		// Only gates still awaiting a decision (approve/reject/cancel removes them).
+		ov := q.data.override(r.id)
+		if ov.approved || ov.rejected || ov.cancelled {
+			continue
+		}
+		// Use the run's actual gate step name + an environment-aware message.
+		stepName, message := "approve", "Awaiting manual approval"
+		for _, st := range q.data.pipe(r) {
+			if st.gate {
+				stepName = st.name
+				break
+			}
+		}
+		if r.env != "" {
+			message = "Approve deploy to " + r.env + "?"
+		}
 		p := q.data.project(r.projectID)
 		row := db.ListGatesByStatusRow{
-			StepName: "approve-production", Message: "Approve production deploy?",
+			StepName: stepName, Message: message,
 			RunID: r.id, Branch: sp(r.branch), TriggeredBy: sp(r.by),
 			Workspace: "", Environment: r.env, Status: "waiting",
 			CreatedAt: time.Now().Add(-r.startedAgo),
@@ -327,6 +363,25 @@ func (q *mockQuerier) ListGatesByStatus(_ context.Context, status string) ([]db.
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// GetStepByWorkflowAndName lets the approve-gate handler resolve the gate step.
+// The StepDef carries no approvers, so any authenticated user (the mock admin)
+// can approve — the handler skips the approver-restriction check.
+func (q *mockQuerier) GetStepByWorkflowAndName(_ context.Context, arg db.GetStepByWorkflowAndNameParams) (db.GetStepByWorkflowAndNameRow, error) {
+	r := q.data.run(arg.WorkflowID)
+	if r == nil {
+		return db.GetStepByWorkflowAndNameRow{}, errNotFound
+	}
+	for _, st := range q.data.pipe(r) {
+		if st.name == arg.Name {
+			return db.GetStepByWorkflowAndNameRow{
+				ID: arg.WorkflowID + "-" + st.name, WorkflowID: arg.WorkflowID,
+				Name: st.name, ExecType: execTypeOf(st.gate), StepDef: []byte("{}"),
+			}, nil
+		}
+	}
+	return db.GetStepByWorkflowAndNameRow{}, errNotFound
 }
 
 // ── workspaces ──────────────────────────────────────────────────────────────
@@ -717,7 +772,7 @@ func NewMockDeps(cfg *config.Config) Deps {
 		Q:              &mockQuerier{data: data},
 		Engine:         &mockEngine{data: data},
 		Forge:          forge.NewGitHub("", nil),
-		Logs:           mockLogSink{},
+		Logs:           mockLogSink{data: data},
 		LogBroadcast:   NewLogStream(),
 		StateBroadcast: NewStateStream(),
 		Mode:           "all",
