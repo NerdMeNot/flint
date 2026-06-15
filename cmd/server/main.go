@@ -28,7 +28,7 @@ var (
 	commit     = "unknown"
 	configPath string
 	mode       string
-	demoMode   bool
+	mockMode   bool
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 
 	root.Flags().StringVar(&configPath, "config", "", "path to config file")
 	root.Flags().StringVar(&mode, "mode", "all", "server mode: all | webhook | api")
-	root.Flags().BoolVar(&demoMode, "demo", false, "demo mode: in-process engine loop + fake executor + seeded data (dev only)")
+	root.Flags().BoolVar(&mockMode, "mock", false, "mock mode: serve canned in-memory data with no database or Kubernetes (dev/demo)")
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -73,6 +73,11 @@ func run(cmd *cobra.Command, args []string) error {
 		Str("version", version).
 		Int("port", cfg.Server.PortOrDefault()).
 		Msg("flint-server starting")
+
+	// Mock mode short-circuits all database / engine / RBAC setup.
+	if mockMode || os.Getenv("FLINT_API_MODE") == "mock" {
+		return runMock(ctx, cfg)
+	}
 
 	// Database.
 	pool, err := dbkit.NewPool(ctx, dbkit.Config{
@@ -277,15 +282,20 @@ func run(cmd *cobra.Command, args []string) error {
 
 	srv := flintserver.New(deps)
 	srv.StartAuthStoreCleanup(ctx) // prune expired device codes + MFA tokens
-
-	// Demo mode: run the engine loop in-process with a fake executor and seed
-	// data, so the UI can be driven end-to-end without Kubernetes. Dev only.
-	if demoMode || os.Getenv("FLINT_DEMO") == "1" || os.Getenv("FLINT_DEMO") == "true" {
-		flintserver.StartDemo(ctx, cfg, eng, deps)
-	}
-
 	srv.Run()
 
+	return nil
+}
+
+// runMock starts the server in mock mode: canned in-memory data, no database and
+// no Kubernetes. The frontend still talks to this backend exactly as in live
+// mode — only the data source differs.
+func runMock(ctx context.Context, cfg *config.Config) error {
+	log.Info().Msg("⚡ MOCK MODE: serving canned in-memory data (no database, no Kubernetes)")
+	deps := flintserver.NewMockDeps(cfg)
+	srv := flintserver.New(deps)
+	srv.StartAuthStoreCleanup(ctx)
+	srv.Run()
 	return nil
 }
 

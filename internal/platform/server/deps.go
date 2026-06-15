@@ -44,6 +44,7 @@ type Deps struct {
 	StateBroadcast StateStream   // SSE run-state streaming; nil disables streaming
 	Sessions       auth.Sessions // JWT session management
 	Mode           string
+	MockMode       bool // serve canned data with no DB; bypasses auth + RBAC
 	OIDCProvider   auth.OIDCAuth    // nil if not configured
 	SAMLProvider   auth.SAMLAuth    // nil if not configured
 	Enforcer       casbin.IEnforcer // Casbin RBAC enforcer (interface for mockability)
