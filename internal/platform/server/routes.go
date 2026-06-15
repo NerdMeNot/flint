@@ -129,6 +129,9 @@ func (s *Server) registerAPIRoutes() {
 	// authenticated user needs this to build the top-level navigation.
 	v1.GET("/capabilities", s.handleCapabilities)
 
+	// Meta — backend data mode (live vs mock), drives the demo banner.
+	v1.GET("/meta", s.handleMeta)
+
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
 	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)

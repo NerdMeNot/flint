@@ -2,11 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { FlaskConical } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
 
-// DemoModeBanner shows a persistent strip when the app is serving mock data
-// instead of the real backend — either because FLINT_API_MODE=mock, or because
-// the backend is unreachable in auto mode. It exists so demo data is never
-// mistaken for real state (and so writes that only mutate the mock store are
-// understood as such).
+// DemoModeBanner shows a persistent strip when the backend is serving canned
+// mock data (`flint server --mock`) instead of real state. It exists so demo
+// data is never mistaken for real state (writes are in-memory only).
 export function DemoModeBanner() {
   const { data } = useQuery({
     ...orpc.meta.get.queryOptions(),
@@ -15,10 +13,7 @@ export function DemoModeBanner() {
 
   if (!data?.usingMockData) return null
 
-  const label =
-    data.mode === 'mock'
-      ? 'Demo data — mock mode (FLINT_API_MODE=mock). Changes are in-memory only.'
-      : 'Backend unreachable — showing demo data. Changes are not persisted.'
+  const label = 'Demo data — server is in mock mode (--mock). Changes are in-memory only.'
 
   return (
     <div

@@ -246,7 +246,7 @@ tasks:
         go run ./cmd/server --config config.local.yaml --mode all
 
   dev-mock:
-    desc: Run the server in mock mode — canned in-memory data, NO database or Kubernetes (pair with `task web-dev`, FLINT_API_MODE=live)
+    desc: Run the server in mock mode — canned in-memory data, NO database or Kubernetes (pair with `FLINT_BACKEND_URL=http://localhost:8080 task web-dev`)
     cmds:
       - go run ./cmd/server --config config.local.yaml --mock
 
