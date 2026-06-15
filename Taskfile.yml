@@ -253,10 +253,18 @@ tasks:
   dev-mock-all:
     desc: Run server (mock mode) + web dev server together — full UI, NO database or Kubernetes
     cmds:
+      # Build first so the server boots instantly — `go run` compiles for several
+      # seconds, during which the web server would start and the first page load
+      # would fail with "fetch failed". Then wait until the API answers before
+      # starting the web dev server.
+      - go build -o bin/flint-server ./cmd/server
       - |
-        go run ./cmd/server --config config.local.yaml --mock &
+        ./bin/flint-server --config config.local.yaml --mock &
         SERVER_PID=$!
         trap "kill $SERVER_PID 2>/dev/null" EXIT
+        printf 'waiting for mock API on :8080'
+        until curl -sf http://localhost:8080/api/v1/meta >/dev/null 2>&1; do printf '.'; sleep 0.3; done
+        echo ' ready'
         cd web && FLINT_BACKEND_URL=http://localhost:8080 bun run dev
 
   # --- Docker ---
