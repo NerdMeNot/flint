@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,14 +40,22 @@ func (q *mockQuerier) GetOrg(context.Context) (db.GetOrgRow, error) {
 }
 
 func (q *mockQuerier) GetRunStats(context.Context, string) (db.GetRunStatsRow, error) {
-	return db.GetRunStatsRow{TotalRuns: 160, SuccessRuns: 140, RunsToday: 24, AvgDurationMs: 195000}, nil
+	return db.GetRunStatsRow{TotalRuns: 1284, SuccessRuns: 1147, RunsToday: 37, AvgDurationMs: 168000}, nil
 }
 
 func (q *mockQuerier) CountActiveProjects(context.Context) (int64, error) {
 	return int64(len(q.data.projects)), nil
 }
 
-func (q *mockQuerier) CountPendingGates(context.Context) (int64, error) { return 1, nil }
+func (q *mockQuerier) CountPendingGates(context.Context) (int64, error) {
+	var n int64
+	for i := range q.data.runs {
+		if q.data.runs[i].gate {
+			n++
+		}
+	}
+	return n, nil
+}
 
 // ── projects ────────────────────────────────────────────────────────────────
 
@@ -137,17 +147,40 @@ func (q *mockQuerier) UpdateProjectTags(context.Context, db.UpdateProjectTagsPar
 // ── runs ────────────────────────────────────────────────────────────────────
 
 func (q *mockQuerier) ListRunsFiltered(_ context.Context, arg db.ListRunsFilteredParams) ([]db.ListRunsFilteredRow, error) {
-	out := []db.ListRunsFilteredRow{}
+	// Gather matches, then sort most-recent-first (smallest startedAgo) with an
+	// id tiebreak — mirroring the SQL's `ORDER BY started_at DESC, id DESC`.
+	matches := []*mockRun{}
 	for i := range q.data.runs {
 		r := &q.data.runs[i]
 		if arg.ProjectID != "" && r.projectID != arg.ProjectID {
 			continue
 		}
-		st := q.data.effectiveStatus(r)
-		if arg.Status != "" && st != arg.Status {
+		if arg.Status != "" && q.data.effectiveStatus(r) != arg.Status {
 			continue
 		}
-		out = append(out, q.runRow(r, st))
+		matches = append(matches, r)
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].startedAgo != matches[j].startedAgo {
+			return matches[i].startedAgo < matches[j].startedAgo
+		}
+		return matches[i].id > matches[j].id
+	})
+
+	// Keyset cursor: resume after the row whose id matches the cursor.
+	start := 0
+	if arg.CursorID != "" {
+		for k, r := range matches {
+			if r.id == arg.CursorID {
+				start = k + 1
+				break
+			}
+		}
+	}
+
+	out := []db.ListRunsFilteredRow{}
+	for k := start; k < len(matches); k++ {
+		out = append(out, q.runRow(matches[k], q.data.effectiveStatus(matches[k])))
 		if arg.Lim > 0 && int32(len(out)) >= arg.Lim {
 			break
 		}
@@ -249,8 +282,11 @@ func (q *mockQuerier) GetRunScope(_ context.Context, id string) (db.GetRunScopeR
 	return db.GetRunScopeRow{}, nil
 }
 
-func (q *mockQuerier) GetWorkflowDAGWaves(context.Context, string) ([]byte, error) {
-	return q.data.dagWaves(), nil
+func (q *mockQuerier) GetWorkflowDAGWaves(_ context.Context, workflowID string) ([]byte, error) {
+	if r := q.data.run(workflowID); r != nil {
+		return q.data.dagWaves(r), nil
+	}
+	return []byte("[]"), nil
 }
 
 func (q *mockQuerier) GetStepStatus(_ context.Context, arg db.GetStepStatusParams) (string, error) {
@@ -305,6 +341,9 @@ func (q *mockQuerier) ListWorkspacesWithCounts(context.Context, db.ListWorkspace
 		{ID: "ws-platform", Name: "Platform", Slug: "platform", CreatedAt: base, ProjectCount: counts["platform"]},
 		{ID: "ws-frontend", Name: "Frontend", Slug: "frontend", CreatedAt: base, ProjectCount: counts["frontend"]},
 		{ID: "ws-data", Name: "Data", Slug: "data", CreatedAt: base, ProjectCount: counts["data"]},
+		{ID: "ws-ml", Name: "Machine Learning", Slug: "ml", CreatedAt: base, ProjectCount: counts["ml"]},
+		{ID: "ws-infra", Name: "Infrastructure", Slug: "infra", CreatedAt: base, ProjectCount: counts["infra"]},
+		{ID: "ws-mobile", Name: "Mobile", Slug: "mobile", CreatedAt: base, ProjectCount: counts["mobile"]},
 		{ID: "ws-unsorted", Name: "Unsorted", Slug: "unsorted", CreatedAt: base, IsDefault: true, ProjectCount: 0},
 	}, nil
 }
@@ -335,64 +374,309 @@ func (q *mockQuerier) SetOrgRequireProjectWorkspace(context.Context, db.SetOrgRe
 	return nil
 }
 
-// ── settings tail: empty lists so pages load without a DB ───────────────────
+// No SSO providers in mock mode — local login only.
+func (q *mockQuerier) ListAuthProviderConfigNames(context.Context) ([]db.ListAuthProviderConfigNamesRow, error) {
+	return []db.ListAuthProviderConfigNamesRow{}, nil
+}
+
+// ── teams / users / roles ───────────────────────────────────────────────────
+
+// mockUser is one seeded person; their email is the Casbin subject for role
+// assignments and team membership.
+type mockUser struct {
+	id, email, name, role string
+}
+
+func mockUsers() []mockUser {
+	return []mockUser{
+		{"user-mock", "admin@flint.dev", "Mock Admin", "admin"},
+		{"u-carol", "carol@acme.dev", "Carol Mendoza", "developer"},
+		{"u-dave", "dave@acme.dev", "Dave Whitfield", "developer"},
+		{"u-erin", "erin@acme.dev", "Erin Kobayashi", "developer"},
+		{"u-frank", "frank@acme.dev", "Frank Osei", "developer"},
+		{"u-grace", "grace@acme.dev", "Grace Liang", "security-auditor"},
+		{"u-heidi", "heidi@acme.dev", "Heidi Brandt", "developer"},
+		{"u-ivan", "ivan@acme.dev", "Ivan Petrov", "staging-operator"},
+		{"u-judy", "judy@acme.dev", "Judy Alvarez", "developer"},
+		{"u-mallory", "mallory@acme.dev", "Mallory Singh", "viewer"},
+		{"u-oscar", "oscar@acme.dev", "Oscar Nilsson", "developer"},
+	}
+}
+
+// teams and their member emails.
+var mockTeams = []struct {
+	id, name, slug, source, idpGroup string
+	members                          []string
+}{
+	{"team-platform", "Platform", "platform", "manual", "", []string{"admin@flint.dev", "carol@acme.dev", "dave@acme.dev", "oscar@acme.dev"}},
+	{"team-frontend", "Frontend", "frontend", "manual", "", []string{"erin@acme.dev", "judy@acme.dev"}},
+	{"team-data", "Data & ML", "data-ml", "manual", "", []string{"frank@acme.dev", "heidi@acme.dev"}},
+	{"team-security", "Security", "security", "idp", "okta:security", []string{"grace@acme.dev"}},
+	{"team-sre", "SRE", "sre", "idp", "okta:sre", []string{"oscar@acme.dev", "ivan@acme.dev"}},
+}
 
 func (q *mockQuerier) ListTeamsPaged(context.Context, db.ListTeamsPagedParams) ([]db.ListTeamsPagedRow, error) {
-	return []db.ListTeamsPagedRow{}, nil
+	out := make([]db.ListTeamsPagedRow, 0, len(mockTeams))
+	for _, t := range mockTeams {
+		row := db.ListTeamsPagedRow{ID: t.id, Name: t.name, Slug: t.slug, Source: t.source, MemberCount: int64(len(t.members))}
+		if t.idpGroup != "" {
+			row.IdpGroup = sp(t.idpGroup)
+		}
+		out = append(out, row)
+	}
+	return out, nil
 }
-func (q *mockQuerier) GetTeam(context.Context, string) (db.GetTeamRow, error) {
+
+func (q *mockQuerier) GetTeam(_ context.Context, id string) (db.GetTeamRow, error) {
+	for _, t := range mockTeams {
+		if t.id == id {
+			row := db.GetTeamRow{ID: t.id, Name: t.name, Slug: t.slug, Source: t.source}
+			if t.idpGroup != "" {
+				row.IdpGroup = sp(t.idpGroup)
+			}
+			return row, nil
+		}
+	}
 	return db.GetTeamRow{}, errNotFound
 }
-func (q *mockQuerier) ListTeamMembers(context.Context, string) ([]db.ListTeamMembersRow, error) {
-	return []db.ListTeamMembersRow{}, nil
+
+func (q *mockQuerier) ListTeamMembers(_ context.Context, teamID string) ([]db.ListTeamMembersRow, error) {
+	out := []db.ListTeamMembersRow{}
+	users := mockUsers()
+	for _, t := range mockTeams {
+		if t.id != teamID {
+			continue
+		}
+		for _, email := range t.members {
+			for _, u := range users {
+				if u.email == email {
+					out = append(out, db.ListTeamMembersRow{ID: u.id, Email: u.email, Name: sp(u.name)})
+				}
+			}
+		}
+	}
+	return out, nil
 }
+
 func (q *mockQuerier) ListUsers(context.Context, db.ListUsersParams) ([]db.ListUsersRow, error) {
-	return []db.ListUsersRow{}, nil
+	base := q.data.boot.Add(-9000 * time.Hour)
+	out := make([]db.ListUsersRow, 0, 11)
+	for i, u := range mockUsers() {
+		out = append(out, db.ListUsersRow{ID: u.id, Email: u.email, Name: sp(u.name), CreatedAt: base.Add(time.Duration(i) * 220 * time.Hour)})
+	}
+	return out, nil
 }
+
 func (q *mockQuerier) ListRoles(context.Context, db.ListRolesParams) ([]db.ListRolesRow, error) {
-	return []db.ListRolesRow{}, nil
+	base := q.data.boot.Add(-9000 * time.Hour)
+	return []db.ListRolesRow{
+		{ID: "role-admin", Name: "Admin", Slug: "admin", Description: sp("Full access to everything"), IsSystem: true, CreatedAt: base},
+		{ID: "role-developer", Name: "Developer", Slug: "developer", Description: sp("Trigger runs, manage projects"), IsSystem: true, CreatedAt: base},
+		{ID: "role-viewer", Name: "Viewer", Slug: "viewer", Description: sp("Read-only access"), IsSystem: true, CreatedAt: base},
+		{ID: "role-sec", Name: "Security Auditor", Slug: "security-auditor", Description: sp("Read all + manage secrets and audit"), IsSystem: false, CreatedAt: base.Add(400 * time.Hour)},
+		{ID: "role-stg", Name: "Staging Operator", Slug: "staging-operator", Description: sp("Deploy to staging only"), IsSystem: false, CreatedAt: base.Add(800 * time.Hour)},
+	}, nil
 }
+
 func (q *mockQuerier) ListAllRoleAssignmentsWithRole(context.Context) ([]db.ListAllRoleAssignmentsWithRoleRow, error) {
-	return []db.ListAllRoleAssignmentsWithRoleRow{}, nil
+	out := []db.ListAllRoleAssignmentsWithRoleRow{}
+	for _, u := range mockUsers() {
+		out = append(out, db.ListAllRoleAssignmentsWithRoleRow{Subject: u.email, Role: u.role})
+	}
+	return out, nil
 }
+
+func (q *mockQuerier) ListRolePermissions(_ context.Context, roleID string) ([]db.ListRolePermissionsRow, error) {
+	perm := func(o, a string) db.ListRolePermissionsRow { return db.ListRolePermissionsRow{Object: o, Action: a} }
+	switch roleID {
+	case "role-admin":
+		return []db.ListRolePermissionsRow{perm("*", "*")}, nil
+	case "role-developer":
+		return []db.ListRolePermissionsRow{perm("project", "read"), perm("project", "write"), perm("run", "read"), perm("run", "write"), perm("gate", "write")}, nil
+	case "role-viewer":
+		return []db.ListRolePermissionsRow{perm("project", "read"), perm("run", "read")}, nil
+	case "role-sec":
+		return []db.ListRolePermissionsRow{perm("project", "read"), perm("secret", "read"), perm("secret", "write"), perm("audit", "read")}, nil
+	case "role-stg":
+		return []db.ListRolePermissionsRow{perm("run", "read"), perm("run", "write")}, nil
+	}
+	return []db.ListRolePermissionsRow{}, nil
+}
+
+func (q *mockQuerier) ListRoleWorkspaceSlugs(_ context.Context, roleID string) ([]string, error) {
+	if roleID == "role-stg" {
+		return []string{"platform"}, nil
+	}
+	return []string{}, nil
+}
+
+func (q *mockQuerier) ListRoleEnvironmentNames(_ context.Context, roleID string) ([]string, error) {
+	if roleID == "role-stg" {
+		return []string{"staging"}, nil
+	}
+	return []string{}, nil
+}
+
+// ── environments / variables ────────────────────────────────────────────────
+
 func (q *mockQuerier) ListEnvironments(context.Context, db.ListEnvironmentsParams) ([]db.ListEnvironmentsRow, error) {
-	return []db.ListEnvironmentsRow{}, nil
+	base := q.data.boot.Add(-8000 * time.Hour)
+	return []db.ListEnvironmentsRow{
+		{ID: "env-dev", Name: "Development", Slug: "development", CreatedAt: base},
+		{ID: "env-staging", Name: "Staging", Slug: "staging", CreatedAt: base},
+		{ID: "env-prod", Name: "Production", Slug: "production", CreatedAt: base},
+	}, nil
 }
+
 func (q *mockQuerier) ListEnvVariables(context.Context, db.ListEnvVariablesParams) ([]db.ListEnvVariablesRow, error) {
-	return []db.ListEnvVariablesRow{}, nil
+	base := q.data.boot.Add(-7000 * time.Hour)
+	mk := func(id, name, desc, scope string, secret bool, off int) db.ListEnvVariablesRow {
+		return db.ListEnvVariablesRow{ID: id, Name: name, Description: sp(desc), Scope: scope, IsSecret: secret, CreatedAt: base.Add(time.Duration(off) * 100 * time.Hour)}
+	}
+	return []db.ListEnvVariablesRow{
+		mk("var-cluster", "CLUSTER_URL", "Base URL for the deployment cluster", "environment", false, 0),
+		mk("var-replicas", "REPLICAS", "Number of pod replicas", "environment", false, 1),
+		mk("var-loglevel", "LOG_LEVEL", "Application log level", "organization", false, 2),
+		mk("var-dbhost", "DB_HOST", "Primary database hostname", "environment", false, 3),
+		mk("var-stripe", "STRIPE_SECRET_KEY", "Stripe API secret key", "environment", true, 4),
+		mk("var-sentry", "SENTRY_DSN", "Sentry error-tracking DSN", "organization", true, 5),
+		mk("var-awskey", "AWS_ACCESS_KEY_ID", "AWS access key id", "environment", true, 6),
+		mk("var-awssecret", "AWS_SECRET_ACCESS_KEY", "AWS secret access key", "environment", true, 7),
+		mk("var-ghtoken", "GITHUB_TOKEN", "GitHub app token for releases", "organization", true, 8),
+		mk("var-feature", "FEATURE_FLAGS", "Comma-separated feature flags", "environment", false, 9),
+	}, nil
 }
+
 func (q *mockQuerier) ListEnvVariableValues(context.Context, string) ([]db.ListEnvVariableValuesRow, error) {
-	return []db.ListEnvVariableValuesRow{}, nil
+	now := q.data.boot
+	v := func(varID, envID, val string, secret bool) db.ListEnvVariableValuesRow {
+		return db.ListEnvVariableValuesRow{VariableID: varID, EnvironmentID: envID, Value: val, UpdatedAt: now.Add(-300 * time.Hour), IsSecret: secret}
+	}
+	return []db.ListEnvVariableValuesRow{
+		v("var-cluster", "env-staging", "https://staging.acme.internal", false),
+		v("var-cluster", "env-prod", "https://prod.acme.internal", false),
+		v("var-replicas", "env-staging", "2", false),
+		v("var-replicas", "env-prod", "6", false),
+		v("var-dbhost", "env-prod", "db-prod.acme.internal", false),
+		v("var-stripe", "env-prod", "sk_live_••••••••••••", true),
+		v("var-awskey", "env-prod", "AKIA••••••••", true),
+	}, nil
 }
+
+// ── runners / forge ─────────────────────────────────────────────────────────
+
 func (q *mockQuerier) ListRunnerPoolsPaged(context.Context, db.ListRunnerPoolsPagedParams) ([]db.ListRunnerPoolsPagedRow, error) {
-	return []db.ListRunnerPoolsPagedRow{}, nil
+	base := q.data.boot.Add(-5000 * time.Hour)
+	return []db.ListRunnerPoolsPagedRow{
+		{ID: "rp-default", Name: "default", Description: sp("General-purpose x86 runners"), Cpu: "2", Memory: "4Gi", Arch: "amd64", Ready: true, CreatedAt: base},
+		{ID: "rp-large", Name: "large", Description: sp("High-CPU build runners"), Cpu: "8", Memory: "16Gi", Arch: "amd64", Ready: true, CreatedAt: base.Add(200 * time.Hour)},
+		{ID: "rp-arm", Name: "arm64", Description: sp("Graviton ARM runners"), Cpu: "4", Memory: "8Gi", Arch: "arm64", Ready: true, CreatedAt: base.Add(400 * time.Hour)},
+		{ID: "rp-gpu", Name: "gpu", Description: sp("NVIDIA A10G for model training"), Cpu: "16", Memory: "64Gi", Arch: "amd64", GpuVendor: sp("nvidia"), GpuModel: sp("A10G"), GpuCount: i4(1, true), Ready: true, CreatedAt: base.Add(600 * time.Hour)},
+		{ID: "rp-macos", Name: "macos", Description: sp("macOS runners for iOS builds"), Cpu: "8", Memory: "16Gi", Arch: "arm64", Ready: false, CreatedAt: base.Add(800 * time.Hour)},
+	}, nil
 }
+
 func (q *mockQuerier) ListForgeConnections(context.Context, db.ListForgeConnectionsParams) ([]db.ListForgeConnectionsRow, error) {
-	return []db.ListForgeConnectionsRow{}, nil
+	base := q.data.boot.Add(-9000 * time.Hour)
+	return []db.ListForgeConnectionsRow{
+		{ID: "forge-gh", ForgeType: "github", DisplayName: "acme (GitHub App)", AppID: sp("428193"), InstallationID: sp("51203847"), CreatedAt: base},
+	}, nil
 }
+
+// ── audit / tags / saved views ──────────────────────────────────────────────
+
 func (q *mockQuerier) ListAuditLog(context.Context, db.ListAuditLogParams) ([]db.ListAuditLogRow, error) {
-	return []db.ListAuditLogRow{}, nil
+	now := q.data.boot
+	type e struct {
+		action, resType, resID, email string
+		agoMin                        int
+	}
+	entries := []e{
+		{"gate.approve", "run", "mock-run-old-1", "carol@acme.dev", 35},
+		{"run.trigger", "project", "proj-payments", "grace@acme.dev", 88},
+		{"env_variable.update", "env_variable", "var-stripe", "grace@acme.dev", 140},
+		{"role.assign", "user", "u-ivan", "admin@flint.dev", 220},
+		{"project.create", "project", "proj-ml-serve", "frank@acme.dev", 360},
+		{"api_key.create", "api_key", "key-ci-deploy", "admin@flint.dev", 500},
+		{"team.update", "team", "team-security", "admin@flint.dev", 720},
+		{"run.cancel", "run", "mock-run-old-2", "dave@acme.dev", 900},
+		{"workspace.create", "workspace", "ws-ml", "admin@flint.dev", 1200},
+		{"environment.create", "environment", "env-staging", "oscar@acme.dev", 1500},
+		{"role.create", "role", "role-sec", "admin@flint.dev", 1800},
+		{"login", "session", "session-mock", "carol@acme.dev", 2100},
+	}
+	out := make([]db.ListAuditLogRow, 0, len(entries))
+	for i, x := range entries {
+		out = append(out, db.ListAuditLogRow{
+			ID: fmt.Sprintf("audit-%d", i+1), UserID: sp("user-" + x.email), UserEmail: sp(x.email),
+			Action: x.action, ResourceType: x.resType, ResourceID: sp(x.resID),
+			Metadata: []byte(`{}`), IpAddress: sp("10.0.1.42"), CreatedAt: now.Add(-time.Duration(x.agoMin) * time.Minute),
+		})
+	}
+	return out, nil
 }
+
 func (q *mockQuerier) ListSavedViews(context.Context, db.ListSavedViewsParams) ([]db.ListSavedViewsRow, error) {
-	return []db.ListSavedViewsRow{}, nil
+	base := q.data.boot.Add(-1200 * time.Hour)
+	return []db.ListSavedViewsRow{
+		{ID: "view-fail-pay", Name: "Payments — failures", Route: "/ci/runs", Selector: []byte(`{"projectId":"proj-payments","status":"failed"}`), CreatedAt: base},
+		{ID: "view-pci", Name: "PCI projects", Route: "/ci/projects", Selector: []byte(`{"tags":["compliance:pci"]}`), CreatedAt: base.Add(100 * time.Hour)},
+		{ID: "view-running", Name: "Running now", Route: "/ci/runs", Selector: []byte(`{"status":"running"}`), CreatedAt: base.Add(300 * time.Hour)},
+	}, nil
 }
+
 func (q *mockQuerier) ListTagKeys(context.Context, string) ([]db.ListTagKeysRow, error) {
-	return []db.ListTagKeysRow{}, nil
+	base := q.data.boot.Add(-9000 * time.Hour)
+	return []db.ListTagKeysRow{
+		{ID: "tk-domain", Key: "domain", Label: "Domain", AllowedValues: []string{"search", "payments", "identity", "analytics", "messaging", "platform", "ml"}, Color: "#22d3ee", CreatedAt: base},
+		{ID: "tk-tier", Key: "tier", Label: "Tier", AllowedValues: []string{"1", "2", "3"}, Color: "#f59e0b", CreatedAt: base},
+		{ID: "tk-lang", Key: "lang", Label: "Language", AllowedValues: []string{"go", "ts", "python", "rust", "swift", "kotlin"}, Color: "#a78bfa", CreatedAt: base},
+		{ID: "tk-compliance", Key: "compliance", Label: "Compliance", AllowedValues: []string{"pci", "soc2", "hipaa"}, Color: "#fb7185", CreatedAt: base},
+	}, nil
 }
+
+// ── API keys / personal tokens ──────────────────────────────────────────────
+
 func (q *mockQuerier) ListAPIKeysDetailed(context.Context, db.ListAPIKeysDetailedParams) ([]db.ListAPIKeysDetailedRow, error) {
-	return []db.ListAPIKeysDetailedRow{}, nil
+	now := q.data.boot
+	used1 := now.Add(-3 * time.Hour)
+	used2 := now.Add(-48 * time.Hour)
+	exp := now.Add(60 * 24 * time.Hour)
+	return []db.ListAPIKeysDetailedRow{
+		{ID: "key-ci-deploy", Name: "CI Deploy Bot", Role: "developer", CreatedBy: "admin@flint.dev", LastUsedAt: &used1, CreatedAt: now.Add(-2000 * time.Hour)},
+		{ID: "key-readonly", Name: "Grafana (read-only)", Role: "viewer", CreatedBy: "oscar@acme.dev", LastUsedAt: &used2, CreatedAt: now.Add(-1500 * time.Hour)},
+		{ID: "key-release", Name: "Release Pipeline", Role: "developer", CreatedBy: "admin@flint.dev", ExpiresAt: &exp, CreatedAt: now.Add(-800 * time.Hour)},
+		{ID: "key-terraform", Name: "Terraform Cloud", Role: "staging-operator", CreatedBy: "ivan@acme.dev", CreatedAt: now.Add(-400 * time.Hour)},
+	}, nil
 }
-func (q *mockQuerier) ListAPIKeyWorkspaceSlugs(context.Context, string) ([]string, error) {
+
+func (q *mockQuerier) ListAPIKeyWorkspaceSlugs(_ context.Context, keyID string) ([]string, error) {
+	if keyID == "key-terraform" {
+		return []string{"infra"}, nil
+	}
 	return nil, nil
 }
-func (q *mockQuerier) ListAPIKeyEnvironmentSlugs(context.Context, string) ([]string, error) {
+func (q *mockQuerier) ListAPIKeyEnvironmentSlugs(_ context.Context, keyID string) ([]string, error) {
+	if keyID == "key-terraform" {
+		return []string{"staging"}, nil
+	}
 	return nil, nil
 }
+
 func (q *mockQuerier) ListPersonalTokensByUser(context.Context, string) ([]db.ListPersonalTokensByUserRow, error) {
-	return []db.ListPersonalTokensByUserRow{}, nil
+	now := q.data.boot
+	used := now.Add(-90 * time.Minute)
+	exp := now.Add(30 * 24 * time.Hour)
+	return []db.ListPersonalTokensByUserRow{
+		{ID: "pat-cli", Name: "laptop-cli", LastUsedAt: &used, ExpiresAt: &exp, CreatedAt: now.Add(-720 * time.Hour)},
+		{ID: "pat-ci", Name: "homelab", CreatedAt: now.Add(-240 * time.Hour)},
+	}, nil
 }
-func (q *mockQuerier) ListProjectWebhooks(context.Context, string) ([]db.Webhook, error) {
-	return []db.Webhook{}, nil
+
+func (q *mockQuerier) ListProjectWebhooks(_ context.Context, projectID string) ([]db.Webhook, error) {
+	return []db.Webhook{
+		{ID: "wh-" + projectID, ProjectID: projectID, Url: "https://hooks.acme.dev/flint/" + projectID, CreatedAt: q.data.boot.Add(-1000 * time.Hour)},
+	}, nil
 }
 
 // ── mutations: accept and no-op (mock has no store) ─────────────────────────

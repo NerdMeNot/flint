@@ -41,7 +41,11 @@ FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
 WHERE (sqlc.arg('project_id')::text = '' OR pr.project_id::text = sqlc.arg('project_id'))
   AND (sqlc.arg('status')::text = '' OR pr.status = sqlc.arg('status'))
-ORDER BY pr.started_at DESC
+  AND (
+    sqlc.arg('cursor_ts')::text = ''
+    OR (pr.started_at, pr.id) < (sqlc.arg('cursor_ts')::timestamptz, sqlc.arg('cursor_id')::uuid)
+  )
+ORDER BY pr.started_at DESC, pr.id DESC
 LIMIT sqlc.arg('lim');
 
 -- name: GetRunDetail :one
