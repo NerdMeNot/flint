@@ -5,6 +5,7 @@ import {
   Scripts,
   createRootRoute,
   useRouterState,
+  useRouter,
 } from '@tanstack/react-router'
 import { Sidebar, SidebarProvider, MobileMenuButton, useSidebar } from '#/components/Sidebar'
 import { ScopeSelector } from '#/components/ScopeSelector'
@@ -31,7 +32,44 @@ export const Route = createRootRoute({
   }),
   component: RootLayout,
   shellComponent: RootShell,
+  errorComponent: RootError,
 })
+
+// RootError catches anything an underlying route throws — most commonly a failed
+// call to the Flint backend. Without it a backend blip white-screens the app
+// ("wasn't caught by any route"); here it shows a clear message and a retry.
+function RootError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter()
+  const msg = error?.message ?? String(error)
+  const unreachable =
+    /fetch failed|Failed to fetch|ECONNREFUSED|NetworkError|Backend 5\d\d/i.test(msg)
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-md w-full text-center space-y-4">
+        <div className="text-3xl">{unreachable ? '🔌' : '⚠️'}</div>
+        <h1 className="display-title text-xl font-bold text-foreground">
+          {unreachable ? "Can't reach the Flint backend" : 'Something went wrong'}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {unreachable
+            ? 'The API server is not responding. Start it with `task dev-up` (mock) or `task dev-local` (live), then retry.'
+            : msg}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            reset()
+            router.invalidate()
+          }}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-accent/30 transition-colors text-foreground"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (

@@ -378,8 +378,8 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               disabled={cancel.isPending}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors disabled:opacity-50"
             >
-              <Ban size={12} />
-              Cancel
+              {cancel.isPending ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+              {cancel.isPending ? 'Cancelling…' : 'Cancel'}
             </button>
           )}
           {(run.status === 'failed' || run.status === 'cancelled') && (
@@ -389,8 +389,8 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               disabled={retry.isPending}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
             >
-              <RotateCcw size={12} />
-              Retry
+              {retry.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+              {retry.isPending ? 'Retrying…' : 'Retry'}
             </button>
           )}
         </div>

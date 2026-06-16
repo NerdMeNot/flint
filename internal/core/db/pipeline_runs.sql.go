@@ -483,13 +483,19 @@ FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
 WHERE ($1::text = '' OR pr.project_id::text = $1)
   AND ($2::text = '' OR pr.status = $2)
-ORDER BY pr.started_at DESC
-LIMIT $3
+  AND (
+    $3::text = ''
+    OR (pr.started_at, pr.id) < ($3::timestamptz, $4::uuid)
+  )
+ORDER BY pr.started_at DESC, pr.id DESC
+LIMIT $5
 `
 
 type ListRunsFilteredParams struct {
 	ProjectID string `json:"project_id"`
 	Status    string `json:"status"`
+	CursorTs  string `json:"cursor_ts"`
+	CursorID  string `json:"cursor_id"`
 	Lim       int32  `json:"lim"`
 }
 
@@ -518,7 +524,13 @@ type ListRunsFilteredRow struct {
 // for display, plus a compact per-step summary (name+status) the UI renders as
 // stage pips. Powers GET /api/v1/runs.
 func (q *Queries) ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error) {
-	rows, err := q.db.Query(ctx, listRunsFiltered, arg.ProjectID, arg.Status, arg.Lim)
+	rows, err := q.db.Query(ctx, listRunsFiltered,
+		arg.ProjectID,
+		arg.Status,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -293,6 +293,12 @@ func run(cmd *cobra.Command, args []string) error {
 func runMock(ctx context.Context, cfg *config.Config) error {
 	log.Info().Msg("⚡ MOCK MODE: serving canned in-memory data (no database, no Kubernetes)")
 	deps := flintserver.NewMockDeps(cfg)
+	// Mount product surfaces here (composition root) so the platform server never
+	// imports product packages — same wiring as live mode, over the mock seams.
+	if cfg.Products.WorkflowsEnabled() {
+		deps.APIRoutes = append(deps.APIRoutes, workflows.NewAPI(deps.Engine, deps.Q).Register)
+		log.Info().Msg("product enabled: workflows (mock)")
+	}
 	srv := flintserver.New(deps)
 	srv.StartAuthStoreCleanup(ctx)
 	srv.Run()

@@ -129,6 +129,9 @@ func (s *Server) registerAPIRoutes() {
 	// authenticated user needs this to build the top-level navigation.
 	v1.GET("/capabilities", s.handleCapabilities)
 
+	// Meta — backend data mode (live vs mock), drives the demo banner.
+	v1.GET("/meta", s.handleMeta)
+
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
 	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
@@ -546,10 +549,19 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 	status := string(c.Query("status"))
 	p := parsePagination(c)
 
-	// Use a raw query for global run list with optional filters.
+	// Keyset cursor: (started_at, id) tuple from the previous page's last row.
+	var cursorTs, cursorID string
+	if p.Cursor != "" {
+		if id, ts, err := decodeCursor(p.Cursor); err == nil {
+			cursorID, cursorTs = id, ts
+		}
+	}
+
 	rows, err := s.deps.Q.ListRunsFiltered(ctx, db.ListRunsFilteredParams{
 		ProjectID: projectID,
 		Status:    status,
+		CursorTs:  cursorTs,
+		CursorID:  cursorID,
 		Lim:       int32(p.Limit + 1),
 	})
 	if err != nil {

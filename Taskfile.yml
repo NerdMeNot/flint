@@ -7,6 +7,13 @@ vars:
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   LDFLAGS: -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}
+  # air (live reload) pinned + run project-locally — no global install, no go.mod
+  # tool directive (its dep tree would bloat the module). Config: .air.toml.
+  AIR: go run github.com/air-verse/air@v1.65.3
+  # Process Compose (local process orchestrator) — same project-local pattern.
+  # Config: process-compose.yaml. Its REST API defaults to :8080, which collides
+  # with the app server — pin it to :8088 so they coexist (up & down must agree).
+  PC: go run github.com/f1bonacc1/process-compose@v1.110.0 -p 8088
 
 tasks:
   default:
@@ -37,12 +44,6 @@ tasks:
     cmds:
       - bun run build
 
-  build-everything:
-    desc: Build all binaries + web frontend
-    cmds:
-      - task: build-all
-      - task: build-web
-
   # --- Test ---
 
   test:
@@ -54,11 +55,6 @@ tasks:
     desc: Run tests in short mode (skip slow/integration tests)
     cmds:
       - go test -short ./...
-
-  test-verbose:
-    desc: Run tests with verbose output
-    cmds:
-      - go test -v ./...
 
   test-race:
     desc: Run tests with race detector
@@ -154,12 +150,6 @@ tasks:
     cmds:
       - bun run dev
 
-  web-build:
-    desc: Build the web frontend for production
-    dir: web
-    cmds:
-      - bun run build
-
   web-install:
     desc: Install web frontend dependencies
     dir: web
@@ -204,22 +194,6 @@ tasks:
 
   # --- Development ---
 
-  dev:
-    desc: Start the server in development mode
-    cmds:
-      - go run ./cmd/server --config config.yaml --mode all
-
-  dev-worker:
-    desc: Start the worker in development mode
-    cmds:
-      - go run ./cmd/worker --config config.yaml
-
-  dev-all:
-    desc: Start server + web frontend dev server
-    deps:
-      - dev
-      - web-dev
-
   dev-db:
     desc: Start a local Postgres for development (Podman)
     cmds:
@@ -246,9 +220,19 @@ tasks:
         go run ./cmd/server --config config.local.yaml --mode all
 
   dev-mock:
-    desc: Run the server in mock mode — canned in-memory data, NO database or Kubernetes (pair with `task web-dev`, FLINT_API_MODE=live)
+    desc: Run the server in mock mode with hot reload (air) — canned in-memory data, NO database/Kubernetes (pair with `FLINT_BACKEND_URL=http://localhost:8080 task web-dev`)
     cmds:
-      - go run ./cmd/server --config config.local.yaml --mock
+      - "{{.AIR}}"
+
+  dev-up:
+    desc: Run the full mock stack (server + web) under Process Compose — hot reload, health-gated startup, one TUI. NO database or Kubernetes.
+    cmds:
+      - "{{.PC}} up"
+
+  dev-down:
+    desc: Stop a detached Process Compose stack (started with `{{.PC}} up -D`)
+    cmds:
+      - "{{.PC}} down"
 
   # --- Docker ---
 
