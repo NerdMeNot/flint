@@ -44,12 +44,6 @@ tasks:
     cmds:
       - bun run build
 
-  build-everything:
-    desc: Build all binaries + web frontend
-    cmds:
-      - task: build-all
-      - task: build-web
-
   # --- Test ---
 
   test:
@@ -61,11 +55,6 @@ tasks:
     desc: Run tests in short mode (skip slow/integration tests)
     cmds:
       - go test -short ./...
-
-  test-verbose:
-    desc: Run tests with verbose output
-    cmds:
-      - go test -v ./...
 
   test-race:
     desc: Run tests with race detector
@@ -161,12 +150,6 @@ tasks:
     cmds:
       - bun run dev
 
-  web-build:
-    desc: Build the web frontend for production
-    dir: web
-    cmds:
-      - bun run build
-
   web-install:
     desc: Install web frontend dependencies
     dir: web
@@ -210,22 +193,6 @@ tasks:
       vars: [DATABASE_URL]
 
   # --- Development ---
-
-  dev:
-    desc: Start the server in development mode
-    cmds:
-      - go run ./cmd/server --config config.yaml --mode all
-
-  dev-worker:
-    desc: Start the worker in development mode
-    cmds:
-      - go run ./cmd/worker --config config.yaml
-
-  dev-all:
-    desc: Start server + web frontend dev server
-    deps:
-      - dev
-      - web-dev
 
   dev-db:
     desc: Start a local Postgres for development (Podman)
