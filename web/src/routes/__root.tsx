@@ -53,7 +53,7 @@ function RootError({ error, reset }: { error: Error; reset: () => void }) {
         </h1>
         <p className="text-sm text-muted-foreground">
           {unreachable
-            ? 'The API server is not responding. Start it with `task dev-mock-all` (mock) or `task dev-local` (live), then retry.'
+            ? 'The API server is not responding. Start it with `task dev-up` (mock) or `task dev-local` (live), then retry.'
             : msg}
         </p>
         <button

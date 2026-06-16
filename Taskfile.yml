@@ -234,22 +234,6 @@ tasks:
     cmds:
       - "{{.PC}} down"
 
-  dev-mock-all:
-    desc: Run server (mock mode, hot reload) + web dev server together — full UI, NO database or Kubernetes (shell fallback for dev-up)
-    cmds:
-      # air rebuilds + restarts the server on any .go change (run via `go run
-      # <pkg>@version` — no global install, no go.mod pollution). Wait until the
-      # API answers before starting the web dev server, so the first page load
-      # never races air's initial build ("fetch failed").
-      - |
-        {{.AIR}} &
-        SERVER_PID=$!
-        trap "kill $SERVER_PID 2>/dev/null" EXIT
-        printf 'waiting for mock API on :8080'
-        until curl -sf http://localhost:8080/api/v1/meta >/dev/null 2>&1; do printf '.'; sleep 0.3; done
-        echo ' ready'
-        cd web && FLINT_BACKEND_URL=http://localhost:8080 bun run dev
-
   # --- Docker ---
 
   docker:

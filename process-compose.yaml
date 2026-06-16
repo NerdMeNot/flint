@@ -6,8 +6,8 @@
 # or directly:
 #   go run github.com/f1bonacc1/process-compose@v1.110.0 up
 #
-# Why this over the shell `&`/trap juggling in dev-mock-all: Process Compose gives
-# real dependency ordering (web waits until the API is actually healthy), restart
+# Process Compose gives real dependency ordering (web waits until the API is
+# actually healthy, not just started), restart
 # on crash, multiplexed logs, and graceful shutdown of the whole tree on exit.
 #
 # NO database and NO Kubernetes — the server runs in mock mode (canned in-memory
