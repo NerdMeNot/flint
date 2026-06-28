@@ -572,16 +572,23 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 
 // handleOIDCCallback handles the OIDC authorization code callback.
 func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) {
-	if s.deps.OIDCProvider == nil {
-		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("OIDC is not configured")))
-		return
-	}
-
 	code := string(c.Query("code"))
 	state := string(c.Query("state"))
 
 	if code == "" || state == "" {
 		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing code or state")))
+		return
+	}
+
+	// Decoded test sign-in: uses the test's own provider, works even when no
+	// provider is active yet, and never creates a session.
+	if tl, ok := testLogins.get(state); ok && tl.protocol == "oidc" {
+		s.completeOIDCTestLogin(ctx, c, tl, code)
+		return
+	}
+
+	if s.deps.OIDCProvider == nil {
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("OIDC is not configured")))
 		return
 	}
 
@@ -617,16 +624,22 @@ func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) 
 
 // handleSAMLACS handles the SAML Assertion Consumer Service POST.
 func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
-	if s.deps.SAMLProvider == nil {
-		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("SAML is not configured")))
-		return
-	}
-
 	samlResponse := string(c.FormValue("SAMLResponse"))
 	relayState := string(c.FormValue("RelayState"))
 
 	if samlResponse == "" {
 		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing SAML response")))
+		return
+	}
+
+	// Decoded test sign-in branch (uses the test's own provider).
+	if tl, ok := testLogins.get(relayState); ok && tl.protocol == "saml" {
+		s.completeSAMLTestLogin(c, tl, samlResponse)
+		return
+	}
+
+	if s.deps.SAMLProvider == nil {
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("SAML is not configured")))
 		return
 	}
 

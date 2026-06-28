@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Check, ChevronLeft, Loader2, Eye, EyeOff, ExternalLink, AlertCircle,
-  CheckCircle2, Upload, ArrowRight,
+  CheckCircle2, Upload, ArrowRight, LogIn,
 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
-import type { ProviderConfig, ProviderTestResult } from '#/lib/api/types'
+import type { ProviderConfig, ProviderTestResult, TestLoginResult } from '#/lib/api/types'
 import {
   SSO_PRESETS, presetById, presetProtocols, type SSOProtocol, type SSOPreset,
 } from '#/lib/sso/presets'
@@ -42,6 +42,9 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
 
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null)
+  const [signingIn, setSigningIn] = useState(false)
+  const [capturedClaims, setCapturedClaims] = useState<NonNullable<TestLoginResult['result']> | null>(null)
+  const [signInError, setSignInError] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -88,6 +91,42 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
       setTestResult({ ok: false, error: err instanceof Error ? err.message : 'Test failed' })
     } finally {
       setTesting(false)
+    }
+  }
+
+  // Decoded test sign-in: open the IdP login in a popup, then poll for the exact
+  // claims/assertion it returns — never creating a session.
+  const runTestSignIn = async () => {
+    setSigningIn(true)
+    setSignInError('')
+    setCapturedClaims(null)
+    try {
+      const { testId, authUrl } = await client.auth.providers.testLoginStart({ providerType: protocol, config })
+      const popup = window.open(authUrl, 'flint-sso-test', 'width=480,height=680')
+      const deadline = Date.now() + 3 * 60 * 1000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const r = await client.auth.providers.testLoginResult({ id: testId })
+        if (r.status === 'complete') {
+          setCapturedClaims(r.result ?? null)
+          popup?.close()
+          return
+        }
+        if (r.status === 'error') {
+          setSignInError(r.error || 'Sign-in failed')
+          popup?.close()
+          return
+        }
+        if (popup && popup.closed) {
+          setSignInError('The sign-in window was closed before completing.')
+          return
+        }
+      }
+      setSignInError('Timed out waiting for sign-in.')
+    } catch (err) {
+      setSignInError(err instanceof Error ? err.message : 'Test sign-in failed')
+    } finally {
+      setSigningIn(false)
     }
   }
 
@@ -342,6 +381,52 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
               )}
             </div>
           )}
+
+          <div className="border-t border-border pt-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">See exactly what your IdP sends</p>
+              <p className="text-xs text-muted-foreground">
+                Do a real sign-in in a popup — Flint captures the claims it receives, without creating
+                a session. The surest way to verify your mapping before going live.
+              </p>
+            </div>
+            <button onClick={runTestSignIn} disabled={signingIn}
+              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent/50 disabled:opacity-50 transition-colors">
+              {signingIn ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
+              {signingIn ? 'Waiting for sign-in…' : 'Test sign-in'}
+            </button>
+            {signInError && (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
+                <AlertCircle size={15} className="text-destructive shrink-0 mt-0.5" />
+                <span className="text-destructive">{signInError}</span>
+              </div>
+            )}
+            {capturedClaims && (
+              <div className="space-y-3 rounded-xl border border-[var(--success)]/30 bg-[var(--success)]/10 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <CheckCircle2 size={15} className="text-[var(--success)]" /> Captured from a real sign-in
+                </div>
+                <dl className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                  <DetailRow label="Email" value={capturedClaims.email || '—'} />
+                  <DetailRow label="Name" value={capturedClaims.name || '—'} />
+                  <DetailRow label="Groups" value={capturedClaims.groups?.join(', ') || '—'} />
+                </dl>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    Raw claims your IdP sent
+                  </p>
+                  <div className="rounded-lg border border-border bg-muted/30 p-2 font-mono text-[11px] text-foreground max-h-48 overflow-auto space-y-0.5">
+                    {Object.entries(capturedClaims.raw).map(([k, v]) => (
+                      <div key={k} className="flex gap-2">
+                        <span className="text-primary shrink-0">{k}</span>
+                        <span className="text-muted-foreground break-all">{JSON.stringify(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           <StepButtons onBack={goBack} onNext={() => setStep('map')} nextDisabled={!testResult?.ok}
             nextLabel="Continue to mapping" />

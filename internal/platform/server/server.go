@@ -101,6 +101,27 @@ func (s *Server) registerRoutes() {
 		s.registerAPIRoutes()
 		s.registerSCIMRoutes()
 	}
+
+	// Bundled mock OIDC IdP for end-to-end SSO testing — demo/dev only.
+	if s.deps.Demo {
+		s.registerMockIdPRoutes()
+	}
+}
+
+// registerMockIdPRoutes mounts the self-contained mock OIDC identity provider at
+// /mock-idp. Demo/dev only — never reachable in production.
+func (s *Server) registerMockIdPRoutes() {
+	m, err := newMockIdP(s.deps.Config.Server.BaseURL)
+	if err != nil {
+		return
+	}
+	g := s.hertz.Group("/mock-idp")
+	g.GET("/.well-known/openid-configuration", m.discovery)
+	g.GET("/jwks", m.jwks)
+	g.GET("/authorize", m.authorize)
+	g.POST("/login", m.login)
+	g.POST("/token", m.token)
+	g.GET("/userinfo", m.userinfo)
 }
 
 // registerSCIMRoutes mounts the SCIM 2.0 provisioning data-plane. It uses its
