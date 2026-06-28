@@ -826,6 +826,11 @@ const auth = {
       .handler(async () => {
         return backendDeleteRoot('/auth/mfa')
       }),
+    regenerateRecoveryCodes: os
+      .input(z.object({ code: z.optional(z.string()), recoveryCode: z.optional(z.string()) }))
+      .handler(async ({ input }) => {
+        return backendPostRoot<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes', input)
+      }),
   },
 
   providers: {

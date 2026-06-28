@@ -47,6 +47,7 @@ func (s *Server) registerAuthRoutes() {
 	s.hertz.POST("/auth/change-password", s.authMiddleware(), s.handleChangePassword)
 	s.hertz.POST("/auth/mfa/setup", s.authMiddleware(), s.handleMFASetup)
 	s.hertz.POST("/auth/mfa/setup/verify", s.authMiddleware(), s.handleMFASetupVerify)
+	s.hertz.POST("/auth/mfa/recovery-codes", s.authMiddleware(), s.handleRegenerateRecoveryCodes)
 	s.hertz.DELETE("/auth/mfa", s.authMiddleware(), s.handleMFADisable)
 
 	// SSO routes — no JWT required (these establish the JWT). Registered
@@ -1128,6 +1129,10 @@ func (s *Server) handleMFASetupVerify(ctx context.Context, c *app.RequestContext
 
 	_ = s.deps.Q.VerifyUserTOTP(ctx, user.ID)
 
+	// Recovery codes were already generated, stored, and shown to the user at
+	// /auth/mfa/setup; do not regenerate here (that would invalidate the codes
+	// they just saved). Rotation is available via /auth/mfa/recovery-codes.
+
 	// Audit.
 	org, _ := s.deps.Q.GetOrg(ctx)
 	_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
@@ -1136,6 +1141,67 @@ func (s *Server) handleMFASetupVerify(ctx context.Context, c *app.RequestContext
 	})
 
 	c.JSON(consts.StatusOK, utils.H{"status": "mfa_enabled"})
+}
+
+// handleRegenerateRecoveryCodes issues a fresh set of one-time recovery codes,
+// invalidating the previous set. Requires a valid current TOTP or recovery code
+// so a hijacked session can't silently rotate the user's break-glass codes.
+func (s *Server) handleRegenerateRecoveryCodes(ctx context.Context, c *app.RequestContext) {
+	claims := claimsFromCtx(ctx)
+	if claims == nil {
+		apiUnauthorized(ctx, c, "not authenticated")
+		return
+	}
+	var req struct {
+		Code         string `json:"code"`
+		RecoveryCode string `json:"recoveryCode"`
+	}
+	if err := c.BindJSON(&req); err != nil || (req.Code == "" && req.RecoveryCode == "") {
+		apiBadRequest(ctx, c, "code or recoveryCode is required")
+		return
+	}
+
+	user, err := s.deps.Q.GetUserForAuth(ctx, db.GetUserForAuthParams{
+		OrgID: claims.OrgID, Email: claims.Email,
+	})
+	if err != nil || user.TotpSecretEnc == nil {
+		apiNotFound(ctx, c, "MFA is not configured")
+		return
+	}
+
+	// Re-authenticate the second factor before rotating the codes.
+	valid := false
+	if req.Code != "" {
+		valid = auth.ValidateTOTPCode(string(user.TotpSecretEnc), req.Code) && s.checkTOTPReplay(ctx, user.ID)
+	} else {
+		codes, _ := s.deps.Q.GetUserRecoveryCodes(ctx, user.ID)
+		if _, ok := auth.ValidateRecoveryCode(req.RecoveryCode, codes); ok {
+			valid = true
+		}
+	}
+	if !valid {
+		apiUnauthorized(ctx, c, "invalid code")
+		return
+	}
+
+	raw, hashed, err := auth.GenerateRecoveryCodes(10)
+	if err != nil {
+		apiInternal(ctx, c, "failed to generate recovery codes")
+		return
+	}
+	if err := s.deps.Q.SetUserRecoveryCodes(ctx, db.SetUserRecoveryCodesParams{
+		ID: user.ID, RecoveryCodes: hashed,
+	}); err != nil {
+		apiInternal(ctx, c, "failed to store recovery codes")
+		return
+	}
+
+	org, _ := s.deps.Q.GetOrg(ctx)
+	_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
+		OrgID: org.ID, UserID: &user.ID,
+		Action: "auth.mfa.recovery_codes.regenerated", ResourceType: "user",
+	})
+	c.JSON(consts.StatusOK, utils.H{"recoveryCodes": raw})
 }
 
 // handleMFADisable disables MFA for the current user.
