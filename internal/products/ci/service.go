@@ -234,6 +234,13 @@ func (s *Service) startResolved(ctx context.Context, p *Pipeline, env string, in
 	if s.engine == nil {
 		return "", nil
 	}
+	// Validate runner pools + resource requests against the pool catalog before
+	// compiling, so bad compute asks fail here (named fix) not as a Pending pod.
+	if s.q != nil {
+		if err := p.ValidateWithPools(ctx, s.q); err != nil {
+			return "", err
+		}
+	}
 	waves, err := Compile(p, env)
 	if err != nil {
 		return "", fmt.Errorf("compile pipeline: %w", err)

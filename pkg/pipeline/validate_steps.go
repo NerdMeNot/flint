@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,43 @@ func validateStepSemantics(s *Step, field string, stepNames, stepsWithOutputs ma
 		}
 	}
 
+	// Wait steps are pauses for an external signal, not execution steps — they
+	// carry no container/execution fields, and their timeout must parse.
+	if s.Wait != nil {
+		waitRestricted := []struct {
+			name string
+			set  bool
+		}{
+			{"image", s.Image != ""},
+			{"run", !s.Run.IsEmpty()},
+			{"use", s.Use != ""},
+			{"runner", s.Runner != ""},
+			{"matrix", len(s.Matrix) > 0},
+			{"services", len(s.Services) > 0},
+			{"cache", s.Cache != nil},
+		}
+		for _, r := range waitRestricted {
+			if r.set {
+				result.Issues = append(result.Issues, ValidationIssue{
+					Code:     CodeInvalidValue,
+					Field:    field + "." + r.name,
+					Message:  fmt.Sprintf("wait steps cannot have %s (wait steps pause for an external signal)", r.name),
+					Severity: SeverityError,
+				})
+			}
+		}
+		if s.Wait.Timeout != "" {
+			if _, err := time.ParseDuration(s.Wait.Timeout); err != nil {
+				result.Issues = append(result.Issues, ValidationIssue{
+					Code:     CodeInvalidValue,
+					Field:    field + ".wait.timeout",
+					Message:  fmt.Sprintf("invalid wait timeout %q", s.Wait.Timeout),
+					Severity: SeverityError,
+				})
+			}
+		}
+	}
+
 	// dependsOn: check for typos with suggestions.
 	for j, dep := range s.DependsOn {
 		if !stepNames[dep] {
@@ -63,7 +101,7 @@ func validateStepSemantics(s *Step, field string, stepNames, stepsWithOutputs ma
 				Code:       CodeInvalidValue,
 				Field:      field + ".use",
 				Message:    msg,
-				Suggestion: "Cross-repo refs are org/repo/path@ref; local files start with ./; otherwise it's a StepTemplate name",
+				Suggestion: "Cross-repo refs are org/repo/path@ref; local files start with ./; otherwise it's a step template name",
 				Severity:   SeverityError,
 			})
 		}

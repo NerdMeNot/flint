@@ -43,7 +43,9 @@ WHERE (sqlc.arg('project_id')::text = '' OR pr.project_id::text = sqlc.arg('proj
   AND (sqlc.arg('status')::text = '' OR pr.status = sqlc.arg('status'))
   AND (
     sqlc.arg('cursor_ts')::text = ''
-    OR (pr.started_at, pr.id) < (sqlc.arg('cursor_ts')::timestamptz, sqlc.arg('cursor_id')::uuid)
+    -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
+    -- cursor without trying (and failing) to encode '' as a uuid.
+    OR (pr.started_at, pr.id) < (sqlc.arg('cursor_ts')::timestamptz, NULLIF(sqlc.arg('cursor_id')::text, '')::uuid)
   )
 ORDER BY pr.started_at DESC, pr.id DESC
 LIMIT sqlc.arg('lim');
@@ -127,7 +129,9 @@ FROM pipeline_runs
 WHERE org_id = sqlc.arg('org_id') AND kind = 'workflow'
   AND ( sqlc.arg('cursor_ts')::text = ''
         OR started_at < sqlc.arg('cursor_ts')::timestamptz
-        OR (started_at = sqlc.arg('cursor_ts')::timestamptz AND id < sqlc.arg('cursor_id')) )
+        -- NULLIF(...::text,'') keeps the param TEXT so an empty first-page cursor
+        -- binds without pgx trying to encode '' as a uuid.
+        OR (started_at = sqlc.arg('cursor_ts')::timestamptz AND id < NULLIF(sqlc.arg('cursor_id')::text, '')::uuid) )
 ORDER BY started_at DESC, id DESC
 LIMIT sqlc.arg('lim');
 

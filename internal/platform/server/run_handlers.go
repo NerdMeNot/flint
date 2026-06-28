@@ -175,3 +175,48 @@ func (s *Server) handleRejectGate(ctx context.Context, c *app.RequestContext) {
 	}
 	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
+
+// handleSendSignal delivers an external signal to a run's workflow, resolving any
+// `wait` step parked on that signal name. The payload (a flat JSON object) is
+// captured into the wait step's outputs so downstream steps can read
+// steps.<name>.<key>. Reserved signal names (the engine's gate/step-result
+// channels) are rejected so this generic endpoint can't be used to spoof a gate
+// approval or a step completion.
+func (s *Server) handleSendSignal(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	var req struct {
+		Name    string         `json:"name"`
+		Payload map[string]any `json:"payload"`
+	}
+	if c.BindJSON(&req) != nil || req.Name == "" {
+		apiBadRequest(ctx, c, "name is required")
+		return
+	}
+	if isReservedSignalName(req.Name) {
+		apiBadRequest(ctx, c, "signal name is reserved")
+		return
+	}
+
+	workflowID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || workflowID == nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+
+	payload := req.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if err := s.deps.Engine.DeliverSignal(ctx, *workflowID, req.Name, payload); err != nil {
+		apiInternal(ctx, c, "failed to deliver signal")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// isReservedSignalName reports whether a signal name belongs to one of the
+// engine's internal channels (gate approve/reject, step-result) and so must not be
+// settable through the public signal endpoint.
+func isReservedSignalName(name string) bool {
+	return name == "step-result" || strings.HasPrefix(name, "gate-")
+}

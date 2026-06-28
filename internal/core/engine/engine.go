@@ -167,15 +167,15 @@ type WorkflowState struct {
 
 // StepState is one step within a workflow state query.
 type StepState struct {
-	Name        string     `json:"name"`
-	Status      string     `json:"status"`
-	ExecType    string     `json:"execType"`
-	Wave        int        `json:"wave"`
-	Attempt     int        `json:"attempt"`
-	MaxAttempts int        `json:"maxAttempts"`
-	DependsOn   []string   `json:"dependsOn,omitempty"`
-	ExitCode    *int       `json:"exitCode,omitempty"`
-	Error       string     `json:"error,omitempty"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"`
+	ExecType    string   `json:"execType"`
+	Wave        int      `json:"wave"`
+	Attempt     int      `json:"attempt"`
+	MaxAttempts int      `json:"maxAttempts"`
+	DependsOn   []string `json:"dependsOn,omitempty"`
+	ExitCode    *int     `json:"exitCode,omitempty"`
+	Error       string   `json:"error,omitempty"`
 	// ScheduledAt is when the step was queued onto a runner; the gap to
 	// StartedAt is runner-queue / pod cold-start wait (UI timeline).
 	ScheduledAt *time.Time `json:"scheduledAt,omitempty"`
@@ -193,6 +193,11 @@ type LoopConfig struct {
 
 	// ClaimBatchSize is how many steps to claim per poll. Default: 20.
 	ClaimBatchSize int
+
+	// DispatchGrace is how long a claimed step may sit 'running' without being
+	// dispatched (no Job created) before the sweep re-queues it — recovering steps
+	// stranded by a worker crash between claim and dispatch. Default: 2m. Min: 30s.
+	DispatchGrace time.Duration
 
 	// SigningKey signs the task tokens minted for each step. It MUST match the
 	// key the server uses to verify them, and MUST NOT be a pod-exposed value
@@ -222,4 +227,14 @@ func (c *LoopConfig) claimBatchSize() int {
 		return c.ClaimBatchSize
 	}
 	return 20
+}
+
+func (c *LoopConfig) dispatchGrace() time.Duration {
+	if c.DispatchGrace >= 30*time.Second {
+		return c.DispatchGrace
+	}
+	if c.DispatchGrace > 0 {
+		return 30 * time.Second
+	}
+	return 2 * time.Minute
 }

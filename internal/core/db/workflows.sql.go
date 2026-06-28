@@ -77,6 +77,37 @@ func (q *Queries) GetWorkflowInput(ctx context.Context, id string) ([]byte, erro
 	return input, err
 }
 
+const getWorkflowInputs = `-- name: GetWorkflowInputs :many
+SELECT id, input FROM workflows WHERE id = ANY($1::uuid[])
+`
+
+type GetWorkflowInputsRow struct {
+	ID    string `json:"id"`
+	Input []byte `json:"input"`
+}
+
+// Batch variant: fetch inputs for all workflows in a claimed step batch in one
+// round-trip (kills the per-step N+1 in claimAndDispatch).
+func (q *Queries) GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error) {
+	rows, err := q.db.Query(ctx, getWorkflowInputs, workflowIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetWorkflowInputsRow{}
+	for rows.Next() {
+		var i GetWorkflowInputsRow
+		if err := rows.Scan(&i.ID, &i.Input); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getWorkflowParent = `-- name: GetWorkflowParent :one
 SELECT parent_id, parent_step FROM workflows WHERE id = $1
 `

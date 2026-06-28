@@ -22,7 +22,7 @@ func (q *Queries) CancelPendingSteps(ctx context.Context, workflowID string) err
 
 const claimQueuedSteps = `-- name: ClaimQueuedSteps :many
 UPDATE steps SET
-    status = CASE WHEN exec_type = 'gate' THEN 'waiting' ELSE 'running' END,
+    status = CASE WHEN exec_type IN ('gate', 'wait') THEN 'waiting' ELSE 'running' END,
     started_at = now(),
     deadline_at = now() + make_interval(secs := timeout_seconds)
 WHERE id IN (
@@ -98,7 +98,7 @@ func (q *Queries) CompleteParentInvokeStep(ctx context.Context, arg CompletePare
 const createRetryStep = `-- name: CreateRetryStep :exec
 INSERT INTO steps (workflow_id, name, exec_type, status, wave, attempt,
     max_attempts, step_def, timeout_seconds, retry_backoff, retry_interval_seconds, on_failure)
-SELECT s.workflow_id, s.name, s.exec_type, 'pending', s.wave, $1,
+SELECT s.workflow_id, s.name, s.exec_type, 'retry_wait', s.wave, $1,
     s.max_attempts, s.step_def, s.timeout_seconds, s.retry_backoff, s.retry_interval_seconds, s.on_failure
 FROM steps s WHERE s.id = $2
 `
@@ -108,6 +108,10 @@ type CreateRetryStepParams struct {
 	SourceStepID string `json:"source_step_id"`
 }
 
+// The retry attempt is parked in 'retry_wait', NOT 'pending'. A 'pending' row
+// would be queued immediately by advanceWorkflow, bypassing the retry_backoff
+// timer. Only the fired retry_backoff timer (RequeueRetryStep) promotes it to
+// 'queued', so the backoff delay is actually honoured.
 func (q *Queries) CreateRetryStep(ctx context.Context, arg CreateRetryStepParams) error {
 	_, err := q.db.Exec(ctx, createRetryStep, arg.NewAttempt, arg.SourceStepID)
 	return err
@@ -127,6 +131,32 @@ type FailGateByTimeoutParams struct {
 func (q *Queries) FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error {
 	_, err := q.db.Exec(ctx, failGateByTimeout, arg.Result, arg.WorkflowID, arg.StepName)
 	return err
+}
+
+const failOrphanedWaitingSteps = `-- name: FailOrphanedWaitingSteps :execrows
+UPDATE steps SET status = 'failed',
+    result = jsonb_build_object('stepName', name, 'success', false,
+        'error', 'wait timed out (backstop)')::jsonb,
+    finished_at = now()
+WHERE status = 'waiting' AND exec_type IN ('gate', 'wait')
+AND EXISTS (
+    SELECT 1 FROM timers t
+    WHERE t.workflow_id = steps.workflow_id AND t.step_name = steps.name
+    AND t.timer_type IN ('gate_timeout', 'wait_timeout') AND t.fired = true
+)
+`
+
+// Defense-in-depth backstop: a gate/wait step still 'waiting' although its timeout
+// timer already fired (handler regression or crash) is forced to failed so the
+// workflow can run onFailure steps / finish instead of wedging forever. With atomic
+// timer handling (LockNextDueTimer) this should never fire; it exists so a future
+// regression degrades to "recovered late" rather than "stuck".
+func (q *Queries) FailOrphanedWaitingSteps(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, failOrphanedWaitingSteps)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const failStepByTimeout = `-- name: FailStepByTimeout :exec
@@ -462,63 +492,56 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 	return items, nil
 }
 
-const listWaitingGatesWithRejectSignals = `-- name: ListWaitingGatesWithRejectSignals :many
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name,
-       sig.id AS signal_id, sig.payload
-FROM steps s
-JOIN signals sig ON sig.workflow_id = s.workflow_id
-    AND sig.signal_name = 'gate-reject-' || s.name
-    AND sig.consumed = false
-WHERE s.status = 'waiting' AND s.exec_type = 'gate'
-LIMIT 50
-`
-
-type ListWaitingGatesWithRejectSignalsRow struct {
-	StepID     string `json:"step_id"`
-	WorkflowID string `json:"workflow_id"`
-	StepName   string `json:"step_name"`
-	SignalID   string `json:"signal_id"`
-	Payload    []byte `json:"payload"`
-}
-
-func (q *Queries) ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error) {
-	rows, err := q.db.Query(ctx, listWaitingGatesWithRejectSignals)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListWaitingGatesWithRejectSignalsRow{}
-	for rows.Next() {
-		var i ListWaitingGatesWithRejectSignalsRow
-		if err := rows.Scan(
-			&i.StepID,
-			&i.WorkflowID,
-			&i.StepName,
-			&i.SignalID,
-			&i.Payload,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listWaitingGatesWithSignals = `-- name: ListWaitingGatesWithSignals :many
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name,
-       sig.id AS signal_id, sig.payload
+const lockNextApprovedGate = `-- name: LockNextApprovedGate :one
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-' || s.name
     AND sig.consumed = false
 WHERE s.status = 'waiting' AND s.exec_type = 'gate'
-LIMIT 50
+ORDER BY s.created_at
+LIMIT 1
+FOR UPDATE OF s SKIP LOCKED
 `
 
-type ListWaitingGatesWithSignalsRow struct {
+type LockNextApprovedGateRow struct {
+	StepID     string `json:"step_id"`
+	WorkflowID string `json:"workflow_id"`
+	StepName   string `json:"step_name"`
+	SignalID   string `json:"signal_id"`
+}
+
+// Claims one waiting gate that has an unconsumed approval signal, locking the step
+// row (FOR UPDATE OF s SKIP LOCKED) so concurrent workers never process the same
+// gate. The caller consumes the signal, transitions the step, and advances — all
+// in the same transaction, so the effect is atomic and exactly-once. The
+// status='waiting' predicate is first-writer-wins: once approved or rejected, the
+// gate is no longer claimable here.
+func (q *Queries) LockNextApprovedGate(ctx context.Context) (LockNextApprovedGateRow, error) {
+	row := q.db.QueryRow(ctx, lockNextApprovedGate)
+	var i LockNextApprovedGateRow
+	err := row.Scan(
+		&i.StepID,
+		&i.WorkflowID,
+		&i.StepName,
+		&i.SignalID,
+	)
+	return i, err
+}
+
+const lockNextRejectedGate = `-- name: LockNextRejectedGate :one
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+FROM steps s
+JOIN signals sig ON sig.workflow_id = s.workflow_id
+    AND sig.signal_name = 'gate-reject-' || s.name
+    AND sig.consumed = false
+WHERE s.status = 'waiting' AND s.exec_type = 'gate'
+ORDER BY s.created_at
+LIMIT 1
+FOR UPDATE OF s SKIP LOCKED
+`
+
+type LockNextRejectedGateRow struct {
 	StepID     string `json:"step_id"`
 	WorkflowID string `json:"workflow_id"`
 	StepName   string `json:"step_name"`
@@ -526,30 +549,56 @@ type ListWaitingGatesWithSignalsRow struct {
 	Payload    []byte `json:"payload"`
 }
 
-func (q *Queries) ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error) {
-	rows, err := q.db.Query(ctx, listWaitingGatesWithSignals)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListWaitingGatesWithSignalsRow{}
-	for rows.Next() {
-		var i ListWaitingGatesWithSignalsRow
-		if err := rows.Scan(
-			&i.StepID,
-			&i.WorkflowID,
-			&i.StepName,
-			&i.SignalID,
-			&i.Payload,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// Same as LockNextApprovedGate but for rejection signals. Returns the payload so
+// the caller can surface the rejection reason.
+func (q *Queries) LockNextRejectedGate(ctx context.Context) (LockNextRejectedGateRow, error) {
+	row := q.db.QueryRow(ctx, lockNextRejectedGate)
+	var i LockNextRejectedGateRow
+	err := row.Scan(
+		&i.StepID,
+		&i.WorkflowID,
+		&i.StepName,
+		&i.SignalID,
+		&i.Payload,
+	)
+	return i, err
+}
+
+const lockNextSignaledWaitStep = `-- name: LockNextSignaledWaitStep :one
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+FROM steps s
+JOIN signals sig ON sig.workflow_id = s.workflow_id
+    AND sig.signal_name = COALESCE(NULLIF(s.step_def->'wait'->>'signal', ''), s.name)
+    AND sig.consumed = false
+WHERE s.status = 'waiting' AND s.exec_type = 'wait'
+ORDER BY s.created_at
+LIMIT 1
+FOR UPDATE OF s SKIP LOCKED
+`
+
+type LockNextSignaledWaitStepRow struct {
+	StepID     string `json:"step_id"`
+	WorkflowID string `json:"workflow_id"`
+	StepName   string `json:"step_name"`
+	SignalID   string `json:"signal_id"`
+	Payload    []byte `json:"payload"`
+}
+
+// Claims one waiting 'wait' step whose configured external signal has arrived
+// (step_def->'wait'->>'signal'). Same atomic lock-and-advance pattern as gates.
+// Returns the signal payload, which the caller captures into the step outputs so
+// downstream steps can reference steps.<name>.<key>.
+func (q *Queries) LockNextSignaledWaitStep(ctx context.Context) (LockNextSignaledWaitStepRow, error) {
+	row := q.db.QueryRow(ctx, lockNextSignaledWaitStep)
+	var i LockNextSignaledWaitStepRow
+	err := row.Scan(
+		&i.StepID,
+		&i.WorkflowID,
+		&i.StepName,
+		&i.SignalID,
+		&i.Payload,
+	)
+	return i, err
 }
 
 const lockStep = `-- name: LockStep :one
@@ -586,6 +635,23 @@ func (q *Queries) LockStep(ctx context.Context, arg LockStepParams) (LockStepRow
 	return i, err
 }
 
+const markStepDispatched = `-- name: MarkStepDispatched :exec
+UPDATE steps SET dispatched_at = now(), k8s_job_name = $2 WHERE id = $1
+`
+
+type MarkStepDispatchedParams struct {
+	ID         string  `json:"id"`
+	K8sJobName *string `json:"k8s_job_name"`
+}
+
+// Records that a claimed step was successfully handed to an executor. dispatched_at
+// distinguishes "running, has a Job" from "claimed but the worker died before
+// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
+func (q *Queries) MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error {
+	_, err := q.db.Exec(ctx, markStepDispatched, arg.ID, arg.K8sJobName)
+	return err
+}
+
 const recentlyFailedWorkflowIDs = `-- name: RecentlyFailedWorkflowIDs :many
 SELECT DISTINCT workflow_id FROM steps
 WHERE status = 'failed' AND finished_at >= now() - interval '10 seconds'
@@ -614,7 +680,7 @@ func (q *Queries) RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, erro
 const requeueRetryStep = `-- name: RequeueRetryStep :exec
 WITH latest AS (
     SELECT s.id FROM steps s
-    WHERE s.workflow_id = $1 AND s.name = $2 AND s.status = 'pending'
+    WHERE s.workflow_id = $1 AND s.name = $2 AND s.status = 'retry_wait'
     ORDER BY s.attempt DESC LIMIT 1
 )
 UPDATE steps SET status = 'queued', queued_at = now()
@@ -626,9 +692,29 @@ type RequeueRetryStepParams struct {
 	Name       string `json:"name"`
 }
 
+// Promotes the parked retry attempt (retry_wait) to queued once its backoff timer
+// fires. This is the ONLY path out of retry_wait.
 func (q *Queries) RequeueRetryStep(ctx context.Context, arg RequeueRetryStepParams) error {
 	_, err := q.db.Exec(ctx, requeueRetryStep, arg.WorkflowID, arg.Name)
 	return err
+}
+
+const requeueUndispatchedSteps = `-- name: RequeueUndispatchedSteps :execrows
+UPDATE steps SET status = 'queued', queued_at = now(),
+    deadline_at = NULL, started_at = NULL, dispatched_at = NULL
+WHERE status = 'running' AND dispatched_at IS NULL
+    AND started_at < now() - make_interval(secs := $1::double precision)
+`
+
+// Recovers steps that were claimed (status='running') but never dispatched — e.g.
+// the worker crashed between claiming and creating the Job. Re-queue (not fail):
+// the step never executed, so it deserves a fresh dispatch rather than a failure.
+func (q *Queries) RequeueUndispatchedSteps(ctx context.Context, graceSecs float64) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueUndispatchedSteps, graceSecs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setStepK8sJobName = `-- name: SetStepK8sJobName :exec
@@ -646,9 +732,14 @@ func (q *Queries) SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNamePa
 }
 
 const setStepQueued = `-- name: SetStepQueued :exec
-UPDATE steps SET status = 'queued', queued_at = now() WHERE id = $1
+UPDATE steps SET status = 'queued', queued_at = now(),
+    deadline_at = NULL, started_at = NULL, dispatched_at = NULL
+WHERE id = $1
 `
 
+// Clears execution timestamps so a re-queued step (throttled, undispatched, or
+// first queue) starts with a clean slate. Critical: a stale deadline_at left over
+// from an earlier claim would let the sweep time the step out prematurely.
 func (q *Queries) SetStepQueued(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, setStepQueued, id)
 	return err

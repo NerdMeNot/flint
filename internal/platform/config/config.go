@@ -4,6 +4,8 @@
 package config
 
 import (
+	"encoding/hex"
+	"errors"
 	"time"
 )
 
@@ -21,6 +23,55 @@ type Config struct {
 	Forge      ForgeConfig      `mapstructure:"forge"`
 	Encryption EncryptionConfig `mapstructure:"encryption"`
 	Products   ProductsConfig   `mapstructure:"products"`
+	// Provisioning holds the cluster-level inputs a Karpenter EC2NodeClass needs
+	// (account-level infra Flint can't invent). Required only for managed runner
+	// pools (the autoscaling add-on); set once by the platform team.
+	Provisioning ProvisioningConfig `mapstructure:"provisioning"`
+}
+
+// ProvisioningConfig is the account-level node-provisioning profile for managed
+// runner pools. Maps to runner.ProvisioningProfile (core doesn't import config).
+//
+// Selectors are "key=value" strings (not maps) because Karpenter discovery tags
+// like "karpenter.sh/discovery" contain dots, which Viper would otherwise split
+// into nested map keys. SelectorMap parses them.
+type ProvisioningConfig struct {
+	Role                  string   `mapstructure:"role"`                  // node instance IAM role / instance profile
+	SubnetSelector        []string `mapstructure:"subnetSelector"`        // EC2NodeClass subnet tag selector ("key=value")
+	SecurityGroupSelector []string `mapstructure:"securityGroupSelector"` // EC2NodeClass SG tag selector ("key=value")
+	AMIFamily             string   `mapstructure:"amiFamily"`             // default AMI family (e.g. AL2023)
+}
+
+// SubnetTags / SecurityGroupTags parse the "key=value" selector strings into maps.
+func (p ProvisioningConfig) SubnetTags() map[string]string { return parseKV(p.SubnetSelector) }
+func (p ProvisioningConfig) SecurityGroupTags() map[string]string {
+	return parseKV(p.SecurityGroupSelector)
+}
+
+// Configured reports whether enough is set to render a managed pool's Karpenter
+// NodeClass. The UI gates the managed-pool option on this — no profile means
+// managed pools can't be rendered, so the option is disabled.
+func (p ProvisioningConfig) Configured() bool {
+	return p.Role != "" && len(p.SubnetTags()) > 0 && len(p.SecurityGroupTags()) > 0
+}
+
+func parseKV(pairs []string) map[string]string {
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		if i := indexByte(p, '='); i > 0 {
+			out[p[:i]] = p[i+1:]
+		}
+	}
+	return out
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }
 
 // ProductsConfig toggles the family's products for a deployment. The unified UI
@@ -179,17 +230,25 @@ func (c *AuthConfig) DefaultRoleOrFallback() string {
 }
 
 type OIDCConfig struct {
-	IssuerURL    string `mapstructure:"issuerUrl"`
-	ClientID     string `mapstructure:"clientId"`
-	ClientSecret string `mapstructure:"clientSecret"`
+	IssuerURL    string   `mapstructure:"issuerUrl"`
+	ClientID     string   `mapstructure:"clientId"`
+	ClientSecret string   `mapstructure:"clientSecret"`
+	Scopes       []string `mapstructure:"scopes"`      // default [openid profile email groups]
+	EmailClaim   string   `mapstructure:"emailClaim"`  // default "email"
+	NameClaim    string   `mapstructure:"nameClaim"`   // default "name"
+	GroupsClaim  string   `mapstructure:"groupsClaim"` // default "groups"
 }
 
 type SAMLConfig struct {
-	Enabled     bool   `mapstructure:"enabled"`
-	MetadataURL string `mapstructure:"metadataUrl"`
-	EntityID    string `mapstructure:"entityId"`
-	CertFile    string `mapstructure:"certFile"`
-	KeyFile     string `mapstructure:"keyFile"`
+	Enabled      bool     `mapstructure:"enabled"`
+	MetadataURL  string   `mapstructure:"metadataUrl"`
+	EntityID     string   `mapstructure:"entityId"`
+	CertFile     string   `mapstructure:"certFile"`
+	KeyFile      string   `mapstructure:"keyFile"`
+	NameIDFormat string   `mapstructure:"nameIdFormat"`     // default emailAddress
+	EmailAttrs   []string `mapstructure:"emailAttributes"`  // attribute names for email
+	NameAttrs    []string `mapstructure:"nameAttributes"`   // attribute names for display name
+	GroupsAttrs  []string `mapstructure:"groupsAttributes"` // attribute names for groups
 }
 
 type JWTConfig struct {
@@ -224,4 +283,14 @@ type ForgeConfig struct{}
 type EncryptionConfig struct {
 	MasterKey        string `mapstructure:"masterKey"` // hex-encoded 32-byte key
 	MasterKeyVersion int    `mapstructure:"masterKeyVersion"`
+}
+
+// DecodeMasterKey decodes the hex-encoded 32-byte master key used for envelope
+// encryption of credential blobs at rest.
+func (c EncryptionConfig) DecodeMasterKey() ([]byte, error) {
+	key, err := hex.DecodeString(c.MasterKey)
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("server encryption master key is not configured (need hex-encoded 32 bytes)")
+	}
+	return key, nil
 }

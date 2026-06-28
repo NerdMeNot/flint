@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
@@ -14,6 +15,7 @@ import (
 	workerinformer "github.com/NerdMeNot/flint/internal/core/worker/informer"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/NerdMeNot/flint/internal/products/workflows"
+	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
@@ -87,25 +89,60 @@ func run(cmd *cobra.Command, args []string) error {
 	eng := engine.New(pool, []byte(cfg.Auth.JWT.Secret))
 	defer eng.Close()
 
-	// Runner pool registry.
+	// Runner pool registry — loaded from the DB (the source of truth; no CRD/
+	// controller). Configurable default pool for jobs without an explicit runner.
+	runner.SetDefault(cfg.Worker.DefaultRunnerPoolOrDefault())
 	registry := runner.NewRegistry()
+	q := db.New(pool)
+	if err := runner.LoadAll(ctx, q, registry); err != nil {
+		log.Warn().Err(err).Msg("runner: failed to load pools from DB (will retry on refresh)")
+	}
+	// Periodic refresh so admin pool changes (via the API) reach the worker.
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := runner.LoadAll(ctx, q, registry); err != nil {
+					log.Debug().Err(err).Msg("runner: pool refresh failed")
+				}
+			}
+		}
+	}()
 
 	// Build the executor registry (step exec type → executor). The k8s backend
 	// handles run/use/steps via Kubernetes Jobs (with the informer as completion
 	// fallback); the http executor runs in-process and reports completion via
 	// eng.CompleteStep.
+	//
+	// FLINT_EXECUTOR=sim swaps the container backend for the simulated executor:
+	// no Kubernetes, no pods — steps sleep, emit synthetic logs, and report a
+	// scripted outcome, letting the real engine drive runs to completion locally.
 	executors := engine.ExecutorRegistry{}
-	k8sClient, kerr := buildK8sClient()
-	if kerr != nil {
-		log.Warn().Err(kerr).Msg("K8s client unavailable — container steps will not be dispatched (DB-only mode)")
-	} else {
-		serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
-		container := engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
-			cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
-		log.Info().Msg("container executor: kubernetes")
+	var k8sClient kubernetes.Interface
+	if os.Getenv("FLINT_EXECUTOR") == "sim" {
+		container := engine.NewSimExecutor(eng.CompleteStep, &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path})
+		log.Info().Str("logPath", cfg.Storage.FS.Path).Msg("container executor: sim (no Kubernetes)")
 		executors["run"] = container
 		executors["use"] = container
 		executors["steps"] = container
+	} else {
+		var kerr error
+		k8sClient, kerr = buildK8sClient()
+		if kerr != nil {
+			log.Warn().Err(kerr).Msg("K8s client unavailable — container steps will not be dispatched (DB-only mode)")
+		} else {
+			serverURL := fmt.Sprintf("http://flint-server.flint:%d", cfg.Server.PortOrDefault())
+			container := engine.NewK8sExecutor(k8sClient, registry, cfg.Worker.AgentImage,
+				cfg.Worker.JobNamespaceOrDefault(), serverURL, cfg.Server.InternalToken)
+			log.Info().Msg("container executor: kubernetes")
+			executors["run"] = container
+			executors["use"] = container
+			executors["steps"] = container
+		}
 	}
 	// http steps run in-process regardless of the container backend.
 	executors["http"] = engine.NewHTTPExecutor(eng.CompleteStep)

@@ -181,12 +181,20 @@ func createStepsAndAdvance(ctx context.Context, qtx *db.Queries, workflowID stri
 
 // CompleteStep reports that a step has finished.
 // Idempotent: calling twice with the same token for a terminal step returns nil.
+// The transaction body is wrapped in retryOnConflict so a transient deadlock or
+// serialization failure (e.g. racing a CancelWorkflow on a parent) self-heals
+// rather than surfacing to the caller.
 func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result StepResult) error {
 	token, err := DecodeTaskToken(encodedToken, e.signingKey)
 	if err != nil {
 		return err
 	}
+	return retryOnConflict(ctx, func() error {
+		return e.completeStepOnce(ctx, token, result)
+	})
+}
 
+func (e *PgEngine) completeStepOnce(ctx context.Context, token TaskToken, result StepResult) error {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("engine: begin tx: %w", err)
@@ -206,30 +214,24 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 		}
 		return fmt.Errorf("engine: query step: %w", err)
 	}
-	stepID := stepRow.ID
-	currentStatus := stepRow.Status
-	maxAttempts := int(stepRow.MaxAttempts)
-	retryBackoff := stepRow.RetryBackoff
-	retryIntervalSec := int(stepRow.RetryIntervalSeconds)
 
 	// Idempotency: already terminal → success.
-	if isTerminal(currentStatus) {
+	if isTerminal(stepRow.Status) {
 		return nil
 	}
 
-	newStatus := "succeeded"
+	newStatus := stepSucceeded
 	if !result.Success {
-		newStatus = "failed"
+		newStatus = stepFailed
 	}
 	observe.StepsCompleted.Add(ctx, 1, metric.WithAttributes(attribute.String("status", newStatus)))
 
 	// Update step.
-	err = qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     stepID,
+	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
+		ID:     stepRow.ID,
 		Status: newStatus,
 		Result: mustJSON(result),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("engine: update step: %w", err)
 	}
 
@@ -237,41 +239,24 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 	if err := qtx.CancelTimer(ctx, db.CancelTimerParams{
 		WorkflowID: token.WorkflowID,
 		StepName:   token.StepName,
-		TimerType:  "timeout",
+		TimerType:  timerTimeout,
 	}); err != nil {
 		log.Warn().Err(err).Str("step", token.StepName).Msg("engine: failed to cancel timeout timer")
 	}
 
 	// Update workflow step_outputs.
-	outputJSON := mustJSON(map[string]StepResult{token.StepName: result})
-	err = qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
+	if err := qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
 		ID:      token.WorkflowID,
-		Column2: outputJSON,
-	})
-	if err != nil {
+		Column2: mustJSON(map[string]StepResult{token.StepName: result}),
+	}); err != nil {
 		return fmt.Errorf("engine: update step_outputs: %w", err)
 	}
 
-	// Handle retry if needed.
-	if !result.Success && token.Attempt+1 < maxAttempts {
-		newAttempt := token.Attempt + 1
-		err = qtx.CreateRetryStep(ctx, db.CreateRetryStepParams{
-			NewAttempt:   int32(newAttempt),
-			SourceStepID: stepID,
-		})
-		if err != nil {
-			return fmt.Errorf("engine: create retry step: %w", err)
-		}
-
-		backoff := backoffDuration(token.Attempt, retryBackoff, retryIntervalSec)
-		err = qtx.UpsertTimer(ctx, db.UpsertTimerParams{
-			WorkflowID: token.WorkflowID,
-			StepName:   token.StepName,
-			TimerType:  "retry_backoff",
-			Secs:       backoff.Seconds(),
-		})
-		if err != nil {
-			return fmt.Errorf("engine: create retry timer: %w", err)
+	// Schedule a backoff retry if the step failed and attempts remain.
+	if !result.Success {
+		if _, err := maybeScheduleRetry(ctx, qtx, stepRow.ID, token.WorkflowID, token.StepName,
+			token.Attempt, int(stepRow.MaxAttempts), stepRow.RetryBackoff, int(stepRow.RetryIntervalSeconds)); err != nil {
+			return err
 		}
 	}
 
@@ -287,6 +272,34 @@ func (e *PgEngine) CompleteStep(ctx context.Context, encodedToken string, result
 	_ = db.New(e.pool).NotifyEngine(ctx, token.WorkflowID)
 	e.notifyState(ctx, token.WorkflowID)
 	return nil
+}
+
+// maybeScheduleRetry creates the next attempt (parked in retry_wait) and a
+// retry_backoff timer when attempts remain. Shared by step-reported failures
+// (CompleteStep) and dispatch failures (failStepAndAdvance) so both honour the
+// retry policy and its backoff. Returns whether a retry was scheduled. The caller
+// must already have marked the current attempt failed and runs inside a tx.
+func maybeScheduleRetry(ctx context.Context, qtx *db.Queries, stepID, workflowID, stepName string,
+	attempt, maxAttempts int, retryBackoff string, retryIntervalSec int) (bool, error) {
+	if attempt+1 >= maxAttempts {
+		return false, nil
+	}
+	if err := qtx.CreateRetryStep(ctx, db.CreateRetryStepParams{
+		NewAttempt:   int32(attempt + 1),
+		SourceStepID: stepID,
+	}); err != nil {
+		return false, fmt.Errorf("engine: create retry step: %w", err)
+	}
+	backoff := backoffDuration(attempt, retryBackoff, retryIntervalSec)
+	if err := qtx.UpsertTimer(ctx, db.UpsertTimerParams{
+		WorkflowID: workflowID,
+		StepName:   stepName,
+		TimerType:  timerRetryBackoff,
+		Secs:       backoff.Seconds(),
+	}); err != nil {
+		return false, fmt.Errorf("engine: create retry timer: %w", err)
+	}
+	return true, nil
 }
 
 // DeliverSignal writes a signal for a workflow.
@@ -306,7 +319,16 @@ func (e *PgEngine) DeliverSignal(ctx context.Context, workflowID, signalName str
 }
 
 // CancelWorkflow marks a workflow and all non-terminal steps as cancelled.
+// Wrapped in retryOnConflict: cancel locks the workflow tree parent→child while a
+// concurrent child CompleteStep locks child→parent, so a deadlock is possible;
+// Postgres aborts one and we transparently retry.
 func (e *PgEngine) CancelWorkflow(ctx context.Context, workflowID string) error {
+	return retryOnConflict(ctx, func() error {
+		return e.cancelWorkflowOnce(ctx, workflowID)
+	})
+}
+
+func (e *PgEngine) cancelWorkflowOnce(ctx context.Context, workflowID string) error {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -410,10 +432,6 @@ func finishWorkflow(ctx context.Context, qtx *db.Queries, workflowID, status str
 		// path runs more than once (e.g., sweep retry).
 		enqueueWebhooksInTx(ctx, qtx, ws.RunID, status)
 	}
-}
-
-func isTerminal(status string) bool {
-	return status == "succeeded" || status == "failed" || status == "skipped" || status == "cancelled"
 }
 
 func backoffDuration(attempt int, policy string, baseSeconds int) time.Duration {

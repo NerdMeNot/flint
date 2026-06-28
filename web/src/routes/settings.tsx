@@ -13,6 +13,7 @@ import {
   ScrollText,
   Globe,
   Tag,
+  FolderGit2,
 } from 'lucide-react'
 
 // A single union of route paths keeps `to` typed for TanStack Link while
@@ -20,7 +21,7 @@ import {
 type AdminTo =
   | '/settings/users' | '/settings/teams' | '/settings/roles'
   | '/settings/sso' | '/settings/api-keys'
-  | '/settings/workspaces' | '/settings/tags' | '/settings/environments' | '/settings/variables'
+  | '/settings/projects' | '/settings/workspaces' | '/settings/tags' | '/settings/environments' | '/settings/variables'
   | '/settings/runners' | '/settings/connections' | '/settings/audit-log'
 
 type AdminItem = { to: AdminTo; icon: typeof UserCircle; label: string }
@@ -47,6 +48,7 @@ const adminNav: AdminGroup[] = [
   {
     section: 'Configuration',
     items: [
+      { to: '/settings/projects', icon: FolderGit2, label: 'Projects' },
       { to: '/settings/workspaces', icon: Boxes, label: 'Workspaces' },
       { to: '/settings/tags', icon: Tag, label: 'Tags' },
       { to: '/settings/environments', icon: ShieldCheck, label: 'Environments' },

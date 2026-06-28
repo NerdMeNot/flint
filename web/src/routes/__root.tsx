@@ -4,15 +4,19 @@ import {
   HeadContent,
   Scripts,
   createRootRoute,
+  redirect,
   useRouterState,
   useRouter,
 } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { getAccessToken, clearSession } from '#/lib/auth-token'
 import { Sidebar, SidebarProvider, MobileMenuButton, useSidebar } from '#/components/Sidebar'
 import { ScopeSelector } from '#/components/ScopeSelector'
 import { ScopeProvider } from '#/lib/scope-context'
 import { ScopeChips } from '#/components/ScopeChips'
 import { AppearanceSync } from '#/components/AppearanceSync'
 import { DemoModeBanner } from '#/components/DemoModeBanner'
+import { BackendStatusBanner } from '#/components/BackendStatusBanner'
 import { CommandPalette, useCommandPalette } from '#/components/CommandPalette'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
@@ -33,6 +37,18 @@ export const Route = createRootRoute({
   component: RootLayout,
   shellComponent: RootShell,
   errorComponent: RootError,
+  // Client-side auth guard: an unauthenticated visit to any page (other than the
+  // login screen) goes straight to /login rather than rendering a page whose
+  // backend calls would 401. Runs only in the browser — the session token lives
+  // in localStorage, which SSR can't read; SSR's own auth comes from the cookie
+  // (see backend.ts), and a server-side 401 is caught by RootError below.
+  beforeLoad: ({ location }) => {
+    if (typeof window === 'undefined') return
+    if (location.pathname === '/login') return
+    if (!getAccessToken()) {
+      throw redirect({ to: '/login' })
+    }
+  },
 })
 
 // RootError catches anything an underlying route throws — most commonly a failed
@@ -40,20 +56,66 @@ export const Route = createRootRoute({
 // ("wasn't caught by any route"); here it shows a clear message and a retry.
 function RootError({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const msg = error?.message ?? String(error)
   const unreachable =
     /fetch failed|Failed to fetch|ECONNREFUSED|NetworkError|Backend 5\d\d/i.test(msg)
+  // A 401 means the session is missing or expired — send the user to login
+  // rather than showing a raw error envelope.
+  const unauthorized = /Backend 401|UNAUTHORIZED|Unauthorized/i.test(msg)
+
+  useEffect(() => {
+    if (unauthorized) {
+      clearSession()
+      router.navigate({ to: '/login' })
+    }
+  }, [unauthorized, router])
+
+  // Backend unreachable (initial load failed after the queries' own retries):
+  // poll the same-origin health probe and recover automatically when the API is
+  // back — no manual refresh. This keeps a startup race or a blip from being a
+  // dead-end error screen.
+  useEffect(() => {
+    if (!unreachable) return
+    let cancelled = false
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch('/api/health')
+        if (!res.ok || cancelled) return
+        clearInterval(id)
+        // Clear the CACHED query errors (not just the router state), otherwise
+        // re-rendering re-reads the failed results and throws straight back here.
+        await queryClient.resetQueries()
+        reset()
+        router.invalidate()
+      } catch {
+        // still down — keep polling
+      }
+    }, 2_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [unreachable, reset, router, queryClient])
+
+  if (unauthorized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center space-y-4">
         <div className="text-3xl">{unreachable ? '🔌' : '⚠️'}</div>
         <h1 className="display-title text-xl font-bold text-foreground">
-          {unreachable ? "Can't reach the Flint backend" : 'Something went wrong'}
+          {unreachable ? 'Reconnecting to Flint…' : 'Something went wrong'}
         </h1>
         <p className="text-sm text-muted-foreground">
           {unreachable
-            ? 'The API server is not responding. Start it with `task dev-up` (mock) or `task dev-local` (live), then retry.'
+            ? "The API isn't responding yet — this page will recover on its own as soon as it's reachable."
             : msg}
         </p>
         <button
@@ -64,7 +126,7 @@ function RootError({ error, reset }: { error: Error; reset: () => void }) {
           }}
           className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-accent/30 transition-colors text-foreground"
         >
-          Try again
+          Retry now
         </button>
       </div>
     </div>
@@ -141,6 +203,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
       collapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]'
     }`}>
       <DemoModeBanner />
+      <BackendStatusBanner />
       <header
         className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
@@ -182,6 +245,7 @@ function FocusedShell({ onSearchClick, label }: { onSearchClick: () => void; lab
   return (
     <div className="min-h-screen">
       <DemoModeBanner />
+      <BackendStatusBanner />
       <header
         className="sticky top-0 z-20 flex h-14 lg:h-16 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8"
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}

@@ -485,7 +485,9 @@ WHERE ($1::text = '' OR pr.project_id::text = $1)
   AND ($2::text = '' OR pr.status = $2)
   AND (
     $3::text = ''
-    OR (pr.started_at, pr.id) < ($3::timestamptz, $4::uuid)
+    -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
+    -- cursor without trying (and failing) to encode '' as a uuid.
+    OR (pr.started_at, pr.id) < ($3::timestamptz, NULLIF($4::text, '')::uuid)
   )
 ORDER BY pr.started_at DESC, pr.id DESC
 LIMIT $5
@@ -575,7 +577,9 @@ FROM pipeline_runs
 WHERE org_id = $1 AND kind = 'workflow'
   AND ( $2::text = ''
         OR started_at < $2::timestamptz
-        OR (started_at = $2::timestamptz AND id < $3) )
+        -- NULLIF(...::text,'') keeps the param TEXT so an empty first-page cursor
+        -- binds without pgx trying to encode '' as a uuid.
+        OR (started_at = $2::timestamptz AND id < NULLIF($3::text, '')::uuid) )
 ORDER BY started_at DESC, id DESC
 LIMIT $4
 `

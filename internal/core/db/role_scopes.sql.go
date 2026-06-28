@@ -20,6 +20,20 @@ func (q *Queries) CountRoleAssignments(ctx context.Context, subject string) (int
 	return count, err
 }
 
+const deleteIdpRoleAssignment = `-- name: DeleteIdpRoleAssignment :exec
+DELETE FROM role_assignments WHERE subject = $1 AND role_id = $2 AND source = 'idp'
+`
+
+type DeleteIdpRoleAssignmentParams struct {
+	Subject string `json:"subject"`
+	RoleID  string `json:"role_id"`
+}
+
+func (q *Queries) DeleteIdpRoleAssignment(ctx context.Context, arg DeleteIdpRoleAssignmentParams) error {
+	_, err := q.db.Exec(ctx, deleteIdpRoleAssignment, arg.Subject, arg.RoleID)
+	return err
+}
+
 const deleteRoleAssignment = `-- name: DeleteRoleAssignment :exec
 DELETE FROM role_assignments WHERE subject = $1 AND role_id = $2
 `
@@ -61,10 +75,28 @@ func (q *Queries) DeleteRoleWorkspaceScopes(ctx context.Context, roleID string) 
 	return err
 }
 
+const insertIdpRoleAssignment = `-- name: InsertIdpRoleAssignment :exec
+INSERT INTO role_assignments (subject, role_id, source, created_at)
+VALUES ($1, $2, 'idp', now())
+ON CONFLICT (subject, role_id) DO NOTHING
+`
+
+type InsertIdpRoleAssignmentParams struct {
+	Subject string `json:"subject"`
+	RoleID  string `json:"role_id"`
+}
+
+// IdP-derived assignment from a group→role mapping. Never downgrades an existing
+// (manual) 'internal' row.
+func (q *Queries) InsertIdpRoleAssignment(ctx context.Context, arg InsertIdpRoleAssignmentParams) error {
+	_, err := q.db.Exec(ctx, insertIdpRoleAssignment, arg.Subject, arg.RoleID)
+	return err
+}
+
 const insertRoleAssignment = `-- name: InsertRoleAssignment :exec
-INSERT INTO role_assignments (subject, role_id, created_at)
-VALUES ($1, $2, now())
-ON CONFLICT DO NOTHING
+INSERT INTO role_assignments (subject, role_id, source, created_at)
+VALUES ($1, $2, 'internal', now())
+ON CONFLICT (subject, role_id) DO UPDATE SET source = 'internal'
 `
 
 type InsertRoleAssignmentParams struct {
@@ -72,6 +104,8 @@ type InsertRoleAssignmentParams struct {
 	RoleID  string `json:"role_id"`
 }
 
+// Manual/authoritative assignment. Marks the row source='internal' so SSO group
+// sync will never remove it, even if an 'idp' row already existed.
 func (q *Queries) InsertRoleAssignment(ctx context.Context, arg InsertRoleAssignmentParams) error {
 	_, err := q.db.Exec(ctx, insertRoleAssignment, arg.Subject, arg.RoleID)
 	return err
@@ -191,6 +225,30 @@ func (q *Queries) ListAllRoleAssignmentsWithRole(ctx context.Context) ([]ListAll
 	return items, nil
 }
 
+const listIdpRoleAssignmentRoleIDs = `-- name: ListIdpRoleAssignmentRoleIDs :many
+SELECT role_id FROM role_assignments WHERE subject = $1 AND source = 'idp'
+`
+
+func (q *Queries) ListIdpRoleAssignmentRoleIDs(ctx context.Context, subject string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listIdpRoleAssignmentRoleIDs, subject)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role_id string
+		if err := rows.Scan(&role_id); err != nil {
+			return nil, err
+		}
+		items = append(items, role_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoleAssignmentsByRole = `-- name: ListRoleAssignmentsByRole :many
 SELECT subject, role_id FROM role_assignments WHERE role_id = $1
 `
@@ -272,6 +330,36 @@ func (q *Queries) ListRoleEnvironmentNames(ctx context.Context, roleID string) (
 			return nil, err
 		}
 		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoleIDsForGroups = `-- name: ListRoleIDsForGroups :many
+SELECT DISTINCT role_id FROM sso_group_role_mappings
+WHERE org_id = $1 AND group_name = ANY($2::text[])
+`
+
+type ListRoleIDsForGroupsParams struct {
+	OrgID  string   `json:"org_id"`
+	Groups []string `json:"groups"`
+}
+
+func (q *Queries) ListRoleIDsForGroups(ctx context.Context, arg ListRoleIDsForGroupsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listRoleIDsForGroups, arg.OrgID, arg.Groups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role_id string
+		if err := rows.Scan(&role_id); err != nil {
+			return nil, err
+		}
+		items = append(items, role_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

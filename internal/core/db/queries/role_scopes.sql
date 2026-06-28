@@ -67,9 +67,28 @@ SELECT subject, role_id FROM role_assignments WHERE subject = $1;
 SELECT subject, role_id FROM role_assignments WHERE role_id = $1;
 
 -- name: InsertRoleAssignment :exec
-INSERT INTO role_assignments (subject, role_id, created_at)
-VALUES ($1, $2, now())
-ON CONFLICT DO NOTHING;
+-- Manual/authoritative assignment. Marks the row source='internal' so SSO group
+-- sync will never remove it, even if an 'idp' row already existed.
+INSERT INTO role_assignments (subject, role_id, source, created_at)
+VALUES ($1, $2, 'internal', now())
+ON CONFLICT (subject, role_id) DO UPDATE SET source = 'internal';
+
+-- name: InsertIdpRoleAssignment :exec
+-- IdP-derived assignment from a group→role mapping. Never downgrades an existing
+-- (manual) 'internal' row.
+INSERT INTO role_assignments (subject, role_id, source, created_at)
+VALUES ($1, $2, 'idp', now())
+ON CONFLICT (subject, role_id) DO NOTHING;
+
+-- name: DeleteIdpRoleAssignment :exec
+DELETE FROM role_assignments WHERE subject = $1 AND role_id = $2 AND source = 'idp';
+
+-- name: ListIdpRoleAssignmentRoleIDs :many
+SELECT role_id FROM role_assignments WHERE subject = $1 AND source = 'idp';
+
+-- name: ListRoleIDsForGroups :many
+SELECT DISTINCT role_id FROM sso_group_role_mappings
+WHERE org_id = @org_id AND group_name = ANY(@groups::text[]);
 
 -- name: CountRoleAssignments :one
 SELECT COUNT(*) FROM role_assignments WHERE subject = $1;

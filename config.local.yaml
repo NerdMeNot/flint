@@ -21,6 +21,9 @@ database:
 worker:
   defaultRunnerPool: standard
   sweepInterval: 1m
+  # Required by config validation. Unused in the sim stack (FLINT_EXECUTOR=sim
+  # runs no pods); only the real k8s executor pulls this image.
+  agentImage: ghcr.io/nerdmenot/flint-agent:dev
 
 controller:
   enabled: false
@@ -36,6 +39,17 @@ storage:
   mode: filesystem
   filesystem:
     path: /tmp/flint-logs
+
+# Node provisioning profile for managed runner pools (the autoscaling add-on).
+# Dev placeholders — a real deployment sets these to the cluster's actual
+# subnet/SG discovery tags, node IAM role, and AMI family.
+provisioning:
+  role: KarpenterNodeRole-flint
+  amiFamily: AL2023
+  subnetSelector:
+    - karpenter.sh/discovery=flint
+  securityGroupSelector:
+    - karpenter.sh/discovery=flint
 
 encryption:
   # All-zero dev key (hex, 32 bytes). Generate a real one with: openssl rand -hex 32

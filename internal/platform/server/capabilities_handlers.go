@@ -28,13 +28,13 @@ func (s *Server) handleCapabilities(ctx context.Context, c *app.RequestContext) 
 	}})
 }
 
-// handleMeta reports the backend's data mode. In mock mode the server serves
-// canned in-memory data (no database); the UI surfaces this as a demo banner so
-// mock data is never mistaken for real state.
+// handleMeta reports the backend's data mode. In demo deployments (the local sim
+// stack: seeded data + simulated step execution) the UI surfaces a banner so demo
+// state is never mistaken for production.
 func (s *Server) handleMeta(ctx context.Context, c *app.RequestContext) {
 	mode := "live"
-	if s.deps.MockMode {
-		mode = "mock"
+	if s.deps.Demo {
+		mode = "demo"
 	}
 	c.JSON(consts.StatusOK, utils.H{"mode": mode})
 }

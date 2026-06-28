@@ -112,6 +112,52 @@ func (q *Queries) GetProjectByRepoPath(ctx context.Context, repoPath string) (Ge
 	return i, err
 }
 
+const getProjectConfig = `-- name: GetProjectConfig :one
+SELECT p.id, p.repo_path, fc.display_name AS forge_ref,
+       p.display_name, p.description, p.colour, p.icon, p.default_branch,
+       p.pipeline_source, p.forge_webhook_id,
+       COALESCE(w.slug, '')::text AS workspace
+FROM projects p
+JOIN forge_connections fc ON p.forge_id = fc.id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.id = $1
+`
+
+type GetProjectConfigRow struct {
+	ID             string  `json:"id"`
+	RepoPath       string  `json:"repo_path"`
+	ForgeRef       string  `json:"forge_ref"`
+	DisplayName    *string `json:"display_name"`
+	Description    *string `json:"description"`
+	Colour         string  `json:"colour"`
+	Icon           *string `json:"icon"`
+	DefaultBranch  string  `json:"default_branch"`
+	PipelineSource []byte  `json:"pipeline_source"`
+	ForgeWebhookID *string `json:"forge_webhook_id"`
+	Workspace      string  `json:"workspace"`
+}
+
+// Full editable config for a project, for the API PATCH-merge and archive cleanup.
+// forge_ref is the forge connection's display name (what UpsertProject keys on).
+func (q *Queries) GetProjectConfig(ctx context.Context, id string) (GetProjectConfigRow, error) {
+	row := q.db.QueryRow(ctx, getProjectConfig, id)
+	var i GetProjectConfigRow
+	err := row.Scan(
+		&i.ID,
+		&i.RepoPath,
+		&i.ForgeRef,
+		&i.DisplayName,
+		&i.Description,
+		&i.Colour,
+		&i.Icon,
+		&i.DefaultBranch,
+		&i.PipelineSource,
+		&i.ForgeWebhookID,
+		&i.Workspace,
+	)
+	return i, err
+}
+
 const getProjectOrgID = `-- name: GetProjectOrgID :one
 SELECT org_id FROM projects WHERE id = $1
 `
@@ -139,6 +185,52 @@ func (q *Queries) GetProjectRepoInfo(ctx context.Context, id string) (GetProject
 	var i GetProjectRepoInfoRow
 	err := row.Scan(&i.RepoPath, &i.OrgID, &i.PipelinePath)
 	return i, err
+}
+
+const listArchivedProjects = `-- name: ListArchivedProjects :many
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.created_at
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.is_archived = true
+ORDER BY COALESCE(p.display_name, p.repo_path)
+`
+
+type ListArchivedProjectsRow struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	RepoPath  string    `json:"repo_path"`
+	Workspace string    `json:"workspace"`
+	Colour    string    `json:"colour"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Archived projects for the admin Projects page (so they can be restored).
+func (q *Queries) ListArchivedProjects(ctx context.Context) ([]ListArchivedProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listArchivedProjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListArchivedProjectsRow{}
+	for rows.Next() {
+		var i ListArchivedProjectsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.RepoPath,
+			&i.Workspace,
+			&i.Colour,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listProjects = `-- name: ListProjects :many
@@ -194,18 +286,23 @@ const listProjectsWithLastRun = `-- name: ListProjectsWithLastRun :many
 SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
        COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at,
        p.workspace_inferred AS inferred,
-       lr.id AS last_run_id, lr.status AS last_run_status,
+       -- COALESCE the NOT-NULL-typed columns to sentinels: a project with no runs
+       -- yields NULLs from the LEFT JOIN, and the handler treats ''/zero as "no
+       -- run" (guarded on last_run_id). trigger_ref/triggered_by/duration_ms are
+       -- already nullable in the schema.
+       COALESCE(lr.id::text, '')::text AS last_run_id,
+       COALESCE(lr.status, '')::text AS last_run_status,
        lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
-       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
+       COALESCE(lr.started_at, 'epoch'::timestamptz) AS last_run_started_at,
+       lr.duration_ms AS last_run_duration_ms
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.workspace_id
-LEFT JOIN LATERAL (
-    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
+LEFT JOIN (
+    SELECT DISTINCT ON (project_id)
+           project_id, id, status, trigger_ref, triggered_by, started_at, duration_ms
     FROM pipeline_runs
-    WHERE project_id = p.id
-    ORDER BY started_at DESC
-    LIMIT 1
-) lr ON true
+    ORDER BY project_id, started_at DESC
+) lr ON lr.project_id = p.id
 WHERE p.is_archived = false
   AND (cardinality($1::text[]) = 0 OR w.slug = ANY($1::text[]))
   AND (cardinality($2::text[]) = 0 OR p.tags && $2::text[])
@@ -239,6 +336,9 @@ type ListProjectsWithLastRunRow struct {
 
 // API project list: joins owning workspace + latest run, with optional
 // server-side workspace and tag filters (empty slice = no filter for that axis).
+// Regular LEFT JOIN (not LATERAL) so sqlc infers the last-run columns as
+// nullable — projects with no runs yet must not break the scan. DISTINCT ON
+// keeps it a single indexed pass for the latest run per project.
 func (q *Queries) ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error) {
 	rows, err := q.db.Query(ctx, listProjectsWithLastRun, arg.Workspaces, arg.Tags, arg.NeedsGrouping)
 	if err != nil {
@@ -338,6 +438,15 @@ func (q *Queries) ProjectHealthByOrg(ctx context.Context, orgID string) ([]Proje
 	return items, nil
 }
 
+const restoreProject = `-- name: RestoreProject :exec
+UPDATE projects SET is_archived = false, updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) RestoreProject(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, restoreProject, id)
+	return err
+}
+
 const searchProjects = `-- name: SearchProjects :many
 SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
 FROM projects
@@ -383,6 +492,21 @@ func (q *Queries) SearchProjects(ctx context.Context, arg SearchProjectsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const setProjectWebhookID = `-- name: SetProjectWebhookID :exec
+UPDATE projects SET forge_webhook_id = $1, updated_at = now() WHERE id = $2
+`
+
+type SetProjectWebhookIDParams struct {
+	ForgeWebhookID *string `json:"forge_webhook_id"`
+	ID             string  `json:"id"`
+}
+
+// Record the inbound forge webhook id after provisioning (or clear it on removal).
+func (q *Queries) SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error {
+	_, err := q.db.Exec(ctx, setProjectWebhookID, arg.ForgeWebhookID, arg.ID)
+	return err
 }
 
 const updateProjectTags = `-- name: UpdateProjectTags :exec

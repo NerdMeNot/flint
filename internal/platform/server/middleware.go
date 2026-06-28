@@ -15,17 +15,6 @@ import (
 // authMiddleware extracts and validates auth from Bearer token or X-API-Key header.
 func (s *Server) authMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		// Mock mode: no users/sessions table — inject a fixed admin identity and
-		// skip token validation. RBAC is also off (nil Enforcer).
-		if s.deps.MockMode {
-			claims := &auth.Claims{Subject: "admin@flint.dev", Email: "admin@flint.dev", Name: "Mock Admin", OrgID: mockOrgID}
-			ctx = context.WithValue(ctx, authClaimsKey, claims)
-			ctx = observe.WithUserID(ctx, claims.Subject)
-			ctx = observe.WithOrgID(ctx, claims.OrgID)
-			c.Next(ctx)
-			return
-		}
-
 		// Try API key first.
 		apiKey := string(c.GetHeader("X-API-Key"))
 		if apiKey != "" {

@@ -136,6 +136,7 @@ type Step struct {
 	Steps []Step     `yaml:"steps,omitempty" json:"steps,omitempty"` // nested sub-steps (shared pod)
 	Gate  *Gate      `yaml:"gate,omitempty" json:"gate,omitempty"`   // approval checkpoint
 	HTTP  *HTTPStep  `yaml:"http,omitempty" json:"http,omitempty"`   // HTTP request (no container)
+	Wait  *WaitSpec  `yaml:"wait,omitempty" json:"wait,omitempty"`   // pause until an external signal
 
 	// Template inputs (when using use:)
 	With map[string]string `yaml:"with,omitempty" json:"with,omitempty"`
@@ -182,7 +183,8 @@ type Step struct {
 	Matrix map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"`
 }
 
-// ExecType returns which execution type is set: "run", "use", "steps", or "gate". Returns empty string if none is set.
+// ExecType returns which execution type is set: "run", "use", "steps", "gate",
+// "http", or "wait". Returns empty string if none is set.
 func (s *Step) ExecType() string {
 	switch {
 	case !s.Run.IsEmpty():
@@ -195,9 +197,24 @@ func (s *Step) ExecType() string {
 		return "gate"
 	case s.HTTP != nil:
 		return "http"
+	case s.Wait != nil:
+		return "wait"
 	default:
 		return ""
 	}
+}
+
+// WaitSpec pauses a step until an external signal is delivered to the run (via
+// POST /runs/{id}/signals or engine.DeliverSignal). The signal's payload — a flat
+// JSON object — is captured into the step's outputs, so downstream steps can read
+// steps.<name>.<key>. It is the generic counterpart to a gate (which is a
+// specialised approve/reject wait).
+type WaitSpec struct {
+	// Signal is the name of the signal to wait for. Defaults to the step name when
+	// empty.
+	Signal string `yaml:"signal,omitempty" json:"signal,omitempty"`
+	// Timeout bounds the wait (e.g. "24h"). The engine applies a default when empty.
+	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 // HTTPStep is a step that makes an HTTP request instead of running a container.

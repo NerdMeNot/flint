@@ -1,7 +1,11 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Mail, Users } from 'lucide-react'
-import { orpc } from '#/lib/orpc'
+import { Mail, Users, Plus } from 'lucide-react'
+import { useState } from 'react'
+import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
+import { Modal } from '#/components/Modal'
+import { FormSelect } from '#/components/FormSelect'
 import { ScopeBadges } from '#/components/ScopeBadges'
 import { PageHeader } from '#/components/PageHeader'
 import { EmptyState } from '#/components/EmptyState'
@@ -12,7 +16,98 @@ export const Route = createFileRoute('/settings/users/')({
   component: UsersPage,
 })
 
+const userInputClass =
+  'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40'
+
+function NewUserModal({ onClose }: { onClose: () => void }) {
+  const { data: rolesData } = useSuspenseQuery(orpc.roles.list.queryOptions({ input: {} }))
+  const roles = rolesData.items
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('')
+  const [password, setPassword] = useState('')
+  const [generated, setGenerated] = useState<string | null>(null)
+
+  const create = useAction(client.users.create, {
+    invalidate: [orpc.users.list.key(), orpc.roles.assignments.list.key()],
+    onSuccess: (res) => {
+      // Keep the modal open to show a server-generated password once; otherwise close.
+      if (res?.generatedPassword) setGenerated(res.generatedPassword)
+      else onClose()
+    },
+  })
+
+  if (generated) {
+    return (
+      <Modal open onClose={onClose} title="User created" subtitle={email}>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-sm text-foreground">
+            Share this temporary password with the user — it won't be shown again.
+          </p>
+          <code className="block rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-mono break-all">
+            {generated}
+          </code>
+        </div>
+        <div className="flex justify-end px-5 py-3 border-t border-border">
+          <button type="button" onClick={onClose} className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white" style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}>
+            Done
+          </button>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Add user" subtitle="Create a local (email + password) user">
+      <div className="px-5 py-4 space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="dev@flint.dev" className={userInputClass} autoFocus />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" className={userInputClass} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Role</label>
+          <FormSelect
+            value={role}
+            onChange={setRole}
+            placeholder="Default role"
+            options={roles.map((r) => ({ key: r.slug, label: r.name }))}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Password</label>
+          <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to auto-generate" className={`${userInputClass} font-mono`} />
+        </div>
+        {create.isError && <p className="text-xs text-red-500">Could not create user — that email may already be in use.</p>}
+      </div>
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+        <button type="button" onClick={onClose} className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!email.trim() || create.isPending}
+          onClick={() => create.mutate({
+            email: email.trim(),
+            name: name.trim() || undefined,
+            role: role || undefined,
+            password: password || undefined,
+          })}
+          className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
+          style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+        >
+          {create.isPending ? 'Creating…' : 'Create user'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function UsersPage() {
+  const [showNew, setShowNew] = useState(false)
   const { data: usersData } = useSuspenseQuery(orpc.users.list.queryOptions({ input: {} }))
   const users = usersData.items
   const { data: assignmentsData } = useSuspenseQuery(orpc.roles.assignments.list.queryOptions({ input: {} }))
@@ -45,9 +140,21 @@ function UsersPage() {
 
   return (
     <div className="space-y-5">
+      {showNew && <NewUserModal onClose={() => setShowNew(false)} />}
       <PageHeader
         title="Users"
         subtitle={`${users.length} ${users.length === 1 ? 'user' : 'users'}`}
+        action={
+          <button
+            type="button"
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors"
+            style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+          >
+            <Plus size={14} />
+            Add user
+          </button>
+        }
       />
 
       {users.length === 0 ? (

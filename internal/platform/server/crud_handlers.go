@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -203,6 +204,64 @@ func (s *Server) handleListUsers(ctx context.Context, c *app.RequestContext) {
 		})
 	}
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(users))})
+}
+
+// handleCreateUser provisions a local (email + password) user and assigns a role.
+// Flint normally provisions users via SSO or the `flint admin create-user` CLI;
+// this powers the Users page's create form for local-auth setups. When no password
+// is supplied one is generated and returned ONCE so the admin can share it.
+func (s *Server) handleCreateUser(ctx context.Context, c *app.RequestContext) {
+	var req struct {
+		Email    string `json:"email"`
+		Name     string `json:"name"`
+		Role     string `json:"role"`
+		Password string `json:"password"`
+	}
+	if c.BindJSON(&req) != nil || req.Email == "" {
+		apiBadRequest(ctx, c, "email is required")
+		return
+	}
+	claims := claimsFromCtx(ctx)
+
+	password := req.Password
+	generated := false
+	if password == "" {
+		password = auth.GenerateRandomPassword()
+		generated = true
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		apiInternal(ctx, c, "failed to hash password")
+		return
+	}
+	var namePtr *string
+	if req.Name != "" {
+		namePtr = &req.Name
+	}
+	userID, err := s.deps.Q.CreateLocalUser(ctx, db.CreateLocalUserParams{
+		OrgID: claims.OrgID, Email: req.Email, Name: namePtr, PasswordHash: &hash,
+	})
+	if err != nil {
+		apiConflict(ctx, c, "user already exists")
+		return
+	}
+
+	role := req.Role
+	if role == "" {
+		role = s.deps.Config.Auth.DefaultRoleOrFallback()
+	}
+	if roleRow, rerr := s.deps.Q.GetRoleBySlug(ctx, db.GetRoleBySlugParams{OrgID: claims.OrgID, Slug: role}); rerr == nil {
+		_ = s.deps.Q.InsertRoleAssignment(ctx, db.InsertRoleAssignmentParams{Subject: req.Email, RoleID: roleRow.ID})
+		if s.deps.Enforcer != nil {
+			_ = auth.RegenerateForSubject(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, req.Email)
+		}
+	}
+
+	resp := utils.H{"id": userID, "email": req.Email, "name": req.Name, "role": role}
+	if generated {
+		resp["generatedPassword"] = password
+	}
+	c.JSON(consts.StatusCreated, resp)
 }
 
 // ── Forge Connections ─────────────────────────────────────

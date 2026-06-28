@@ -115,6 +115,7 @@ type FlintOutbox struct {
 	MaxAttempts    int32      `json:"max_attempts"`
 	IdempotencyKey string     `json:"idempotency_key"`
 	ProcessAfter   time.Time  `json:"process_after"`
+	ClaimedAt      *time.Time `json:"claimed_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	ResolvedAt     *time.Time `json:"resolved_at"`
 	LastError      *string    `json:"last_error"`
@@ -156,6 +157,7 @@ type Org struct {
 	CreatedAt               time.Time `json:"created_at"`
 	ConcurrencyLimit        int32     `json:"concurrency_limit"`
 	RequireProjectWorkspace bool      `json:"require_project_workspace"`
+	SsoStrictGroups         bool      `json:"sso_strict_groups"`
 }
 
 type PersonalToken struct {
@@ -222,6 +224,7 @@ type Project struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 	WorkspaceID       string    `json:"workspace_id"`
 	WorkspaceInferred bool      `json:"workspace_inferred"`
+	ForgeWebhookID    *string   `json:"forge_webhook_id"`
 }
 
 type ProjectFavourite struct {
@@ -256,6 +259,7 @@ type RoleAssignment struct {
 	Subject   string    `json:"subject"`
 	RoleID    string    `json:"role_id"`
 	CreatedAt time.Time `json:"created_at"`
+	Source    string    `json:"source"`
 }
 
 type RoleEnvironmentScope struct {
@@ -275,23 +279,29 @@ type RoleWorkspaceScope struct {
 }
 
 type RunnerPool struct {
-	ID             string      `json:"id"`
-	Name           string      `json:"name"`
-	Description    *string     `json:"description"`
-	Cpu            string      `json:"cpu"`
-	Memory         string      `json:"memory"`
-	GpuVendor      *string     `json:"gpu_vendor"`
-	GpuModel       *string     `json:"gpu_model"`
-	GpuCount       pgtype.Int4 `json:"gpu_count"`
-	Arch           string      `json:"arch"`
-	NodeSelector   []byte      `json:"node_selector"`
-	Tolerations    []byte      `json:"tolerations"`
-	SpotPreferred  bool        `json:"spot_preferred"`
-	SpotFallback   string      `json:"spot_fallback"`
-	DefaultTimeout *string     `json:"default_timeout"`
-	Ready          bool        `json:"ready"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
+	ID                    string      `json:"id"`
+	Name                  string      `json:"name"`
+	Description           *string     `json:"description"`
+	Cpu                   string      `json:"cpu"`
+	Memory                string      `json:"memory"`
+	GpuVendor             *string     `json:"gpu_vendor"`
+	GpuModel              *string     `json:"gpu_model"`
+	GpuCount              pgtype.Int4 `json:"gpu_count"`
+	Arch                  string      `json:"arch"`
+	NodeSelector          []byte      `json:"node_selector"`
+	Tolerations           []byte      `json:"tolerations"`
+	DefaultTimeout        *string     `json:"default_timeout"`
+	IsDefault             bool        `json:"is_default"`
+	ServiceAccountName    *string     `json:"service_account_name"`
+	WorkspaceMode         string      `json:"workspace_mode"`
+	WorkspaceStorageClass *string     `json:"workspace_storage_class"`
+	WorkspaceSize         string      `json:"workspace_size"`
+	RunAsNonRoot          bool        `json:"run_as_non_root"`
+	Mode                  string      `json:"mode"`
+	ManagedSpec           []byte      `json:"managed_spec"`
+	Ready                 bool        `json:"ready"`
+	CreatedAt             time.Time   `json:"created_at"`
+	UpdatedAt             time.Time   `json:"updated_at"`
 }
 
 type SavedView struct {
@@ -303,6 +313,14 @@ type SavedView struct {
 	Selector    []byte    `json:"selector"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type ScimToken struct {
+	ID         string     `json:"id"`
+	OrgID      string     `json:"org_id"`
+	TokenHash  string     `json:"token_hash"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
 type Secret struct {
@@ -341,6 +359,14 @@ type Signal struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type SsoGroupRoleMapping struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	GroupName string    `json:"group_name"`
+	RoleID    string    `json:"role_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Step struct {
 	ID                   string     `json:"id"`
 	WorkflowID           string     `json:"workflow_id"`
@@ -363,6 +389,7 @@ type Step struct {
 	StartedAt            *time.Time `json:"started_at"`
 	FinishedAt           *time.Time `json:"finished_at"`
 	DeadlineAt           *time.Time `json:"deadline_at"`
+	DispatchedAt         *time.Time `json:"dispatched_at"`
 }
 
 type TagKey struct {

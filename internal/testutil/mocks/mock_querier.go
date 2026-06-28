@@ -488,6 +488,34 @@ func (_m *Querier) CountActiveProjects(ctx context.Context) (int64, error) {
 	return r0, r1
 }
 
+// CountDefaultRunnerPools provides a mock function with given fields: ctx
+func (_m *Querier) CountDefaultRunnerPools(ctx context.Context) (int64, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountDefaultRunnerPools")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CountPendingGates provides a mock function with given fields: ctx
 func (_m *Querier) CountPendingGates(ctx context.Context) (int64, error) {
 	ret := _m.Called(ctx)
@@ -634,6 +662,34 @@ func (_m *Querier) CountRunningStepsByOrg(ctx context.Context, orgID string) (in
 
 	if len(ret) == 0 {
 		panic("no return value specified for CountRunningStepsByOrg")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CountScimTokensForOrg provides a mock function with given fields: ctx, orgID
+func (_m *Querier) CountScimTokensForOrg(ctx context.Context, orgID string) (int64, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountScimTokensForOrg")
 	}
 
 	var r0 int64
@@ -926,6 +982,34 @@ func (_m *Querier) CreateSavedView(ctx context.Context, arg db.CreateSavedViewPa
 	return r0, r1
 }
 
+// CreateScimTeam provides a mock function with given fields: ctx, arg
+func (_m *Querier) CreateScimTeam(ctx context.Context, arg db.CreateScimTeamParams) (string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateScimTeam")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateScimTeamParams) (string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.CreateScimTeamParams) string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.CreateScimTeamParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateSession provides a mock function with given fields: ctx, arg
 func (_m *Querier) CreateSession(ctx context.Context, arg db.CreateSessionParams) (string, error) {
 	ret := _m.Called(ctx, arg)
@@ -1176,6 +1260,24 @@ func (_m *Querier) DeleteAPIKeyWorkspaceScopes(ctx context.Context, apiKeyID str
 	return r0
 }
 
+// DeleteAllSSOGroupRoleMappings provides a mock function with given fields: ctx, orgID
+func (_m *Querier) DeleteAllSSOGroupRoleMappings(ctx context.Context, orgID string) error {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAllSSOGroupRoleMappings")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteAuthProviderConfig provides a mock function with given fields: ctx, providerType
 func (_m *Querier) DeleteAuthProviderConfig(ctx context.Context, providerType string) (int64, error) {
 	ret := _m.Called(ctx, providerType)
@@ -1394,6 +1496,24 @@ func (_m *Querier) DeleteForgeConnectionByID(ctx context.Context, id string) err
 	return r0
 }
 
+// DeleteIdpRoleAssignment provides a mock function with given fields: ctx, arg
+func (_m *Querier) DeleteIdpRoleAssignment(ctx context.Context, arg db.DeleteIdpRoleAssignmentParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteIdpRoleAssignment")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.DeleteIdpRoleAssignmentParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteMFAPendingToken provides a mock function with given fields: ctx, token
 func (_m *Querier) DeleteMFAPendingToken(ctx context.Context, token string) error {
 	ret := _m.Called(ctx, token)
@@ -1604,6 +1724,24 @@ func (_m *Querier) DeleteSavedView(ctx context.Context, arg db.DeleteSavedViewPa
 	return r0, r1
 }
 
+// DeleteScimTokensForOrg provides a mock function with given fields: ctx, orgID
+func (_m *Querier) DeleteScimTokensForOrg(ctx context.Context, orgID string) error {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteScimTokensForOrg")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteSecret provides a mock function with given fields: ctx, arg
 func (_m *Querier) DeleteSecret(ctx context.Context, arg db.DeleteSecretParams) (int64, error) {
 	ret := _m.Called(ctx, arg)
@@ -1770,6 +1908,34 @@ func (_m *Querier) FailGateByTimeout(ctx context.Context, arg db.FailGateByTimeo
 	return r0
 }
 
+// FailOrphanedWaitingSteps provides a mock function with given fields: ctx
+func (_m *Querier) FailOrphanedWaitingSteps(ctx context.Context) (int64, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FailOrphanedWaitingSteps")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // FailOutboxEvent provides a mock function with given fields: ctx, arg
 func (_m *Querier) FailOutboxEvent(ctx context.Context, arg db.FailOutboxEventParams) error {
 	ret := _m.Called(ctx, arg)
@@ -1914,36 +2080,6 @@ func (_m *Querier) FinishWorkflow(ctx context.Context, arg db.FinishWorkflowPara
 	}
 
 	return r0
-}
-
-// FireDueTimers provides a mock function with given fields: ctx
-func (_m *Querier) FireDueTimers(ctx context.Context) ([]db.FireDueTimersRow, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FireDueTimers")
-	}
-
-	var r0 []db.FireDueTimersRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.FireDueTimersRow, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.FireDueTimersRow); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.FireDueTimersRow)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
 }
 
 // GetActiveWebhooksForEvent provides a mock function with given fields: ctx, arg
@@ -2572,6 +2708,34 @@ func (_m *Querier) GetProjectByRepoPath(ctx context.Context, repoPath string) (d
 	return r0, r1
 }
 
+// GetProjectConfig provides a mock function with given fields: ctx, id
+func (_m *Querier) GetProjectConfig(ctx context.Context, id string) (db.GetProjectConfigRow, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProjectConfig")
+	}
+
+	var r0 db.GetProjectConfigRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetProjectConfigRow, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetProjectConfigRow); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.GetProjectConfigRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetProjectOrgID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetProjectOrgID(ctx context.Context, id string) (string, error) {
 	ret := _m.Called(ctx, id)
@@ -2910,6 +3074,62 @@ func (_m *Querier) GetRunWorkflowID(ctx context.Context, id string) (*string, er
 	return r0, r1
 }
 
+// GetRunnerPool provides a mock function with given fields: ctx, name
+func (_m *Querier) GetRunnerPool(ctx context.Context, name string) (db.GetRunnerPoolRow, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRunnerPool")
+	}
+
+	var r0 db.GetRunnerPoolRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.GetRunnerPoolRow, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.GetRunnerPoolRow); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(db.GetRunnerPoolRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetScimTokenOrg provides a mock function with given fields: ctx, tokenHash
+func (_m *Querier) GetScimTokenOrg(ctx context.Context, tokenHash string) (string, error) {
+	ret := _m.Called(ctx, tokenHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetScimTokenOrg")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
+		return rf(ctx, tokenHash)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = rf(ctx, tokenHash)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, tokenHash)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetSecret provides a mock function with given fields: ctx, arg
 func (_m *Querier) GetSecret(ctx context.Context, arg db.GetSecretParams) ([]byte, error) {
 	ret := _m.Called(ctx, arg)
@@ -3110,6 +3330,34 @@ func (_m *Querier) GetTeam(ctx context.Context, id string) (db.GetTeamRow, error
 	return r0, r1
 }
 
+// GetTeamBySlug provides a mock function with given fields: ctx, arg
+func (_m *Querier) GetTeamBySlug(ctx context.Context, arg db.GetTeamBySlugParams) (db.GetTeamBySlugRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTeamBySlug")
+	}
+
+	var r0 db.GetTeamBySlugRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetTeamBySlugParams) (db.GetTeamBySlugRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetTeamBySlugParams) db.GetTeamBySlugRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.GetTeamBySlugRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.GetTeamBySlugParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetUserByEmail provides a mock function with given fields: ctx, arg
 func (_m *Querier) GetUserByEmail(ctx context.Context, arg db.GetUserByEmailParams) (db.GetUserByEmailRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -3130,6 +3378,34 @@ func (_m *Querier) GetUserByEmail(ctx context.Context, arg db.GetUserByEmailPara
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.GetUserByEmailParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetUserByExternalID provides a mock function with given fields: ctx, arg
+func (_m *Querier) GetUserByExternalID(ctx context.Context, arg db.GetUserByExternalIDParams) (db.GetUserByExternalIDRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUserByExternalID")
+	}
+
+	var r0 db.GetUserByExternalIDRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetUserByExternalIDParams) (db.GetUserByExternalIDRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.GetUserByExternalIDParams) db.GetUserByExternalIDRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.GetUserByExternalIDRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.GetUserByExternalIDParams) error); ok {
 		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
@@ -3333,6 +3609,36 @@ func (_m *Querier) GetWorkflowInput(ctx context.Context, id string) ([]byte, err
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
 		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetWorkflowInputs provides a mock function with given fields: ctx, workflowIds
+func (_m *Querier) GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]db.GetWorkflowInputsRow, error) {
+	ret := _m.Called(ctx, workflowIds)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetWorkflowInputs")
+	}
+
+	var r0 []db.GetWorkflowInputsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]db.GetWorkflowInputsRow, error)); ok {
+		return rf(ctx, workflowIds)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) []db.GetWorkflowInputsRow); ok {
+		r0 = rf(ctx, workflowIds)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.GetWorkflowInputsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, workflowIds)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3580,6 +3886,24 @@ func (_m *Querier) InsertForgeConnection(ctx context.Context, arg db.InsertForge
 	return r0, r1
 }
 
+// InsertIdpRoleAssignment provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertIdpRoleAssignment(ctx context.Context, arg db.InsertIdpRoleAssignmentParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertIdpRoleAssignment")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertIdpRoleAssignmentParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // InsertMFAPendingToken provides a mock function with given fields: ctx, arg
 func (_m *Querier) InsertMFAPendingToken(ctx context.Context, arg db.InsertMFAPendingTokenParams) error {
 	ret := _m.Called(ctx, arg)
@@ -3734,6 +4058,42 @@ func (_m *Querier) InsertRoleWorkspaceScope(ctx context.Context, arg db.InsertRo
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.InsertRoleWorkspaceScopeParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// InsertSSOGroupRoleMapping provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertSSOGroupRoleMapping(ctx context.Context, arg db.InsertSSOGroupRoleMappingParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertSSOGroupRoleMapping")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertSSOGroupRoleMappingParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// InsertScimToken provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertScimToken(ctx context.Context, arg db.InsertScimTokenParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertScimToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertScimTokenParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -4120,6 +4480,36 @@ func (_m *Querier) ListAllSecrets(ctx context.Context) ([]db.ListAllSecretsRow, 
 	return r0, r1
 }
 
+// ListArchivedProjects provides a mock function with given fields: ctx
+func (_m *Querier) ListArchivedProjects(ctx context.Context) ([]db.ListArchivedProjectsRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListArchivedProjects")
+	}
+
+	var r0 []db.ListArchivedProjectsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListArchivedProjectsRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ListArchivedProjectsRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListArchivedProjectsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListAuditLog provides a mock function with given fields: ctx, arg
 func (_m *Querier) ListAuditLog(ctx context.Context, arg db.ListAuditLogParams) ([]db.ListAuditLogRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -4383,6 +4773,36 @@ func (_m *Querier) ListGatesByStatus(ctx context.Context, status string) ([]db.L
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
 		r1 = rf(ctx, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListIdpRoleAssignmentRoleIDs provides a mock function with given fields: ctx, subject
+func (_m *Querier) ListIdpRoleAssignmentRoleIDs(ctx context.Context, subject string) ([]string, error) {
+	ret := _m.Called(ctx, subject)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListIdpRoleAssignmentRoleIDs")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, subject)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, subject)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, subject)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4750,6 +5170,36 @@ func (_m *Querier) ListRoleEnvironmentNames(ctx context.Context, roleID string) 
 	return r0, r1
 }
 
+// ListRoleIDsForGroups provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListRoleIDsForGroups(ctx context.Context, arg db.ListRoleIDsForGroupsParams) ([]string, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRoleIDsForGroups")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRoleIDsForGroupsParams) ([]string, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRoleIDsForGroupsParams) []string); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListRoleIDsForGroupsParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListRolePermissions provides a mock function with given fields: ctx, roleID
 func (_m *Querier) ListRolePermissions(ctx context.Context, roleID string) ([]db.ListRolePermissionsRow, error) {
 	ret := _m.Called(ctx, roleID)
@@ -5020,6 +5470,36 @@ func (_m *Querier) ListRunsFiltered(ctx context.Context, arg db.ListRunsFiltered
 	return r0, r1
 }
 
+// ListSSOGroupRoleMappings provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ListSSOGroupRoleMappings(ctx context.Context, orgID string) ([]db.ListSSOGroupRoleMappingsRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListSSOGroupRoleMappings")
+	}
+
+	var r0 []db.ListSSOGroupRoleMappingsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListSSOGroupRoleMappingsRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListSSOGroupRoleMappingsRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListSSOGroupRoleMappingsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ListSavedViews provides a mock function with given fields: ctx, arg
 func (_m *Querier) ListSavedViews(ctx context.Context, arg db.ListSavedViewsParams) ([]db.ListSavedViewsRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -5043,6 +5523,66 @@ func (_m *Querier) ListSavedViews(ctx context.Context, arg db.ListSavedViewsPara
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.ListSavedViewsParams) error); ok {
 		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListScimTeams provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ListScimTeams(ctx context.Context, orgID string) ([]db.ListScimTeamsRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListScimTeams")
+	}
+
+	var r0 []db.ListScimTeamsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListScimTeamsRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListScimTeamsRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListScimTeamsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListScimUsers provides a mock function with given fields: ctx, orgID
+func (_m *Querier) ListScimUsers(ctx context.Context, orgID string) ([]db.ListScimUsersRow, error) {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListScimUsers")
+	}
+
+	var r0 []db.ListScimUsersRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.ListScimUsersRow, error)); ok {
+		return rf(ctx, orgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.ListScimUsersRow); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListScimUsersRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, orgID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -5470,66 +6010,6 @@ func (_m *Querier) ListValidPersonalTokensWithUser(ctx context.Context) ([]db.Li
 	return r0, r1
 }
 
-// ListWaitingGatesWithRejectSignals provides a mock function with given fields: ctx
-func (_m *Querier) ListWaitingGatesWithRejectSignals(ctx context.Context) ([]db.ListWaitingGatesWithRejectSignalsRow, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListWaitingGatesWithRejectSignals")
-	}
-
-	var r0 []db.ListWaitingGatesWithRejectSignalsRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListWaitingGatesWithRejectSignalsRow, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.ListWaitingGatesWithRejectSignalsRow); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListWaitingGatesWithRejectSignalsRow)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// ListWaitingGatesWithSignals provides a mock function with given fields: ctx
-func (_m *Querier) ListWaitingGatesWithSignals(ctx context.Context) ([]db.ListWaitingGatesWithSignalsRow, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListWaitingGatesWithSignals")
-	}
-
-	var r0 []db.ListWaitingGatesWithSignalsRow
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ListWaitingGatesWithSignalsRow, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []db.ListWaitingGatesWithSignalsRow); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]db.ListWaitingGatesWithSignalsRow)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ListWorkflowRuns provides a mock function with given fields: ctx, arg
 func (_m *Querier) ListWorkflowRuns(ctx context.Context, arg db.ListWorkflowRunsParams) ([]db.ListWorkflowRunsRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -5650,6 +6130,136 @@ func (_m *Querier) ListWorkspacesWithCounts(ctx context.Context, arg db.ListWork
 	return r0, r1
 }
 
+// LockNextApprovedGate provides a mock function with given fields: ctx
+func (_m *Querier) LockNextApprovedGate(ctx context.Context) (db.LockNextApprovedGateRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockNextApprovedGate")
+	}
+
+	var r0 db.LockNextApprovedGateRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (db.LockNextApprovedGateRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) db.LockNextApprovedGateRow); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(db.LockNextApprovedGateRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LockNextDueTimer provides a mock function with given fields: ctx
+func (_m *Querier) LockNextDueTimer(ctx context.Context) (db.LockNextDueTimerRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockNextDueTimer")
+	}
+
+	var r0 db.LockNextDueTimerRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (db.LockNextDueTimerRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) db.LockNextDueTimerRow); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(db.LockNextDueTimerRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LockNextRejectedGate provides a mock function with given fields: ctx
+func (_m *Querier) LockNextRejectedGate(ctx context.Context) (db.LockNextRejectedGateRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockNextRejectedGate")
+	}
+
+	var r0 db.LockNextRejectedGateRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (db.LockNextRejectedGateRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) db.LockNextRejectedGateRow); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(db.LockNextRejectedGateRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LockNextSignaledWaitStep provides a mock function with given fields: ctx
+func (_m *Querier) LockNextSignaledWaitStep(ctx context.Context) (db.LockNextSignaledWaitStepRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockNextSignaledWaitStep")
+	}
+
+	var r0 db.LockNextSignaledWaitStepRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (db.LockNextSignaledWaitStepRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) db.LockNextSignaledWaitStepRow); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(db.LockNextSignaledWaitStepRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LockOrgConcurrency provides a mock function with given fields: ctx, orgID
+func (_m *Querier) LockOrgConcurrency(ctx context.Context, orgID string) error {
+	ret := _m.Called(ctx, orgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockOrgConcurrency")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, orgID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // LockStep provides a mock function with given fields: ctx, arg
 func (_m *Querier) LockStep(ctx context.Context, arg db.LockStepParams) (db.LockStepRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -5712,6 +6322,42 @@ func (_m *Querier) MarkRunCleaned(ctx context.Context, id string) error {
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarkRunCleaned")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MarkStepDispatched provides a mock function with given fields: ctx, arg
+func (_m *Querier) MarkStepDispatched(ctx context.Context, arg db.MarkStepDispatchedParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkStepDispatched")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.MarkStepDispatchedParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MarkTimerFired provides a mock function with given fields: ctx, id
+func (_m *Querier) MarkTimerFired(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkTimerFired")
 	}
 
 	var r0 error
@@ -5906,6 +6552,34 @@ func (_m *Querier) RecordTOTPUse(ctx context.Context, arg db.RecordTOTPUseParams
 	return r0, r1
 }
 
+// RecoverStaleOutboxEvents provides a mock function with given fields: ctx
+func (_m *Querier) RecoverStaleOutboxEvents(ctx context.Context) (int64, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecoverStaleOutboxEvents")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // RemoveTeamMember provides a mock function with given fields: ctx, arg
 func (_m *Querier) RemoveTeamMember(ctx context.Context, arg db.RemoveTeamMemberParams) (int64, error) {
 	ret := _m.Called(ctx, arg)
@@ -5980,6 +6654,34 @@ func (_m *Querier) RequeueRetryStep(ctx context.Context, arg db.RequeueRetryStep
 	return r0
 }
 
+// RequeueUndispatchedSteps provides a mock function with given fields: ctx, graceSecs
+func (_m *Querier) RequeueUndispatchedSteps(ctx context.Context, graceSecs float64) (int64, error) {
+	ret := _m.Called(ctx, graceSecs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequeueUndispatchedSteps")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, float64) (int64, error)); ok {
+		return rf(ctx, graceSecs)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, float64) int64); ok {
+		r0 = rf(ctx, graceSecs)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, float64) error); ok {
+		r1 = rf(ctx, graceSecs)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ResolveEnvVars provides a mock function with given fields: ctx, arg
 func (_m *Querier) ResolveEnvVars(ctx context.Context, arg db.ResolveEnvVarsParams) ([]db.ResolveEnvVarsRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -6016,6 +6718,24 @@ func (_m *Querier) ResolveOutboxEvent(ctx context.Context, id string) error {
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveOutboxEvent")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// RestoreProject provides a mock function with given fields: ctx, id
+func (_m *Querier) RestoreProject(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RestoreProject")
 	}
 
 	var r0 error
@@ -6186,6 +6906,34 @@ func (_m *Querier) RunsNeedingCleanup(ctx context.Context, limit int32) ([]strin
 	return r0, r1
 }
 
+// ScimUpsertUser provides a mock function with given fields: ctx, arg
+func (_m *Querier) ScimUpsertUser(ctx context.Context, arg db.ScimUpsertUserParams) (db.ScimUpsertUserRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScimUpsertUser")
+	}
+
+	var r0 db.ScimUpsertUserRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimUpsertUserParams) (db.ScimUpsertUserRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimUpsertUserParams) db.ScimUpsertUserRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.ScimUpsertUserRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ScimUpsertUserParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // SearchProjects provides a mock function with given fields: ctx, arg
 func (_m *Querier) SearchProjects(ctx context.Context, arg db.SearchProjectsParams) ([]db.SearchProjectsRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -6276,6 +7024,24 @@ func (_m *Querier) SearchUsers(ctx context.Context, arg db.SearchUsersParams) ([
 	return r0, r1
 }
 
+// SetDefaultRunnerPool provides a mock function with given fields: ctx, name
+func (_m *Querier) SetDefaultRunnerPool(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetDefaultRunnerPool")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetDeviceCodeOAuthState provides a mock function with given fields: ctx, arg
 func (_m *Querier) SetDeviceCodeOAuthState(ctx context.Context, arg db.SetDeviceCodeOAuthStateParams) error {
 	ret := _m.Called(ctx, arg)
@@ -6304,6 +7070,42 @@ func (_m *Querier) SetOrgRequireProjectWorkspace(ctx context.Context, arg db.Set
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.SetOrgRequireProjectWorkspaceParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetOrgStrictGroups provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetOrgStrictGroups(ctx context.Context, arg db.SetOrgStrictGroupsParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetOrgStrictGroups")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetOrgStrictGroupsParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetProjectWebhookID provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetProjectWebhookID(ctx context.Context, arg db.SetProjectWebhookIDParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetProjectWebhookID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetProjectWebhookIDParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -6394,6 +7196,24 @@ func (_m *Querier) SetStepTaskToken(ctx context.Context, arg db.SetStepTaskToken
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.SetStepTaskTokenParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetUserActive provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetUserActive(ctx context.Context, arg db.SetUserActiveParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetUserActive")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetUserActiveParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -6531,6 +7351,24 @@ func (_m *Querier) TouchPersonalToken(ctx context.Context, id string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// TouchScimToken provides a mock function with given fields: ctx, tokenHash
+func (_m *Querier) TouchScimToken(ctx context.Context, tokenHash string) error {
+	ret := _m.Called(ctx, tokenHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TouchScimToken")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, tokenHash)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -6786,6 +7624,24 @@ func (_m *Querier) UpdateTagKey(ctx context.Context, arg db.UpdateTagKeyParams) 
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateTagKeyParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateTeamName provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateTeamName(ctx context.Context, arg db.UpdateTeamNameParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateTeamName")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateTeamNameParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)

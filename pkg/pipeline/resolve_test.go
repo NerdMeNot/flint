@@ -13,7 +13,7 @@ import (
 
 func TestParseUseRef_CRD(t *testing.T) {
 	ref := pipeline.ParseUseRef("ecr-login")
-	assert.Equal(t, pipeline.UseRefCRD, ref.Kind)
+	assert.Equal(t, pipeline.UseRefName, ref.Kind)
 	assert.Equal(t, "ecr-login", ref.Name)
 }
 

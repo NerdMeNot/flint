@@ -72,14 +72,11 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		return "", fmt.Errorf("engine: step %q has no container image (set image: on the step or at pipeline level)", step.name)
 	}
 
-	// Resolve runner pool.
-	poolName := "standard"
-	if stepDef.Runner != "" {
-		poolName = stepDef.Runner
-	}
-	poolSpec, err := e.reg.Resolve(poolName)
+	// Resolve runner pool — empty runner resolves to the registry's configured
+	// default pool (worker.defaultRunnerPool).
+	poolSpec, err := e.reg.Resolve(stepDef.Runner)
 	if err != nil {
-		log.Warn().Str("pool", poolName).Msg("engine: runner pool not found, using defaults")
+		log.Warn().Str("pool", stepDef.Runner).Msg("engine: runner pool not found, using defaults")
 		poolSpec = &runner.PoolSpec{
 			Name: "default",
 			Resources: runner.ResourceProfile{

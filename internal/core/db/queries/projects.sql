@@ -10,18 +10,26 @@ ORDER BY display_name, repo_path;
 SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
        COALESCE(w.slug, '')::text AS workspace, p.colour, p.tags, p.created_at,
        p.workspace_inferred AS inferred,
-       lr.id AS last_run_id, lr.status AS last_run_status,
+       -- COALESCE the NOT-NULL-typed columns to sentinels: a project with no runs
+       -- yields NULLs from the LEFT JOIN, and the handler treats ''/zero as "no
+       -- run" (guarded on last_run_id). trigger_ref/triggered_by/duration_ms are
+       -- already nullable in the schema.
+       COALESCE(lr.id::text, '')::text AS last_run_id,
+       COALESCE(lr.status, '')::text AS last_run_status,
        lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
-       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
+       COALESCE(lr.started_at, 'epoch'::timestamptz) AS last_run_started_at,
+       lr.duration_ms AS last_run_duration_ms
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.workspace_id
-LEFT JOIN LATERAL (
-    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
+-- Regular LEFT JOIN (not LATERAL) so sqlc infers the last-run columns as
+-- nullable — projects with no runs yet must not break the scan. DISTINCT ON
+-- keeps it a single indexed pass for the latest run per project.
+LEFT JOIN (
+    SELECT DISTINCT ON (project_id)
+           project_id, id, status, trigger_ref, triggered_by, started_at, duration_ms
     FROM pipeline_runs
-    WHERE project_id = p.id
-    ORDER BY started_at DESC
-    LIMIT 1
-) lr ON true
+    ORDER BY project_id, started_at DESC
+) lr ON lr.project_id = p.id
 WHERE p.is_archived = false
   AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
   AND (cardinality(@tags::text[]) = 0 OR p.tags && @tags::text[])
@@ -43,6 +51,34 @@ LIMIT 1;
 
 -- name: ArchiveProject :exec
 UPDATE projects SET is_archived = true, updated_at = now() WHERE id = $1;
+
+-- name: RestoreProject :exec
+UPDATE projects SET is_archived = false, updated_at = now() WHERE id = $1;
+
+-- name: ListArchivedProjects :many
+-- Archived projects for the admin Projects page (so they can be restored).
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
+       COALESCE(w.slug, '')::text AS workspace, p.colour, p.created_at
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.is_archived = true
+ORDER BY COALESCE(p.display_name, p.repo_path);
+
+-- name: GetProjectConfig :one
+-- Full editable config for a project, for the API PATCH-merge and archive cleanup.
+-- forge_ref is the forge connection's display name (what UpsertProject keys on).
+SELECT p.id, p.repo_path, fc.display_name AS forge_ref,
+       p.display_name, p.description, p.colour, p.icon, p.default_branch,
+       p.pipeline_source, p.forge_webhook_id,
+       COALESCE(w.slug, '')::text AS workspace
+FROM projects p
+JOIN forge_connections fc ON p.forge_id = fc.id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.id = $1;
+
+-- name: SetProjectWebhookID :exec
+-- Record the inbound forge webhook id after provisioning (or clear it on removal).
+UPDATE projects SET forge_webhook_id = @forge_webhook_id, updated_at = now() WHERE id = @id;
 
 -- name: GetProjectOrgID :one
 SELECT org_id FROM projects WHERE id = $1;

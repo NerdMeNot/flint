@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countDefaultRunnerPools = `-- name: CountDefaultRunnerPools :one
+SELECT count(*) FROM runner_pools WHERE is_default = true
+`
+
+func (q *Queries) CountDefaultRunnerPools(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countDefaultRunnerPools)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteRunnerPool = `-- name: DeleteRunnerPool :exec
 DELETE FROM runner_pools WHERE name = $1
 `
@@ -19,6 +30,63 @@ DELETE FROM runner_pools WHERE name = $1
 func (q *Queries) DeleteRunnerPool(ctx context.Context, name string) error {
 	_, err := q.db.Exec(ctx, deleteRunnerPool, name)
 	return err
+}
+
+const getRunnerPool = `-- name: GetRunnerPool :one
+SELECT name, description, cpu, memory, gpu_vendor, gpu_model, gpu_count, arch,
+       node_selector, tolerations, default_timeout,
+       service_account_name, workspace_mode, workspace_storage_class, workspace_size,
+       run_as_non_root, mode, managed_spec, is_default
+FROM runner_pools WHERE name = $1
+`
+
+type GetRunnerPoolRow struct {
+	Name                  string      `json:"name"`
+	Description           *string     `json:"description"`
+	Cpu                   string      `json:"cpu"`
+	Memory                string      `json:"memory"`
+	GpuVendor             *string     `json:"gpu_vendor"`
+	GpuModel              *string     `json:"gpu_model"`
+	GpuCount              pgtype.Int4 `json:"gpu_count"`
+	Arch                  string      `json:"arch"`
+	NodeSelector          []byte      `json:"node_selector"`
+	Tolerations           []byte      `json:"tolerations"`
+	DefaultTimeout        *string     `json:"default_timeout"`
+	ServiceAccountName    *string     `json:"service_account_name"`
+	WorkspaceMode         string      `json:"workspace_mode"`
+	WorkspaceStorageClass *string     `json:"workspace_storage_class"`
+	WorkspaceSize         string      `json:"workspace_size"`
+	RunAsNonRoot          bool        `json:"run_as_non_root"`
+	Mode                  string      `json:"mode"`
+	ManagedSpec           []byte      `json:"managed_spec"`
+	IsDefault             bool        `json:"is_default"`
+}
+
+func (q *Queries) GetRunnerPool(ctx context.Context, name string) (GetRunnerPoolRow, error) {
+	row := q.db.QueryRow(ctx, getRunnerPool, name)
+	var i GetRunnerPoolRow
+	err := row.Scan(
+		&i.Name,
+		&i.Description,
+		&i.Cpu,
+		&i.Memory,
+		&i.GpuVendor,
+		&i.GpuModel,
+		&i.GpuCount,
+		&i.Arch,
+		&i.NodeSelector,
+		&i.Tolerations,
+		&i.DefaultTimeout,
+		&i.ServiceAccountName,
+		&i.WorkspaceMode,
+		&i.WorkspaceStorageClass,
+		&i.WorkspaceSize,
+		&i.RunAsNonRoot,
+		&i.Mode,
+		&i.ManagedSpec,
+		&i.IsDefault,
+	)
+	return i, err
 }
 
 const listRunnerPoolNames = `-- name: ListRunnerPoolNames :many
@@ -46,22 +114,37 @@ func (q *Queries) ListRunnerPoolNames(ctx context.Context) ([]string, error) {
 }
 
 const listRunnerPools = `-- name: ListRunnerPools :many
-SELECT name, description, cpu, memory, gpu_vendor, gpu_model, gpu_count, arch, spot_preferred
+SELECT name, description, cpu, memory, gpu_vendor, gpu_model, gpu_count, arch,
+       node_selector, tolerations, default_timeout,
+       service_account_name, workspace_mode, workspace_storage_class, workspace_size,
+       run_as_non_root, mode, managed_spec, is_default
 FROM runner_pools WHERE ready = true ORDER BY name
 `
 
 type ListRunnerPoolsRow struct {
-	Name          string      `json:"name"`
-	Description   *string     `json:"description"`
-	Cpu           string      `json:"cpu"`
-	Memory        string      `json:"memory"`
-	GpuVendor     *string     `json:"gpu_vendor"`
-	GpuModel      *string     `json:"gpu_model"`
-	GpuCount      pgtype.Int4 `json:"gpu_count"`
-	Arch          string      `json:"arch"`
-	SpotPreferred bool        `json:"spot_preferred"`
+	Name                  string      `json:"name"`
+	Description           *string     `json:"description"`
+	Cpu                   string      `json:"cpu"`
+	Memory                string      `json:"memory"`
+	GpuVendor             *string     `json:"gpu_vendor"`
+	GpuModel              *string     `json:"gpu_model"`
+	GpuCount              pgtype.Int4 `json:"gpu_count"`
+	Arch                  string      `json:"arch"`
+	NodeSelector          []byte      `json:"node_selector"`
+	Tolerations           []byte      `json:"tolerations"`
+	DefaultTimeout        *string     `json:"default_timeout"`
+	ServiceAccountName    *string     `json:"service_account_name"`
+	WorkspaceMode         string      `json:"workspace_mode"`
+	WorkspaceStorageClass *string     `json:"workspace_storage_class"`
+	WorkspaceSize         string      `json:"workspace_size"`
+	RunAsNonRoot          bool        `json:"run_as_non_root"`
+	Mode                  string      `json:"mode"`
+	ManagedSpec           []byte      `json:"managed_spec"`
+	IsDefault             bool        `json:"is_default"`
 }
 
+// Full rows — used by the worker registry loader, compile-time validation, and the
+// pool catalog. Returns everything needed to reconstruct a PoolSpec.
 func (q *Queries) ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error) {
 	rows, err := q.db.Query(ctx, listRunnerPools)
 	if err != nil {
@@ -80,7 +163,17 @@ func (q *Queries) ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, er
 			&i.GpuModel,
 			&i.GpuCount,
 			&i.Arch,
-			&i.SpotPreferred,
+			&i.NodeSelector,
+			&i.Tolerations,
+			&i.DefaultTimeout,
+			&i.ServiceAccountName,
+			&i.WorkspaceMode,
+			&i.WorkspaceStorageClass,
+			&i.WorkspaceSize,
+			&i.RunAsNonRoot,
+			&i.Mode,
+			&i.ManagedSpec,
+			&i.IsDefault,
 		); err != nil {
 			return nil, err
 		}
@@ -93,7 +186,8 @@ func (q *Queries) ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, er
 }
 
 const listRunnerPoolsPaged = `-- name: ListRunnerPoolsPaged :many
-SELECT id, name, description, cpu, memory, arch, gpu_vendor, gpu_model, gpu_count, ready, created_at
+SELECT id, name, description, cpu, memory, arch, gpu_vendor, gpu_model, gpu_count,
+       mode, managed_spec, node_selector, tolerations, is_default, ready, created_at
 FROM runner_pools ORDER BY name LIMIT $1 OFFSET $2
 `
 
@@ -103,17 +197,22 @@ type ListRunnerPoolsPagedParams struct {
 }
 
 type ListRunnerPoolsPagedRow struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Description *string     `json:"description"`
-	Cpu         string      `json:"cpu"`
-	Memory      string      `json:"memory"`
-	Arch        string      `json:"arch"`
-	GpuVendor   *string     `json:"gpu_vendor"`
-	GpuModel    *string     `json:"gpu_model"`
-	GpuCount    pgtype.Int4 `json:"gpu_count"`
-	Ready       bool        `json:"ready"`
-	CreatedAt   time.Time   `json:"created_at"`
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	Description  *string     `json:"description"`
+	Cpu          string      `json:"cpu"`
+	Memory       string      `json:"memory"`
+	Arch         string      `json:"arch"`
+	GpuVendor    *string     `json:"gpu_vendor"`
+	GpuModel     *string     `json:"gpu_model"`
+	GpuCount     pgtype.Int4 `json:"gpu_count"`
+	Mode         string      `json:"mode"`
+	ManagedSpec  []byte      `json:"managed_spec"`
+	NodeSelector []byte      `json:"node_selector"`
+	Tolerations  []byte      `json:"tolerations"`
+	IsDefault    bool        `json:"is_default"`
+	Ready        bool        `json:"ready"`
+	CreatedAt    time.Time   `json:"created_at"`
 }
 
 func (q *Queries) ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsPagedParams) ([]ListRunnerPoolsPagedRow, error) {
@@ -135,6 +234,11 @@ func (q *Queries) ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsP
 			&i.GpuVendor,
 			&i.GpuModel,
 			&i.GpuCount,
+			&i.Mode,
+			&i.ManagedSpec,
+			&i.NodeSelector,
+			&i.Tolerations,
+			&i.IsDefault,
 			&i.Ready,
 			&i.CreatedAt,
 		); err != nil {
@@ -148,12 +252,28 @@ func (q *Queries) ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsP
 	return items, nil
 }
 
+const setDefaultRunnerPool = `-- name: SetDefaultRunnerPool :exec
+UPDATE runner_pools SET is_default = (name = $1), updated_at = now()
+`
+
+// Promotes one pool to default and demotes all others atomically.
+func (q *Queries) SetDefaultRunnerPool(ctx context.Context, name string) error {
+	_, err := q.db.Exec(ctx, setDefaultRunnerPool, name)
+	return err
+}
+
 const upsertRunnerPool = `-- name: UpsertRunnerPool :exec
 INSERT INTO runner_pools (
     name, description, cpu, memory, gpu_vendor, gpu_model, gpu_count,
-    arch, node_selector, tolerations, spot_preferred, spot_fallback,
-    default_timeout, ready, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, now())
+    arch, node_selector, tolerations,
+    default_timeout, service_account_name, workspace_mode, workspace_storage_class,
+    workspace_size, run_as_non_root, mode, managed_spec, ready, updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10,
+    $11, $12, $13, $14,
+    $15, $16, $17, $18, true, now()
+)
 ON CONFLICT (name) DO UPDATE SET
     description = EXCLUDED.description,
     cpu = EXCLUDED.cpu,
@@ -164,27 +284,37 @@ ON CONFLICT (name) DO UPDATE SET
     arch = EXCLUDED.arch,
     node_selector = EXCLUDED.node_selector,
     tolerations = EXCLUDED.tolerations,
-    spot_preferred = EXCLUDED.spot_preferred,
-    spot_fallback = EXCLUDED.spot_fallback,
     default_timeout = EXCLUDED.default_timeout,
+    service_account_name = EXCLUDED.service_account_name,
+    workspace_mode = EXCLUDED.workspace_mode,
+    workspace_storage_class = EXCLUDED.workspace_storage_class,
+    workspace_size = EXCLUDED.workspace_size,
+    run_as_non_root = EXCLUDED.run_as_non_root,
+    mode = EXCLUDED.mode,
+    managed_spec = EXCLUDED.managed_spec,
     ready = true,
     updated_at = now()
 `
 
 type UpsertRunnerPoolParams struct {
-	Name           string      `json:"name"`
-	Description    *string     `json:"description"`
-	Cpu            string      `json:"cpu"`
-	Memory         string      `json:"memory"`
-	GpuVendor      *string     `json:"gpu_vendor"`
-	GpuModel       *string     `json:"gpu_model"`
-	GpuCount       pgtype.Int4 `json:"gpu_count"`
-	Arch           string      `json:"arch"`
-	NodeSelector   []byte      `json:"node_selector"`
-	Tolerations    []byte      `json:"tolerations"`
-	SpotPreferred  bool        `json:"spot_preferred"`
-	SpotFallback   string      `json:"spot_fallback"`
-	DefaultTimeout *string     `json:"default_timeout"`
+	Name                  string      `json:"name"`
+	Description           *string     `json:"description"`
+	Cpu                   string      `json:"cpu"`
+	Memory                string      `json:"memory"`
+	GpuVendor             *string     `json:"gpu_vendor"`
+	GpuModel              *string     `json:"gpu_model"`
+	GpuCount              pgtype.Int4 `json:"gpu_count"`
+	Arch                  string      `json:"arch"`
+	NodeSelector          []byte      `json:"node_selector"`
+	Tolerations           []byte      `json:"tolerations"`
+	DefaultTimeout        *string     `json:"default_timeout"`
+	ServiceAccountName    *string     `json:"service_account_name"`
+	WorkspaceMode         string      `json:"workspace_mode"`
+	WorkspaceStorageClass *string     `json:"workspace_storage_class"`
+	WorkspaceSize         string      `json:"workspace_size"`
+	RunAsNonRoot          bool        `json:"run_as_non_root"`
+	Mode                  string      `json:"mode"`
+	ManagedSpec           []byte      `json:"managed_spec"`
 }
 
 func (q *Queries) UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error {
@@ -199,9 +329,14 @@ func (q *Queries) UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolPara
 		arg.Arch,
 		arg.NodeSelector,
 		arg.Tolerations,
-		arg.SpotPreferred,
-		arg.SpotFallback,
 		arg.DefaultTimeout,
+		arg.ServiceAccountName,
+		arg.WorkspaceMode,
+		arg.WorkspaceStorageClass,
+		arg.WorkspaceSize,
+		arg.RunAsNonRoot,
+		arg.Mode,
+		arg.ManagedSpec,
 	)
 	return err
 }
