@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { orpc } from '#/lib/orpc'
+import { logout } from '#/lib/auth-token'
 import { ScopeSelector } from './ScopeSelector'
 import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
 import { ViewsNav } from './ViewsNav'
@@ -393,7 +394,7 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
         </Link>
         <button
           type="button"
-          onClick={() => console.log('[mock] Logout')}
+          onClick={() => void logout()}
           title="Sign out"
           className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/5 transition-colors"
         >

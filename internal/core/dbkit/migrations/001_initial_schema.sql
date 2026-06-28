@@ -527,6 +527,7 @@ CREATE TABLE public.sessions (
     user_id uuid NOT NULL,
     token_hash text NOT NULL,
     idp_token_enc bytea,
+    logout_state_enc bytea,
     ip_address inet,
     user_agent text,
     created_at timestamptz DEFAULT now() NOT NULL,

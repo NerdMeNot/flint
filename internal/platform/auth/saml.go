@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
@@ -8,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -226,6 +229,60 @@ func (p *SAMLProvider) AuthURL(relayState string) (string, error) {
 	return redirectURL.String(), nil
 }
 
+// SLOConfigured reports whether the IdP advertises a SingleLogoutService, i.e.
+// whether SAML Single Logout is available.
+func (p *SAMLProvider) SLOConfigured() bool {
+	return p.sp.GetSLOBindingLocation(saml.HTTPRedirectBinding) != ""
+}
+
+// LogoutRequestURL builds an SP-initiated SAML LogoutRequest (HTTP-Redirect
+// binding) for the given NameID, scoped to the SessionIndex captured at login.
+// Returns "" (no error) when the IdP advertises no SingleLogoutService.
+func (p *SAMLProvider) LogoutRequestURL(nameID, sessionIndex, relayState string) (string, error) {
+	if !p.SLOConfigured() {
+		return "", nil
+	}
+	req, err := p.sp.MakeLogoutRequest(p.sp.GetSLOBindingLocation(saml.HTTPRedirectBinding), nameID)
+	if err != nil {
+		return "", fmt.Errorf("creating LogoutRequest: %w", err)
+	}
+	if sessionIndex != "" {
+		req.SessionIndex = &saml.SessionIndex{Value: sessionIndex}
+	}
+	return req.Redirect(relayState).String(), nil
+}
+
+// ParseLogoutRequest decodes an IdP-initiated LogoutRequest delivered over the
+// HTTP-Redirect binding (base64 + raw DEFLATE) and returns the parsed request,
+// from which the caller reads the NameID to revoke local sessions.
+func (p *SAMLProvider) ParseLogoutRequest(samlRequest string) (*saml.LogoutRequest, error) {
+	compressed, err := base64.StdEncoding.DecodeString(samlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("decoding SAMLRequest: %w", err)
+	}
+	r := flate.NewReader(bytes.NewReader(compressed))
+	defer r.Close()
+	xmlBytes, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("inflating SAMLRequest: %w", err)
+	}
+	var req saml.LogoutRequest
+	if err := xml.Unmarshal(xmlBytes, &req); err != nil {
+		return nil, fmt.Errorf("parsing LogoutRequest: %w", err)
+	}
+	return &req, nil
+}
+
+// LogoutResponseURL builds the SAML LogoutResponse (HTTP-Redirect binding)
+// acknowledging an IdP-initiated LogoutRequest with the given ID.
+func (p *SAMLProvider) LogoutResponseURL(requestID, relayState string) (string, error) {
+	u, err := p.sp.MakeRedirectLogoutResponse(requestID, relayState)
+	if err != nil {
+		return "", fmt.Errorf("building LogoutResponse: %w", err)
+	}
+	return u.String(), nil
+}
+
 // ValidateResponse validates a SAML response and extracts claims.
 func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 	// Decode the base64-encoded SAML response.
@@ -252,6 +309,15 @@ func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 		// If NameID format is email, use it as email.
 		if assertion.Subject.NameID.Format == "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" {
 			claims.Email = assertion.Subject.NameID.Value
+		}
+	}
+
+	// Capture the SessionIndex — required to scope a later SP-initiated
+	// LogoutRequest to this exact IdP session (SAML SLO).
+	for _, stmt := range assertion.AuthnStatements {
+		if stmt.SessionIndex != "" {
+			claims.SessionIndex = stmt.SessionIndex
+			break
 		}
 	}
 

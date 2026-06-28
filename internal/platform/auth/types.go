@@ -8,16 +8,17 @@ import "time"
 
 // Claims represents a unified identity extracted from either OIDC or SAML.
 type Claims struct {
-	Subject    string // IdP subject / NameID
-	Email      string
-	Name       string
-	Groups     []string
-	OrgID      string // resolved after authentication
-	Provider   string // "oidc" or "saml"
-	ExternalID string // raw IdP identifier for user matching
-	IssuedAt   time.Time
-	ExpiresAt  time.Time
-	Raw        map[string]any // all claims/attributes for custom mapping
+	Subject      string // IdP subject / NameID
+	Email        string
+	Name         string
+	Groups       []string
+	OrgID        string // resolved after authentication
+	Provider     string // "oidc" or "saml"
+	ExternalID   string // raw IdP identifier for user matching
+	SessionIndex string // SAML AuthnStatement SessionIndex (for SLO)
+	IssuedAt     time.Time
+	ExpiresAt    time.Time
+	Raw          map[string]any // all claims/attributes for custom mapping
 }
 
 // ────────────────────────────────────────────────────────────

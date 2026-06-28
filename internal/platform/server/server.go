@@ -154,6 +154,7 @@ func (s *Server) registerMockIdPRoutes() {
 	g.POST("/login", m.login)
 	g.POST("/token", m.token)
 	g.GET("/userinfo", m.userinfo)
+	g.GET("/logout", m.logout)
 }
 
 // registerSCIMRoutes mounts the SCIM 2.0 provisioning data-plane. It uses its

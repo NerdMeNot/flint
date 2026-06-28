@@ -87,7 +87,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.5 // indirect
 	github.com/aws/smithy-go v1.24.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/beevik/etree v1.5.0 // indirect
+	github.com/beevik/etree v1.5.0
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect

@@ -457,6 +457,7 @@ type Querier interface {
 	UpdateRunWorkflow(ctx context.Context, arg UpdateRunWorkflowParams) (int64, error)
 	UpdateSecretValue(ctx context.Context, arg UpdateSecretValueParams) error
 	UpdateSessionIdpToken(ctx context.Context, arg UpdateSessionIdpTokenParams) error
+	UpdateSessionLogoutState(ctx context.Context, arg UpdateSessionLogoutStateParams) error
 	UpdateSessionSyncedAt(ctx context.Context, id string) error
 	UpdateStepOutputs(ctx context.Context, arg UpdateStepOutputsParams) error
 	UpdateStepResult(ctx context.Context, arg UpdateStepResultParams) error

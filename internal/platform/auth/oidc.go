@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -37,10 +38,12 @@ var _ OIDCAuth = (*OIDCProvider)(nil)
 
 // OIDCProvider wraps go-oidc for OIDC authentication.
 type OIDCProvider struct {
-	provider *oidc.Provider
-	verifier *oidc.IDTokenVerifier
-	oauth2   oauth2.Config
-	mapping  OIDCMapping
+	provider           *oidc.Provider
+	verifier           *oidc.IDTokenVerifier
+	oauth2             oauth2.Config
+	mapping            OIDCMapping
+	clientID           string
+	endSessionEndpoint string // RP-initiated logout endpoint, if the IdP advertises one
 }
 
 // NewOIDCProvider creates an OIDC provider by performing discovery on the issuer URL.
@@ -67,11 +70,21 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 		Scopes:       scopes,
 	}
 
+	// The end_session_endpoint is part of OIDC discovery (RP-Initiated Logout
+	// 1.0) but not surfaced by go-oidc's Endpoint(), so read it from the raw
+	// discovery document. Empty when the IdP doesn't support RP-initiated logout.
+	var disc struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	_ = provider.Claims(&disc)
+
 	return &OIDCProvider{
-		provider: provider,
-		verifier: verifier,
-		oauth2:   oauth2Cfg,
-		mapping:  cfg.Mapping,
+		provider:           provider,
+		verifier:           verifier,
+		oauth2:             oauth2Cfg,
+		mapping:            cfg.Mapping,
+		clientID:           cfg.ClientID,
+		endSessionEndpoint: disc.EndSessionEndpoint,
 	}, nil
 }
 
@@ -172,8 +185,39 @@ type OIDCDiscovery struct {
 	AuthorizationEndpoint string   `json:"authorizationEndpoint"`
 	TokenEndpoint         string   `json:"tokenEndpoint"`
 	UserinfoEndpoint      string   `json:"userinfoEndpoint,omitempty"`
+	EndSessionEndpoint    string   `json:"endSessionEndpoint,omitempty"`
 	ScopesSupported       []string `json:"scopesSupported,omitempty"`
 	ClaimsSupported       []string `json:"claimsSupported,omitempty"`
+}
+
+// SupportsRPLogout reports whether the IdP advertises an end_session_endpoint,
+// i.e. whether RP-initiated single logout is available.
+func (p *OIDCProvider) SupportsRPLogout() bool { return p.endSessionEndpoint != "" }
+
+// EndSessionURL builds the RP-initiated logout URL (OIDC RP-Initiated Logout
+// 1.0). idTokenHint is the user's ID token (the IdP uses it to identify the
+// session to terminate); postLogoutRedirectURI is where the IdP returns the
+// browser afterwards. Returns "" when the IdP advertises no end_session_endpoint.
+func (p *OIDCProvider) EndSessionURL(idTokenHint, postLogoutRedirectURI string) string {
+	if p.endSessionEndpoint == "" {
+		return ""
+	}
+	u, err := url.Parse(p.endSessionEndpoint)
+	if err != nil {
+		return ""
+	}
+	q := u.Query()
+	if idTokenHint != "" {
+		q.Set("id_token_hint", idTokenHint)
+	}
+	if postLogoutRedirectURI != "" {
+		q.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+	}
+	// client_id is required by some IdPs (e.g. when no id_token_hint is sent)
+	// and harmless otherwise.
+	q.Set("client_id", p.clientID)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // Discovery returns the discovery metadata resolved at construction.
@@ -190,6 +234,7 @@ func (p *OIDCProvider) Discovery() OIDCDiscovery {
 		AuthorizationEndpoint: p.oauth2.Endpoint.AuthURL,
 		TokenEndpoint:         p.oauth2.Endpoint.TokenURL,
 		UserinfoEndpoint:      raw.UserinfoEndpoint,
+		EndSessionEndpoint:    p.endSessionEndpoint,
 		ScopesSupported:       raw.ScopesSupported,
 		ClaimsSupported:       raw.ClaimsSupported,
 	}

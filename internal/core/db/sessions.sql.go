@@ -57,24 +57,25 @@ func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT id, user_id, token_hash, idp_token_enc, ip_address, user_agent,
+SELECT id, user_id, token_hash, idp_token_enc, logout_state_enc, ip_address, user_agent,
        created_at, last_activity, expires_at, idle_expires_at, revoked_at
 FROM sessions
 WHERE token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	TokenHash     string     `json:"token_hash"`
-	IdpTokenEnc   []byte     `json:"idp_token_enc"`
-	IpAddress     *string    `json:"ip_address"`
-	UserAgent     *string    `json:"user_agent"`
-	CreatedAt     time.Time  `json:"created_at"`
-	LastActivity  time.Time  `json:"last_activity"`
-	ExpiresAt     time.Time  `json:"expires_at"`
-	IdleExpiresAt time.Time  `json:"idle_expires_at"`
-	RevokedAt     *time.Time `json:"revoked_at"`
+	ID             string     `json:"id"`
+	UserID         string     `json:"user_id"`
+	TokenHash      string     `json:"token_hash"`
+	IdpTokenEnc    []byte     `json:"idp_token_enc"`
+	LogoutStateEnc []byte     `json:"logout_state_enc"`
+	IpAddress      *string    `json:"ip_address"`
+	UserAgent      *string    `json:"user_agent"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastActivity   time.Time  `json:"last_activity"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	IdleExpiresAt  time.Time  `json:"idle_expires_at"`
+	RevokedAt      *time.Time `json:"revoked_at"`
 }
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error) {
@@ -85,6 +86,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 		&i.UserID,
 		&i.TokenHash,
 		&i.IdpTokenEnc,
+		&i.LogoutStateEnc,
 		&i.IpAddress,
 		&i.UserAgent,
 		&i.CreatedAt,
@@ -253,6 +255,20 @@ type UpdateSessionIdpTokenParams struct {
 
 func (q *Queries) UpdateSessionIdpToken(ctx context.Context, arg UpdateSessionIdpTokenParams) error {
 	_, err := q.db.Exec(ctx, updateSessionIdpToken, arg.ID, arg.IdpTokenEnc)
+	return err
+}
+
+const updateSessionLogoutState = `-- name: UpdateSessionLogoutState :exec
+UPDATE sessions SET logout_state_enc = $2 WHERE id = $1
+`
+
+type UpdateSessionLogoutStateParams struct {
+	ID             string `json:"id"`
+	LogoutStateEnc []byte `json:"logout_state_enc"`
+}
+
+func (q *Queries) UpdateSessionLogoutState(ctx context.Context, arg UpdateSessionLogoutStateParams) error {
+	_, err := q.db.Exec(ctx, updateSessionLogoutState, arg.ID, arg.LogoutStateEnc)
 	return err
 }
 

@@ -59,6 +59,7 @@ func (m *mockIdP) discovery(_ context.Context, c *app.RequestContext) {
 		"token_endpoint":                        m.issuer + "/token",
 		"jwks_uri":                              m.issuer + "/jwks",
 		"userinfo_endpoint":                     m.issuer + "/userinfo",
+		"end_session_endpoint":                  m.issuer + "/logout",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
 		"subject_types_supported":               []string{"public"},
@@ -187,6 +188,18 @@ func (m *mockIdP) userinfo(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	c.JSON(consts.StatusOK, claims)
+}
+
+// logout implements the OIDC RP-Initiated Logout end_session_endpoint: it
+// terminates the (stateless) mock session and bounces the browser back to the
+// SP's post_logout_redirect_uri so the full round trip can be exercised.
+func (m *mockIdP) logout(_ context.Context, c *app.RequestContext) {
+	redirect := string(c.Query("post_logout_redirect_uri"))
+	if redirect == "" {
+		c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte("<!doctype html><title>Signed out</title><p>Signed out of the mock IdP.</p>"))
+		return
+	}
+	c.Redirect(consts.StatusFound, []byte(redirect))
 }
 
 func splitCommaList(s string) []string {
