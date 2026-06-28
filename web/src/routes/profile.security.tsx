@@ -112,11 +112,19 @@ function MFASection() {
   const [showSetup, setShowSetup] = useState(false)
   const [disableCode, setDisableCode] = useState('')
   const [showDisable, setShowDisable] = useState(false)
+  const [showRegen, setShowRegen] = useState(false)
+  const [regenCode, setRegenCode] = useState('')
+  const [newCodes, setNewCodes] = useState<string[]>([])
 
   const disable = useAction((code: string) => client.auth.mfa.disable({ code }), {
     invalidate: [orpc.auth.me.key()],
     onSuccess: () => { setShowDisable(false); setDisableCode('') },
   })
+
+  const regen = useAction(
+    (code: string) => client.auth.mfa.regenerateRecoveryCodes({ code }),
+    { onSuccess: (res: { recoveryCodes: string[] }) => { setNewCodes(res.recoveryCodes); setRegenCode('') } },
+  )
 
   return (
     <section className="island-shell p-5">
@@ -158,6 +166,47 @@ function MFASection() {
             </button>
           </div>
         </div>
+      ) : showRegen ? (
+        <div className="space-y-3">
+          {newCodes.length > 0 ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Your new recovery codes. Store them safely — each is single-use and the old codes no
+                longer work.
+              </p>
+              <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-border bg-muted/20 p-3 font-mono text-xs text-foreground">
+                {newCodes.map((c, i) => <span key={i}>{c}</span>)}
+              </div>
+              <button onClick={() => { setShowRegen(false); setNewCodes([]) }}
+                className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50">
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Enter your current authenticator code to generate a fresh set of recovery codes. This
+                invalidates your existing codes.
+              </p>
+              {regen.isError && <Alert kind="error">{(regen.error as Error).message}</Alert>}
+              <input type="text" inputMode="numeric" value={regenCode}
+                onChange={(e) => setRegenCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000" maxLength={6} autoFocus
+                className="w-48 text-center rounded-lg border border-border bg-transparent px-3 py-2 text-sm font-mono text-foreground tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring/40" />
+              <div className="flex gap-2">
+                <button onClick={() => regen.mutate(regenCode)} disabled={regen.isPending || regenCode.length !== 6}
+                  className="flex items-center gap-2 rounded-lg bg-primary text-primary-foreground font-medium text-xs px-3.5 py-1.5 hover:opacity-90 disabled:opacity-50">
+                  {regen.isPending ? <Loader2 size={13} className="animate-spin" /> : null}
+                  Generate new codes
+                </button>
+                <button onClick={() => { setShowRegen(false); setRegenCode('') }}
+                  className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       ) : (
         <div>
           <p className="text-sm text-muted-foreground mb-4">
@@ -166,10 +215,16 @@ function MFASection() {
               : 'Add an extra layer of security by enabling two-factor authentication with an authenticator app.'}
           </p>
           {mfaEnabled ? (
-            <button onClick={() => setShowDisable(true)}
-              className="rounded-lg border border-destructive/30 text-destructive font-medium text-xs px-3.5 py-1.5 hover:bg-destructive/5 transition-colors">
-              Disable MFA
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setShowRegen(true)}
+                className="rounded-lg border border-border font-medium text-xs px-3.5 py-1.5 text-foreground hover:bg-accent/50 transition-colors">
+                Regenerate recovery codes
+              </button>
+              <button onClick={() => setShowDisable(true)}
+                className="rounded-lg border border-destructive/30 text-destructive font-medium text-xs px-3.5 py-1.5 hover:bg-destructive/5 transition-colors">
+                Disable MFA
+              </button>
+            </div>
           ) : (
             <button onClick={() => setShowSetup(true)}
               className="flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors"

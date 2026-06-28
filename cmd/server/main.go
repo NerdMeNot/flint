@@ -196,10 +196,17 @@ func run(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if pc != nil && pc.HasOIDC() {
+			// Non-fatal: a transiently-unreachable IdP (discovery requires a live
+			// network call) must not crash-loop the server — health, local login,
+			// and break-glass admin access still need to come up. SSO activates on
+			// the next config hot-reload once the IdP is reachable.
 			if oidcProvider, err = auth.BuildOIDCProvider(ctx, *pc, cfg.Server.BaseURL); err != nil {
-				return fmt.Errorf("initializing OIDC provider: %w", err)
+				log.Error().Err(err).Str("issuer", pc.IssuerURL).
+					Msg("OIDC provider init failed — SSO unavailable until reachable; server continues")
+				oidcProvider = nil
+			} else {
+				log.Info().Str("issuer", pc.IssuerURL).Msg("OIDC provider initialized")
 			}
-			log.Info().Str("issuer", pc.IssuerURL).Msg("OIDC provider initialized")
 		}
 	}
 
@@ -237,10 +244,15 @@ func run(cmd *cobra.Command, args []string) error {
 			pc = fileCfg
 		}
 		if pc != nil && pc.HasSAML() {
+			// Non-fatal, as with OIDC: metadata-URL configs require a live fetch,
+			// so a transiently-unreachable IdP must not crash-loop the server.
 			if samlProvider, err = auth.BuildSAMLProvider(*pc, cfg.Server.BaseURL); err != nil {
-				return fmt.Errorf("initializing SAML provider: %w", err)
+				log.Error().Err(err).
+					Msg("SAML provider init failed — SSO unavailable until reachable; server continues")
+				samlProvider = nil
+			} else {
+				log.Info().Msg("SAML provider initialized")
 			}
-			log.Info().Msg("SAML provider initialized")
 		}
 	}
 
