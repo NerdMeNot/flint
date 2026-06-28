@@ -215,6 +215,23 @@ func (q *Queries) RevokeSessionByHash(ctx context.Context, tokenHash string) err
 	return err
 }
 
+const revokeSessionsForInactiveUsers = `-- name: RevokeSessionsForInactiveUsers :execrows
+UPDATE sessions s SET revoked_at = now()
+FROM users u
+WHERE s.user_id = u.id AND u.is_active = false AND s.revoked_at IS NULL
+`
+
+// Provider-agnostic deprovisioning sweep: terminate every live session whose
+// owner has been deactivated (is_active = false), regardless of OIDC/SAML. The
+// safety net for SAML, which has no back-channel to detect IdP-side removal.
+func (q *Queries) RevokeSessionsForInactiveUsers(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeSessionsForInactiveUsers)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revokeUserSessions = `-- name: RevokeUserSessions :exec
 UPDATE sessions SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL

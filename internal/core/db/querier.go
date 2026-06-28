@@ -405,6 +405,10 @@ type Querier interface {
 	RestoreProject(ctx context.Context, id string) error
 	RevokeSession(ctx context.Context, id string) error
 	RevokeSessionByHash(ctx context.Context, tokenHash string) error
+	// Provider-agnostic deprovisioning sweep: terminate every live session whose
+	// owner has been deactivated (is_active = false), regardless of OIDC/SAML. The
+	// safety net for SAML, which has no back-channel to detect IdP-side removal.
+	RevokeSessionsForInactiveUsers(ctx context.Context) (int64, error)
 	RevokeUserSessions(ctx context.Context, userID string) error
 	RoleExists(ctx context.Context, arg RoleExistsParams) (bool, error)
 	RotateSessionToken(ctx context.Context, arg RotateSessionTokenParams) error

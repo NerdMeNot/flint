@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -41,8 +42,44 @@ func New(deps Deps) *Server {
 
 	s.registerRoutes()
 	s.startSAMLMetadataRefresh()
+	s.startDeprovisionSweep()
 
 	return s
+}
+
+// startDeprovisionSweep periodically terminates the live sessions of any user
+// that has been deactivated (is_active = false), and prunes long-expired
+// session rows. This is the provider-agnostic deprovisioning safety net: SCIM
+// already revokes sessions inline when an IdP deactivates a user, but SAML has
+// no back-channel, so an admin deactivating a SAML user (or a missed inline
+// revoke) is reliably enforced here on a timer rather than waiting for session
+// expiry. Runs in-process so it is always active, not only when syncd is deployed.
+func (s *Server) startDeprovisionSweep() {
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			s.runDeprovisionSweep(context.Background())
+		}
+	}()
+}
+
+func (s *Server) runDeprovisionSweep(ctx context.Context) {
+	revoked, err := s.deps.Q.RevokeSessionsForInactiveUsers(ctx)
+	if err != nil {
+		logErr(ctx, err, "deprovision sweep: revoke inactive sessions")
+		return
+	}
+	if revoked > 0 {
+		if org, oerr := s.deps.Q.GetOrg(ctx); oerr == nil {
+			_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
+				OrgID: org.ID, Action: "auth.deprovision.sweep", ResourceType: "session",
+			})
+		}
+	}
+	if err := s.deps.Q.DeleteExpiredSessions(ctx); err != nil {
+		logErr(ctx, err, "deprovision sweep: prune expired sessions")
+	}
 }
 
 // startSAMLMetadataRefresh periodically re-fetches the SAML IdP metadata (when a

@@ -35,6 +35,14 @@ UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS N
 UPDATE sessions SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL;
 
+-- name: RevokeSessionsForInactiveUsers :execrows
+-- Provider-agnostic deprovisioning sweep: terminate every live session whose
+-- owner has been deactivated (is_active = false), regardless of OIDC/SAML. The
+-- safety net for SAML, which has no back-channel to detect IdP-side removal.
+UPDATE sessions s SET revoked_at = now()
+FROM users u
+WHERE s.user_id = u.id AND u.is_active = false AND s.revoked_at IS NULL;
+
 -- name: ListUserSessions :many
 SELECT id, ip_address, user_agent, created_at, last_activity, expires_at
 FROM sessions
