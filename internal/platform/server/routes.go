@@ -254,6 +254,8 @@ func (s *Server) registerAPIRoutes() {
 	v1.GET("/auth/providers", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleListAuthProviders)
 	v1.PUT("/auth/provider", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleUpdateAuthProvider)
 	v1.POST("/auth/provider/test", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleTestAuthProvider)
+	v1.POST("/auth/provider/test-login", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleStartTestLogin)
+	v1.GET("/auth/provider/test-login/:id", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetTestLogin)
 	v1.DELETE("/auth/provider/:type", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleDeleteAuthProvider)
 	v1.GET("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetGroupMappings)
 	v1.PUT("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handlePutGroupMappings)

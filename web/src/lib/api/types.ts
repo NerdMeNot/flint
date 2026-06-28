@@ -468,6 +468,23 @@ export interface GroupMappings {
   strict: boolean
 }
 
+// Decoded test sign-in (B1): a real login round-trip that captures the exact
+// claims/assertion the IdP emits.
+export interface TestLoginStart {
+  testId: string
+  authUrl: string
+}
+export interface TestLoginResult {
+  status: 'pending' | 'complete' | 'error'
+  error?: string
+  result?: {
+    email: string
+    name: string
+    groups: string[]
+    raw: Record<string, unknown>
+  }
+}
+
 // SCIM provisioning status.
 export interface ScimStatus {
   configured: boolean

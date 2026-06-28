@@ -29,6 +29,8 @@ import {
   type MfaSetup,
   type AuthProviders,
   type ProviderTestResult,
+  type TestLoginStart,
+  type TestLoginResult,
   type GroupMappings,
   type ScimStatus,
   providerConfigSchema,
@@ -845,6 +847,19 @@ const auth = {
       }))
       .handler(async ({ input }) => {
         return backendPost<ProviderTestResult>('/auth/provider/test', input)
+      }),
+    testLoginStart: os
+      .input(z.object({
+        providerType: z.enum(['oidc', 'saml']),
+        config: providerConfigSchema,
+      }))
+      .handler(async ({ input }) => {
+        return backendPost<TestLoginStart>('/auth/provider/test-login', input)
+      }),
+    testLoginResult: os
+      .input(z.object({ id: z.string() }))
+      .handler(async ({ input }) => {
+        return backendGet<TestLoginResult>(`/auth/provider/test-login/${input.id}`)
       }),
     delete: os
       .input(z.object({ providerType: z.string() }))
