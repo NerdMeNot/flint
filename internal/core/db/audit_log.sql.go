@@ -37,6 +37,34 @@ func (q *Queries) InsertAuditEntry(ctx context.Context, arg InsertAuditEntryPara
 	return err
 }
 
+const insertAuditEntryWithMeta = `-- name: InsertAuditEntryWithMeta :exec
+INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, ip_address, metadata)
+VALUES ($1, $2, $3, $4, $5, $6::inet, $7)
+`
+
+type InsertAuditEntryWithMetaParams struct {
+	OrgID        string     `json:"org_id"`
+	UserID       *string    `json:"user_id"`
+	Action       string     `json:"action"`
+	ResourceType string     `json:"resource_type"`
+	ResourceID   *string    `json:"resource_id"`
+	Column6      netip.Addr `json:"column_6"`
+	Metadata     []byte     `json:"metadata"`
+}
+
+func (q *Queries) InsertAuditEntryWithMeta(ctx context.Context, arg InsertAuditEntryWithMetaParams) error {
+	_, err := q.db.Exec(ctx, insertAuditEntryWithMeta,
+		arg.OrgID,
+		arg.UserID,
+		arg.Action,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.Column6,
+		arg.Metadata,
+	)
+	return err
+}
+
 const listAuditLog = `-- name: ListAuditLog :many
 SELECT al.id, al.user_id, u.email AS user_email, al.action, al.resource_type,
        al.resource_id, al.metadata, al.ip_address, al.created_at
@@ -81,6 +109,59 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]L
 			&i.UserEmail,
 			&i.Action,
 			&i.ResourceType,
+			&i.ResourceID,
+			&i.Metadata,
+			&i.IpAddress,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentSignIns = `-- name: ListRecentSignIns :many
+SELECT al.user_id, u.email AS user_email, al.action, al.resource_id, al.metadata, CAST(COALESCE(host(al.ip_address), '') AS text) AS ip_address, al.created_at
+FROM audit_log al
+LEFT JOIN users u ON al.user_id = u.id
+WHERE al.org_id = $1 AND al.action IN ('auth.login', 'auth.login.failed')
+ORDER BY al.created_at DESC
+LIMIT $2
+`
+
+type ListRecentSignInsParams struct {
+	OrgID string `json:"org_id"`
+	Limit int32  `json:"limit"`
+}
+
+type ListRecentSignInsRow struct {
+	UserID     *string   `json:"user_id"`
+	UserEmail  *string   `json:"user_email"`
+	Action     string    `json:"action"`
+	ResourceID *string   `json:"resource_id"`
+	Metadata   []byte    `json:"metadata"`
+	IpAddress  string    `json:"ip_address"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Recent SSO sign-in attempts (success + failure) for the sign-in diagnostics log.
+func (q *Queries) ListRecentSignIns(ctx context.Context, arg ListRecentSignInsParams) ([]ListRecentSignInsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentSignIns, arg.OrgID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentSignInsRow{}
+	for rows.Next() {
+		var i ListRecentSignInsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.UserEmail,
+			&i.Action,
 			&i.ResourceID,
 			&i.Metadata,
 			&i.IpAddress,

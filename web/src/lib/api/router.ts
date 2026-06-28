@@ -33,6 +33,7 @@ import {
   type TestLoginResult,
   type GroupMappings,
   type ScimStatus,
+  type SignInLog,
   providerConfigSchema,
   type WorkflowRun,
   type WorkflowRunDetail,
@@ -879,6 +880,9 @@ const auth = {
           return backendPut('/auth/group-mappings', input)
         }),
     },
+    signInLog: os.handler(async () => {
+      return backendGet<SignInLog>('/auth/sign-in-log')
+    }),
     scim: {
       get: os.handler(async () => {
         return backendGet<ScimStatus>('/auth/scim')

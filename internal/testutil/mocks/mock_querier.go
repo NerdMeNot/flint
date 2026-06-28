@@ -3870,6 +3870,24 @@ func (_m *Querier) InsertAuditEntry(ctx context.Context, arg db.InsertAuditEntry
 	return r0
 }
 
+// InsertAuditEntryWithMeta provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertAuditEntryWithMeta(ctx context.Context, arg db.InsertAuditEntryWithMetaParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertAuditEntryWithMeta")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertAuditEntryWithMetaParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // InsertDeviceCode provides a mock function with given fields: ctx, arg
 func (_m *Querier) InsertDeviceCode(ctx context.Context, arg db.InsertDeviceCodeParams) error {
 	ret := _m.Called(ctx, arg)
@@ -5103,6 +5121,36 @@ func (_m *Querier) ListProtectedEnvironments(ctx context.Context, orgID string) 
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
 		r1 = rf(ctx, orgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListRecentSignIns provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListRecentSignIns(ctx context.Context, arg db.ListRecentSignInsParams) ([]db.ListRecentSignInsRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRecentSignIns")
+	}
+
+	var r0 []db.ListRecentSignInsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRecentSignInsParams) ([]db.ListRecentSignInsRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListRecentSignInsParams) []db.ListRecentSignInsRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ListRecentSignInsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListRecentSignInsParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}
