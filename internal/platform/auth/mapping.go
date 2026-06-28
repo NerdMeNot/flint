@@ -1,5 +1,7 @@
 package auth
 
+import "github.com/rs/zerolog/log"
+
 // Claim/attribute mapping. IdPs are standards-compliant on the wire but wildly
 // inconsistent about *which* claim or attribute carries the user's email, name,
 // and group membership. Rather than branch per provider, the OIDC and SAML
@@ -77,9 +79,15 @@ func (m SAMLMapping) withDefaults() SAMLMapping {
 // configured (or default) claim names.
 func resolveOIDCClaims(raw map[string]any, m OIDCMapping) (email, name string, groups []string) {
 	m = m.withDefaults()
-	return coerceString(raw[m.EmailClaim]),
-		coerceString(raw[m.NameClaim]),
-		coerceStringSlice(raw[m.GroupsClaim])
+	groups = coerceStringSlice(raw[m.GroupsClaim])
+	if len(groups) == 0 {
+		if over, graphURL := oidcGroupOverage(raw); over {
+			log.Warn().Str("graphEndpoint", graphURL).
+				Msg("oidc: group overage — IdP omitted the groups claim (user is in too many groups); " +
+					"group→role mapping may under-privilege this user until resolved via Microsoft Graph")
+		}
+	}
+	return coerceString(raw[m.EmailClaim]), coerceString(raw[m.NameClaim]), groups
 }
 
 // resolveSAMLAttributes pulls the unified fields out of a SAML attribute bag,
@@ -97,7 +105,48 @@ func resolveSAMLAttributes(attrs map[string]any, m SAMLMapping) (email, name str
 			}
 		}
 	}
+	if len(groups) == 0 {
+		if over, graphURL := samlGroupOverage(attrs); over {
+			log.Warn().Str("graphEndpoint", graphURL).
+				Msg("saml: group overage — IdP omitted the groups attribute (user is in too many groups); " +
+					"group→role mapping may under-privilege this user until resolved via Microsoft Graph")
+		}
+	}
 	return email, name, groups
+}
+
+// oidcGroupOverage reports whether the IdP signalled that the groups claim was
+// omitted because the user belongs to too many groups (Azure AD / Entra
+// "overage", ~150+ for implicit/SAML, 200+ for OIDC). When true, the resolved
+// groups list is NOT authoritative — the user may be under-privileged — and the
+// full set must be fetched from Microsoft Graph at graphURL. Detected via the
+// distributed-claims markers _claim_names + _claim_sources (RFC: OIDC Core 5.6.2).
+func oidcGroupOverage(raw map[string]any) (overage bool, graphURL string) {
+	names, _ := raw["_claim_names"].(map[string]any)
+	if names == nil {
+		return false, ""
+	}
+	src, ok := names["groups"].(string)
+	if !ok {
+		return false, ""
+	}
+	sources, _ := raw["_claim_sources"].(map[string]any)
+	if s, ok := sources[src].(map[string]any); ok {
+		if ep, ok := s["endpoint"].(string); ok {
+			return true, ep
+		}
+	}
+	return true, ""
+}
+
+// samlGroupOverage reports the Azure SAML equivalent: when group membership
+// exceeds the limit Azure omits the groups attribute and instead emits a
+// groups.link attribute pointing at the Graph endpoint for the full set.
+func samlGroupOverage(attrs map[string]any) (overage bool, graphURL string) {
+	if v, ok := attrs["http://schemas.microsoft.com/claims/groups.link"]; ok {
+		return true, coerceString(v)
+	}
+	return false, ""
 }
 
 // firstString returns the first non-empty string found across the candidate keys.

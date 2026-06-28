@@ -124,6 +124,51 @@ func TestResolveSAMLAttributes(t *testing.T) {
 	}
 }
 
+func TestOIDCGroupOverage(t *testing.T) {
+	t.Run("Azure distributed-claims overage is detected with the Graph endpoint", func(t *testing.T) {
+		raw := map[string]any{
+			"_claim_names": map[string]any{"groups": "src1"},
+			"_claim_sources": map[string]any{
+				"src1": map[string]any{"endpoint": "https://graph.microsoft.com/v1.0/users/abc/getMemberObjects"},
+			},
+		}
+		over, url := oidcGroupOverage(raw)
+		assert.True(t, over)
+		assert.Equal(t, "https://graph.microsoft.com/v1.0/users/abc/getMemberObjects", url)
+	})
+
+	t.Run("overage marker without a source still flags overage", func(t *testing.T) {
+		over, url := oidcGroupOverage(map[string]any{"_claim_names": map[string]any{"groups": "src1"}})
+		assert.True(t, over)
+		assert.Empty(t, url)
+	})
+
+	t.Run("normal claims with a real groups list are not overage", func(t *testing.T) {
+		over, _ := oidcGroupOverage(map[string]any{"groups": []any{"eng", "admins"}})
+		assert.False(t, over)
+	})
+
+	t.Run("resolve returns no groups but does not panic on overage", func(t *testing.T) {
+		raw := map[string]any{
+			"email":        "a@b.com",
+			"_claim_names": map[string]any{"groups": "src1"},
+		}
+		_, _, groups := resolveOIDCClaims(raw, OIDCMapping{})
+		assert.Empty(t, groups)
+	})
+}
+
+func TestSAMLGroupOverage(t *testing.T) {
+	over, url := samlGroupOverage(map[string]any{
+		"http://schemas.microsoft.com/claims/groups.link": "https://graph.microsoft.com/v1.0/users/abc/getMemberObjects",
+	})
+	assert.True(t, over)
+	assert.Equal(t, "https://graph.microsoft.com/v1.0/users/abc/getMemberObjects", url)
+
+	over2, _ := samlGroupOverage(map[string]any{"groups": "eng"})
+	assert.False(t, over2)
+}
+
 func TestCoerceStringSlice(t *testing.T) {
 	tests := []struct {
 		name string
