@@ -18,8 +18,30 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/oauth2"
 )
+
+// recordLoginMetric counts a sign-in outcome by method (local/oidc/saml) and
+// result (success/failure) for dashboards and failure-spike alerting.
+func recordLoginMetric(ctx context.Context, method, result string) {
+	observe.AuthLoginsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("method", method), attribute.String("result", result)))
+}
+
+// loginMethodFromReason derives the sign-in method from an auditLoginFailure
+// reason string (e.g. "oidc:exchange_failed" -> "oidc", "require_sso" -> "local").
+func loginMethodFromReason(reason string) string {
+	switch {
+	case strings.HasPrefix(reason, "oidc"):
+		return "oidc"
+	case strings.HasPrefix(reason, "saml"):
+		return "saml"
+	default:
+		return "local"
+	}
+}
 
 // Device authorization and MFA-pending state are stored in Postgres (see
 // device_codes / mfa_pending_tokens) rather than process memory, so the auth
@@ -93,6 +115,7 @@ func (s *Server) auditEvent(ctx context.Context, orgID, userID, action, resource
 // raw error detail (stored in metadata) so the sign-in log can show exactly which
 // field/check failed.
 func (s *Server) auditLoginFailure(ctx context.Context, c *app.RequestContext, reason, detail string) {
+	recordLoginMetric(ctx, loginMethodFromReason(reason), "failure")
 	org, err := s.deps.Q.GetOrg(ctx)
 	if err != nil {
 		return
@@ -842,13 +865,14 @@ func (s *Server) completeSSO(ctx context.Context, deviceCode string, claims *aut
 		return "", fmt.Errorf("syncing user: %w", err)
 	}
 
-	// Audit: login event.
+	// Audit + metric: successful SSO login (method is the IdP protocol).
 	_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
 		OrgID:        org.ID,
 		UserID:       &userID,
 		Action:       "auth.login",
 		ResourceType: "session",
 	})
+	recordLoginMetric(ctx, claims.Provider, "success")
 
 	if err := s.CompleteDeviceAuth(ctx, deviceCode, claims, userID); err != nil {
 		return "", err
@@ -895,11 +919,13 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		_ = s.deps.Q.RecordLoginAttempt(ctx, db.RecordLoginAttemptParams{
 			Email: req.Email, IpAddress: ipAddr, Success: false,
 		})
+		recordLoginMetric(ctx, "local", "failure")
 		apiUnauthorized(ctx, c, "invalid credentials")
 		return
 	}
 
 	if !user.IsActive {
+		recordLoginMetric(ctx, "local", "failure")
 		apiUnauthorized(ctx, c, "account is deactivated")
 		return
 	}
@@ -919,6 +945,7 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		_ = s.deps.Q.RecordLoginAttempt(ctx, db.RecordLoginAttemptParams{
 			Email: req.Email, IpAddress: ipAddr, Success: false,
 		})
+		recordLoginMetric(ctx, "local", "failure")
 		apiUnauthorized(ctx, c, "invalid credentials")
 		return
 	}
@@ -1290,11 +1317,12 @@ func (s *Server) issueLocalAuthTokens(ctx context.Context, c *app.RequestContext
 		return
 	}
 
-	// Audit.
+	// Audit + metric: a local login (password, possibly after MFA) completed.
 	_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
 		OrgID: orgID, UserID: &userID,
 		Action: "auth.login", ResourceType: "session",
 	})
+	recordLoginMetric(ctx, "local", "success")
 
 	resp := utils.H{
 		"accessToken":  accessToken,

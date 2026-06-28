@@ -34,6 +34,10 @@ var (
 	// HTTP.
 	HTTPRequestsTotal   metric.Int64Counter
 	HTTPRequestDuration metric.Float64Histogram
+
+	// Auth — sign-in outcomes labelled by method (local/oidc/saml) and result
+	// (success/failure). Powers SSO dashboards + failure-spike alerting.
+	AuthLoginsTotal metric.Int64Counter
 )
 
 func init() {
@@ -93,6 +97,10 @@ func init() {
 
 	HTTPRequestDuration, err = meter.Float64Histogram("flint.http.requests.duration_seconds",
 		metric.WithDescription("HTTP request duration in seconds"))
+	must(err)
+
+	AuthLoginsTotal, err = meter.Int64Counter("flint.auth.logins.total",
+		metric.WithDescription("Total sign-in attempts by method (local/oidc/saml) and result (success/failure)"))
 	must(err)
 }
 
