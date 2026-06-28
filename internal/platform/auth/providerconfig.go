@@ -38,6 +38,18 @@ type ProviderConfig struct {
 	GroupsAttrs  []string `json:"groupsAttributes,omitempty"`
 	SPCertPEM    string   `json:"spCertPem,omitempty"`
 	SPKeyPEM     string   `json:"spKeyPem,omitempty"`
+
+	// Azure AD / Entra group resolution via Microsoft Graph (optional). When set,
+	// group GUIDs are resolved to display names and over-quota memberships are
+	// fetched from Graph. Applies to both the OIDC and SAML Azure configs.
+	GraphTenantID     string `json:"graphTenantId,omitempty"`
+	GraphClientID     string `json:"graphClientId,omitempty"`
+	GraphClientSecret string `json:"graphClientSecret,omitempty"`
+}
+
+// graphConfig returns the Microsoft Graph credentials from the stored config.
+func (c ProviderConfig) graphConfig() GraphConfig {
+	return GraphConfig{TenantID: c.GraphTenantID, ClientID: c.GraphClientID, ClientSecret: c.GraphClientSecret}
 }
 
 // OIDCMapping derives the claim-name mapping from the stored config.
@@ -66,6 +78,7 @@ func BuildOIDCProvider(ctx context.Context, c ProviderConfig, baseURL string) (*
 		RedirectURL:  strings.TrimRight(baseURL, "/") + "/auth/oidc/callback",
 		Scopes:       c.Scopes,
 		Mapping:      c.OIDCMapping(),
+		Graph:        NewGraphClient(c.graphConfig()),
 	})
 }
 
@@ -81,6 +94,7 @@ func BuildSAMLProvider(c ProviderConfig, baseURL string) (*SAMLProvider, error) 
 		KeyPEM:       c.SPKeyPEM,
 		NameIDFormat: c.NameIDFormat,
 		Mapping:      c.SAMLMapping(),
+		Graph:        NewGraphClient(c.graphConfig()),
 	})
 }
 

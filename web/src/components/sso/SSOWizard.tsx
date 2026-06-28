@@ -507,6 +507,32 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
             </div>
           )}
 
+          <details className="rounded-lg border border-border bg-muted/10 p-3">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              Azure group resolution (optional)
+            </summary>
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Entra ID delivers groups as GUIDs and omits them entirely past ~150–200 groups. Add an
+                app registration with the <span className="font-mono">GroupMember.Read.All</span>{' '}
+                application permission (admin-consented) to resolve GUIDs to names and fetch over-quota
+                memberships from Microsoft Graph. Leave blank for any non-Azure IdP.
+              </p>
+              <Field label="Directory (tenant) ID">
+                <input className={inputClass} value={config.graphTenantId ?? ''} placeholder="00000000-0000-0000-0000-000000000000"
+                  onChange={(e) => set({ graphTenantId: e.target.value })} />
+              </Field>
+              <Field label="Application (client) ID">
+                <input className={inputClass} value={config.graphClientId ?? ''}
+                  onChange={(e) => set({ graphClientId: e.target.value })} />
+              </Field>
+              <Field label="Client secret">
+                <input className={inputClass} type="password" value={config.graphClientSecret ?? ''}
+                  onChange={(e) => set({ graphClientSecret: e.target.value })} />
+              </Field>
+            </div>
+          </details>
+
           <StepButtons onBack={goBack} onNext={() => setStep('activate')} nextLabel="Review & activate" />
         </div>
       )}
