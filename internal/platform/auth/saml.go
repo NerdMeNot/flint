@@ -18,6 +18,7 @@ import (
 
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
+	"github.com/rs/zerolog/log"
 )
 
 // SAMLProviderConfig configures a SAML Service Provider.
@@ -34,6 +35,10 @@ type SAMLProviderConfig struct {
 	// Mapping lists the attribute names that carry email/name/groups. Empty
 	// fields fall back to the well-known defaults (incl. the Entra groups URI).
 	Mapping SAMLMapping
+
+	// Graph optionally resolves Azure group GUIDs to names / fetches overage
+	// memberships. nil when not an Azure config.
+	Graph *GraphClient
 }
 
 // SAMLAuth is the interface for SAML authentication. *SAMLProvider implements
@@ -51,6 +56,7 @@ var _ SAMLAuth = (*SAMLProvider)(nil)
 type SAMLProvider struct {
 	sp      saml.ServiceProvider
 	mapping SAMLMapping
+	graph   *GraphClient
 }
 
 // NewSAMLProvider creates a SAML Service Provider by fetching IdP metadata.
@@ -127,7 +133,7 @@ func NewSAMLProvider(cfg SAMLProviderConfig) (*SAMLProvider, error) {
 		sp.Key = key
 	}
 
-	return &SAMLProvider{sp: sp, mapping: cfg.Mapping}, nil
+	return &SAMLProvider{sp: sp, mapping: cfg.Mapping, graph: cfg.Graph}, nil
 }
 
 // nameIDFormat maps a configured NameID format string to a crewjam NameIDFormat,
@@ -345,6 +351,22 @@ func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 	}
 
 	email, name, groups := resolveSAMLAttributes(raw, p.mapping)
+
+	// Azure: resolve GUID groups to names and/or fetch the full membership when
+	// the assertion overflowed (overage). The user's directory object ID is the
+	// objectidentifier attribute.
+	if p.graph != nil {
+		over, _ := samlGroupOverage(raw)
+		if over || anyGUID(groups) {
+			oid := coerceString(raw["http://schemas.microsoft.com/identity/claims/objectidentifier"])
+			if resolved, gErr := p.graph.ResolveGroups(context.Background(), oid, groups, over); gErr != nil {
+				log.Warn().Err(gErr).Msg("saml: Microsoft Graph group resolution failed; using raw attribute groups")
+			} else {
+				groups = resolved
+			}
+		}
+	}
+
 	if email != "" {
 		claims.Email = email
 	}

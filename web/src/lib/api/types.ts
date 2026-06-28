@@ -460,6 +460,10 @@ export const providerConfigSchema = z.object({
   groupsAttributes: z.optional(z.array(z.string())),
   spCertPem: z.optional(z.string()),
   spKeyPem: z.optional(z.string()),
+  // Azure AD / Entra group resolution via Microsoft Graph (optional).
+  graphTenantId: z.optional(z.string()),
+  graphClientId: z.optional(z.string()),
+  graphClientSecret: z.optional(z.string()),
 })
 export type ProviderConfig = z.infer<typeof providerConfigSchema>
 

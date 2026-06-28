@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -21,6 +22,10 @@ type OIDCProviderConfig struct {
 	// Mapping names the claims that carry email/name/groups. Empty fields fall
 	// back to the OIDC-conventional claim names.
 	Mapping OIDCMapping
+
+	// Graph optionally resolves Azure group GUIDs to names / fetches overage
+	// memberships. nil when not an Azure config.
+	Graph *GraphClient
 }
 
 // OIDCAuth is the interface for OIDC authentication. *OIDCProvider implements
@@ -44,6 +49,7 @@ type OIDCProvider struct {
 	mapping            OIDCMapping
 	clientID           string
 	endSessionEndpoint string // RP-initiated logout endpoint, if the IdP advertises one
+	graph              *GraphClient
 }
 
 // NewOIDCProvider creates an OIDC provider by performing discovery on the issuer URL.
@@ -85,6 +91,7 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 		mapping:            cfg.Mapping,
 		clientID:           cfg.ClientID,
 		endSessionEndpoint: disc.EndSessionEndpoint,
+		graph:              cfg.Graph,
 	}, nil
 }
 
@@ -138,6 +145,20 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce, codeVe
 	}
 	email, name, groups := resolveOIDCClaims(rawClaims, p.mapping)
 
+	// Azure: resolve GUID groups to names and/or fetch the full membership when
+	// the claim overflowed (overage). `oid` is the user's directory object ID.
+	if p.graph != nil {
+		over, _ := oidcGroupOverage(rawClaims)
+		if over || anyGUID(groups) {
+			oid := coerceString(rawClaims["oid"])
+			if resolved, gErr := p.graph.ResolveGroups(ctx, oid, groups, over); gErr != nil {
+				log.Warn().Err(gErr).Msg("oidc: Microsoft Graph group resolution failed; using raw claim groups")
+			} else {
+				groups = resolved
+			}
+		}
+	}
+
 	return &Claims{
 		Subject:    idToken.Subject,
 		Email:      email,
@@ -165,6 +186,19 @@ func (p *OIDCProvider) UserInfo(ctx context.Context, token *oauth2.Token) (*Clai
 		return nil, fmt.Errorf("userinfo claims: %w", err)
 	}
 	email, name, groups := resolveOIDCClaims(raw, p.mapping)
+
+	// Azure: resolve GUID groups to names / fetch overage memberships, matching
+	// the login-time Exchange path so periodic re-sync stays consistent.
+	if p.graph != nil {
+		over, _ := oidcGroupOverage(raw)
+		if over || anyGUID(groups) {
+			if resolved, gErr := p.graph.ResolveGroups(ctx, coerceString(raw["oid"]), groups, over); gErr != nil {
+				log.Warn().Err(gErr).Msg("oidc(userinfo): Microsoft Graph group resolution failed; using raw claim groups")
+			} else {
+				groups = resolved
+			}
+		}
+	}
 
 	return &Claims{
 		Subject:    userInfo.Subject,

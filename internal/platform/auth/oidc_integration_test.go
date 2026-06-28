@@ -146,3 +146,45 @@ func TestOIDCProvider_Integration(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// Exchange must enrich Azure group GUIDs into names via Graph end-to-end:
+// IdP mints a token with GUID groups + oid, the provider calls Graph, and the
+// returned Claims carry display names ready for group→role mapping.
+func TestOIDCProvider_GraphGroupResolution(t *testing.T) {
+	idp := newTestIdP(t)
+	mg := newMockGraph(t)
+	mg.groups["11111111-1111-1111-1111-111111111111"] = "Engineering"
+	mg.groups["22222222-2222-2222-2222-222222222222"] = "Admins"
+	ctx := context.Background()
+
+	p, err := NewOIDCProvider(ctx, OIDCProviderConfig{
+		IssuerURL:   idp.srv.URL,
+		ClientID:    "flint-client",
+		RedirectURL: "https://flint.example/auth/oidc/callback",
+		Graph:       mg.client(),
+	})
+	require.NoError(t, err)
+	const verifier = "verifier-abcdefghijklmnopqrstuvwxyz0123456789"
+
+	t.Run("GUID group claims are resolved to names", func(t *testing.T) {
+		idp.grant("code-guids", map[string]any{
+			"sub": "u1", "oid": "user-1", "email": "a@flint.dev", "nonce": "n1",
+			"groups": []string{"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"},
+		})
+		claims, _, err := p.Exchange(ctx, "code-guids", "n1", verifier)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"Engineering", "Admins"}, claims.Groups)
+	})
+
+	t.Run("overage: empty groups claim triggers a Graph membership fetch", func(t *testing.T) {
+		mg.member["user-2"] = []string{"11111111-1111-1111-1111-111111111111"}
+		idp.grant("code-overage", map[string]any{
+			"sub": "u2", "oid": "user-2", "email": "b@flint.dev", "nonce": "n2",
+			"_claim_names":   map[string]any{"groups": "src1"},
+			"_claim_sources": map[string]any{"src1": map[string]any{"endpoint": "https://graph/x"}},
+		})
+		claims, _, err := p.Exchange(ctx, "code-overage", "n2", verifier)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Engineering"}, claims.Groups)
+	})
+}
