@@ -24,9 +24,12 @@ type OIDCProviderConfig struct {
 
 // OIDCAuth is the interface for OIDC authentication. *OIDCProvider implements
 // it; tests can mock it to avoid real OIDC discovery and token exchange.
+//
+// codeVerifier is the PKCE (S256) verifier: AuthURL embeds its derived challenge
+// and Exchange presents it, binding the authorization code to this login.
 type OIDCAuth interface {
-	AuthURL(state, nonce string) string
-	Exchange(ctx context.Context, code, expectedNonce string) (*Claims, *oauth2.Token, error)
+	AuthURL(state, nonce, codeVerifier string) string
+	Exchange(ctx context.Context, code, expectedNonce, codeVerifier string) (*Claims, *oauth2.Token, error)
 }
 
 // compile-time check
@@ -75,16 +78,24 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 // AuthURL returns the URL to redirect the user to for OIDC authentication.
 // The state parameter is used for CSRF protection.
 // The nonce is embedded in the ID token for replay protection.
-func (p *OIDCProvider) AuthURL(state, nonce string) string {
-	return p.oauth2.AuthCodeURL(state, oidc.Nonce(nonce))
+func (p *OIDCProvider) AuthURL(state, nonce, codeVerifier string) string {
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce)}
+	if codeVerifier != "" {
+		opts = append(opts, oauth2.S256ChallengeOption(codeVerifier))
+	}
+	return p.oauth2.AuthCodeURL(state, opts...)
 }
 
 // Exchange exchanges an authorization code for tokens, verifies the ID token,
 // and returns unified Claims plus the raw OAuth2 token (which may contain a
 // refresh token for IdP sync).
-func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string) (*Claims, *oauth2.Token, error) {
-	// Exchange authorization code for tokens.
-	token, err := p.oauth2.Exchange(ctx, code)
+func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce, codeVerifier string) (*Claims, *oauth2.Token, error) {
+	// Exchange authorization code for tokens, presenting the PKCE verifier.
+	var opts []oauth2.AuthCodeOption
+	if codeVerifier != "" {
+		opts = append(opts, oauth2.VerifierOption(codeVerifier))
+	}
+	token, err := p.oauth2.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("exchanging auth code: %w", err)
 	}
@@ -188,6 +199,12 @@ func (p *OIDCProvider) Discovery() OIDCDiscovery {
 // The returned source automatically refreshes the token when expired.
 func (p *OIDCProvider) TokenSource(ctx context.Context, token *oauth2.Token) oauth2.TokenSource {
 	return p.oauth2.TokenSource(ctx, token)
+}
+
+// GeneratePKCEVerifier returns a fresh PKCE (S256) code verifier to store with
+// the pending login and present on the token exchange.
+func GeneratePKCEVerifier() string {
+	return oauth2.GenerateVerifier()
 }
 
 // OIDCConfigured returns true if the OIDC provider config has the minimum

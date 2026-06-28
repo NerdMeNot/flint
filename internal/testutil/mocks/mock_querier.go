@@ -2256,6 +2256,36 @@ func (_m *Querier) GetDeviceCode(ctx context.Context, deviceCode string) (db.Get
 	return r0, r1
 }
 
+// GetDeviceCodeCodeVerifier provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) GetDeviceCodeCodeVerifier(ctx context.Context, deviceCode string) (*string, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeviceCodeCodeVerifier")
+	}
+
+	var r0 *string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*string, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *string); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetDeviceCodeNonce provides a mock function with given fields: ctx, deviceCode
 func (_m *Querier) GetDeviceCodeNonce(ctx context.Context, deviceCode string) (*string, error) {
 	ret := _m.Called(ctx, deviceCode)
@@ -6899,6 +6929,62 @@ func (_m *Querier) RunsNeedingCleanup(ctx context.Context, limit int32) ([]strin
 
 	if rf, ok := ret.Get(1).(func(context.Context, int32) error); ok {
 		r1 = rf(ctx, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ScimGetTeamInOrg provides a mock function with given fields: ctx, arg
+func (_m *Querier) ScimGetTeamInOrg(ctx context.Context, arg db.ScimGetTeamInOrgParams) (db.ScimGetTeamInOrgRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScimGetTeamInOrg")
+	}
+
+	var r0 db.ScimGetTeamInOrgRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimGetTeamInOrgParams) (db.ScimGetTeamInOrgRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimGetTeamInOrgParams) db.ScimGetTeamInOrgRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.ScimGetTeamInOrgRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ScimGetTeamInOrgParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ScimGetUserInOrg provides a mock function with given fields: ctx, arg
+func (_m *Querier) ScimGetUserInOrg(ctx context.Context, arg db.ScimGetUserInOrgParams) (db.ScimGetUserInOrgRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScimGetUserInOrg")
+	}
+
+	var r0 db.ScimGetUserInOrgRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimGetUserInOrgParams) (db.ScimGetUserInOrgRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ScimGetUserInOrgParams) db.ScimGetUserInOrgRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.ScimGetUserInOrgRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ScimGetUserInOrgParams) error); ok {
+		r1 = rf(ctx, arg)
 	} else {
 		r1 = ret.Error(1)
 	}

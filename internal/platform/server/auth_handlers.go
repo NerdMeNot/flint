@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
@@ -52,11 +51,43 @@ func (s *Server) registerAuthRoutes() {
 	// SSO routes — no JWT required (these establish the JWT). Registered
 	// unconditionally so that providers configured via the API (hot-reloaded
 	// after boot) have working callbacks without a restart; the handlers guard
-	// on the provider being configured at request time.
-	s.hertz.GET("/auth/login", s.handleLogin)
-	s.hertz.GET("/auth/oidc/callback", s.handleOIDCCallback)
-	s.hertz.POST("/auth/saml/acs", s.handleSAMLACS)
+	// on the provider being configured at request time. Per-IP rate limited to
+	// blunt brute-force/DoS against the unauthenticated auth surface.
+	authLimit := s.ipRateLimit(newIPRateLimiter(5, 10))
+	s.hertz.GET("/auth/login", authLimit, s.handleLogin)
+	s.hertz.GET("/auth/oidc/callback", authLimit, s.handleOIDCCallback)
+	s.hertz.POST("/auth/saml/acs", authLimit, s.handleSAMLACS)
 	s.hertz.GET("/auth/saml/metadata", s.handleSAMLMetadata)
+}
+
+// auditEvent writes a best-effort audit entry that is NOT tied to an
+// authenticated user JWT — used for failed logins and SCIM provisioning.
+// userID/resourceID may be empty (stored as NULL).
+func (s *Server) auditEvent(ctx context.Context, orgID, userID, action, resourceType, resourceID string, ip netip.Addr) {
+	var uid, rid *string
+	if userID != "" {
+		uid = &userID
+	}
+	if resourceID != "" {
+		rid = &resourceID
+	}
+	_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
+		OrgID:        orgID,
+		UserID:       uid,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   rid,
+		Column6:      ip,
+	})
+}
+
+// auditLoginFailure records a failed SSO login attempt with the reason.
+func (s *Server) auditLoginFailure(ctx context.Context, c *app.RequestContext, reason string) {
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		return
+	}
+	s.auditEvent(ctx, org.ID, "", "auth.login.failed", "session", reason, extractClientIP(c))
 }
 
 // handleDeviceCode initiates the device authorization flow for TUI/CLI.
@@ -492,32 +523,34 @@ func generateUserCode() string {
 func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 	userCode := string(c.Query("code"))
 	if userCode == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing code parameter")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing code parameter")))
 		return
 	}
 
 	deviceCode, err := s.deps.Q.FindDeviceCodeByUserCode(ctx, userCode)
 	if err != nil || deviceCode == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired code")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired code")))
 		return
 	}
 
-	// Generate CSRF state and OIDC nonce.
+	// Generate CSRF state, OIDC nonce, and a PKCE (S256) verifier.
 	state := generateSecureCode(32)
 	nonce := generateSecureCode(32)
+	codeVerifier := auth.GeneratePKCEVerifier()
 
 	if err := s.deps.Q.SetDeviceCodeOAuthState(ctx, db.SetDeviceCodeOAuthStateParams{
-		DeviceCode: deviceCode,
-		OauthState: &state,
-		Nonce:      &nonce,
+		DeviceCode:   deviceCode,
+		OauthState:   &state,
+		Nonce:        &nonce,
+		CodeVerifier: &codeVerifier,
 	}); err != nil {
-		c.HTML(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
+		c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
 		return
 	}
 
 	// Redirect to the configured SSO provider.
 	if s.deps.OIDCProvider != nil {
-		authURL := s.deps.OIDCProvider.AuthURL(state, nonce)
+		authURL := s.deps.OIDCProvider.AuthURL(state, nonce, codeVerifier)
 		c.Redirect(consts.StatusFound, []byte(authURL))
 		return
 	}
@@ -526,20 +559,21 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 		authURL, err := s.deps.SAMLProvider.AuthURL(state)
 		if err != nil {
 			logErr(ctx, err, "failed to generate SAML auth URL")
-			c.HTML(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("SAML error")))
+			c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("SAML error")))
 			return
 		}
 		c.Redirect(consts.StatusFound, []byte(authURL))
 		return
 	}
 
-	c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("No SSO provider configured")))
+	s.auditLoginFailure(ctx, c, "no_provider")
+	c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("No SSO provider configured")))
 }
 
 // handleOIDCCallback handles the OIDC authorization code callback.
 func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) {
 	if s.deps.OIDCProvider == nil {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("OIDC is not configured")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("OIDC is not configured")))
 		return
 	}
 
@@ -547,41 +581,44 @@ func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) 
 	state := string(c.Query("state"))
 
 	if code == "" || state == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing code or state")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing code or state")))
 		return
 	}
 
 	// Find the device entry by OAuth state.
 	deviceCode, err := s.deps.Q.FindDeviceCodeByOAuthState(ctx, &state)
 	if err != nil || deviceCode == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
 		return
 	}
 
 	noncePtr, _ := s.deps.Q.GetDeviceCodeNonce(ctx, deviceCode)
 	nonce := derefStr(noncePtr)
+	verifierPtr, _ := s.deps.Q.GetDeviceCodeCodeVerifier(ctx, deviceCode)
+	codeVerifier := derefStr(verifierPtr)
 
-	// Exchange authorization code for tokens.
-	claims, idpToken, err := s.deps.OIDCProvider.Exchange(ctx, code, nonce)
+	// Exchange authorization code for tokens (presents the PKCE verifier).
+	claims, idpToken, err := s.deps.OIDCProvider.Exchange(ctx, code, nonce, codeVerifier)
 	if err != nil {
 		logErr(ctx, err, "OIDC exchange failed")
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
+		s.auditLoginFailure(ctx, c, "oidc:exchange_failed")
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
 		return
 	}
 
 	if err := s.completeSSOWithToken(ctx, deviceCode, claims, idpToken); err != nil {
 		logErr(ctx, err, "SSO completion failed")
-		c.HTML(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
+		c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
 		return
 	}
 
-	c.HTML(consts.StatusOK, "text/html", []byte(authSuccessHTML))
+	c.Data(consts.StatusOK, "text/html", []byte(authSuccessHTML))
 }
 
 // handleSAMLACS handles the SAML Assertion Consumer Service POST.
 func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 	if s.deps.SAMLProvider == nil {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("SAML is not configured")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("SAML is not configured")))
 		return
 	}
 
@@ -589,14 +626,14 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 	relayState := string(c.FormValue("RelayState"))
 
 	if samlResponse == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing SAML response")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Missing SAML response")))
 		return
 	}
 
 	// Find the device entry by RelayState (which is our OAuth state).
 	deviceCode, err := s.deps.Q.FindDeviceCodeByOAuthState(ctx, &relayState)
 	if err != nil || deviceCode == "" {
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Invalid or expired state")))
 		return
 	}
 
@@ -604,17 +641,18 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 	claims, err := s.deps.SAMLProvider.ValidateResponse(samlResponse)
 	if err != nil {
 		logErr(ctx, err, "SAML validation failed")
-		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
+		s.auditLoginFailure(ctx, c, "saml:validation_failed")
+		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
 		return
 	}
 
 	if _, err := s.completeSSO(ctx, deviceCode, claims); err != nil {
 		logErr(ctx, err, "SSO completion failed")
-		c.HTML(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
+		c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
 		return
 	}
 
-	c.HTML(consts.StatusOK, "text/html", []byte(authSuccessHTML))
+	c.Data(consts.StatusOK, "text/html", []byte(authSuccessHTML))
 }
 
 // handleSAMLMetadata returns the SP metadata XML.
@@ -645,19 +683,22 @@ func (s *Server) completeSSOWithToken(ctx context.Context, deviceCode string, cl
 		return err
 	}
 
-	// Store IdP token in the session for sync daemon validation.
-	if idpToken != nil && idpToken.RefreshToken != "" {
-		tokenJSON, _ := json.Marshal(idpToken)
+	// Store IdP token in the session for sync daemon validation — envelope-
+	// encrypted at rest. If no master key is configured, skip storing it rather
+	// than persisting a long-lived refresh token in plaintext.
+	masterKey, mkErr := s.deps.Config.Encryption.DecodeMasterKey()
+	if idpToken != nil && idpToken.RefreshToken != "" && mkErr == nil {
+		tokenEnc, encErr := auth.EncryptIdpToken(idpToken, masterKey)
 
 		// Find the session we just created and store the IdP token.
 		refreshPtr, _ := s.deps.Q.GetDeviceCodeRefreshToken(ctx, deviceCode)
-		if refresh := derefStr(refreshPtr); refresh != "" {
+		if refresh := derefStr(refreshPtr); refresh != "" && encErr == nil {
 			hash := auth.HashToken(refresh)
 			sess, getErr := s.deps.Q.GetSessionByTokenHash(ctx, hash)
 			if getErr == nil {
 				_ = s.deps.Q.UpdateSessionIdpToken(ctx, db.UpdateSessionIdpTokenParams{
 					ID:          sess.ID,
-					IdpTokenEnc: tokenJSON,
+					IdpTokenEnc: tokenEnc,
 				})
 			}
 		}

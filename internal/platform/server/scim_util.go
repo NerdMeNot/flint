@@ -65,21 +65,33 @@ func formattedName(n *scimName) string {
 // scimFilterEq parses a simple SCIM `attr eq "value"` filter, returning the
 // lowercased attribute and the unquoted value. Returns empty strings if the
 // filter is absent or unsupported (compound filters aren't handled).
-func scimFilterEq(filter string) (attr, value string) {
+// scimFilterEq parses a simple SCIM `attr eq "value"` filter. ok is false when a
+// filter is present but NOT a single supported `eq` clause (compound and/or,
+// other operators, parentheses) — callers must reject those rather than silently
+// returning the whole collection (which would over-expose data). An absent filter
+// returns ("", "", true) meaning "list all".
+func scimFilterEq(filter string) (attr, value string, ok bool) {
 	filter = strings.TrimSpace(filter)
 	if filter == "" {
-		return "", ""
+		return "", "", true
 	}
-	// Split on the first " eq " (case-insensitive).
 	lower := strings.ToLower(filter)
+	// Reject anything beyond a single eq clause.
+	if strings.Contains(lower, " and ") || strings.Contains(lower, " or ") ||
+		strings.ContainsAny(filter, "()[]") ||
+		strings.Contains(lower, " ne ") || strings.Contains(lower, " co ") ||
+		strings.Contains(lower, " sw ") || strings.Contains(lower, " ew ") ||
+		strings.Contains(lower, " gt ") || strings.Contains(lower, " lt ") ||
+		strings.Contains(lower, " pr") {
+		return "", "", false
+	}
 	idx := strings.Index(lower, " eq ")
 	if idx < 0 {
-		return "", ""
+		return "", "", false
 	}
 	attr = strings.ToLower(strings.TrimSpace(filter[:idx]))
-	value = strings.TrimSpace(filter[idx+4:])
-	value = strings.Trim(value, `"`)
-	return attr, value
+	value = strings.Trim(strings.TrimSpace(filter[idx+4:]), `"`)
+	return attr, value, true
 }
 
 // patchActiveValue reads the boolean `active` value from a PATCH op, handling

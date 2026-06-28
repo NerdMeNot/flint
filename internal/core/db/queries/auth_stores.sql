@@ -12,7 +12,7 @@ FROM device_codes WHERE device_code = $1;
 UPDATE device_codes SET last_polled_at = now() WHERE device_code = $1;
 
 -- name: SetDeviceCodeOAuthState :exec
-UPDATE device_codes SET oauth_state = $2, nonce = $3 WHERE device_code = $1;
+UPDATE device_codes SET oauth_state = $2, nonce = $3, code_verifier = $4 WHERE device_code = $1;
 
 -- name: CompleteDeviceCode :exec
 UPDATE device_codes
@@ -30,6 +30,9 @@ DELETE FROM device_codes WHERE device_code = $1;
 
 -- name: GetDeviceCodeNonce :one
 SELECT nonce FROM device_codes WHERE device_code = $1;
+
+-- name: GetDeviceCodeCodeVerifier :one
+SELECT code_verifier FROM device_codes WHERE device_code = $1;
 
 -- name: GetDeviceCodeRefreshToken :one
 SELECT refresh_token FROM device_codes WHERE device_code = $1;
