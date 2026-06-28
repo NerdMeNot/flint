@@ -177,6 +177,30 @@ func TestMergeIntoJob(t *testing.T) {
 	}
 }
 
+func TestMergeIntoJob_NoResources(t *testing.T) {
+	// A pool with no cpu/memory defaults (zero quantities) stamps no requests,
+	// leaving the pod best-effort / job-defined.
+	spec := runner.PoolSpec{Name: "targeting-only", NodeSelector: map[string]string{"karpenter.sh/nodepool": "ci"}}
+
+	job := &batchv1.Job{
+		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "step", Image: "alpine"}},
+		}}},
+	}
+	runner.MergeIntoJob(&spec, job)
+
+	reqs := job.Spec.Template.Spec.Containers[0].Resources.Requests
+	if _, ok := reqs[corev1.ResourceCPU]; ok {
+		t.Errorf("expected no cpu request, got %v", reqs[corev1.ResourceCPU])
+	}
+	if _, ok := reqs[corev1.ResourceMemory]; ok {
+		t.Errorf("expected no memory request, got %v", reqs[corev1.ResourceMemory])
+	}
+	if job.Spec.Template.Spec.NodeSelector["karpenter.sh/nodepool"] != "ci" {
+		t.Errorf("nodeSelector not applied: %v", job.Spec.Template.Spec.NodeSelector)
+	}
+}
+
 func TestTShirtSizes(t *testing.T) {
 	for _, size := range runner.AllSizes() {
 		if !runner.ValidSize(size) {

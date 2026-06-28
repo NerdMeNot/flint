@@ -135,7 +135,7 @@ function IdentityCard({ user }: {
           <div className="col-span-2">
             <dt className="text-xs font-medium text-muted-foreground mb-1">Groups</dt>
             <dd className="flex flex-wrap gap-1.5">
-              {user.groups.length > 0
+              {(user.groups?.length ?? 0) > 0
                 ? user.groups.map((g) => <Badge key={g}>{g}</Badge>)
                 : <span className="text-muted-foreground">—</span>}
             </dd>

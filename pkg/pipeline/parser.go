@@ -257,12 +257,18 @@ func validateExecType(s *Step, field string) error {
 	if s.Gate != nil {
 		count++
 	}
+	if s.HTTP != nil {
+		count++
+	}
+	if s.Wait != nil {
+		count++
+	}
 
 	if count == 0 {
-		return newParseError(field, "exactly one of run, use, steps, or gate is required")
+		return newParseError(field, "exactly one of run, use, steps, gate, http, or wait is required")
 	}
 	if count > 1 {
-		return newParseError(field, "only one of run, use, steps, or gate may be set")
+		return newParseError(field, "only one of run, use, steps, gate, http, or wait may be set")
 	}
 
 	return nil

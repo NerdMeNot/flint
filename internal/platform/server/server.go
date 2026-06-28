@@ -99,7 +99,30 @@ func (s *Server) registerRoutes() {
 		internal.POST("/logs", s.handleAgentLogIngestion)
 
 		s.registerAPIRoutes()
+		s.registerSCIMRoutes()
 	}
+}
+
+// registerSCIMRoutes mounts the SCIM 2.0 provisioning data-plane. It uses its
+// own bearer-token middleware (not JWT) and SCIM-formatted errors.
+func (s *Server) registerSCIMRoutes() {
+	scim := s.hertz.Group("/scim/v2", s.scimAuthMiddleware())
+
+	scim.GET("/ServiceProviderConfig", s.handleSCIMServiceProviderConfig)
+
+	scim.GET("/Users", s.handleSCIMListUsers)
+	scim.POST("/Users", s.handleSCIMCreateUser)
+	scim.GET("/Users/:id", s.handleSCIMGetUser)
+	scim.PUT("/Users/:id", s.handleSCIMReplaceUser)
+	scim.PATCH("/Users/:id", s.handleSCIMPatchUser)
+	scim.DELETE("/Users/:id", s.handleSCIMDeleteUser)
+
+	scim.GET("/Groups", s.handleSCIMListGroups)
+	scim.POST("/Groups", s.handleSCIMCreateGroup)
+	scim.GET("/Groups/:id", s.handleSCIMGetGroup)
+	scim.PUT("/Groups/:id", s.handleSCIMReplaceGroup)
+	scim.PATCH("/Groups/:id", s.handleSCIMPatchGroup)
+	scim.DELETE("/Groups/:id", s.handleSCIMDeleteGroup)
 }
 
 func (s *Server) handleLive(_ context.Context, c *app.RequestContext) {
@@ -193,10 +216,14 @@ func (s *Server) handleMetrics(_ context.Context, c *app.RequestContext) {
 	// The OTel Prometheus exporter registers with the default Prometheus
 	// gatherer, so promhttp.Handler() picks up all OTel metrics.
 	c.Response.Header.SetContentType("text/plain; version=0.0.4; charset=utf-8")
-	// Use the prometheus client_golang handler via an adapter.
+	// Use the prometheus client_golang handler via an adapter. promhttp reads
+	// req.Header (content negotiation), so pass a real request with the incoming
+	// headers — never nil, which would nil-deref inside expfmt.Negotiate.
 	promHandler := promhttp.Handler()
+	httpReq, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
+	httpReq.Header = hertzToHTTPHeaders(c)
 	writer := &hertzResponseWriter{ctx: c}
-	promHandler.ServeHTTP(writer, nil)
+	promHandler.ServeHTTP(writer, httpReq)
 }
 
 // hertzResponseWriter adapts Hertz's RequestContext to http.ResponseWriter

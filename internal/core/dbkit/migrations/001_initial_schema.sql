@@ -180,6 +180,7 @@ CREATE TABLE public.flint_outbox (
     max_attempts integer DEFAULT 5 NOT NULL,
     idempotency_key text NOT NULL,
     process_after timestamptz DEFAULT now() NOT NULL,
+    claimed_at timestamptz,
     created_at timestamptz DEFAULT now() NOT NULL,
     resolved_at timestamptz,
     last_error text,
@@ -230,7 +231,11 @@ CREATE TABLE public.orgs (
     concurrency_limit integer DEFAULT 20 NOT NULL,
     -- When true, a Project must declare spec.workspace; the reconciler marks
     -- projects without one NotReady instead of inferring a workspace.
-    require_project_workspace boolean DEFAULT false NOT NULL
+    require_project_workspace boolean DEFAULT false NOT NULL,
+    -- When true, SSO users receive ONLY the roles their IdP groups map to
+    -- (deny-by-default); the configured default role is not granted as a
+    -- fallback. See sso_group_role_mappings.
+    sso_strict_groups boolean DEFAULT false NOT NULL
 );
 
 
@@ -328,7 +333,12 @@ CREATE TABLE public.projects (
     workspace_id uuid NOT NULL,
     -- true when workspace_id was inferred (from the repo owner / fell back to
     -- the default) rather than declared on the Project's spec.workspace.
-    workspace_inferred boolean DEFAULT false NOT NULL
+    workspace_inferred boolean DEFAULT false NOT NULL,
+    -- id of the inbound webhook provisioned on the forge repo (so pushes arrive),
+    -- recorded so it can be removed when the project is archived. Set after the
+    -- project row exists; null until/unless provisioning succeeds. Written by both
+    -- the API create path and the Project CRD reconciler.
+    forge_webhook_id text
 );
 
 
@@ -355,8 +365,54 @@ CREATE TABLE public.protected_environments (
 CREATE TABLE public.role_assignments (
     subject text NOT NULL,
     role_id uuid NOT NULL,
-    created_at timestamptz DEFAULT now() NOT NULL
+    created_at timestamptz DEFAULT now() NOT NULL,
+    -- Origin of the assignment: 'internal' (manual/API, authoritative) or 'idp'
+    -- (derived from an SSO group→role mapping, reconciled on each login). Only
+    -- 'idp' rows are removed when the user leaves a mapped group; manual grants
+    -- are never touched by group sync.
+    source text DEFAULT 'internal' NOT NULL
 );
+
+
+--
+-- Name: sso_group_role_mappings; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Maps an IdP group name to a Flint role. Keyed by group NAME (not a team id)
+-- so an admin can configure mappings before any member of the group has logged
+-- in. On login, a user's group memberships are reconciled into role_assignments
+-- with source='idp'. A group may map to several roles (multiple rows).
+CREATE TABLE public.sso_group_role_mappings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    org_id uuid NOT NULL,
+    group_name text NOT NULL,
+    role_id uuid NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT sso_group_role_mappings_pkey PRIMARY KEY (id),
+    CONSTRAINT sso_group_role_mappings_unique UNIQUE (org_id, group_name, role_id)
+);
+
+CREATE INDEX idx_sso_group_role_mappings_org ON public.sso_group_role_mappings USING btree (org_id);
+
+
+--
+-- Name: scim_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Bearer tokens for the SCIM 2.0 provisioning API. The plaintext token is shown
+-- once at creation; only its SHA-256 hash is stored. One active token per org
+-- (regenerating replaces it).
+CREATE TABLE public.scim_tokens (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    org_id uuid NOT NULL,
+    token_hash text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    last_used_at timestamptz,
+    CONSTRAINT scim_tokens_pkey PRIMARY KEY (id),
+    CONSTRAINT scim_tokens_hash_unique UNIQUE (token_hash)
+);
+
+CREATE INDEX idx_scim_tokens_org ON public.scim_tokens USING btree (org_id);
 
 
 --
@@ -423,9 +479,22 @@ CREATE TABLE public.runner_pools (
     arch text DEFAULT 'amd64'::text NOT NULL,
     node_selector jsonb,
     tolerations jsonb,
-    spot_preferred boolean DEFAULT false NOT NULL,
-    spot_fallback text DEFAULT 'on-demand'::text NOT NULL,
     default_timeout text,
+    -- exactly one pool is the default — used when a pipeline sets no runner:. The
+    -- default can't be deleted until another pool is promoted (enforced in the API).
+    is_default boolean DEFAULT false NOT NULL,
+    -- pod-level settings that PoolSpec carries and the worker registry needs to
+    -- reconstruct a pool from the DB (API/DB is canonical — no CRD/controller).
+    service_account_name text,
+    workspace_mode text DEFAULT 'agent'::text NOT NULL,
+    workspace_storage_class text,
+    workspace_size text DEFAULT '10Gi'::text NOT NULL,
+    run_as_non_root boolean DEFAULT false NOT NULL,
+    -- reference (selectors target existing nodes) | managed (Flint renders a
+    -- Karpenter NodePool — see managed_spec). managed_spec holds the capacity
+    -- envelope / scale-to-zero intent for managed pools (null for reference).
+    mode text DEFAULT 'reference'::text NOT NULL,
+    managed_spec jsonb,
     ready boolean DEFAULT true NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL
@@ -509,9 +578,10 @@ CREATE TABLE public.steps (
     started_at timestamptz,
     finished_at timestamptz,
     deadline_at timestamptz,
-    CONSTRAINT steps_exec_type_check CHECK ((exec_type = ANY (ARRAY['run'::text, 'use'::text, 'steps'::text, 'gate'::text]))),
+    dispatched_at timestamptz,
+    CONSTRAINT steps_exec_type_check CHECK ((exec_type = ANY (ARRAY['run'::text, 'use'::text, 'steps'::text, 'gate'::text, 'wait'::text]))),
     CONSTRAINT steps_name_check CHECK ((length(name) > 0)),
-    CONSTRAINT steps_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text, 'cancelled'::text, 'waiting'::text])))
+    CONSTRAINT steps_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'retry_wait'::text, 'queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text, 'cancelled'::text, 'waiting'::text])))
 );
 
 
@@ -551,7 +621,7 @@ CREATE TABLE public.timers (
     fires_at timestamptz NOT NULL,
     fired boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
-    CONSTRAINT timers_timer_type_check CHECK ((timer_type = ANY (ARRAY['timeout'::text, 'gate_timeout'::text, 'retry_backoff'::text])))
+    CONSTRAINT timers_timer_type_check CHECK ((timer_type = ANY (ARRAY['timeout'::text, 'gate_timeout'::text, 'retry_backoff'::text, 'wait_timeout'::text])))
 );
 
 
@@ -1294,6 +1364,13 @@ CREATE INDEX idx_steps_running ON public.steps USING btree (status, deadline_at)
 
 
 --
+-- Name: idx_steps_undispatched; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_steps_undispatched ON public.steps USING btree (started_at) WHERE ((status = 'running'::text) AND (dispatched_at IS NULL));
+
+
+--
 -- Name: idx_steps_waiting; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1575,6 +1652,20 @@ ALTER TABLE ONLY public.protected_environments
 
 ALTER TABLE ONLY public.role_assignments
     ADD CONSTRAINT role_assignments_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sso_group_role_mappings sso_group_role_mappings_fkeys; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_group_role_mappings
+    ADD CONSTRAINT sso_group_role_mappings_org_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.sso_group_role_mappings
+    ADD CONSTRAINT sso_group_role_mappings_role_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.scim_tokens
+    ADD CONSTRAINT scim_tokens_org_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --

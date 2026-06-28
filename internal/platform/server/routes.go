@@ -2,16 +2,21 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	pgtype "github.com/jackc/pgx/v5/pgtype"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // ── Response structs ──────────────────────────────────────────
@@ -35,8 +40,38 @@ type projectResponse struct {
 	PipelineCount  int              `json:"pipelineCount"`
 	PipelineErrors int              `json:"pipelineErrors"`
 	LastRun        *lastRunResponse `json:"lastRun,omitempty"`
+	Health         *projectHealth   `json:"health,omitempty"`
 	CreatedAt      string           `json:"createdAt"`
 	Inferred       bool             `json:"inferred"`
+}
+
+// projectHealth summarizes a project's recent run outcomes for the dashboard
+// health bars / "needs attention" (UI ProjectHealth). passRate is a percent.
+type projectHealth struct {
+	RecentRuns []string `json:"recentRuns"`
+	PassRate   int      `json:"passRate"`
+	FailingNow bool     `json:"failingNow"`
+	TotalRuns  int      `json:"totalRuns"`
+}
+
+// buildProjectHealth assembles a projectHealth from recent statuses (newest
+// first) and totals. Returns nil when the project has no runs.
+func buildProjectHealth(recent []string, total, succeeded int64) *projectHealth {
+	if total == 0 {
+		return nil
+	}
+	if recent == nil {
+		recent = []string{}
+	}
+	h := &projectHealth{
+		RecentRuns: recent,
+		PassRate:   int(math.Round(float64(succeeded) / float64(total) * 100)),
+		TotalRuns:  int(total),
+	}
+	if len(recent) > 0 {
+		h.FailingNow = recent[0] == "failed"
+	}
+	return h
 }
 
 type runResponse struct {
@@ -55,7 +90,20 @@ type runResponse struct {
 	Duration      string  `json:"duration"`
 	StartedAt     string  `json:"startedAt"`
 	FinishedAt    *string `json:"finishedAt,omitempty"`
-	Environment   *string `json:"environment,omitempty"`
+	// Epoch-ms variants the UI uses for time-range filtering and adaptive
+	// timestamp rendering (alongside the RFC3339 strings above).
+	StartedAtTs  int64            `json:"startedAtTs"`
+	FinishedAtTs *int64           `json:"finishedAtTs,omitempty"`
+	Environment  *string          `json:"environment,omitempty"`
+	ErrorMessage *string          `json:"errorMessage,omitempty"`
+	Steps        []runStepSummary `json:"steps,omitempty"`
+}
+
+// runStepSummary is the compact per-step shape the run feed renders as stage
+// pips (UI RunStepSummary).
+type runStepSummary struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 type runnerResponse struct {
@@ -68,8 +116,18 @@ type runnerResponse struct {
 	GPUVendor   *string `json:"gpuVendor,omitempty"`
 	GPUModel    *string `json:"gpuModel,omitempty"`
 	GPUCount    *int32  `json:"gpuCount,omitempty"`
-	Ready       bool    `json:"ready"`
-	CreatedAt   string  `json:"createdAt"`
+	Mode        string  `json:"mode"`
+	// Managed carries the capacity envelope for managed pools (nil for reference
+	// pools) so the admin UI can display and round-trip it in the editor.
+	Managed *runner.ManagedSpec `json:"managed,omitempty"`
+	// NodeSelector + Tolerations are how a reference pool targets existing nodes
+	// (managed pools derive these from the pool name). Returned so the editor can
+	// round-trip them.
+	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
+	IsDefault    bool                `json:"isDefault"`
+	Ready        bool                `json:"ready"`
+	CreatedAt    string              `json:"createdAt"`
 }
 
 func (s *Server) registerAPIRoutes() {
@@ -83,6 +141,9 @@ func (s *Server) registerAPIRoutes() {
 	// authenticated user needs this to build the top-level navigation.
 	v1.GET("/capabilities", s.handleCapabilities)
 
+	// Meta — backend data mode (live vs mock), drives the demo banner.
+	v1.GET("/meta", s.handleMeta)
+
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
 	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
@@ -95,7 +156,11 @@ func (s *Server) registerAPIRoutes() {
 	if s.deps.Config.Products.CIEnabled() {
 		// Projects.
 		v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
+		v1.POST("/projects", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateProject)
 		v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
+		v1.PATCH("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleUpdateProject)
+		v1.DELETE("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleArchiveProject)
+		v1.POST("/projects/:id/restore", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleRestoreProject)
 		v1.GET("/projects/:id/pipelines", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleListProjectPipelines)
 		v1.PUT("/projects/:id/tags", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleSetProjectTags)
 		v1.GET("/projects/:id/webhooks", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleListWebhooks)
@@ -109,6 +174,8 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
 		v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
 		v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
+		v1.GET("/runs/:id/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunLogs)
+		v1.GET("/runs/:id/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamRunState)
 		v1.POST("/runs/:id/cancel", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleCancelRun)
 		v1.POST("/runs/:id/retry", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryRun)
 
@@ -116,6 +183,9 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/gates", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListGates)
 		v1.POST("/runs/:id/gates/:step/approve", s.requirePermission(auth.ObjGate, auth.ActApprove), s.handleApproveGate)
 		v1.POST("/runs/:id/gates/:step/reject", s.requirePermission(auth.ObjGate, auth.ActReject), s.handleRejectGate)
+
+		// External signals (resolves `wait` steps).
+		v1.POST("/runs/:id/signals", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleSendSignal)
 	}
 
 	// Teams.
@@ -128,6 +198,7 @@ func (s *Server) registerAPIRoutes() {
 
 	// Users.
 	v1.GET("/users", s.requirePermission(auth.ObjTeam, auth.ActRead), s.handleListUsers)
+	v1.POST("/users", s.requirePermission(auth.ObjTeam, auth.ActManage), s.handleCreateUser)
 
 	// Roles.
 	v1.GET("/roles", s.requirePermission(auth.ObjRole, auth.ActRead), s.handleListRoles)
@@ -182,7 +253,15 @@ func (s *Server) registerAPIRoutes() {
 	// Auth provider config (SSO setup).
 	v1.GET("/auth/providers", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleListAuthProviders)
 	v1.PUT("/auth/provider", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleUpdateAuthProvider)
+	v1.POST("/auth/provider/test", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleTestAuthProvider)
 	v1.DELETE("/auth/provider/:type", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleDeleteAuthProvider)
+	v1.GET("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetGroupMappings)
+	v1.PUT("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handlePutGroupMappings)
+
+	// SCIM token management (the SCIM data-plane lives at /scim/v2 with its own auth).
+	v1.GET("/auth/scim", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetScimStatus)
+	v1.POST("/auth/scim/token", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGenerateScimToken)
+	v1.DELETE("/auth/scim/token", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleRevokeScimToken)
 
 	// Forge connections (DB-managed; credentials envelope-encrypted server-side).
 	v1.GET("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActRead), s.handleListForgeConnections)
@@ -192,6 +271,14 @@ func (s *Server) registerAPIRoutes() {
 
 	// Runners.
 	v1.GET("/runners", s.requirePermission(auth.ObjRunner, auth.ActRead), s.listRunners)
+	v1.POST("/runners", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleCreateRunner)
+	v1.PATCH("/runners/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleUpdateRunner)
+	v1.DELETE("/runners/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleDeleteRunner)
+	v1.GET("/runners/:name/manifests", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleRunnerManifests)
+	v1.POST("/runners/:name/default", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleSetDefaultRunner)
+	// Whether managed (Karpenter) provisioning is available — distinct path to
+	// avoid colliding with the /runners/:name wildcard.
+	v1.GET("/provisioning", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleProvisioningInfo)
 
 	// Audit entries (renamed from audit-log).
 	v1.GET("/audit-entries", s.requirePermission(auth.ObjAudit, auth.ActRead), s.handleListAuditLog)
@@ -224,9 +311,10 @@ func (s *Server) handleStats(ctx context.Context, c *app.RequestContext) {
 	activeProjects, _ := s.deps.Q.CountActiveProjects(ctx)
 	pendingGates, _ := s.deps.Q.CountPendingGates(ctx)
 
+	// Percent (0-100) to match the UI, which renders the value with a "%" suffix.
 	successRate := 0.0
 	if stats.TotalRuns > 0 {
-		successRate = float64(stats.SuccessRuns) / float64(stats.TotalRuns)
+		successRate = math.Round(float64(stats.SuccessRuns) / float64(stats.TotalRuns) * 100)
 	}
 
 	c.JSON(consts.StatusOK, utils.H{
@@ -249,59 +337,25 @@ func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
 	pattern := "%" + q + "%"
 
-	// Search projects by name/repo.
-	projectRows, _ := s.deps.DB.Query(ctx,
-		`SELECT id, COALESCE(display_name, repo_path) AS name, repo_path, colour
-		 FROM projects WHERE org_id = $1 AND is_archived = false
-		 AND (display_name ILIKE $2 OR repo_path ILIKE $2)
-		 ORDER BY display_name LIMIT 10`, claims.OrgID, pattern)
-
-	var projects []utils.H
-	if projectRows != nil {
-		defer projectRows.Close()
-		for projectRows.Next() {
-			var id, name, repo, colour string
-			if projectRows.Scan(&id, &name, &repo, &colour) == nil {
-				projects = append(projects, utils.H{
-					"id": id, "name": name, "repo": repo, "colour": colour,
-				})
-			}
+	projects := []utils.H{}
+	if rows, err := s.deps.Q.SearchProjects(ctx, db.SearchProjectsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+		for _, p := range rows {
+			projects = append(projects, utils.H{"id": p.ID, "name": p.Name, "repo": p.RepoPath, "colour": p.Colour})
 		}
 	}
-	if projects == nil {
-		projects = []utils.H{}
-	}
 
-	// Search runs by commit SHA or branch.
-	runRows, _ := s.deps.DB.Query(ctx,
-		`SELECT pr.id, pr.status, pr.trigger_ref, pr.commit_sha,
-		        COALESCE(p.display_name, p.repo_path) AS project_name, p.colour
-		 FROM pipeline_runs pr
-		 JOIN projects p ON p.id = pr.project_id
-		 WHERE pr.org_id = $1
-		 AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
-		 ORDER BY pr.started_at DESC LIMIT 10`, claims.OrgID, pattern)
-
-	var runs []utils.H
-	if runRows != nil {
-		defer runRows.Close()
-		for runRows.Next() {
-			var id, status, projectName, colour string
-			var branch, sha *string
-			if runRows.Scan(&id, &status, &branch, &sha, &projectName, &colour) == nil {
-				r := utils.H{"id": id, "status": status, "projectName": projectName, "projectColour": colour}
-				if branch != nil {
-					r["branch"] = *branch
-				}
-				if sha != nil {
-					r["commitSha"] = *sha
-				}
-				runs = append(runs, r)
+	runs := []utils.H{}
+	if rows, err := s.deps.Q.SearchRuns(ctx, db.SearchRunsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+		for _, r := range rows {
+			h := utils.H{"id": r.ID, "status": r.Status, "projectName": r.ProjectName, "projectColour": r.ProjectColour}
+			if r.Branch != nil {
+				h["branch"] = *r.Branch
 			}
+			if r.CommitSha != nil {
+				h["commitSha"] = *r.CommitSha
+			}
+			runs = append(runs, h)
 		}
-	}
-	if runs == nil {
-		runs = []utils.H{}
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"projects": projects, "runs": runs})
@@ -310,6 +364,13 @@ func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
 // ── Projects ──────────────────────────────────────────────────
 
 func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
+	// Admin "archived" view (?archived=true) — a flat list for the settings page,
+	// kept on this route to avoid a /projects/:id wildcard conflict.
+	if string(c.Query("archived")) == "true" {
+		s.listArchivedProjects(ctx, c)
+		return
+	}
+
 	// Optional server-side filters (repeated query params): ?workspace=slug&tags=key:value
 	// Empty slice = no filter for that dimension.
 	workspaces := queryStrings(c, "workspace")
@@ -326,6 +387,16 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// Per-project health (recent run outcomes), keyed by project id.
+	health := map[string]*projectHealth{}
+	if org, oerr := s.deps.Q.GetOrg(ctx); oerr == nil {
+		if hrows, herr := s.deps.Q.ProjectHealthByOrg(ctx, org.ID); herr == nil {
+			for _, h := range hrows {
+				health[h.ProjectID] = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
+			}
+		}
+	}
+
 	result := make([]projectResponse, 0, len(rows))
 	for _, row := range rows {
 		p := projectResponse{
@@ -335,6 +406,7 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 			Workspace: row.Workspace,
 			Colour:    row.Colour,
 			Tags:      row.Tags,
+			Health:    health[row.ID],
 			CreatedAt: row.CreatedAt.Format(time.RFC3339),
 			Inferred:  row.Inferred,
 		}
@@ -411,58 +483,40 @@ func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext
 func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	var p projectResponse
-	var createdAt time.Time
-	var lastRunID, lastRunStatus, lastRunBranch, lastRunTriggeredBy *string
-	var lastRunStartedAt *time.Time
-	var lastRunDurationMs *int32
-
-	err := s.deps.DB.QueryRow(ctx, `
-		SELECT p.id, COALESCE(p.display_name, p.repo_path) AS name, p.repo_path,
-		       COALESCE(w.slug, '') AS workspace, p.colour, p.tags, p.created_at,
-		       lr.id AS last_run_id, lr.status AS last_run_status,
-		       lr.trigger_ref AS last_run_branch, lr.triggered_by AS last_run_triggered_by,
-		       lr.started_at AS last_run_started_at, lr.duration_ms AS last_run_duration_ms
-		FROM projects p
-		LEFT JOIN workspaces w ON w.id = p.workspace_id
-		LEFT JOIN LATERAL (
-		    SELECT id, status, trigger_ref, triggered_by, started_at, duration_ms
-		    FROM pipeline_runs
-		    WHERE project_id = p.id
-		    ORDER BY started_at DESC
-		    LIMIT 1
-		) lr ON true
-		WHERE p.id = $1
-	`, id).Scan(
-		&p.ID, &p.Name, &p.Repo,
-		&p.Workspace, &p.Colour, &p.Tags, &createdAt,
-		&lastRunID, &lastRunStatus,
-		&lastRunBranch, &lastRunTriggeredBy,
-		&lastRunStartedAt, &lastRunDurationMs,
-	)
+	row, err := s.deps.Q.GetProjectBasic(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "project not found")
 		return
 	}
 
+	p := projectResponse{
+		ID:        row.ID,
+		Name:      row.Name,
+		Repo:      row.RepoPath,
+		Workspace: row.Workspace,
+		Colour:    row.Colour,
+		Tags:      row.Tags,
+		CreatedAt: row.CreatedAt.Format(time.RFC3339),
+	}
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
-	p.CreatedAt = createdAt.Format(time.RFC3339)
 
-	if lastRunID != nil && *lastRunID != "" {
-		duration := "0s"
-		if lastRunDurationMs != nil {
-			duration = formatDuration(*lastRunDurationMs)
-		}
+	// Most recent run for the project (separate query keeps nullability clean).
+	if runs, _ := s.deps.Q.ListRunsByProject(ctx, db.ListRunsByProjectParams{ProjectID: &id, Limit: 1}); len(runs) > 0 {
+		lr := runs[0]
 		p.LastRun = &lastRunResponse{
-			ID:          *lastRunID,
-			Status:      derefString(lastRunStatus),
-			Branch:      derefString(lastRunBranch),
-			Duration:    duration,
-			TriggeredBy: derefString(lastRunTriggeredBy),
-			StartedAt:   formatTimePtr(lastRunStartedAt),
+			ID:          lr.ID,
+			Status:      lr.Status,
+			Branch:      derefString(lr.TriggerRef),
+			Duration:    durationFromInt4(lr.DurationMs),
+			TriggeredBy: derefString(lr.TriggeredBy),
+			StartedAt:   lr.StartedAt.Format(time.RFC3339),
 		}
+	}
+
+	if h, herr := s.deps.Q.ProjectHealthByID(ctx, &id); herr == nil {
+		p.Health = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
 	}
 
 	c.JSON(consts.StatusOK, p)
@@ -487,6 +541,7 @@ func (s *Server) handleListProjectPipelines(ctx context.Context, c *app.RequestC
 
 	type pipelineItem struct {
 		Filename string   `json:"filename"`
+		Yaml     string   `json:"yaml"`
 		Status   string   `json:"status"`
 		Errors   []string `json:"errors,omitempty"`
 		Steps    []any    `json:"steps"`
@@ -500,6 +555,7 @@ func (s *Server) handleListProjectPipelines(ctx context.Context, c *app.RequestC
 
 		item := pipelineItem{
 			Filename: name,
+			Yaml:     string(content), // raw source for the YAML tab
 			Status:   "valid",
 			Steps:    []any{},
 		}
@@ -538,57 +594,53 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 	status := string(c.Query("status"))
 	p := parsePagination(c)
 
-	// Use a raw query for global run list with optional filters.
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
-		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
-		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
-		       p.repo_path, pr.environment
-		FROM pipeline_runs pr
-		JOIN projects p ON p.id = pr.project_id
-		WHERE ($1::text = '' OR pr.project_id = $1)
-		  AND ($2::text = '' OR pr.status = $2)
-		ORDER BY pr.started_at DESC
-		LIMIT $3
-	`, projectID, status, int32(p.Limit+1))
+	// Keyset cursor: (started_at, id) tuple from the previous page's last row.
+	var cursorTs, cursorID string
+	if p.Cursor != "" {
+		if id, ts, err := decodeCursor(p.Cursor); err == nil {
+			cursorID, cursorTs = id, ts
+		}
+	}
+
+	rows, err := s.deps.Q.ListRunsFiltered(ctx, db.ListRunsFilteredParams{
+		ProjectID: projectID,
+		Status:    status,
+		CursorTs:  cursorTs,
+		CursorID:  cursorID,
+		Lim:       int32(p.Limit + 1),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runs")
 		return
 	}
-	defer rows.Close()
 
-	var result []runResponse
-	for rows.Next() {
-		var r runResponse
-		var startedAt time.Time
-		var finishedAt *time.Time
-		var durationMs *int32
-		var branch, commitSha, commitMessage, triggeredBy, projectName *string
-
-		if err := rows.Scan(
-			&r.ID, &r.Status, &startedAt, &r.WorkflowFile,
-			&branch, &r.TriggerType, &commitSha,
-			&commitMessage, &triggeredBy, &durationMs, &finishedAt,
-			&projectName, &r.ProjectID, &r.ProjectColour,
-			&r.Repo, &r.Environment,
-		); err != nil {
-			apiInternal(ctx, c, "failed to scan run")
-			return
+	result := make([]runResponse, 0, len(rows))
+	for _, row := range rows {
+		r := runResponse{
+			ID:            row.ID,
+			ProjectID:     row.ProjectID,
+			ProjectName:   derefString(row.ProjectName),
+			ProjectColour: row.ProjectColour,
+			Repo:          row.RepoPath,
+			Status:        row.Status,
+			TriggerType:   row.TriggerType,
+			Branch:        derefString(row.Branch),
+			CommitSha:     derefString(row.CommitSha),
+			CommitMessage: derefString(row.CommitMessage),
+			TriggeredBy:   derefString(row.TriggeredBy),
+			WorkflowFile:  derefString(row.WorkflowFile),
+			Duration:      durationFromInt4(row.DurationMs),
+			StartedAt:     row.StartedAt.Format(time.RFC3339),
+			StartedAtTs:   row.StartedAt.UnixMilli(),
+			FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+			Environment:   row.Environment,
+			ErrorMessage:  row.ErrorMessage,
+			Steps:         decodeStepSummaries(row.Steps),
 		}
-
-		r.Branch = derefString(branch)
-		r.CommitSha = derefString(commitSha)
-		r.CommitMessage = derefString(commitMessage)
-		r.TriggeredBy = derefString(triggeredBy)
-		r.ProjectName = derefString(projectName)
-		r.StartedAt = startedAt.Format(time.RFC3339)
-		r.FinishedAt = formatTimePtrOpt(finishedAt)
-		r.Duration = "0s"
-		if durationMs != nil {
-			r.Duration = formatDuration(*durationMs)
+		if row.FinishedAt != nil {
+			ts := row.FinishedAt.UnixMilli()
+			r.FinishedAtTs = &ts
 		}
-
 		result = append(result, r)
 	}
 
@@ -596,13 +648,15 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 		result = []runResponse{}
 	}
 
-	// Handle cursor pagination.
+	// Handle cursor pagination. The cursor timestamp must be full precision: the
+	// display StartedAt is RFC3339 (second-granularity), which would skip rows
+	// sharing a second on the next page. Encode from the original row time.
 	var nextCursor string
 	if len(result) > p.Limit {
 		result = result[:p.Limit]
 		if len(result) > 0 {
 			last := result[len(result)-1]
-			nextCursor = encodeCursor(last.ID, last.StartedAt)
+			nextCursor = encodeCursor(last.ID, rows[p.Limit-1].StartedAt.Format(time.RFC3339Nano))
 		}
 	}
 
@@ -616,46 +670,59 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 func (s *Server) getRun(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	var r runResponse
-	var startedAt time.Time
-	var finishedAt *time.Time
-	var durationMs *int32
-	var branch, commitSha, commitMessage, triggeredBy, projectName *string
-
-	err := s.deps.DB.QueryRow(ctx, `
-		SELECT pr.id, pr.status, pr.started_at, pr.workflow_file,
-		       pr.trigger_ref AS branch, pr.trigger_type, pr.commit_sha,
-		       pr.commit_message, pr.triggered_by, pr.duration_ms, pr.finished_at,
-		       p.display_name AS project_name, p.id AS project_id, p.colour AS project_colour,
-		       p.repo_path, pr.environment
-		FROM pipeline_runs pr
-		JOIN projects p ON p.id = pr.project_id
-		WHERE pr.id = $1
-	`, id).Scan(
-		&r.ID, &r.Status, &startedAt, &r.WorkflowFile,
-		&branch, &r.TriggerType, &commitSha,
-		&commitMessage, &triggeredBy, &durationMs, &finishedAt,
-		&projectName, &r.ProjectID, &r.ProjectColour,
-		&r.Repo, &r.Environment,
-	)
+	row, err := s.deps.Q.GetRunDetail(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "run not found")
 		return
 	}
 
-	r.Branch = derefString(branch)
-	r.CommitSha = derefString(commitSha)
-	r.CommitMessage = derefString(commitMessage)
-	r.TriggeredBy = derefString(triggeredBy)
-	r.ProjectName = derefString(projectName)
-	r.StartedAt = startedAt.Format(time.RFC3339)
-	r.FinishedAt = formatTimePtrOpt(finishedAt)
-	r.Duration = "0s"
-	if durationMs != nil {
-		r.Duration = formatDuration(*durationMs)
+	r := runResponse{
+		ID:            row.ID,
+		ProjectID:     row.ProjectID,
+		ProjectName:   derefString(row.ProjectName),
+		ProjectColour: row.ProjectColour,
+		Repo:          row.RepoPath,
+		Status:        row.Status,
+		TriggerType:   row.TriggerType,
+		Branch:        derefString(row.Branch),
+		CommitSha:     derefString(row.CommitSha),
+		CommitMessage: derefString(row.CommitMessage),
+		TriggeredBy:   derefString(row.TriggeredBy),
+		WorkflowFile:  derefString(row.WorkflowFile),
+		Duration:      durationFromInt4(row.DurationMs),
+		StartedAt:     row.StartedAt.Format(time.RFC3339),
+		StartedAtTs:   row.StartedAt.UnixMilli(),
+		FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+		Environment:   row.Environment,
+		ErrorMessage:  row.ErrorMessage,
+		Steps:         decodeStepSummaries(row.Steps),
+	}
+	if row.FinishedAt != nil {
+		ts := row.FinishedAt.UnixMilli()
+		r.FinishedAtTs = &ts
 	}
 
 	c.JSON(consts.StatusOK, r)
+}
+
+// decodeStepSummaries parses the json_agg step array from the run queries.
+func decodeStepSummaries(b []byte) []runStepSummary {
+	if len(b) == 0 {
+		return nil
+	}
+	var out []runStepSummary
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// durationFromInt4 formats a nullable duration_ms column as a human string.
+func durationFromInt4(d pgtype.Int4) string {
+	if !d.Valid {
+		return "0s"
+	}
+	return formatDuration(d.Int32)
 }
 
 func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
@@ -694,36 +761,48 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
-	rows, err := s.deps.DB.Query(ctx, `
-		SELECT id, name, description, cpu, memory, arch,
-		       gpu_vendor, gpu_model, gpu_count, ready, created_at
-		FROM runner_pools
-		ORDER BY name
-		LIMIT $1 OFFSET $2
-	`, lim, off)
+	rows, err := s.deps.Q.ListRunnerPoolsPaged(ctx, db.ListRunnerPoolsPagedParams{
+		Limit:  int32(lim),
+		Offset: int32(off),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runners")
 		return
 	}
-	defer rows.Close()
 
-	result := []runnerResponse{}
-	for rows.Next() {
-		var r runnerResponse
-		var createdAt time.Time
-		var gpuCount *int32
-
-		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Description, &r.CPU, &r.Memory, &r.Arch,
-			&r.GPUVendor, &r.GPUModel, &gpuCount, &r.Ready, &createdAt,
-		); err != nil {
-			apiInternal(ctx, c, "failed to scan runner")
-			return
+	result := make([]runnerResponse, 0, len(rows))
+	for _, r := range rows {
+		rr := runnerResponse{
+			ID:          r.ID,
+			Name:        r.Name,
+			Description: r.Description,
+			CPU:         r.Cpu,
+			Memory:      r.Memory,
+			Arch:        r.Arch,
+			GPUVendor:   r.GpuVendor,
+			GPUModel:    r.GpuModel,
+			Mode:        r.Mode,
+			IsDefault:   r.IsDefault,
+			Ready:       r.Ready,
+			CreatedAt:   r.CreatedAt.Format(time.RFC3339),
 		}
-
-		r.GPUCount = gpuCount
-		r.CreatedAt = createdAt.Format(time.RFC3339)
-		result = append(result, r)
+		if r.GpuCount.Valid {
+			v := r.GpuCount.Int32
+			rr.GPUCount = &v
+		}
+		if r.Mode == "managed" && len(r.ManagedSpec) > 0 {
+			var ms runner.ManagedSpec
+			if json.Unmarshal(r.ManagedSpec, &ms) == nil {
+				rr.Managed = &ms
+			}
+		}
+		if len(r.NodeSelector) > 0 {
+			_ = json.Unmarshal(r.NodeSelector, &rr.NodeSelector)
+		}
+		if len(r.Tolerations) > 0 {
+			_ = json.Unmarshal(r.Tolerations, &rr.Tolerations)
+		}
+		result = append(result, rr)
 	}
 
 	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
@@ -791,25 +870,21 @@ type teamWithMembersResponse struct {
 func (s *Server) handleGetTeam(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("id")
 
-	// Get team info.
-	var team teamWithMembersResponse
-	var source, idpGroup *string
-	err := s.deps.DB.QueryRow(ctx,
-		`SELECT id, name, slug,
-		        COALESCE(source, 'internal') AS source,
-		        idp_group
-		 FROM teams WHERE id = $1`, id,
-	).Scan(&team.ID, &team.Name, &team.Slug, &source, &idpGroup)
+	t, err := s.deps.Q.GetTeam(ctx, id)
 	if err != nil {
 		apiNotFound(ctx, c, "team not found")
 		return
 	}
-
-	team.Source = derefString(source)
+	team := teamWithMembersResponse{
+		ID:       t.ID,
+		Name:     t.Name,
+		Slug:     t.Slug,
+		Source:   t.Source,
+		IDPGroup: t.IdpGroup,
+	}
 	if team.Source == "" {
 		team.Source = "internal"
 	}
-	team.IDPGroup = idpGroup
 
 	// Get members.
 	members, err := s.deps.Q.ListTeamMembers(ctx, id)

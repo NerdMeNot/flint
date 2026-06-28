@@ -7,17 +7,20 @@ Flint is a Kubernetes-native CI platform built on a custom Postgres-backed workf
 ## Build & Test
 
 ```bash
-task build-all          # Build all 6 binaries to bin/
+task build-all          # Build all 5 binaries to bin/
 task build BIN=server   # Build a single binary
 task build-web          # Build the web frontend (bun + Vite)
 task test               # Run all unit tests
 task check              # Run all checks (fmt, vet, lint, test)
 task dev-local          # Full local stack: Postgres (Podman) + server + worker;
                         # steps dispatch to your local Kubernetes cluster
+task dev-sim            # Local sim stack (Postgres + seed + server + worker + web)
+                        # under mprocs (brew install mprocs): REAL engine, simulated
+                        # step execution (no Kubernetes). Log in admin@flint.dev / flintdev123
 ```
 
 Requires [Task](https://taskfile.dev/): `go install github.com/go-task/task/v3/cmd/task@latest`.
-Also: `task generate` (proto + sqlc + CRDs), `task migrate-up/down/status`.
+Also: `task generate` (proto + sqlc), `task migrate-up/down/status`.
 
 ## Conventions
 
@@ -48,14 +51,17 @@ Three layers; dependencies point downward only (products → core, platform → 
 
 ## Package Layout
 
-- `cmd/` — Binary entry points (server, worker, agent, controller, syncd, flint CLI/TUI)
+- `cmd/` — Binary entry points (server, worker, agent, syncd, flint CLI/TUI)
 - `internal/core/engine/` — Workflow engine (advance/dispatch/loop, timers, signals, outbox, executors)
 - `internal/core/db/` — sqlc-generated queries + models (`sqlc.yaml` at repo root)
 - `internal/core/dbkit/` — pgx connection pool + goose migrations
 - `internal/core/agent/` — Per-job agent: init container (checkout, secrets, cache, artifacts) + native sidecar (logs, completion)
 - `internal/core/wsagent/` — Per-run gRPC workspace server pod
-- `internal/core/controller/`, `internal/core/crd/` — RunnerPool/Project CRD reconciler
-- `internal/core/runner/` — RunnerPool registry/resolution
+- `internal/core/runner/` — Runner pool registry + resolution. **No CRDs/controllers**:
+  pools are DB/API-managed (`POST/PATCH/DELETE /runners`), loaded into the worker
+  registry from the DB (`runner.LoadAll`). Pipelines pick a pool via `runner:`; the
+  engine stamps its selectors/resources onto the Job pod. Optional managed mode renders
+  a Karpenter NodePool (render-to-GitOps). Projects, modules, forge, auth are all DB/API.
 - `internal/core/worker/` — K8s Job informer (completion fallback)
 - `internal/core/secretstore/` — Envelope-encrypted secret storage
 - `internal/core/flinterr/` — Shared error types + Clock interface

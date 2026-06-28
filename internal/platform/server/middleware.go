@@ -34,6 +34,13 @@ func (s *Server) authMiddleware() app.HandlerFunc {
 		// Try Bearer token.
 		header := string(c.GetHeader("Authorization"))
 		if header == "" {
+			// Browser EventSource (SSE) can't set an Authorization header, so for
+			// streaming endpoints accept the token as an ?access_token= query param.
+			if qt := string(c.Query("access_token")); qt != "" {
+				header = "Bearer " + qt
+			}
+		}
+		if header == "" {
 			apiUnauthorized(ctx, c, "missing authorization header")
 			c.Abort()
 			return
@@ -138,35 +145,21 @@ func (s *Server) validatePersonalToken(ctx context.Context, token string) (*auth
 		return nil, fmt.Errorf("database not configured")
 	}
 
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT pt.id, pt.user_id, pt.token_hash, pt.expires_at,
-		        u.email, u.org_id, COALESCE(u.name, '') as name
-		 FROM personal_tokens pt
-		 JOIN users u ON u.id = pt.user_id
-		 WHERE pt.expires_at IS NULL OR pt.expires_at > now()`)
+	tokens, err := s.deps.Q.ListValidPersonalTokensWithUser(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var id, userID, hash, email, orgID, name string
-		var expiresAt *string
-		if err := rows.Scan(&id, &userID, &hash, &expiresAt, &email, &orgID, &name); err != nil {
-			continue
-		}
-		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(token)) == nil {
-			// Update last_used_at.
-			_, _ = s.deps.DB.Exec(ctx,
-				`UPDATE personal_tokens SET last_used_at = now() WHERE id = $1`, id)
-
+	for _, t := range tokens {
+		if bcrypt.CompareHashAndPassword([]byte(t.TokenHash), []byte(token)) == nil {
+			_ = s.deps.Q.TouchPersonalToken(ctx, t.ID) // best-effort last_used_at
 			return &auth.Claims{
-				Subject:    userID,
-				Email:      email,
-				Name:       name,
-				OrgID:      orgID,
+				Subject:    t.UserID,
+				Email:      t.Email,
+				Name:       t.Name,
+				OrgID:      t.OrgID,
 				Provider:   "personal_token",
-				ExternalID: id,
+				ExternalID: t.ID,
 			}, nil
 		}
 	}

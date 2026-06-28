@@ -41,6 +41,7 @@ import { formatDateTime, formatAgo } from '#/lib/format-time'
 import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
+import { useRunStream } from '#/hooks/use-run-stream'
 import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
 import { StepSpine, fmtDur } from '#/components/pipeline/step-spine'
@@ -111,16 +112,28 @@ function RunDetailPage() {
     if (selectedStep === null && logsMaximized) setLogsMaximized(false)
   }, [selectedStep, logsMaximized])
 
+  // Real-time: when the run-state SSE is connected, it feeds the cache and we
+  // suspend polling; otherwise we fall back to the 4s poll. sseRef is read by
+  // the refetchInterval callbacks (which run after the stream connects).
+  const sseRef = useRef(false)
+
   const { data: run } = useSuspenseQuery({
     ...orpc.runs.get.queryOptions({ input: { id } }),
-    refetchInterval: liveRefetch,
+    refetchInterval: (q) => (sseRef.current ? false : liveRefetch(q)),
   })
   const isLive = run.status === 'running' || run.status === 'pending'
   const { data: stepsData } = useSuspenseQuery({
     ...orpc.runs.steps.queryOptions({ input: { runId: id } }),
-    refetchInterval: isLive ? 4000 : false,
+    refetchInterval: () => (isLive && !sseRef.current ? 4000 : false),
   })
   const steps = stepsData?.steps ?? []
+
+  // Subscribe to live run state over SSE; mirror its connection into sseRef so
+  // the polling fallback engages only when the stream is down.
+  const sseConnected = useRunStream(id, isLive)
+  useEffect(() => {
+    sseRef.current = sseConnected
+  }, [sseConnected])
 
   // Live elapsed clock. Prefer the earliest step start when it's recent
   // (in-flight runs are anchored near now); otherwise derive a ticking baseline
@@ -365,8 +378,8 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               disabled={cancel.isPending}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors disabled:opacity-50"
             >
-              <Ban size={12} />
-              Cancel
+              {cancel.isPending ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+              {cancel.isPending ? 'Cancelling…' : 'Cancel'}
             </button>
           )}
           {(run.status === 'failed' || run.status === 'cancelled') && (
@@ -376,8 +389,8 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               disabled={retry.isPending}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
             >
-              <RotateCcw size={12} />
-              Retry
+              {retry.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+              {retry.isPending ? 'Retrying…' : 'Retry'}
             </button>
           )}
         </div>

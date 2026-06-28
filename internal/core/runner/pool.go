@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	batchv1 "k8s.io/api/batch/v1"
@@ -9,9 +10,22 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-// Registry holds known runner pools. In production this is populated from
-// RunnerPool CRDs; in dev/test it can be populated statically.
+// DefaultPoolName is the pool used when a job specifies no runner. Overridable
+// via SetDefault from config (worker.defaultRunnerPool).
+var defaultPoolName = "standard"
+
+// SetDefault sets the registry-wide default pool name (from config).
+func SetDefault(name string) {
+	if name != "" {
+		defaultPoolName = name
+	}
+}
+
+// Registry holds known runner pools. Pools are loaded from the DB (the source of
+// truth) into this in-memory registry by the worker (see LoadAll). Safe for
+// concurrent reads (dispatch) and refresh (loader).
 type Registry struct {
+	mu    sync.RWMutex
 	pools map[string]PoolSpec
 }
 
@@ -20,17 +34,33 @@ func NewRegistry() *Registry {
 	return &Registry{pools: make(map[string]PoolSpec)}
 }
 
-// Register adds a pool to the registry.
+// Register adds (or replaces) a pool in the registry.
 func (r *Registry) Register(spec PoolSpec) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.pools[spec.Name] = spec
+}
+
+// ReplaceAll atomically swaps the registry contents — used by the DB loader so a
+// refresh never exposes a partially-populated registry.
+func (r *Registry) ReplaceAll(specs []PoolSpec) {
+	next := make(map[string]PoolSpec, len(specs))
+	for _, s := range specs {
+		next[s.Name] = s
+	}
+	r.mu.Lock()
+	r.pools = next
+	r.mu.Unlock()
 }
 
 // Resolve looks up a runner pool by name. If the name is empty, the default pool is returned.
 func (r *Registry) Resolve(name string) (*PoolSpec, error) {
 	if name == "" {
-		name = "standard"
+		name = defaultPoolName
 	}
 
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	spec, ok := r.pools[name]
 	if !ok {
 		available := make([]string, 0, len(r.pools))
@@ -68,6 +98,8 @@ func (r *Registry) ResolveWithSize(name string, size TShirtSize) (*PoolSpec, err
 
 // List returns all registered pool specs.
 func (r *Registry) List() []PoolSpec {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	specs := make([]PoolSpec, 0, len(r.pools))
 	for _, s := range r.pools {
 		specs = append(specs, s)
@@ -93,10 +125,17 @@ func MergeIntoJob(spec *PoolSpec, job *batchv1.Job) {
 		container.Resources.Limits = corev1.ResourceList{}
 	}
 
-	container.Resources.Requests[corev1.ResourceCPU] = spec.Resources.CPU
-	container.Resources.Requests[corev1.ResourceMemory] = spec.Resources.Memory
-	container.Resources.Limits[corev1.ResourceCPU] = spec.Resources.CPU
-	container.Resources.Limits[corev1.ResourceMemory] = spec.Resources.Memory
+	// CPU/memory are optional pool defaults — only stamp them when the pool set a
+	// value (zero Quantity means "unset", so the job's own requests / cluster
+	// defaults apply).
+	if !spec.Resources.CPU.IsZero() {
+		container.Resources.Requests[corev1.ResourceCPU] = spec.Resources.CPU
+		container.Resources.Limits[corev1.ResourceCPU] = spec.Resources.CPU
+	}
+	if !spec.Resources.Memory.IsZero() {
+		container.Resources.Requests[corev1.ResourceMemory] = spec.Resources.Memory
+		container.Resources.Limits[corev1.ResourceMemory] = spec.Resources.Memory
+	}
 
 	// Accelerator resources (GPU, TPU, Inferentia, Gaudi, etc.).
 	if spec.Resources.GPU != nil && spec.Resources.GPU.Count > 0 {

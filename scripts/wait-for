@@ -1,0 +1,35 @@
+#!/bin/sh
+# wait-for — block until each target is ready, then exec the command.
+#
+#   wait-for <target>... -- <cmd> [args...]
+#
+# A target is either:
+#   - a file path  → ready when the file exists (e.g. a "done" sentinel), or
+#   - host:port    → ready when the TCP port accepts a connection.
+#
+# Used by mprocs.yaml to sequence processes: mprocs runs everything in parallel
+# and has no native ordering, so dependent processes wait here first. `exec` hands
+# the PID straight to the real command, so a stop signal reaches it directly (no
+# orphaned child).
+set -eu
+
+targets=""
+while [ "$#" -gt 0 ]; do
+	[ "$1" = "--" ] && { shift; break; }
+	targets="$targets $1"
+	shift
+done
+[ "$#" -gt 0 ] || { echo "wait-for: missing command after --" >&2; exit 2; }
+
+is_ready() {
+	case "$1" in
+	*:*) nc -z "${1%:*}" "${1##*:}" >/dev/null 2>&1 ;;
+	*) [ -e "$1" ] ;;
+	esac
+}
+
+for t in $targets; do
+	until is_ready "$t"; do sleep 0.5; done
+done
+
+exec "$@"

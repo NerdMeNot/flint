@@ -96,6 +96,61 @@ func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]Lis
 	return items, nil
 }
 
+const listAPIKeysDetailed = `-- name: ListAPIKeysDetailed :many
+SELECT ak.id, ak.name, COALESCE(r.slug, 'viewer')::text AS role,
+       COALESCE(u.email, 'system')::text AS created_by,
+       ak.expires_at, ak.last_used_at, ak.created_at
+FROM api_keys ak
+LEFT JOIN roles r ON r.id = ak.role_id
+LEFT JOIN users u ON u.id = ak.user_id
+WHERE ak.org_id = $1 ORDER BY ak.created_at DESC LIMIT $2 OFFSET $3
+`
+
+type ListAPIKeysDetailedParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
+
+type ListAPIKeysDetailedRow struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Role       string     `json:"role"`
+	CreatedBy  string     `json:"created_by"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// API keys with role slug + creator email for the settings list.
+func (q *Queries) ListAPIKeysDetailed(ctx context.Context, arg ListAPIKeysDetailedParams) ([]ListAPIKeysDetailedRow, error) {
+	rows, err := q.db.Query(ctx, listAPIKeysDetailed, arg.OrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAPIKeysDetailedRow{}
+	for rows.Next() {
+		var i ListAPIKeysDetailedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.LastUsedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listValidAPIKeys = `-- name: ListValidAPIKeys :many
 SELECT id, org_id, user_id, name, key_hash, scopes
 FROM api_keys WHERE (expires_at IS NULL OR expires_at > now())

@@ -28,6 +28,10 @@ import {
   type Session,
   type MfaSetup,
   type AuthProviders,
+  type ProviderTestResult,
+  type GroupMappings,
+  type ScimStatus,
+  providerConfigSchema,
   type WorkflowRun,
   type WorkflowRunDetail,
   type SavedView,
@@ -38,12 +42,11 @@ import {
   backendPut,
   backendPatch,
   backendDelete,
-  BackendUnavailableError,
-  isBackendUnreachable,
+  backendGetRoot,
+  backendPostRoot,
+  backendPutRoot,
+  backendDeleteRoot,
 } from './backend'
-import { apiMode } from './mode'
-import * as mocks from './mocks'
-import { needsAttention } from '#/lib/project-health'
 
 // ---------------------------------------------------------------------------
 // Shared types for backend responses
@@ -51,57 +54,13 @@ import { needsAttention } from '#/lib/project-health'
 
 type Paginated<T> = { items: T[]; nextCursor?: string }
 
-// withFallback / safe are mode-aware (see ./mode):
-//   mock — skip the backend entirely and use the mock path.
-//   live — call the backend and let errors (including unreachability) surface.
-//   auto — try the backend, fall back to the mock path only when unreachable.
-//
-// withFallback is for reads; safe is for writes. safe's second arg accepts a
-// plain value OR a thunk — pass a thunk to MUTATE the mock store so writes feel
-// real in mock mode (the next read reflects them).
-async function withFallback<T>(backendCall: () => Promise<T>, mockFallback: () => T): Promise<T> {
-  if (apiMode() === 'mock') return mockFallback()
-  try {
-    return await backendCall()
-  } catch (err) {
-    if (apiMode() === 'auto' && err instanceof BackendUnavailableError) return mockFallback()
-    throw err
-  }
-}
-
-async function safe<T>(backendCall: () => Promise<T>, fallback: T | (() => T)): Promise<T> {
-  const resolve = () => (typeof fallback === 'function' ? (fallback as () => T)() : fallback)
-  if (apiMode() === 'mock') return resolve()
-  try {
-    return await backendCall()
-  } catch (err) {
-    if (apiMode() === 'auto' && err instanceof BackendUnavailableError) return resolve()
-    throw err
-  }
-}
-
-function paginateMock<T extends { id: string }>(
-  items: T[],
-  opts: { limit?: number; cursor?: string },
-): { items: T[]; nextCursor?: string } {
-  const limit = opts.limit ?? 20
-  const startIdx = opts.cursor ? items.findIndex((i) => i.id === opts.cursor) + 1 : 0
-  const page = items.slice(startIdx, startIdx + limit)
-  const nextCursor = page.length === limit ? page[page.length - 1]?.id : undefined
-  return { items: page, nextCursor }
-}
-
-
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
 
 const stats = {
   get: os.handler(async () => {
-    return withFallback(
-      () => backendGet<DashboardSummary>('/stats'),
-      () => mocks.getDashboardSummary(),
-    )
+    return backendGet<DashboardSummary>('/stats')
   }),
 }
 
@@ -116,30 +75,19 @@ type Capability = {
   status: 'enabled' | 'coming_soon' | 'disabled'
 }
 
-// meta exposes the API mode so the client can warn when it is showing demo
-// (mock) data instead of real backend data.
+// meta reports the backend's data mode so the client can warn when the server is
+// a local demo deployment (seeded data + simulated step execution) rather than
+// production.
 const meta = {
   get: os.handler(async () => {
-    const mode = apiMode()
-    return {
-      mode,
-      usingMockData: mode === 'mock' || (mode === 'auto' && isBackendUnreachable()),
-    }
+    const m = await backendGet<{ mode: 'demo' | 'live' }>('/meta')
+    return { mode: m.mode, isDemo: m.mode === 'demo' }
   }),
 }
 
 const capabilities = {
   get: os.handler(async () => {
-    return withFallback(
-      () => backendGet<{ products: Capability[] }>('/capabilities'),
-      () => ({
-        products: [
-          { id: 'ci', name: 'CI', enabled: true, status: 'enabled' as const },
-          { id: 'workflows', name: 'Workflows', enabled: true, status: 'enabled' as const },
-          { id: 'loadtest', name: 'Load Testing', enabled: false, status: 'coming_soon' as const },
-        ],
-      }),
-    )
+    return backendGet<{ products: Capability[] }>('/capabilities')
   }),
 }
 
@@ -160,66 +108,79 @@ const projects = {
       }),
     )
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Project>>('/projects', {
+      return backendGet<Paginated<Project>>('/projects', {
           workspace: input.workspace, tags: input.tags,
           needsGrouping: input.needsGrouping ? 'true' : undefined,
           attention: input.attention ? 'true' : undefined,
           limit: input.limit, cursor: input.cursor,
-        }),
-        () => {
-          let items = mocks.getProjects()
-          if (input.workspace && input.workspace.length > 0) {
-            const set = new Set(input.workspace)
-            items = items.filter((p) => set.has(p.workspace))
-          }
-          if (input.tags && input.tags.length > 0) {
-            // Array-overlap semantics, matching the backend's `p.tags && $tags`.
-            const want = new Set(input.tags)
-            items = items.filter((p) => (p.tags ?? []).some((t) => want.has(t)))
-          }
-          if (input.needsGrouping) {
-            // Inferred workspace (not declared) or no tags — matches the backend.
-            items = items.filter((p) => p.inferred || (p.tags ?? []).length === 0)
-          }
-          if (input.attention) {
-            // Currently red or a low pass rate — a persistent problem.
-            items = items.filter((p) => needsAttention(p.health))
-          }
-          return paginateMock(items, input)
-        },
-      )
+        })
     }),
 
   get: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Project>(`/projects/${input.id}`),
-        () => {
-          const p = mocks.getProjects().find((p) => p.id === input.id)
-          if (!p) throw new Error('Project not found')
-          return p
-        },
-      )
+      return backendGet<Project>(`/projects/${input.id}`)
     }),
+
+  // Register a project (the canonical create path; the Project CRD is an optional
+  // adapter onto the same row). repo + forgeRef required.
+  create: os
+    .input(z.object({
+      repo: z.string(),
+      forgeRef: z.string(),
+      displayName: z.optional(z.string()),
+      description: z.optional(z.string()),
+      colour: z.optional(z.string()),
+      workspace: z.optional(z.string()),
+      defaultBranch: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendPost<{ id: string; repo: string; webhookProvisioned: boolean }>('/projects', input)
+    }),
+
+  update: os
+    .input(z.object({
+      id: z.string(),
+      displayName: z.optional(z.string()),
+      description: z.optional(z.string()),
+      colour: z.optional(z.string()),
+      workspace: z.optional(z.string()),
+      defaultBranch: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      const { id, ...body } = input
+      return backendPatch(`/projects/${id}`, body)
+    }),
+
+  archive: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return backendDelete(`/projects/${input.id}`)
+    }),
+
+  restore: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/projects/${input.id}/restore`)
+    }),
+
+  // Archived projects (admin) — a flat list for restore.
+  archived: os.handler(async () => {
+    return backendGet<{ items: Array<{ id: string; name: string; repo: string; workspace: string; colour: string; createdAt: string }> }>(
+      '/projects', { archived: 'true' },
+    )
+  }),
 
   setTags: os
     .input(z.object({ id: z.string(), tags: z.array(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPut(`/projects/${input.id}/tags`, { tags: input.tags }),
-        () => mocks.setProjectTags(input.id, input.tags),
-      )
+      return backendPut(`/projects/${input.id}/tags`, { tags: input.tags })
     }),
 
   pipelines: os
     .input(z.object({ projectId: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<PipelineDefinition[]>(`/projects/${input.projectId}/pipelines`),
-        () => mocks.getProjectPipelines(input.projectId),
-      )
+      return backendGet<PipelineDefinition[]>(`/projects/${input.projectId}/pipelines`)
     }),
 }
 
@@ -241,103 +202,65 @@ const runs = {
       }),
     )
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<PipelineRun>>('/runs', {
+      return backendGet<Paginated<PipelineRun>>('/runs', {
           projectId: input.projectId, status: input.status, branch: input.branch,
           from: input.from, to: input.to,
           limit: input.limit, cursor: input.cursor,
-        }),
-        () => {
-          let items = mocks.getRuns()
-          if (input.projectId) items = items.filter((r) => r.projectId === input.projectId)
-          if (input.status) items = items.filter((r) => r.status === input.status)
-          // Time-range filter on the run's start time (epoch ms).
-          if (input.from != null) items = items.filter((r) => (r.startedAtTs ?? 0) >= input.from!)
-          if (input.to != null) items = items.filter((r) => (r.startedAtTs ?? Infinity) <= input.to!)
-          return paginateMock(items, input)
-        },
-      )
+        })
     }),
 
   get: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<PipelineRun>(`/runs/${input.id}`),
-        () => {
-          const r = mocks.getRuns().find((r) => r.id === input.id)
-          if (!r) throw new Error('Run not found')
-          return r
-        },
-      )
+      return backendGet<PipelineRun>(`/runs/${input.id}`)
     }),
 
   steps: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<{ steps: PipelineStep[]; dagWaves: string[][] }>(`/runs/${input.runId}/steps`),
-        () => ({ steps: mocks.getSteps(input.runId), dagWaves: [] }),
-      )
+      return backendGet<{ steps: PipelineStep[]; dagWaves: string[][] }>(`/runs/${input.runId}/steps`)
     }),
 
   stepLogs: os
     .input(z.object({ runId: z.string(), stepName: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<{ lines: string }>(`/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`),
-        () => {
-          const logs = mocks.getStepLogs()
-          return { lines: logs[input.stepName] || '' }
-        },
-      )
+      return (async () => {
+          // The server returns structured lines ({timestamp,stream,content});
+          // the log view wants a single string, so join the content here.
+          const res = await backendGet<{ lines: Array<{ content?: string }> }>(
+            `/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`,
+          )
+          const lines = Array.isArray(res.lines) ? res.lines.map((l) => l.content ?? '').join('\n') : ''
+          return { lines }
+        })()
     }),
 
   // All started steps' logs, for the contiguous "All output" view.
   logs: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<{ logs: Record<string, string> }>(`/runs/${input.runId}/logs`),
-        () => {
-          const all = mocks.getStepLogs()
-          const logs: Record<string, string> = {}
-          for (const s of mocks.getSteps(input.runId)) {
-            if (s.startedAt) logs[s.name] = all[s.name] ?? ''
-          }
-          return { logs }
-        },
-      )
+      return backendGet<{ logs: Record<string, string> }>(`/runs/${input.runId}/logs`)
     }),
 
   trigger: os
     .input(z.object({ projectId: z.string(), branch: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost('/runs', {
+      return backendPost('/runs', {
           projectId: input.projectId,
           branch: input.branch || 'main',
-        }),
-        () => mocks.triggerRun({ projectId: input.projectId, branch: input.branch }),
-      )
+        })
     }),
 
   cancel: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost(`/runs/${input.runId}/cancel`),
-        () => ({ success: true, run: mocks.cancelRun(input.runId) }) as any,
-      )
+      return backendPost(`/runs/${input.runId}/cancel`)
     }),
 
   retry: os
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost(`/runs/${input.runId}/retry`),
-        () => mocks.retryRun(input.runId),
-      )
+      return backendPost(`/runs/${input.runId}/retry`)
     }),
 }
 
@@ -357,29 +280,15 @@ const workflows = {
       }),
     )
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<WorkflowRun>>('/workflows/runs', {
+      return backendGet<Paginated<WorkflowRun>>('/workflows/runs', {
           status: input.status, limit: input.limit, cursor: input.cursor,
-        }),
-        () => {
-          let items = mocks.getWorkflowRuns()
-          if (input.status) items = items.filter((r) => r.status === input.status)
-          return paginateMock(items, input)
-        },
-      )
+        })
     }),
 
   get: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<WorkflowRunDetail>(`/workflows/runs/${input.id}`),
-        () => {
-          const r = mocks.getWorkflowRun(input.id)
-          if (!r) throw new Error('Workflow run not found')
-          return r
-        },
-      )
+      return backendGet<WorkflowRunDetail>(`/workflows/runs/${input.id}`)
     }),
 
   // trigger posts a workflow definition (YAML) and starts a run. Backend
@@ -388,13 +297,10 @@ const workflows = {
   trigger: os
     .input(z.object({ definition: z.string() }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost<{ runId: string; name: string; status: string }>(
+      return backendPost<{ runId: string; name: string; status: string }>(
           '/workflows/runs',
           { definition: input.definition },
-        ),
-        { runId: `wf-mock-${Date.now()}`, name: 'workflow', status: 'pending' },
-      )
+        )
     }),
 }
 
@@ -412,38 +318,25 @@ const gates = {
       }),
     )
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Gate>>('/gates', {
+      return backendGet<Paginated<Gate>>('/gates', {
           status: input.status, limit: input.limit, cursor: input.cursor,
-        }),
-        () => {
-          let items = mocks.getGates()
-          if (input.status) items = items.filter((g) => g.status === input.status)
-          return { items, nextCursor: undefined }
-        },
-      )
+        })
     }),
 
   approve: os
     .input(z.object({ runId: z.string(), stepName: z.string(), comment: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/approve`, {
+      return backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/approve`, {
           stepName: input.stepName, comment: input.comment,
-        }),
-        () => ({ success: true, gate: mocks.approveGate(input.runId, input.stepName) }) as any,
-      )
+        })
     }),
 
   reject: os
     .input(z.object({ runId: z.string(), stepName: z.string(), reason: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/reject`, {
+      return backendPost(`/runs/${input.runId}/gates/${encodeURIComponent(input.stepName)}/reject`, {
           stepName: input.stepName, reason: input.reason,
-        }),
-        () => ({ success: true, gate: mocks.rejectGate(input.runId, input.stepName) }) as any,
-      )
+        })
     }),
 }
 
@@ -455,22 +348,19 @@ const workspaces = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Workspace>>('/workspaces', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getWorkspaces(), input),
-      )
+      return backendGet<Paginated<Workspace>>('/workspaces', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
     .input(z.object({ name: z.string(), slug: z.string(), description: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/workspaces', input), () => mocks.createWorkspace(input))
+      return backendPost('/workspaces', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/workspaces/${input.id}`), () => mocks.deleteWorkspace(input.id))
+      return backendDelete(`/workspaces/${input.id}`)
     }),
 }
 
@@ -483,10 +373,7 @@ const tags = {
     list: os
       .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
       .handler(async ({ input }) => {
-        return withFallback(
-          () => backendGet<Paginated<TagKey>>('/tags', { limit: input.limit, cursor: input.cursor }),
-          () => paginateMock(mocks.getTagKeys(), input),
-        )
+        return backendGet<Paginated<TagKey>>('/tags', { limit: input.limit, cursor: input.cursor })
       }),
 
     create: os
@@ -497,7 +384,7 @@ const tags = {
         color: z.optional(z.string()),
       }))
       .handler(async ({ input }) => {
-        return safe(() => backendPost('/tags', input), () => mocks.createTagKey(input))
+        return backendPost('/tags', input)
       }),
 
     update: os
@@ -508,13 +395,13 @@ const tags = {
         color: z.optional(z.string()),
       }))
       .handler(async ({ input }) => {
-        return safe(() => backendPut(`/tags/${input.id}`, input), () => mocks.updateTagKey(input))
+        return backendPut(`/tags/${input.id}`, input)
       }),
 
     delete: os
       .input(z.object({ id: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendDelete(`/tags/${input.id}`), () => mocks.deleteTagKey(input.id))
+        return backendDelete(`/tags/${input.id}`)
       }),
   },
 }
@@ -527,22 +414,19 @@ const environments = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Environment>>('/environments', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getEnvironments(), input),
-      )
+      return backendGet<Paginated<Environment>>('/environments', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
     .input(z.object({ name: z.string(), slug: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/environments', input), () => mocks.createEnvironment(input))
+      return backendPost('/environments', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/environments/${input.id}`), () => mocks.deleteEnvironment(input.id))
+      return backendDelete(`/environments/${input.id}`)
     }),
 }
 
@@ -554,24 +438,13 @@ const envVariables = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<EnvVariable>>('/env-variables', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getEnvVariables(), input),
-      )
+      return backendGet<Paginated<EnvVariable>>('/env-variables', { limit: input.limit, cursor: input.cursor })
     }),
 
   values: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<EnvVariableValue>>('/env-variables/values', { limit: input.limit, cursor: input.cursor }),
-        () => {
-          const all = mocks.getEnvVariableValues()
-          const limit = input.limit ?? 20
-          const page = all.slice(0, limit)
-          return { items: page, nextCursor: undefined }
-        },
-      )
+      return backendGet<Paginated<EnvVariableValue>>('/env-variables/values', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
@@ -583,19 +456,19 @@ const envVariables = {
       value: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/env-variables', input), () => mocks.createEnvVariable(input))
+      return backendPost('/env-variables', input)
     }),
 
   setValue: os
     .input(z.object({ variableId: z.string(), environmentId: z.optional(z.string()), value: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPut(`/env-variables/${input.variableId}/values`, input), () => mocks.setEnvVariableValue(input))
+      return backendPut(`/env-variables/${input.variableId}/values`, input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/env-variables/${input.id}`), () => mocks.deleteEnvVariable(input.id))
+      return backendDelete(`/env-variables/${input.id}`)
     }),
 }
 
@@ -607,49 +480,37 @@ const teams = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Team>>('/teams', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getTeams(), input),
-      )
+      return backendGet<Paginated<Team>>('/teams', { limit: input.limit, cursor: input.cursor })
     }),
 
   get: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<TeamWithMembers>(`/teams/${input.id}`),
-        () => mocks.getTeamWithMembers(input.id) || { id: input.id, name: 'Unknown', slug: 'unknown', source: 'internal' as const, memberCount: 0, members: [] },
-      )
+      return backendGet<TeamWithMembers>(`/teams/${input.id}`)
     }),
 
   create: os
     .input(z.object({ name: z.string(), slug: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/teams', input), () => mocks.createTeam(input))
+      return backendPost('/teams', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/teams/${input.id}`), () => mocks.deleteTeam(input.id))
+      return backendDelete(`/teams/${input.id}`)
     }),
 
   addMembers: os
     .input(z.object({ teamId: z.string(), userIds: z.array(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendPost(`/teams/${input.teamId}/members`, { userIds: input.userIds }),
-        () => mocks.addTeamMembers(input.teamId, input.userIds),
-      )
+      return backendPost(`/teams/${input.teamId}/members`, { userIds: input.userIds })
     }),
 
   removeMember: os
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .handler(async ({ input }) => {
-      return safe(
-        () => backendDelete(`/teams/${input.teamId}/members/${input.userId}`),
-        () => mocks.removeTeamMember(input.teamId, input.userId),
-      )
+      return backendDelete(`/teams/${input.teamId}/members/${input.userId}`)
     }),
 }
 
@@ -661,9 +522,22 @@ const users = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<User>>('/users', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getUsers(), input),
+      return backendGet<Paginated<User>>('/users', { limit: input.limit, cursor: input.cursor })
+    }),
+
+  // Provision a local (email + password) user and assign a role. Returns the
+  // generated password when one wasn't supplied (shown once).
+  create: os
+    .input(z.object({
+      email: z.string(),
+      name: z.optional(z.string()),
+      role: z.optional(z.string()),
+      password: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendPost<{ id: string; email: string; role: string; generatedPassword?: string }>(
+        '/users',
+        input,
       )
     }),
 }
@@ -676,10 +550,7 @@ const roles = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<Role>>('/roles', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getRoles(), input),
-      )
+      return backendGet<Paginated<Role>>('/roles', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
@@ -694,7 +565,7 @@ const roles = {
       }),
     )
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/roles', input), () => mocks.createRole(input))
+      return backendPost('/roles', input)
     }),
 
   update: os
@@ -710,39 +581,32 @@ const roles = {
     )
     .handler(async ({ input }) => {
       const { id, ...body } = input
-      return safe(() => backendPatch(`/roles/${id}`, body), () => mocks.updateRole(id, body))
+      return backendPatch(`/roles/${id}`, body)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/roles/${input.id}`), () => mocks.deleteRole(input.id))
+      return backendDelete(`/roles/${input.id}`)
     }),
 
   assignments: {
     list: os
       .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
       .handler(async ({ input }) => {
-        return withFallback(
-          () => backendGet<Paginated<Assignment>>('/roles/assignments', { limit: input.limit, cursor: input.cursor }),
-          () => {
-            const items = mocks.getAssignments()
-            const limit = input.limit ?? 20
-            return { items: items.slice(0, limit), nextCursor: undefined }
-          },
-        )
+        return backendGet<Paginated<Assignment>>('/roles/assignments', { limit: input.limit, cursor: input.cursor })
       }),
 
     create: os
       .input(z.object({ subjects: z.array(z.string()), role: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendPost('/roles/assignments', input), () => mocks.createAssignments(input))
+        return backendPost('/roles/assignments', input)
       }),
 
     delete: os
       .input(z.object({ subject: z.string(), role: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendDelete(`/roles/assignments/${encodeURIComponent(input.subject)}?role=${input.role}`), () => mocks.deleteAssignment(input.subject, input.role))
+        return backendDelete(`/roles/assignments/${encodeURIComponent(input.subject)}?role=${input.role}`)
       }),
   },
 }
@@ -755,10 +619,7 @@ const apiKeys = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<ApiKey>>('/api-keys', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getApiKeys(), input),
-      )
+      return backendGet<Paginated<ApiKey>>('/api-keys', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
@@ -770,13 +631,13 @@ const apiKeys = {
       expiresAt: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/api-keys', input), () => mocks.createApiKey(input))
+      return backendPost('/api-keys', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/api-keys/${input.id}`), () => mocks.deleteApiKey(input.id))
+      return backendDelete(`/api-keys/${input.id}`)
     }),
 }
 
@@ -788,22 +649,19 @@ const personalTokens = {
   list: os
     .input(z.object({ userId: z.string(), limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<PersonalToken>>('/personal-tokens', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getPersonalTokens(input.userId), input),
-      )
+      return backendGet<Paginated<PersonalToken>>('/personal-tokens', { limit: input.limit, cursor: input.cursor })
     }),
 
   create: os
     .input(z.object({ userId: z.string(), name: z.string(), expiresAt: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/personal-tokens', input), () => mocks.createPersonalToken(input))
+      return backendPost('/personal-tokens', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/personal-tokens/${input.id}`), () => mocks.deletePersonalToken(input.id))
+      return backendDelete(`/personal-tokens/${input.id}`)
     }),
 }
 
@@ -811,15 +669,68 @@ const personalTokens = {
 // Runners
 // ---------------------------------------------------------------------------
 
+const runnerInput = z.object({
+  name: z.string(),
+  description: z.optional(z.string()),
+  // Optional pool defaults — blank means the pool stamps no request, so each job
+  // sizes itself.
+  cpu: z.optional(z.string()),
+  memory: z.optional(z.string()),
+  arch: z.optional(z.string()),
+  gpu: z.optional(z.object({ vendor: z.string(), model: z.optional(z.string()), count: z.optional(z.number()) })),
+  // Reference-mode node targeting — how the pool's pods reach existing nodes.
+  nodeSelector: z.optional(z.record(z.string(), z.string())),
+  tolerations: z.optional(z.array(z.object({
+    key: z.string(),
+    operator: z.optional(z.enum(['Equal', 'Exists'])),
+    value: z.optional(z.string()),
+    effect: z.optional(z.enum(['NoSchedule', 'PreferNoSchedule', 'NoExecute'])),
+  }))),
+  mode: z.optional(z.enum(['reference', 'managed'])),
+  managed: z.optional(z.object({
+    capacityType: z.optional(z.enum(['spot-preferred', 'spot', 'on-demand'])),
+    instanceFamilies: z.optional(z.array(z.string())),
+    cpuLimit: z.optional(z.number()),
+    gpuLimit: z.optional(z.number()),
+    scaleToZero: z.optional(z.boolean()),
+    consolidateAfter: z.optional(z.string()),
+    diskGiB: z.optional(z.number()),
+    amiFamily: z.optional(z.string()),
+  })),
+})
+
 const runners = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<RunnerPool>>('/runners', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getRunnerPools(), input),
-      )
+      return backendGet<Paginated<RunnerPool>>('/runners', { limit: input.limit, cursor: input.cursor })
     }),
+
+  create: os.input(runnerInput).handler(async ({ input }) => {
+    return backendPost<{ name: string }>('/runners', input)
+  }),
+
+  update: os.input(runnerInput).handler(async ({ input }) => {
+    const { name, ...body } = input
+    return backendPatch(`/runners/${name}`, body)
+  }),
+
+  delete: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendDelete(`/runners/${input.name}`)
+  }),
+
+  manifests: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendGet<{ nodePool: string; nodeClass: string; combined: string }>(`/runners/${input.name}/manifests`)
+  }),
+
+  // Whether managed (Karpenter) provisioning is available for this deployment.
+  provisioning: os.handler(async () => {
+    return backendGet<{ configured: boolean; cloud: string }>('/provisioning')
+  }),
+
+  setDefault: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendPost(`/runners/${input.name}/default`, {})
+  }),
 }
 
 // ---------------------------------------------------------------------------
@@ -830,10 +741,7 @@ const forgeConnections = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<ForgeConnection>>('/forge-connections', { limit: input.limit, cursor: input.cursor }),
-        () => paginateMock(mocks.getForgeConnections(), input),
-      )
+      return backendGet<Paginated<ForgeConnection>>('/forge-connections', { limit: input.limit, cursor: input.cursor })
     }),
 }
 
@@ -845,16 +753,9 @@ const auditEntries = {
   list: os
     .input(z.object({ action: z.optional(z.string()), limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<Paginated<AuditEntry>>('/audit-entries', {
+      return backendGet<Paginated<AuditEntry>>('/audit-entries', {
           action: input.action, limit: input.limit, cursor: input.cursor,
-        }),
-        () => {
-          let items = mocks.getAuditEntries()
-          if (input.action) items = items.filter((e) => e.action === input.action)
-          return paginateMock(items, { limit: input.limit ?? 50, cursor: input.cursor })
-        },
-      )
+        })
     }),
 }
 
@@ -864,21 +765,20 @@ const auditEntries = {
 
 const org = {
   get: os.handler(async () => {
-    return withFallback(() => backendGet<Org>('/org'), () => mocks.getOrg())
+    return backendGet<Org>('/org')
   }),
   setPolicy: os
     .input(z.object({ requireProjectWorkspace: z.boolean() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPut('/org/policy', input), () => mocks.setOrgPolicy(input))
+      return backendPut('/org/policy', input)
     }),
 }
 
 const auth = {
+  // The session/auth endpoints live at the server root (not /api/v1), so they use
+  // the *Root backend helpers.
   me: os.handler(async () => {
-    return withFallback(
-      () => backendGet<AuthUser>('/auth/me'),
-      () => mocks.getAuthUser(),
-    )
+    return backendGetRoot<AuthUser>('/auth/me')
   }),
 
   updateProfile: os
@@ -889,72 +789,92 @@ const auth = {
       colorTheme: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPut('/auth/profile', input), () => mocks.updateAuthProfile(input))
+      return backendPutRoot('/auth/profile', input)
     }),
 
   changePassword: os
     .input(z.object({ currentPassword: z.string(), newPassword: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/auth/change-password', input), () => mocks.changePassword())
+      return backendPostRoot('/auth/change-password', input)
     }),
 
   sessions: {
     list: os.handler(async () => {
-      return withFallback(
-        () => backendGet<{ items: Session[] }>('/auth/sessions').then((r) => r.items),
-        () => mocks.getSessions(),
-      )
+      return backendGetRoot<{ items: Session[] }>('/auth/sessions').then((r) => r.items)
     }),
     revoke: os
       .input(z.object({ id: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendDelete(`/auth/sessions/${input.id}`), () => mocks.revokeSession(input.id))
+        return backendDeleteRoot(`/auth/sessions/${input.id}`)
       }),
   },
 
   mfa: {
     setup: os.handler(async () => {
-      return safe(() => backendPost<MfaSetup>('/auth/mfa/setup'), () => mocks.mfaSetup())
+      return backendPostRoot<MfaSetup>('/auth/mfa/setup')
     }),
     verifySetup: os
       .input(z.object({ code: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendPost('/auth/mfa/setup/verify', input), () => mocks.mfaVerifySetup())
+        return backendPostRoot('/auth/mfa/setup/verify', input)
       }),
     disable: os
       .input(z.object({ code: z.string() }))
       .handler(async () => {
-        return safe(() => backendDelete('/auth/mfa'), () => mocks.mfaDisable())
+        return backendDeleteRoot('/auth/mfa')
       }),
   },
 
   providers: {
     list: os.handler(async () => {
-      return withFallback(
-        () => backendGet<AuthProviders>('/auth/providers'),
-        () => mocks.getAuthProviders(),
-      )
+      return backendGet<AuthProviders>('/auth/providers')
     }),
     save: os
       .input(z.object({
         providerType: z.enum(['oidc', 'saml']),
         displayName: z.optional(z.string()),
-        config: z.object({
-          issuerUrl: z.optional(z.string()),
-          clientId: z.optional(z.string()),
-          clientSecret: z.optional(z.string()),
-          metadataUrl: z.optional(z.string()),
-          entityId: z.optional(z.string()),
-        }),
+        config: providerConfigSchema,
       }))
       .handler(async ({ input }) => {
-        return safe(() => backendPut('/auth/provider', input), () => mocks.saveAuthProvider(input))
+        return backendPut('/auth/provider', input)
+      }),
+    test: os
+      .input(z.object({
+        providerType: z.enum(['oidc', 'saml']),
+        config: providerConfigSchema,
+      }))
+      .handler(async ({ input }) => {
+        return backendPost<ProviderTestResult>('/auth/provider/test', input)
       }),
     delete: os
       .input(z.object({ providerType: z.string() }))
       .handler(async ({ input }) => {
-        return safe(() => backendDelete(`/auth/provider/${input.providerType}`), () => mocks.deleteAuthProvider(input.providerType))
+        return backendDelete(`/auth/provider/${input.providerType}`)
       }),
+    groupMappings: {
+      get: os.handler(async () => {
+        return backendGet<GroupMappings>('/auth/group-mappings')
+      }),
+      save: os
+        .input(z.object({
+          strict: z.boolean(),
+          mappings: z.array(z.object({ groupName: z.string(), roleId: z.string() })),
+        }))
+        .handler(async ({ input }) => {
+          return backendPut('/auth/group-mappings', input)
+        }),
+    },
+    scim: {
+      get: os.handler(async () => {
+        return backendGet<ScimStatus>('/auth/scim')
+      }),
+      generate: os.handler(async () => {
+        return backendPost<{ token: string; baseUrl: string }>('/auth/scim/token')
+      }),
+      revoke: os.handler(async () => {
+        return backendDelete('/auth/scim/token')
+      }),
+    },
   },
 }
 
@@ -966,26 +886,13 @@ const search = {
   query: os
     .input(z.object({ q: z.string(), limit: z.optional(z.number()) }))
     .handler(async ({ input }) => {
-      return withFallback(
-        () => backendGet<{ projects: Project[]; runs: PipelineRun[] }>('/search', { q: input.q, limit: input.limit }),
-        () => {
-          const q = input.q.toLowerCase()
-          const limit = input.limit ?? 10
-          return {
-            projects: mocks.getProjects().filter((p) => p.name.toLowerCase().includes(q)).slice(0, limit),
-            runs: mocks.getRuns().filter((r) => r.commitMessage.toLowerCase().includes(q)).slice(0, limit),
-          }
-        },
-      )
+      return backendGet<{ projects: Project[]; runs: PipelineRun[] }>('/search', { q: input.q, limit: input.limit })
     }),
 }
 
 const views = {
   list: os.handler(async () => {
-    return withFallback(
-      () => backendGet<{ items: SavedView[] }>('/views'),
-      () => ({ items: mocks.getSavedViews() }),
-    )
+    return backendGet<{ items: SavedView[] }>('/views')
   }),
 
   create: os
@@ -995,13 +902,13 @@ const views = {
       search: z.record(z.string(), z.unknown()),
     }))
     .handler(async ({ input }) => {
-      return safe(() => backendPost('/views', input), () => mocks.createSavedView(input))
+      return backendPost('/views', input)
     }),
 
   delete: os
     .input(z.object({ id: z.string() }))
     .handler(async ({ input }) => {
-      return safe(() => backendDelete(`/views/${input.id}`), () => mocks.deleteSavedView(input.id))
+      return backendDelete(`/views/${input.id}`)
     }),
 }
 

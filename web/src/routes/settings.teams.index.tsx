@@ -1,14 +1,79 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Users } from 'lucide-react'
-import { orpc } from '#/lib/orpc'
+import { Users, Plus } from 'lucide-react'
+import { useState } from 'react'
+import { orpc, client } from '#/lib/orpc'
+import { useAction } from '#/hooks/use-action'
+import { Modal } from '#/components/Modal'
 import { Badge } from '#/components/Badge'
 
 export const Route = createFileRoute('/settings/teams/')({
   component: TeamsPage,
 })
 
+const slugify = (s: string) =>
+  s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+function NewTeamModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugTouched, setSlugTouched] = useState(false)
+  const effectiveSlug = slugTouched ? slug : slugify(name)
+
+  const create = useAction(client.teams.create, {
+    invalidate: [orpc.teams.list.key()],
+    onSuccess: onClose,
+  })
+
+  const inputClass =
+    'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40'
+
+  return (
+    <Modal open onClose={onClose} title="New team" subtitle="Create an internal team">
+      <div className="px-5 py-4 space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Platform Team"
+            className={inputClass}
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">Slug</label>
+          <input
+            value={effectiveSlug}
+            onChange={(e) => { setSlugTouched(true); setSlug(e.target.value) }}
+            placeholder="platform-team"
+            className={`${inputClass} font-mono`}
+          />
+        </div>
+        {create.isError && (
+          <p className="text-xs text-red-500">Could not create team — the name or slug may already be taken.</p>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+        <button type="button" onClick={onClose} className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!name.trim() || !effectiveSlug || create.isPending}
+          onClick={() => create.mutate({ name: name.trim(), slug: effectiveSlug })}
+          className="rounded-lg px-3.5 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-40"
+          style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+        >
+          {create.isPending ? 'Creating…' : 'Create team'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function TeamsPage() {
+  const [showNew, setShowNew] = useState(false)
   const { data: teamsData } = useSuspenseQuery(orpc.teams.list.queryOptions({ input: {} }))
   const teams = teamsData.items
   const { data: assignmentsData } = useSuspenseQuery(orpc.roles.assignments.list.queryOptions({ input: {} }))
@@ -31,11 +96,23 @@ function TeamsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="display-title text-lg text-foreground">Teams</h2>
-        <p className="text-muted-foreground text-xs mt-0.5">
-          {teams.length} {teams.length === 1 ? 'team' : 'teams'}
-        </p>
+      {showNew && <NewTeamModal onClose={() => setShowNew(false)} />}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="display-title text-lg text-foreground">Teams</h2>
+          <p className="text-muted-foreground text-xs mt-0.5">
+            {teams.length} {teams.length === 1 ? 'team' : 'teams'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowNew(true)}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors"
+          style={{ background: 'color-mix(in oklab, var(--ring), black 20%)' }}
+        >
+          <Plus size={14} />
+          New team
+        </button>
       </div>
 
       {teams.length === 0 ? (

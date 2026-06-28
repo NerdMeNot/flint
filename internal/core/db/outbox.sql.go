@@ -10,7 +10,7 @@ import (
 )
 
 const claimOutboxBatch = `-- name: ClaimOutboxBatch :many
-UPDATE flint_outbox SET status = 'processing', attempts = attempts + 1
+UPDATE flint_outbox SET status = 'processing', attempts = attempts + 1, claimed_at = now()
 WHERE id IN (
     SELECT id FROM flint_outbox
     WHERE status = 'pending' AND process_after <= now()
@@ -29,6 +29,8 @@ type ClaimOutboxBatchRow struct {
 	MaxAttempts int32  `json:"max_attempts"`
 }
 
+// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
+// can detect events stranded by a worker crash mid-delivery.
 func (q *Queries) ClaimOutboxBatch(ctx context.Context, limit int32) ([]ClaimOutboxBatchRow, error) {
 	rows, err := q.db.Query(ctx, claimOutboxBatch, limit)
 	if err != nil {
@@ -106,6 +108,22 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 		arg.MaxAttempts,
 	)
 	return err
+}
+
+const recoverStaleOutboxEvents = `-- name: RecoverStaleOutboxEvents :execrows
+UPDATE flint_outbox SET status = 'pending'
+WHERE status = 'processing' AND claimed_at < now() - interval '5 minutes'
+`
+
+// Returns events stranded in 'processing' (worker crashed between claim and
+// resolve/fail) back to 'pending' for redelivery. attempts was already incremented
+// at claim, so a poison event still terminates at 'failed' after max_attempts.
+func (q *Queries) RecoverStaleOutboxEvents(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, recoverStaleOutboxEvents)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const resolveOutboxEvent = `-- name: ResolveOutboxEvent :exec

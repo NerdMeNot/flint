@@ -15,7 +15,7 @@ import (
 // Role assignments are stored in the role_assignments table. Casbin policies
 // are regenerated from DB state after sync.
 func SyncUserOnLogin(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer,
-	orgID string, claims *Claims, adminUsers []string, defaultRoleSlug string) (string, error) {
+	orgID string, claims *Claims, adminUsers []string, defaultRoleSlug string, strictGroups bool) (string, error) {
 
 	// 1. Upsert user.
 	name := claims.Name
@@ -34,17 +34,78 @@ func SyncUserOnLogin(ctx context.Context, q db.Querier, pool db.Pool, enforcer c
 		return "", fmt.Errorf("syncing teams: %w", err)
 	}
 
-	// 3. Ensure role assignments exist in the DB.
-	if err := syncRoleAssignments(ctx, q, orgID, claims.Email, adminUsers, defaultRoleSlug); err != nil {
+	// 3. Reconcile IdP-derived role assignments from group→role mappings.
+	if err := reconcileGroupRoles(ctx, q, orgID, claims.Email, claims.Groups); err != nil {
+		return "", fmt.Errorf("reconciling group roles: %w", err)
+	}
+
+	// 4. Ensure baseline role assignments (admin users; default role unless strict).
+	if err := syncRoleAssignments(ctx, q, orgID, claims.Email, adminUsers, defaultRoleSlug, strictGroups); err != nil {
 		return "", fmt.Errorf("syncing role assignments: %w", err)
 	}
 
-	// 4. Regenerate Casbin policies for this user.
+	// 5. Regenerate Casbin policies for this user.
 	if err := RegenerateForSubject(ctx, q, pool, enforcer, claims.Email); err != nil {
 		return "", fmt.Errorf("regenerating policies: %w", err)
 	}
 
 	return userID, nil
+}
+
+// reconcileGroupRoles makes a subject's IdP-sourced role assignments match the
+// org's group→role mappings for the subject's current IdP groups. It is additive
+// and reversible: roles for groups the user is still in are granted (source='idp'),
+// and 'idp' grants for groups the user has left are removed. Manual ('internal')
+// assignments are never touched.
+func reconcileGroupRoles(ctx context.Context, q db.Querier, orgID, subject string, groups []string) error {
+	// Desired role IDs from the mappings that match the user's current groups.
+	desired := make(map[string]bool)
+	if len(groups) > 0 {
+		roleIDs, err := q.ListRoleIDsForGroups(ctx, db.ListRoleIDsForGroupsParams{OrgID: orgID, Groups: groups})
+		if err != nil {
+			return fmt.Errorf("listing role IDs for groups: %w", err)
+		}
+		for _, id := range roleIDs {
+			desired[id] = true
+		}
+	}
+
+	// Current IdP-sourced role IDs for this subject.
+	current, err := q.ListIdpRoleAssignmentRoleIDs(ctx, subject)
+	if err != nil {
+		return fmt.Errorf("listing current idp role assignments: %w", err)
+	}
+
+	toGrant, toRevoke := diffRoleAssignments(desired, current)
+	for _, roleID := range toGrant {
+		if err := q.InsertIdpRoleAssignment(ctx, db.InsertIdpRoleAssignmentParams{Subject: subject, RoleID: roleID}); err != nil {
+			return fmt.Errorf("inserting idp role assignment: %w", err)
+		}
+	}
+	for _, roleID := range toRevoke {
+		if err := q.DeleteIdpRoleAssignment(ctx, db.DeleteIdpRoleAssignmentParams{Subject: subject, RoleID: roleID}); err != nil {
+			return fmt.Errorf("deleting idp role assignment: %w", err)
+		}
+	}
+	return nil
+}
+
+// diffRoleAssignments computes which role IDs to grant (in desired but not
+// current) and which to revoke (current but no longer desired).
+func diffRoleAssignments(desired map[string]bool, current []string) (grant, revoke []string) {
+	currentSet := make(map[string]bool, len(current))
+	for _, id := range current {
+		currentSet[id] = true
+		if !desired[id] {
+			revoke = append(revoke, id)
+		}
+	}
+	for id := range desired {
+		if !currentSet[id] {
+			grant = append(grant, id)
+		}
+	}
+	return grant, revoke
 }
 
 // syncTeams syncs team membership from IdP groups using additive logic.
@@ -110,11 +171,12 @@ func syncTeams(ctx context.Context, q db.Querier, orgID, userID string, groups [
 	return nil
 }
 
-// syncRoleAssignments ensures the user has appropriate role assignments.
-// Admin users get the admin role. Other users get the default role if they
-// have no existing assignments.
+// syncRoleAssignments ensures the user has appropriate baseline role assignments.
+// Admin users always get the admin role. Other users get the default role only
+// if they have no existing assignments AND strict group mode is off — under
+// strict mode, group→role mappings are the sole source of access (deny-by-default).
 func syncRoleAssignments(ctx context.Context, q db.Querier,
-	orgID, email string, adminUsers []string, defaultRoleSlug string) error {
+	orgID, email string, adminUsers []string, defaultRoleSlug string, strictGroups bool) error {
 
 	// Check if this user is an admin.
 	for _, adminEmail := range adminUsers {
@@ -137,7 +199,13 @@ func syncRoleAssignments(ctx context.Context, q db.Querier,
 		}
 	}
 
-	// Check if user already has any assignments.
+	// Under strict group mode, do not grant a fallback role — access is governed
+	// entirely by group→role mappings (which reconcileGroupRoles already applied).
+	if strictGroups {
+		return nil
+	}
+
+	// Check if user already has any assignments (manual or group-derived).
 	count, err := q.CountRoleAssignments(ctx, email)
 	if err != nil {
 		return fmt.Errorf("checking existing assignments: %w", err)

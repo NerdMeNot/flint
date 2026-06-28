@@ -25,6 +25,8 @@ type Querier interface {
 	// Atomic claim: return the tokens and delete the row in one statement, only if
 	// completed. This is the TOCTOU fix — no read-then-mutate window.
 	ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (ClaimCompletedDeviceCodeRow, error)
+	// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
+	// can detect events stranded by a worker crash mid-delivery.
 	ClaimOutboxBatch(ctx context.Context, limit int32) ([]ClaimOutboxBatchRow, error)
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
@@ -37,21 +39,29 @@ type Querier interface {
 	ConsumeSignal(ctx context.Context, id string) error
 	ConsumeStepResultSignals(ctx context.Context, workflowID string) ([][]byte, error)
 	CountActiveProjects(ctx context.Context) (int64, error)
+	CountDefaultRunnerPools(ctx context.Context) (int64, error)
 	CountPendingGates(ctx context.Context) (int64, error)
 	CountRecentFailuresByEmail(ctx context.Context, email string) (int64, error)
 	CountRecentFailuresByIP(ctx context.Context, ipAddress netip.Addr) (int64, error)
 	CountRoleAssignments(ctx context.Context, subject string) (int64, error)
 	CountRunningPipelines(ctx context.Context) (int64, error)
 	CountRunningStepsByOrg(ctx context.Context, orgID string) (int64, error)
+	CountScimTokensForOrg(ctx context.Context, orgID string) (int64, error)
 	CountUsers(ctx context.Context, orgID string) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (string, error)
 	CreateEnvVariable(ctx context.Context, arg CreateEnvVariableParams) (string, error)
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (string, error)
 	CreateLocalUser(ctx context.Context, arg CreateLocalUserParams) (string, error)
+	CreatePersonalToken(ctx context.Context, arg CreatePersonalTokenParams) (string, error)
 	CreateProtectedEnvironment(ctx context.Context, arg CreateProtectedEnvironmentParams) (string, error)
+	// The retry attempt is parked in 'retry_wait', NOT 'pending'. A 'pending' row
+	// would be queued immediately by advanceWorkflow, bypassing the retry_backoff
+	// timer. Only the fired retry_backoff timer (RequeueRetryStep) promotes it to
+	// 'queued', so the backoff delay is actually honoured.
 	CreateRetryStep(ctx context.Context, arg CreateRetryStepParams) error
 	CreateRole(ctx context.Context, arg CreateRoleParams) (string, error)
 	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (string, error)
+	CreateScimTeam(ctx context.Context, arg CreateScimTeamParams) (string, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateTagKey(ctx context.Context, arg CreateTagKeyParams) (string, error)
 	CreateTeam(ctx context.Context, arg CreateTeamParams) (string, error)
@@ -62,6 +72,7 @@ type Querier interface {
 	DeleteAPIKey(ctx context.Context, id string) (int64, error)
 	DeleteAPIKeyEnvironmentScopes(ctx context.Context, apiKeyID string) error
 	DeleteAPIKeyWorkspaceScopes(ctx context.Context, apiKeyID string) error
+	DeleteAllSSOGroupRoleMappings(ctx context.Context, orgID string) error
 	DeleteAuthProviderConfig(ctx context.Context, providerType string) (int64, error)
 	// Prune consumed signals so the table doesn't grow unbounded. Keeps a 7-day
 	// window for debugging/audit. Called from the sweep.
@@ -75,7 +86,9 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteForgeConnection(ctx context.Context, id string) (int64, error)
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
+	DeleteIdpRoleAssignment(ctx context.Context, arg DeleteIdpRoleAssignmentParams) error
 	DeleteMFAPendingToken(ctx context.Context, token string) error
+	DeletePersonalToken(ctx context.Context, id string) error
 	DeleteProtectedEnvironment(ctx context.Context, id string) (int64, error)
 	DeleteRole(ctx context.Context, id string) (int64, error)
 	DeleteRoleAssignment(ctx context.Context, arg DeleteRoleAssignmentParams) error
@@ -84,6 +97,7 @@ type Querier interface {
 	DeleteRoleWorkspaceScopes(ctx context.Context, roleID string) error
 	DeleteRunnerPool(ctx context.Context, name string) error
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
+	DeleteScimTokensForOrg(ctx context.Context, orgID string) error
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
 	DeleteTagKey(ctx context.Context, id string) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
@@ -95,6 +109,12 @@ type Querier interface {
 	// declared and none could be inferred — it's a triage bucket, not a home.
 	EnsureDefaultWorkspace(ctx context.Context, orgID string) error
 	FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error
+	// Defense-in-depth backstop: a gate/wait step still 'waiting' although its timeout
+	// timer already fired (handler regression or crash) is forced to failed so the
+	// workflow can run onFailure steps / finish instead of wedging forever. With atomic
+	// timer handling (LockNextDueTimer) this should never fire; it exists so a future
+	// regression degrades to "recovered late" rather than "stuck".
+	FailOrphanedWaitingSteps(ctx context.Context) (int64, error)
 	// Exponential backoff with ±20% jitter (0.8–1.2×) to avoid a thundering herd of
 	// webhook retries all firing in lockstep when an endpoint recovers. Mirrors the
 	// step-retry jitter in backoffDuration.
@@ -105,7 +125,6 @@ type Querier interface {
 	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
 	FinishRun(ctx context.Context, arg FinishRunParams) error
 	FinishWorkflow(ctx context.Context, arg FinishWorkflowParams) error
-	FireDueTimers(ctx context.Context) ([]FireDueTimersRow, error)
 	GetActiveWebhooksForEvent(ctx context.Context, arg GetActiveWebhooksForEventParams) ([]GetActiveWebhooksForEventRow, error)
 	GetAuthProviderConfig(ctx context.Context, providerType string) (AuthProviderConfig, error)
 	GetCloneCredentials(ctx context.Context, repoPath string) (GetCloneCredentialsRow, error)
@@ -126,7 +145,13 @@ type Querier interface {
 	GetOrgConcurrencyLimit(ctx context.Context, id string) (int32, error)
 	GetOriginalRunParams(ctx context.Context, id string) (GetOriginalRunParamsRow, error)
 	GetProject(ctx context.Context, id string) (GetProjectRow, error)
+	// Single project with workspace slug. The most recent run is fetched separately
+	// (ListRunsByProject with limit 1) to keep nullability clean.
+	GetProjectBasic(ctx context.Context, id string) (GetProjectBasicRow, error)
 	GetProjectByRepoPath(ctx context.Context, repoPath string) (GetProjectByRepoPathRow, error)
+	// Full editable config for a project, for the API PATCH-merge and archive cleanup.
+	// forge_ref is the forge connection's display name (what UpsertProject keys on).
+	GetProjectConfig(ctx context.Context, id string) (GetProjectConfigRow, error)
 	GetProjectOrgID(ctx context.Context, id string) (string, error)
 	GetProjectRepoInfo(ctx context.Context, id string) (GetProjectRepoInfoRow, error)
 	GetProjectWorkspaceSlug(ctx context.Context, id string) (string, error)
@@ -134,6 +159,9 @@ type Querier interface {
 	GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, error)
 	GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (GetRoleBySlugRow, error)
 	GetRun(ctx context.Context, id string) (GetRunRow, error)
+	// Single CI run with project display fields + the per-step summary, for
+	// GET /api/v1/runs/:id.
+	GetRunDetail(ctx context.Context, id string) (GetRunDetailRow, error)
 	GetRunOrgID(ctx context.Context, id string) (string, error)
 	// Resolves the RBAC scope (workspace slug + environment) for a run, used by the
 	// authorization middleware. Workflow runs have no project, so both fall back to
@@ -142,6 +170,8 @@ type Querier interface {
 	// Aggregate run counts for the org-level stats endpoint.
 	GetRunStats(ctx context.Context, orgID string) (GetRunStatsRow, error)
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
+	GetRunnerPool(ctx context.Context, name string) (GetRunnerPoolRow, error)
+	GetScimTokenOrg(ctx context.Context, tokenHash string) (string, error)
 	GetSecret(ctx context.Context, arg GetSecretParams) ([]byte, error)
 	GetSecretByEnvironment(ctx context.Context, arg GetSecretByEnvironmentParams) (GetSecretByEnvironmentRow, error)
 	// Returns the encrypted value of a secret env-var by org + name, scoped to an
@@ -151,7 +181,10 @@ type Querier interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
 	GetStepByWorkflowAndName(ctx context.Context, arg GetStepByWorkflowAndNameParams) (GetStepByWorkflowAndNameRow, error)
 	GetStepStatus(ctx context.Context, arg GetStepStatusParams) (string, error)
+	GetTeam(ctx context.Context, id string) (GetTeamRow, error)
+	GetTeamBySlug(ctx context.Context, arg GetTeamBySlugParams) (GetTeamBySlugRow, error)
 	GetUserByEmail(ctx context.Context, arg GetUserByEmailParams) (GetUserByEmailRow, error)
+	GetUserByExternalID(ctx context.Context, arg GetUserByExternalIDParams) (GetUserByExternalIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserForAuth(ctx context.Context, arg GetUserForAuthParams) (GetUserForAuthRow, error)
 	GetUserRecoveryCodes(ctx context.Context, id string) ([]string, error)
@@ -159,6 +192,9 @@ type Querier interface {
 	GetWebhookSecretByName(ctx context.Context, displayName string) (string, error)
 	GetWorkflowDAGWaves(ctx context.Context, id string) ([]byte, error)
 	GetWorkflowInput(ctx context.Context, id string) ([]byte, error)
+	// Batch variant: fetch inputs for all workflows in a claimed step batch in one
+	// round-trip (kills the per-step N+1 in claimAndDispatch).
+	GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error)
 	GetWorkflowParent(ctx context.Context, id string) (GetWorkflowParentRow, error)
 	GetWorkflowStatus(ctx context.Context, id string) (GetWorkflowStatusRow, error)
 	GetWorkspaceByID(ctx context.Context, id string) (GetWorkspaceByIDRow, error)
@@ -170,16 +206,23 @@ type Querier interface {
 	// Device authorization flow (DB-backed; replaces the in-memory map).
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertForgeConnection(ctx context.Context, arg InsertForgeConnectionParams) (string, error)
+	// IdP-derived assignment from a group→role mapping. Never downgrades an existing
+	// (manual) 'internal' row.
+	InsertIdpRoleAssignment(ctx context.Context, arg InsertIdpRoleAssignmentParams) error
 	// MFA pending tokens (DB-backed; replaces the in-memory map).
 	InsertMFAPendingToken(ctx context.Context, arg InsertMFAPendingTokenParams) error
 	InsertManualRun(ctx context.Context, arg InsertManualRunParams) error
 	InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error
 	InsertPipelineRun(ctx context.Context, arg InsertPipelineRunParams) error
 	InsertRetryRun(ctx context.Context, arg InsertRetryRunParams) error
+	// Manual/authoritative assignment. Marks the row source='internal' so SSO group
+	// sync will never remove it, even if an 'idp' row already existed.
 	InsertRoleAssignment(ctx context.Context, arg InsertRoleAssignmentParams) error
 	InsertRoleEnvironmentScope(ctx context.Context, arg InsertRoleEnvironmentScopeParams) error
 	InsertRolePermission(ctx context.Context, arg InsertRolePermissionParams) error
 	InsertRoleWorkspaceScope(ctx context.Context, arg InsertRoleWorkspaceScopeParams) error
+	InsertSSOGroupRoleMapping(ctx context.Context, arg InsertSSOGroupRoleMappingParams) error
+	InsertScimToken(ctx context.Context, arg InsertScimTokenParams) error
 	InsertSignal(ctx context.Context, arg InsertSignalParams) error
 	InsertStep(ctx context.Context, arg InsertStepParams) error
 	InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) (string, error)
@@ -197,12 +240,16 @@ type Querier interface {
 	// ────────────────────────────────────────────────────────────
 	ListAPIKeyWorkspaceSlugs(ctx context.Context, apiKeyID string) ([]string, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
+	// API keys with role slug + creator email for the settings list.
+	ListAPIKeysDetailed(ctx context.Context, arg ListAPIKeysDetailedParams) ([]ListAPIKeysDetailedRow, error)
 	// ────────────────────────────────────────────────────────────
 	// Role assignments
 	// ────────────────────────────────────────────────────────────
 	ListAllRoleAssignments(ctx context.Context) ([]ListAllRoleAssignmentsRow, error)
 	ListAllRoleAssignmentsWithRole(ctx context.Context) ([]ListAllRoleAssignmentsWithRoleRow, error)
 	ListAllSecrets(ctx context.Context) ([]ListAllSecretsRow, error)
+	// Archived projects for the admin Projects page (so they can be restored).
+	ListArchivedProjects(ctx context.Context) ([]ListArchivedProjectsRow, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
 	ListDueWorkflowSchedules(ctx context.Context) ([]ListDueWorkflowSchedulesRow, error)
@@ -211,14 +258,23 @@ type Querier interface {
 	ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error)
 	ListForgeConnectionNames(ctx context.Context) ([]ListForgeConnectionNamesRow, error)
 	ListForgeConnections(ctx context.Context, arg ListForgeConnectionsParams) ([]ListForgeConnectionsRow, error)
+	// Gate steps enriched with run/project/workspace context, filtered by step status
+	// (the handler maps UI status names: pending→waiting, approved→succeeded,
+	// rejected→failed). Powers GET /api/v1/gates.
+	ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error)
+	ListIdpRoleAssignmentRoleIDs(ctx context.Context, subject string) ([]string, error)
 	ListModules(ctx context.Context) ([]ListModulesRow, error)
 	ListOrgSecrets(ctx context.Context, orgID string) ([]ListOrgSecretsRow, error)
 	ListPendingGates(ctx context.Context) ([]ListPendingGatesRow, error)
+	ListPersonalTokensByUser(ctx context.Context, userID string) ([]ListPersonalTokensByUserRow, error)
 	ListProjectSecrets(ctx context.Context, projectID *string) ([]ListProjectSecretsRow, error)
 	ListProjectWebhooks(ctx context.Context, projectID string) ([]Webhook, error)
 	ListProjects(ctx context.Context) ([]ListProjectsRow, error)
 	// API project list: joins owning workspace + latest run, with optional
 	// server-side workspace and tag filters (empty slice = no filter for that axis).
+	// Regular LEFT JOIN (not LATERAL) so sqlc infers the last-run columns as
+	// nullable — projects with no runs yet must not break the scan. DISTINCT ON
+	// keeps it a single indexed pass for the latest run per project.
 	ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error)
 	ListProtectedEnvironments(ctx context.Context, orgID string) ([]ListProtectedEnvironmentsRow, error)
 	ListRoleAssignmentsByRole(ctx context.Context, roleID string) ([]ListRoleAssignmentsByRoleRow, error)
@@ -227,6 +283,7 @@ type Querier interface {
 	// Role environment scope
 	// ────────────────────────────────────────────────────────────
 	ListRoleEnvironmentNames(ctx context.Context, roleID string) ([]string, error)
+	ListRoleIDsForGroups(ctx context.Context, arg ListRoleIDsForGroupsParams) ([]string, error)
 	// ────────────────────────────────────────────────────────────
 	// Role permissions
 	// ────────────────────────────────────────────────────────────
@@ -237,24 +294,36 @@ type Querier interface {
 	ListRoleWorkspaceSlugs(ctx context.Context, roleID string) ([]string, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRolesRow, error)
 	ListRunnerPoolNames(ctx context.Context) ([]string, error)
+	// Full rows — used by the worker registry loader, compile-time validation, and the
+	// pool catalog. Returns everything needed to reconstruct a PoolSpec.
 	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
+	ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsPagedParams) ([]ListRunnerPoolsPagedRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
 	ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error)
+	// Global CI run list with optional project/status filters, joined to the project
+	// for display, plus a compact per-step summary (name+status) the UI renders as
+	// stage pips. Powers GET /api/v1/runs.
+	ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error)
+	ListSSOGroupRoleMappings(ctx context.Context, orgID string) ([]ListSSOGroupRoleMappingsRow, error)
 	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]ListSavedViewsRow, error)
+	ListScimTeams(ctx context.Context, orgID string) ([]ListScimTeamsRow, error)
+	ListScimUsers(ctx context.Context, orgID string) ([]ListScimUsersRow, error)
 	ListSecrets(ctx context.Context, arg ListSecretsParams) ([]ListSecretsRow, error)
 	ListSessionsForSync(ctx context.Context, arg ListSessionsForSyncParams) ([]ListSessionsForSyncRow, error)
 	ListStepsByWorkflow(ctx context.Context, workflowID string) ([]ListStepsByWorkflowRow, error)
 	ListTagKeys(ctx context.Context, orgID string) ([]ListTagKeysRow, error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]ListTeamMembersRow, error)
 	ListTeams(ctx context.Context, arg ListTeamsParams) ([]ListTeamsRow, error)
+	ListTeamsPaged(ctx context.Context, arg ListTeamsPagedParams) ([]ListTeamsPagedRow, error)
 	ListUserIdpTeams(ctx context.Context, userID string) ([]ListUserIdpTeamsRow, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUserTeamIDs(ctx context.Context, userID string) ([]string, error)
 	ListUserTeams(ctx context.Context, userID string) ([]ListUserTeamsRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
 	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
-	ListWaitingGatesWithRejectSignals(ctx context.Context) ([]ListWaitingGatesWithRejectSignalsRow, error)
-	ListWaitingGatesWithSignals(ctx context.Context) ([]ListWaitingGatesWithSignalsRow, error)
+	// All non-expired personal tokens with their owner, for bearer-token auth
+	// (the caller bcrypt-compares each hash).
+	ListValidPersonalTokensWithUser(ctx context.Context) ([]ListValidPersonalTokensWithUserRow, error)
 	// Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
 	// pagination. The cursor is (started_at, id); an empty cursor returns the first
 	// page. Project-joining run queries can't serve these — workflow runs have no
@@ -262,10 +331,46 @@ type Querier interface {
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error)
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
+	ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error)
+	// Claims one waiting gate that has an unconsumed approval signal, locking the step
+	// row (FOR UPDATE OF s SKIP LOCKED) so concurrent workers never process the same
+	// gate. The caller consumes the signal, transitions the step, and advances — all
+	// in the same transaction, so the effect is atomic and exactly-once. The
+	// status='waiting' predicate is first-writer-wins: once approved or rejected, the
+	// gate is no longer claimable here.
+	LockNextApprovedGate(ctx context.Context) (LockNextApprovedGateRow, error)
+	// Claims one due timer, locking the row (FOR UPDATE SKIP LOCKED) for the duration
+	// of the caller's transaction. The caller handles the timer's effect and marks it
+	// fired in the SAME transaction, so `fired = true` only commits if the effect
+	// commits — a crash mid-handle rolls back and the timer is retried next tick
+	// (exactly-once handling, not the previous at-most-once).
+	LockNextDueTimer(ctx context.Context) (LockNextDueTimerRow, error)
+	// Same as LockNextApprovedGate but for rejection signals. Returns the payload so
+	// the caller can surface the rejection reason.
+	LockNextRejectedGate(ctx context.Context) (LockNextRejectedGateRow, error)
+	// Claims one waiting 'wait' step whose configured external signal has arrived
+	// (step_def->'wait'->>'signal'). Same atomic lock-and-advance pattern as gates.
+	// Returns the signal payload, which the caller captures into the step outputs so
+	// downstream steps can reference steps.<name>.<key>.
+	LockNextSignaledWaitStep(ctx context.Context) (LockNextSignaledWaitStepRow, error)
+	// Transaction-scoped advisory lock keyed by org. Held across the count + throttle
+	// decision so two workers can't both observe headroom and both dispatch past the
+	// org's concurrency limit. Auto-released at transaction end; per-org, so different
+	// orgs never block each other.
+	LockOrgConcurrency(ctx context.Context, orgID string) error
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
+	// Records that a claimed step was successfully handed to an executor. dispatched_at
+	// distinguishes "running, has a Job" from "claimed but the worker died before
+	// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
+	MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error
+	MarkTimerFired(ctx context.Context, id string) error
 	NotifyEngine(ctx context.Context, pgNotify string) error
+	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
+	// Per-project run health for an org: recent statuses (newest first, capped at 10)
+	// plus totals — powers the dashboard health bars / "needs attention".
+	ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error)
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
@@ -274,15 +379,26 @@ type Querier interface {
 	// the new period is strictly greater than the stored one; no row means the code
 	// was already used (replay) and must be rejected.
 	RecordTOTPUse(ctx context.Context, arg RecordTOTPUseParams) (string, error)
+	// Returns events stranded in 'processing' (worker crashed between claim and
+	// resolve/fail) back to 'pending' for redelivery. attempts was already incremented
+	// at claim, so a poison event still terminates at 'failed' after max_attempts.
+	RecoverStaleOutboxEvents(ctx context.Context) (int64, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)
 	RemoveUserFromAllTeams(ctx context.Context, userID string) (int64, error)
+	// Promotes the parked retry attempt (retry_wait) to queued once its backoff timer
+	// fires. This is the ONLY path out of retry_wait.
 	RequeueRetryStep(ctx context.Context, arg RequeueRetryStepParams) error
+	// Recovers steps that were claimed (status='running') but never dispatched — e.g.
+	// the worker crashed between claiming and creating the Job. Re-queue (not fail):
+	// the step never executed, so it deserves a fresh dispatch rather than a failure.
+	RequeueUndispatchedSteps(ctx context.Context, graceSecs float64) (int64, error)
 	// Returns resolved env variable name/value pairs for a given org.
 	// For global vars: returns the single value (environment_id IS NULL).
 	// For environment-scoped vars: returns the value matching the env slug.
 	// Excludes is_secret=true (those go through the agent secrets flow).
 	ResolveEnvVars(ctx context.Context, arg ResolveEnvVarsParams) ([]ResolveEnvVarsRow, error)
 	ResolveOutboxEvent(ctx context.Context, id string) error
+	RestoreProject(ctx context.Context, id string) error
 	RevokeSession(ctx context.Context, id string) error
 	RevokeSessionByHash(ctx context.Context, tokenHash string) error
 	RevokeUserSessions(ctx context.Context, userID string) error
@@ -293,20 +409,37 @@ type Querier interface {
 	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
 	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
 	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
+	// Provision/update a user from SCIM. Keyed on (org_id, external_id).
+	ScimUpsertUser(ctx context.Context, arg ScimUpsertUserParams) (ScimUpsertUserRow, error)
+	// Project search by name / repo for the global ⌘K search.
+	SearchProjects(ctx context.Context, arg SearchProjectsParams) ([]SearchProjectsRow, error)
+	// Run search by branch / commit SHA for the global ⌘K search.
+	SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
+	// Promotes one pool to default and demotes all others atomically.
+	SetDefaultRunnerPool(ctx context.Context, name string) error
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
 	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
+	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
+	// Record the inbound forge webhook id after provisioning (or clear it on removal).
+	SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error
 	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
+	// Clears execution timestamps so a re-queued step (throttled, undispatched, or
+	// first queue) starts with a clean slate. Critical: a stale deadline_at left over
+	// from an earlier claim would let the sweep time the step out prematurely.
 	SetStepQueued(ctx context.Context, id string) error
 	SetStepSkipped(ctx context.Context, id string) error
 	SetStepStatus(ctx context.Context, arg SetStepStatusParams) error
 	SetStepTaskToken(ctx context.Context, arg SetStepTaskTokenParams) error
+	SetUserActive(ctx context.Context, arg SetUserActiveParams) error
 	SetUserRecoveryCodes(ctx context.Context, arg SetUserRecoveryCodesParams) error
 	SetUserTOTPSecret(ctx context.Context, arg SetUserTOTPSecretParams) error
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
 	SweepStaleWorkflows(ctx context.Context) error
 	TouchAPIKey(ctx context.Context, id string) error
 	TouchDeviceCodePoll(ctx context.Context, deviceCode string) error
+	TouchPersonalToken(ctx context.Context, id string) error
+	TouchScimToken(ctx context.Context, tokenHash string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	// UI-managed project labels (the registry curates the vocabulary; this stores
 	// the chosen key:value and free tags on the project).
@@ -321,6 +454,7 @@ type Querier interface {
 	UpdateStepOutputs(ctx context.Context, arg UpdateStepOutputsParams) error
 	UpdateStepResult(ctx context.Context, arg UpdateStepResultParams) error
 	UpdateTagKey(ctx context.Context, arg UpdateTagKeyParams) error
+	UpdateTeamName(ctx context.Context, arg UpdateTeamNameParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	// Self-service profile update. NULL args leave the existing value untouched
 	// (COALESCE), so callers can patch any subset of {name, avatar, appearance}.

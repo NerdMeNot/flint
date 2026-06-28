@@ -4,75 +4,111 @@ import (
 	"context"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 )
 
-// fireTimers claims and processes all due timers.
+// maxTimersPerTick bounds how many due timers a single tick processes so timer
+// handling can't starve the loop's other phases under a backlog.
+const maxTimersPerTick = 100
+
+// fireTimers claims and handles due timers one at a time, each in its own
+// transaction. Crucially, a timer is marked fired in the SAME transaction as its
+// effect (LockNextDueTimer holds the row lock across handling), so a crash or
+// error mid-handle rolls back and the timer is retried on the next tick. This is
+// exactly-once handling, replacing the previous at-most-once flow where fired=true
+// committed before the effect ran (a crash there stranded gate/wait timeouts).
 func fireTimers(ctx context.Context, pool db.Pool) error {
-	q := db.New(pool)
-	timers, err := q.FireDueTimers(ctx)
-	if err != nil {
-		return err
-	}
-	for _, t := range timers {
-		if err := handleFiredTimer(ctx, pool, t); err != nil {
-			log.Error().Err(err).
-				Str("timer", t.TimerType).
-				Str("step", t.StepName).
-				Msg("engine: failed to handle timer")
+	for i := 0; i < maxTimersPerTick; i++ {
+		done, err := fireOneTimer(ctx, pool)
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
 		}
 	}
 	return nil
 }
 
-func handleFiredTimer(ctx context.Context, pool db.Pool, t db.FireDueTimersRow) error {
+// fireOneTimer claims and handles a single due timer in one transaction. Returns
+// done=true when no due timer remains (or a handler error left work for the next
+// tick).
+func fireOneTimer(ctx context.Context, pool db.Pool) (done bool, err error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback(ctx)
 	qtx := db.New(pool).WithTx(tx)
 
+	t, err := qtx.LockNextDueTimer(ctx)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return true, nil
+		}
+		return false, err
+	}
+
+	if err := handleTimer(ctx, qtx, t); err != nil {
+		// Roll back (deferred) and stop this tick; the timer stays fired=false and
+		// is retried next tick.
+		log.Error().Err(err).Str("timer", t.TimerType).Str("step", t.StepName).
+			Msg("engine: failed to handle timer (will retry)")
+		return true, nil
+	}
+	if err := qtx.MarkTimerFired(ctx, t.ID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// handleTimer applies a due timer's effect inside the caller's transaction.
+func handleTimer(ctx context.Context, qtx *db.Queries, t db.LockNextDueTimerRow) error {
 	switch t.TimerType {
-	case "timeout":
+	case timerTimeout:
 		// Step execution timed out.
-		err = qtx.FailStepByTimeout(ctx, db.FailStepByTimeoutParams{
+		if err := qtx.FailStepByTimeout(ctx, db.FailStepByTimeoutParams{
 			Result:     mustJSON(StepResult{StepName: t.StepName, Success: false, Error: "step timed out"}),
 			WorkflowID: t.WorkflowID,
 			StepName:   t.StepName,
-		})
+		}); err != nil {
+			return err
+		}
 		log.Warn().Str("step", t.StepName).Msg("engine: step timed out")
+		return advanceWorkflow(ctx, qtx, t.WorkflowID, 0)
 
-	case "gate_timeout":
-		// Gate approval timed out.
-		err = qtx.FailGateByTimeout(ctx, db.FailGateByTimeoutParams{
-			Result:     mustJSON(StepResult{StepName: t.StepName, Success: false, Error: "gate approval timed out"}),
+	case timerGateTimeout, timerWaitTimeout:
+		// Gate approval / external-signal wait timed out. FailGateByTimeout
+		// transitions any 'waiting' step → failed, which covers both gate and wait.
+		msg := "gate approval timed out"
+		if t.TimerType == timerWaitTimeout {
+			msg = "wait timed out"
+		}
+		if err := qtx.FailGateByTimeout(ctx, db.FailGateByTimeoutParams{
+			Result:     mustJSON(StepResult{StepName: t.StepName, Success: false, Error: msg}),
 			WorkflowID: t.WorkflowID,
 			StepName:   t.StepName,
-		})
-		log.Warn().Str("step", t.StepName).Msg("engine: gate timed out")
+		}); err != nil {
+			return err
+		}
+		log.Warn().Str("step", t.StepName).Str("type", t.TimerType).Msg("engine: " + msg)
+		return advanceWorkflow(ctx, qtx, t.WorkflowID, 0)
 
-	case "retry_backoff":
-		// Retry backoff expired — re-queue the step.
-		if reqErr := qtx.RequeueRetryStep(ctx, db.RequeueRetryStepParams{
+	case timerRetryBackoff:
+		// Backoff expired — promote the parked retry attempt (retry_wait → queued).
+		// Do NOT advance: the step re-enters via the normal claim path.
+		if err := qtx.RequeueRetryStep(ctx, db.RequeueRetryStepParams{
 			WorkflowID: t.WorkflowID,
 			Name:       t.StepName,
-		}); reqErr != nil {
-			log.Error().Err(reqErr).Str("step", t.StepName).Msg("engine: failed to requeue retry step")
-			return reqErr
+		}); err != nil {
+			return err
 		}
 		log.Info().Str("step", t.StepName).Msg("engine: retry backoff expired, re-queuing")
-		return tx.Commit(ctx) // Don't advance — step just got re-queued.
+		return nil
 	}
-
-	if err != nil {
-		return err
-	}
-
-	// Advance workflow after timeout/failure.
-	if err := advanceWorkflow(ctx, qtx, t.WorkflowID, 0); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+	return nil
 }

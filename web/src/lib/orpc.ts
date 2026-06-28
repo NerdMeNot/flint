@@ -5,12 +5,20 @@ import { createIsomorphicFn } from '@tanstack/react-start'
 import { createTanstackQueryUtils } from '@orpc/tanstack-query'
 import type { AppRouter } from '#/lib/api/router'
 import { appRouter } from '#/lib/api/router'
+import { getAccessToken } from '#/lib/auth-token'
 
 const getClient = createIsomorphicFn()
   .client(
     (): RouterClient<AppRouter> =>
       createORPCClient(
-        new RPCLink({ url: `${window.location.origin}/api/rpc` }),
+        new RPCLink({
+          url: `${window.location.origin}/api/rpc`,
+          // Forward the session token so the /api/rpc route relays it to Go.
+          headers: () => {
+            const t = getAccessToken()
+            return t ? { authorization: `Bearer ${t}` } : {}
+          },
+        }),
       ),
   )
   .server(

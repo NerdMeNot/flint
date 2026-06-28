@@ -39,7 +39,7 @@ func (q *Queries) GetOrCreateDefaultOrg(ctx context.Context) (string, error) {
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, slug, concurrency_limit, require_project_workspace FROM orgs LIMIT 1
+SELECT id, name, slug, concurrency_limit, require_project_workspace, sso_strict_groups FROM orgs LIMIT 1
 `
 
 type GetOrgRow struct {
@@ -48,6 +48,7 @@ type GetOrgRow struct {
 	Slug                    string `json:"slug"`
 	ConcurrencyLimit        int32  `json:"concurrency_limit"`
 	RequireProjectWorkspace bool   `json:"require_project_workspace"`
+	SsoStrictGroups         bool   `json:"sso_strict_groups"`
 }
 
 func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
@@ -59,6 +60,7 @@ func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
 		&i.Slug,
 		&i.ConcurrencyLimit,
 		&i.RequireProjectWorkspace,
+		&i.SsoStrictGroups,
 	)
 	return i, err
 }
@@ -74,6 +76,19 @@ func (q *Queries) GetOrgConcurrencyLimit(ctx context.Context, id string) (int32,
 	return concurrency_limit, err
 }
 
+const lockOrgConcurrency = `-- name: LockOrgConcurrency :exec
+SELECT pg_advisory_xact_lock(hashtext('flint-conc:' || $1::text))
+`
+
+// Transaction-scoped advisory lock keyed by org. Held across the count + throttle
+// decision so two workers can't both observe headroom and both dispatch past the
+// org's concurrency limit. Auto-released at transaction end; per-org, so different
+// orgs never block each other.
+func (q *Queries) LockOrgConcurrency(ctx context.Context, orgID string) error {
+	_, err := q.db.Exec(ctx, lockOrgConcurrency, orgID)
+	return err
+}
+
 const setOrgRequireProjectWorkspace = `-- name: SetOrgRequireProjectWorkspace :exec
 UPDATE orgs SET require_project_workspace = $1 WHERE id = $2
 `
@@ -85,5 +100,19 @@ type SetOrgRequireProjectWorkspaceParams struct {
 
 func (q *Queries) SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error {
 	_, err := q.db.Exec(ctx, setOrgRequireProjectWorkspace, arg.Require, arg.ID)
+	return err
+}
+
+const setOrgStrictGroups = `-- name: SetOrgStrictGroups :exec
+UPDATE orgs SET sso_strict_groups = $1 WHERE id = $2
+`
+
+type SetOrgStrictGroupsParams struct {
+	Strict bool   `json:"strict"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error {
+	_, err := q.db.Exec(ctx, setOrgStrictGroups, arg.Strict, arg.ID)
 	return err
 }

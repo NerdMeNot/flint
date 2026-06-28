@@ -1,12 +1,16 @@
 version: '3'
 
 vars:
-  BINS: server worker agent controller flint syncd
+  BINS: server worker agent flint syncd
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   LDFLAGS: -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}
+  # The local sim stack (task dev-sim) runs under mprocs (config: mprocs.yaml),
+  # which hot-reloads the Go binaries via air (.air.server.toml/.air.worker.toml,
+  # pinned via `go run <pkg>@<ver>`). mprocs is a Rust binary — install once with
+  # `brew install mprocs` (or `cargo install mprocs`).
 
 tasks:
   default:
@@ -37,12 +41,6 @@ tasks:
     cmds:
       - bun run build
 
-  build-everything:
-    desc: Build all binaries + web frontend
-    cmds:
-      - task: build-all
-      - task: build-web
-
   # --- Test ---
 
   test:
@@ -54,11 +52,6 @@ tasks:
     desc: Run tests in short mode (skip slow/integration tests)
     cmds:
       - go test -short ./...
-
-  test-verbose:
-    desc: Run tests with verbose output
-    cmds:
-      - go test -v ./...
 
   test-race:
     desc: Run tests with race detector
@@ -106,11 +99,10 @@ tasks:
   # --- Code generation ---
 
   generate:
-    desc: Run all code generation (proto, sqlc, CRD manifests)
+    desc: Run all code generation (proto, sqlc)
     cmds:
       - task: proto-gen
       - task: sqlc-gen
-      - task: crd-gen
 
   proto-gen:
     desc: Generate Go code from protobuf definitions
@@ -140,12 +132,6 @@ tasks:
     cmds:
       - sqlc generate
 
-  crd-gen:
-    desc: Generate CRD YAML manifests from Go types
-    cmds:
-      - mkdir -p helm/crds
-      - go run sigs.k8s.io/controller-tools/cmd/controller-gen crd paths="./internal/core/crd/..." output:crd:artifacts:config=helm/crds
-
   # --- Frontend ---
 
   web-dev:
@@ -153,12 +139,6 @@ tasks:
     dir: web
     cmds:
       - bun run dev
-
-  web-build:
-    desc: Build the web frontend for production
-    dir: web
-    cmds:
-      - bun run build
 
   web-install:
     desc: Install web frontend dependencies
@@ -175,20 +155,24 @@ tasks:
   # --- Database ---
 
   migrate-up:
-    desc: Run database migrations
+    desc: Run database migrations (vendored goose via the flint CLI)
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" up
+      - go run ./cmd/flint dev migrate up --dsn "{{.DATABASE_URL}}"
     requires:
       vars: [DATABASE_URL]
 
   migrate-down:
-    desc: Roll back last migration
+    desc: Roll back last migration (vendored goose via the flint CLI)
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" down
+      - go run ./cmd/flint dev migrate down --dsn "{{.DATABASE_URL}}"
     requires:
       vars: [DATABASE_URL]
 
   migrate-create:
+    # Scaffolds a new migration file via the goose CLI. Pre-live the convention is
+    # to fold schema changes into 001_initial_schema.sql instead (see CLAUDE.md), so
+    # this is rarely needed; it requires the goose binary on PATH because file
+    # scaffolding isn't exposed by the embedded library path.
     desc: "Create a new migration (usage: task migrate-create NAME=add_widgets)"
     cmds:
       - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations create {{.NAME}} sql
@@ -196,29 +180,13 @@ tasks:
       vars: [NAME]
 
   migrate-status:
-    desc: Show migration status
+    desc: Show migration status (vendored goose via the flint CLI)
     cmds:
-      - go run github.com/pressly/goose/v3/cmd/goose -dir internal/core/dbkit/migrations postgres "{{.DATABASE_URL}}" status
+      - go run ./cmd/flint dev migrate status --dsn "{{.DATABASE_URL}}"
     requires:
       vars: [DATABASE_URL]
 
   # --- Development ---
-
-  dev:
-    desc: Start the server in development mode
-    cmds:
-      - go run ./cmd/server --config config.yaml --mode all
-
-  dev-worker:
-    desc: Start the worker in development mode
-    cmds:
-      - go run ./cmd/worker --config config.yaml
-
-  dev-all:
-    desc: Start server + web frontend dev server
-    deps:
-      - dev
-      - web-dev
 
   dev-db:
     desc: Start a local Postgres for development (Podman)
@@ -245,6 +213,53 @@ tasks:
         trap "kill $WORKER_PID 2>/dev/null" EXIT
         go run ./cmd/server --config config.local.yaml --mode all
 
+  _air-bin:
+    internal: true
+    # Install the pinned air binary to tmp/bin so mprocs can run it DIRECTLY (a
+    # `go run air` wrapper swallows the stop signal and orphans the built server —
+    # see mprocs.yaml). `go install pkg@version` ignores the local module/vendor.
+    cmds:
+      - GOBIN="{{.ROOT_DIR}}/tmp/bin" go install github.com/air-verse/air@v1.65.3
+    status:
+      - test -x tmp/bin/air
+
+  _free-ports:
+    internal: true
+    # Kill anything still holding the app/web ports — orphans from a previous run
+    # that ended abruptly (terminal closed, SIGKILL) or a process mprocs couldn't
+    # signal cleanly (e.g. vite under bun). Makes a restart always bind cleanly.
+    # for-loop with a guarded substitution: lsof exits 1 when nothing matches, and
+    # Task runs commands with errexit — `pids=$(lsof…)` would fail the task before
+    # the trailing `|| true`. The loop sidesteps that and is portable (no xargs -r).
+    # Only 8080/3000 — never 5432 (that's the Podman Postgres we keep).
+    cmds:
+      - 'for p in $(lsof -ti tcp:8080 tcp:3000 2>/dev/null || true); do kill "$p" 2>/dev/null || true; done'
+
+  dev-sim:
+    desc: Run the full local sim stack (Postgres + seed + server + worker + web) under mprocs — REAL engine, simulated step execution (no Kubernetes), hot reload, per-process panes. Needs mprocs (`brew install mprocs`). Log in as admin@flint.dev / flintdev123.
+    deps:
+      - dev-db
+      - _air-bin
+      - _free-ports
+    cmds:
+      # Clear any stale seed sentinel so server/worker wait for THIS run's seed.
+      - rm -f tmp/.seed-done
+      # Hand off to mprocs: seed (one-shot; migrates + seeds) → server + worker + web.
+      - mprocs
+
+  dev-seed:
+    desc: Re-seed the local sim database (idempotent — replaces prior seed data)
+    deps:
+      - dev-db
+    cmds:
+      - go run ./cmd/flint dev seed --config config.local.yaml
+
+  dev-down:
+    desc: Tear down the local sim stack — stop Postgres and free any stray dev ports (8080/3000)
+    cmds:
+      - task: dev-db-stop
+      - task: _free-ports
+
   # --- Docker ---
 
   docker:
@@ -261,7 +276,7 @@ tasks:
         task: docker
         vars: { TARGET: "{{.ITEM}}" }
     vars:
-      DOCKER_TARGETS: server worker controller agent
+      DOCKER_TARGETS: server worker agent
 
   # --- Dependencies ---
 

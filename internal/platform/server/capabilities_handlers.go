@@ -28,6 +28,17 @@ func (s *Server) handleCapabilities(ctx context.Context, c *app.RequestContext) 
 	}})
 }
 
+// handleMeta reports the backend's data mode. In demo deployments (the local sim
+// stack: seeded data + simulated step execution) the UI surfaces a banner so demo
+// state is never mistaken for production.
+func (s *Server) handleMeta(ctx context.Context, c *app.RequestContext) {
+	mode := "live"
+	if s.deps.Demo {
+		mode = "demo"
+	}
+	c.JSON(consts.StatusOK, utils.H{"mode": mode})
+}
+
 func capabilityStatus(enabled, comingSoon bool) string {
 	switch {
 	case enabled:

@@ -166,6 +166,9 @@ func TestHandleRetryRun_Success(t *testing.T) {
 		PipelinePath: ".flint/",
 	}, nil)
 
+	// startResolved validates the pipeline's runner pools against the catalog.
+	m.Querier.On("ListRunnerPools", mock.Anything).Return([]db.ListRunnerPoolsRow{}, nil)
+
 	m.Querier.On("InsertRetryRun", mock.Anything, mock.MatchedBy(func(p db.InsertRetryRunParams) bool {
 		return p.ProjectID != nil && *p.ProjectID == "proj-1" && p.OrgID == "org-1" &&
 			p.WorkflowFile != nil && *p.WorkflowFile == "ci.yaml"

@@ -121,6 +121,71 @@ func (q *Queries) GetRun(ctx context.Context, id string) (GetRunRow, error) {
 	return i, err
 }
 
+const getRunDetail = `-- name: GetRunDetail :one
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.id = $1
+`
+
+type GetRunDetailRow struct {
+	ID            string      `json:"id"`
+	Status        string      `json:"status"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    *time.Time  `json:"finished_at"`
+	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	WorkflowFile  *string     `json:"workflow_file"`
+	Branch        *string     `json:"branch"`
+	TriggerType   string      `json:"trigger_type"`
+	CommitSha     *string     `json:"commit_sha"`
+	CommitMessage *string     `json:"commit_message"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
+	ProjectName   *string     `json:"project_name"`
+	ProjectID     string      `json:"project_id"`
+	ProjectColour string      `json:"project_colour"`
+	RepoPath      string      `json:"repo_path"`
+	Steps         []byte      `json:"steps"`
+}
+
+// Single CI run with project display fields + the per-step summary, for
+// GET /api/v1/runs/:id.
+func (q *Queries) GetRunDetail(ctx context.Context, id string) (GetRunDetailRow, error) {
+	row := q.db.QueryRow(ctx, getRunDetail, id)
+	var i GetRunDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.DurationMs,
+		&i.WorkflowFile,
+		&i.Branch,
+		&i.TriggerType,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.TriggeredBy,
+		&i.Environment,
+		&i.ErrorMessage,
+		&i.ProjectName,
+		&i.ProjectID,
+		&i.ProjectColour,
+		&i.RepoPath,
+		&i.Steps,
+	)
+	return i, err
+}
+
 const getRunOrgID = `-- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1
 `
@@ -403,6 +468,108 @@ func (q *Queries) ListRunsByProject(ctx context.Context, arg ListRunsByProjectPa
 	return items, nil
 }
 
+const listRunsFiltered = `-- name: ListRunsFiltered :many
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE ($1::text = '' OR pr.project_id::text = $1)
+  AND ($2::text = '' OR pr.status = $2)
+  AND (
+    $3::text = ''
+    -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
+    -- cursor without trying (and failing) to encode '' as a uuid.
+    OR (pr.started_at, pr.id) < ($3::timestamptz, NULLIF($4::text, '')::uuid)
+  )
+ORDER BY pr.started_at DESC, pr.id DESC
+LIMIT $5
+`
+
+type ListRunsFilteredParams struct {
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	CursorTs  string `json:"cursor_ts"`
+	CursorID  string `json:"cursor_id"`
+	Lim       int32  `json:"lim"`
+}
+
+type ListRunsFilteredRow struct {
+	ID            string      `json:"id"`
+	Status        string      `json:"status"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    *time.Time  `json:"finished_at"`
+	DurationMs    pgtype.Int4 `json:"duration_ms"`
+	WorkflowFile  *string     `json:"workflow_file"`
+	Branch        *string     `json:"branch"`
+	TriggerType   string      `json:"trigger_type"`
+	CommitSha     *string     `json:"commit_sha"`
+	CommitMessage *string     `json:"commit_message"`
+	TriggeredBy   *string     `json:"triggered_by"`
+	Environment   *string     `json:"environment"`
+	ErrorMessage  *string     `json:"error_message"`
+	ProjectName   *string     `json:"project_name"`
+	ProjectID     string      `json:"project_id"`
+	ProjectColour string      `json:"project_colour"`
+	RepoPath      string      `json:"repo_path"`
+	Steps         []byte      `json:"steps"`
+}
+
+// Global CI run list with optional project/status filters, joined to the project
+// for display, plus a compact per-step summary (name+status) the UI renders as
+// stage pips. Powers GET /api/v1/runs.
+func (q *Queries) ListRunsFiltered(ctx context.Context, arg ListRunsFilteredParams) ([]ListRunsFilteredRow, error) {
+	rows, err := q.db.Query(ctx, listRunsFiltered,
+		arg.ProjectID,
+		arg.Status,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunsFilteredRow{}
+	for rows.Next() {
+		var i ListRunsFilteredRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.DurationMs,
+			&i.WorkflowFile,
+			&i.Branch,
+			&i.TriggerType,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.TriggeredBy,
+			&i.Environment,
+			&i.ErrorMessage,
+			&i.ProjectName,
+			&i.ProjectID,
+			&i.ProjectColour,
+			&i.RepoPath,
+			&i.Steps,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkflowRuns = `-- name: ListWorkflowRuns :many
 SELECT id, status, trigger_type, triggered_by, started_at, finished_at,
        duration_ms, error_message
@@ -410,7 +577,9 @@ FROM pipeline_runs
 WHERE org_id = $1 AND kind = 'workflow'
   AND ( $2::text = ''
         OR started_at < $2::timestamptz
-        OR (started_at = $2::timestamptz AND id < $3) )
+        -- NULLIF(...::text,'') keeps the param TEXT so an empty first-page cursor
+        -- binds without pgx trying to encode '' as a uuid.
+        OR (started_at = $2::timestamptz AND id < NULLIF($3::text, '')::uuid) )
 ORDER BY started_at DESC, id DESC
 LIMIT $4
 `
@@ -513,6 +682,60 @@ func (q *Queries) RunsNeedingCleanup(ctx context.Context, limit int32) ([]string
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchRuns = `-- name: SearchRuns :many
+SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
+       COALESCE(p.display_name, p.repo_path)::text AS project_name,
+       p.colour AS project_colour
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.org_id = $1
+  AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
+ORDER BY pr.started_at DESC
+LIMIT 10
+`
+
+type SearchRunsParams struct {
+	OrgID   string  `json:"org_id"`
+	Pattern *string `json:"pattern"`
+}
+
+type SearchRunsRow struct {
+	ID            string  `json:"id"`
+	Status        string  `json:"status"`
+	Branch        *string `json:"branch"`
+	CommitSha     *string `json:"commit_sha"`
+	ProjectName   string  `json:"project_name"`
+	ProjectColour string  `json:"project_colour"`
+}
+
+// Run search by branch / commit SHA for the global ⌘K search.
+func (q *Queries) SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error) {
+	rows, err := q.db.Query(ctx, searchRuns, arg.OrgID, arg.Pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchRunsRow{}
+	for rows.Next() {
+		var i SearchRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Branch,
+			&i.CommitSha,
+			&i.ProjectName,
+			&i.ProjectColour,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

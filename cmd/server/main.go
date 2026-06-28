@@ -169,51 +169,89 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	log.Info().Msg("RBAC policies regenerated")
 
+	// SSO providers. Configuration is sourced from the DB first (managed via the
+	// API and hot-reloaded at runtime), falling back to the config file. This
+	// makes API-configured SSO survive restarts. The auth callback routes are
+	// registered unconditionally and guard on these being non-nil at request time.
+	masterKey, masterKeyErr := cfg.Encryption.DecodeMasterKey()
+
 	// OIDC provider (optional).
 	var oidcProvider *auth.OIDCProvider
-	if auth.OIDCConfigured(cfg.Auth.OIDC.IssuerURL, cfg.Auth.OIDC.ClientID) {
-		oidcProvider, err = auth.NewOIDCProvider(ctx, auth.OIDCProviderConfig{
-			IssuerURL:    cfg.Auth.OIDC.IssuerURL,
-			ClientID:     cfg.Auth.OIDC.ClientID,
-			ClientSecret: cfg.Auth.OIDC.ClientSecret,
-			RedirectURL:  cfg.Server.BaseURL + "/auth/oidc/callback",
-		})
-		if err != nil {
-			return fmt.Errorf("initializing OIDC provider: %w", err)
+	{
+		var pc *auth.ProviderConfig
+		if masterKeyErr == nil {
+			if pc, err = auth.LoadProviderConfig(ctx, q, masterKey, "oidc"); err != nil {
+				return fmt.Errorf("loading OIDC provider config: %w", err)
+			}
 		}
-		log.Info().Str("issuer", cfg.Auth.OIDC.IssuerURL).Msg("OIDC provider initialized")
+		if pc == nil && auth.OIDCConfigured(cfg.Auth.OIDC.IssuerURL, cfg.Auth.OIDC.ClientID) {
+			pc = &auth.ProviderConfig{
+				IssuerURL:    cfg.Auth.OIDC.IssuerURL,
+				ClientID:     cfg.Auth.OIDC.ClientID,
+				ClientSecret: cfg.Auth.OIDC.ClientSecret,
+				Scopes:       cfg.Auth.OIDC.Scopes,
+				EmailClaim:   cfg.Auth.OIDC.EmailClaim,
+				NameClaim:    cfg.Auth.OIDC.NameClaim,
+				GroupsClaim:  cfg.Auth.OIDC.GroupsClaim,
+			}
+		}
+		if pc != nil && pc.HasOIDC() {
+			if oidcProvider, err = auth.BuildOIDCProvider(ctx, *pc, cfg.Server.BaseURL); err != nil {
+				return fmt.Errorf("initializing OIDC provider: %w", err)
+			}
+			log.Info().Str("issuer", pc.IssuerURL).Msg("OIDC provider initialized")
+		}
 	}
 
 	// SAML provider (optional).
 	var samlProvider *auth.SAMLProvider
-	if cfg.Auth.SAML.Enabled && cfg.Auth.SAML.MetadataURL != "" {
-		samlCfg := auth.SAMLProviderConfig{
-			MetadataURL: cfg.Auth.SAML.MetadataURL,
-			EntityID:    cfg.Auth.SAML.EntityID,
-			ACSURL:      cfg.Server.BaseURL + "/auth/saml/acs",
-		}
-		// Load SP cert/key from files if configured.
-		if cfg.Auth.SAML.CertFile != "" && cfg.Auth.SAML.KeyFile != "" {
-			certPEM, err := os.ReadFile(cfg.Auth.SAML.CertFile)
-			if err != nil {
-				return fmt.Errorf("reading SAML cert file: %w", err)
+	{
+		var pc *auth.ProviderConfig
+		if masterKeyErr == nil {
+			if pc, err = auth.LoadProviderConfig(ctx, q, masterKey, "saml"); err != nil {
+				return fmt.Errorf("loading SAML provider config: %w", err)
 			}
-			keyPEM, err := os.ReadFile(cfg.Auth.SAML.KeyFile)
-			if err != nil {
-				return fmt.Errorf("reading SAML key file: %w", err)
+		}
+		if pc == nil && cfg.Auth.SAML.Enabled && cfg.Auth.SAML.MetadataURL != "" {
+			fileCfg := &auth.ProviderConfig{
+				MetadataURL:  cfg.Auth.SAML.MetadataURL,
+				EntityID:     cfg.Auth.SAML.EntityID,
+				NameIDFormat: cfg.Auth.SAML.NameIDFormat,
+				EmailAttrs:   cfg.Auth.SAML.EmailAttrs,
+				NameAttrs:    cfg.Auth.SAML.NameAttrs,
+				GroupsAttrs:  cfg.Auth.SAML.GroupsAttrs,
 			}
-			samlCfg.CertPEM = string(certPEM)
-			samlCfg.KeyPEM = string(keyPEM)
+			// Load SP cert/key from files if configured.
+			if cfg.Auth.SAML.CertFile != "" && cfg.Auth.SAML.KeyFile != "" {
+				certPEM, rerr := os.ReadFile(cfg.Auth.SAML.CertFile)
+				if rerr != nil {
+					return fmt.Errorf("reading SAML cert file: %w", rerr)
+				}
+				keyPEM, rerr := os.ReadFile(cfg.Auth.SAML.KeyFile)
+				if rerr != nil {
+					return fmt.Errorf("reading SAML key file: %w", rerr)
+				}
+				fileCfg.SPCertPEM = string(certPEM)
+				fileCfg.SPKeyPEM = string(keyPEM)
+			}
+			pc = fileCfg
 		}
-		samlProvider, err = auth.NewSAMLProvider(samlCfg)
-		if err != nil {
-			return fmt.Errorf("initializing SAML provider: %w", err)
+		if pc != nil && pc.HasSAML() {
+			if samlProvider, err = auth.BuildSAMLProvider(*pc, cfg.Server.BaseURL); err != nil {
+				return fmt.Errorf("initializing SAML provider: %w", err)
+			}
+			log.Info().Msg("SAML provider initialized")
 		}
-		log.Info().Str("metadata", cfg.Auth.SAML.MetadataURL).Msg("SAML provider initialized")
 	}
 
-	// Forge provider.
-	forgeProvider := forge.NewGitHub("", nil)
+	// Forge provider. In demo mode, a stub forge serves a canned pipeline so the
+	// UI's trigger/retry actions work without a real GitHub connection (the
+	// counterpart to the simulated step executor).
+	var forgeProvider forge.ForgeProvider = forge.NewGitHub("", nil)
+	if os.Getenv("FLINT_DEMO") != "" {
+		forgeProvider = forge.NewStubForge()
+		log.Info().Msg("forge: stub (demo mode — canned pipelines)")
+	}
 
 	// Engine — replaces Temporal. Embedded, Postgres-backed.
 	// The JWT secret signs/verifies task tokens (server-side only, never injected
@@ -238,15 +276,17 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	deps := flintserver.Deps{
-		Config:       cfg,
-		DB:           pool,
-		Q:            q,
-		Engine:       eng,
-		Forge:        forgeProvider,
-		Secrets:      secretStore,
-		Logs:         &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
-		LogBroadcast: flintserver.NewLogStream(),
-		Mode:         mode,
+		Config:         cfg,
+		DB:             pool,
+		Q:              q,
+		Engine:         eng,
+		Forge:          forgeProvider,
+		Secrets:        secretStore,
+		Logs:           &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
+		LogBroadcast:   flintserver.NewLogStream(),
+		StateBroadcast: flintserver.NewStateStream(),
+		Mode:           mode,
+		Demo:           os.Getenv("FLINT_DEMO") != "",
 		Sessions: auth.NewSessionManager(auth.SessionConfig{
 			SigningKey: []byte(cfg.Auth.JWT.Secret),
 			Issuer:     cfg.Server.BaseURL,
@@ -255,6 +295,11 @@ func run(cmd *cobra.Command, args []string) error {
 		SAMLProvider: samlProvider,
 		Enforcer:     enforcer,
 	}
+
+	// Push run-state changes to SSE subscribers on each committed transition
+	// (step completion / cancellation happen in this process via the agent
+	// callback and cancel handler; the SSE handler polls for the rest).
+	flintserver.WireStateObserver(eng, q, deps.StateBroadcast)
 
 	// Mount product surfaces here (composition root), so the platform server
 	// never imports product packages.

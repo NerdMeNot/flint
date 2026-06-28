@@ -1,13 +1,18 @@
--- name: FireDueTimers :many
-UPDATE timers SET fired = true
-WHERE id IN (
-    SELECT id FROM timers
-    WHERE fired = false AND fires_at <= now()
-    ORDER BY fires_at
-    LIMIT 100
-    FOR UPDATE SKIP LOCKED
-)
-RETURNING id, workflow_id, step_name, timer_type;
+-- name: LockNextDueTimer :one
+-- Claims one due timer, locking the row (FOR UPDATE SKIP LOCKED) for the duration
+-- of the caller's transaction. The caller handles the timer's effect and marks it
+-- fired in the SAME transaction, so `fired = true` only commits if the effect
+-- commits — a crash mid-handle rolls back and the timer is retried next tick
+-- (exactly-once handling, not the previous at-most-once).
+SELECT id, workflow_id, step_name, timer_type
+FROM timers
+WHERE fired = false AND fires_at <= now()
+ORDER BY fires_at
+LIMIT 1
+FOR UPDATE SKIP LOCKED;
+
+-- name: MarkTimerFired :exec
+UPDATE timers SET fired = true WHERE id = $1;
 
 -- name: CancelTimer :exec
 UPDATE timers SET fired = true

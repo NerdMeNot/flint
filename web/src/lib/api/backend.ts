@@ -1,59 +1,44 @@
 // Backend HTTP client for calling the Flint Go server's REST API.
 // Used by oRPC handlers (server-side) to proxy requests to the real backend.
 //
-// When the backend is unreachable, throws BackendUnavailableError.
-// The router catches this and falls back to mock data.
+// The client always talks to the Go server; mock vs live data is a server-side
+// concern (`flint server --mock`). Errors are surfaced, never masked.
 
-import { apiMode } from './mode'
+import { getCookie } from '@tanstack/react-start/server'
+import { currentAuthHeader } from './server-token'
+import { ACCESS_COOKIE } from '#/lib/auth-token'
 
 const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
 
-// Whether the most recent backend attempt found it unreachable. Only meaningful
-// in 'auto' mode (in 'mock' we never try; in 'live' we never fall back). Exposed
-// via the meta endpoint so the UI can show a "showing demo data" banner.
-let backendUnreachable = false
-export function isBackendUnreachable(): boolean {
-  return backendUnreachable
-}
-
-export class BackendUnavailableError extends Error {
-  constructor() {
-    super('Backend unavailable')
-    this.name = 'BackendUnavailableError'
+// This module runs server-side only: the browser oRPC link calls /api/rpc, whose
+// handler code (this file) executes on the server, as does the SSR render. So
+// reading the request cookie here is safe.
+//
+// Auth precedence: the Authorization header relayed by /api/rpc (set by the
+// browser link from localStorage) wins; on the initial SSR document request
+// there is no such header, so fall back to the session cookie.
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  let auth = currentAuthHeader()
+  if (!auth) {
+    try {
+      const token = getCookie(ACCESS_COOKIE)
+      if (token) auth = `Bearer ${token}`
+    } catch {
+      // no request context (non-request server call) — leave unauthenticated
+    }
   }
+  if (auth) h.Authorization = auth
+  return h
 }
 
 async function doFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  // Mock mode never touches the network — the router serves the mock store.
-  if (apiMode() === 'mock') {
-    throw new BackendUnavailableError()
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Backend ${res.status}: ${body}`)
   }
-
-  try {
-    const res = await fetch(url, init)
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      // 401/403 are auth problems, not unreachability — surface them (they must
-      // not masquerade as "backend down" and silently flip to demo data).
-      throw new Error(`Backend ${res.status}: ${body}`)
-    }
-    backendUnreachable = false
-    return res.json()
-  } catch (err: any) {
-    if (err instanceof BackendUnavailableError) throw err
-    if (
-      err.cause?.code === 'ECONNREFUSED' ||
-      err.message?.includes('fetch failed') ||
-      err.message?.includes('ECONNREFUSED') ||
-      err.message?.includes('ENOTFOUND')
-    ) {
-      // Genuine network unreachability. In 'auto' the router falls back to mock
-      // data; in 'live' the router rethrows so the UI shows a real error.
-      backendUnreachable = true
-      throw new BackendUnavailableError()
-    }
-    throw err
-  }
+  return res.json()
 }
 
 export async function backendGet<T>(
@@ -72,14 +57,14 @@ export async function backendGet<T>(
     }
   }
   return doFetch<T>(url.toString(), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
   })
 }
 
 export async function backendPost<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -87,7 +72,7 @@ export async function backendPost<T>(path: string, body?: unknown): Promise<T> {
 export async function backendPut<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -95,7 +80,7 @@ export async function backendPut<T>(path: string, body?: unknown): Promise<T> {
 export async function backendPatch<T>(path: string, body?: unknown): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   })
 }
@@ -103,6 +88,37 @@ export async function backendPatch<T>(path: string, body?: unknown): Promise<T> 
 export async function backendDelete<T>(path: string): Promise<T> {
   return doFetch<T>(`${BACKEND_URL}/api/v1${path}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
+  })
+}
+
+// Root-path variants for endpoints the Go server mounts OUTSIDE /api/v1 — namely
+// the session/auth routes (/auth/me, /auth/profile, /auth/sessions, /auth/mfa/*,
+// /auth/change-password). Note: /auth/providers and /auth/provider ARE under
+// /api/v1, so those keep using the functions above.
+export async function backendGetRoot<T>(path: string): Promise<T> {
+  return doFetch<T>(`${BACKEND_URL}${path}`, { headers: authHeaders() })
+}
+
+export async function backendPostRoot<T>(path: string, body?: unknown): Promise<T> {
+  return doFetch<T>(`${BACKEND_URL}${path}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}
+
+export async function backendPutRoot<T>(path: string, body?: unknown): Promise<T> {
+  return doFetch<T>(`${BACKEND_URL}${path}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}
+
+export async function backendDeleteRoot<T>(path: string): Promise<T> {
+  return doFetch<T>(`${BACKEND_URL}${path}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
   })
 }

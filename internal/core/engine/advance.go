@@ -359,12 +359,15 @@ func allWavesComplete(waves [][]string, stepByName map[string]stepRow) bool {
 
 func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult) pipeline.ExprContext {
 	ctx := pipeline.ExprContext{
-		// git/run come from the generic Inputs bag (populated by normalizeInputs
-		// for CI runs), not from typed fields — the engine is product-neutral here.
+		// git/run/inputs come from the generic Inputs bag (populated by
+		// normalizeInputs for CI runs), not from typed fields — the engine is
+		// product-neutral here. `inputs` is the manual-trigger / workflow input
+		// namespace; it degrades to empty when a product hasn't populated it (it
+		// was previously aliased to env by mistake — env and inputs are distinct).
 		"git":    exprNamespace(input.Inputs, "git"),
 		"run":    exprNamespace(input.Inputs, "run"),
 		"env":    input.Env,
-		"inputs": input.Env,
+		"inputs": exprNamespace(input.Inputs, "inputs"),
 	}
 
 	steps := make(map[string]any, len(stepOutputs))

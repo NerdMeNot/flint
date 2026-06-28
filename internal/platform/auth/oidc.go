@@ -16,6 +16,10 @@ type OIDCProviderConfig struct {
 	ClientSecret string
 	RedirectURL  string   // e.g., https://flint.example.com/auth/oidc/callback
 	Scopes       []string // defaults to [openid, profile, email, groups]
+
+	// Mapping names the claims that carry email/name/groups. Empty fields fall
+	// back to the OIDC-conventional claim names.
+	Mapping OIDCMapping
 }
 
 // OIDCAuth is the interface for OIDC authentication. *OIDCProvider implements
@@ -33,6 +37,7 @@ type OIDCProvider struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	oauth2   oauth2.Config
+	mapping  OIDCMapping
 }
 
 // NewOIDCProvider creates an OIDC provider by performing discovery on the issuer URL.
@@ -63,6 +68,7 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 		provider: provider,
 		verifier: verifier,
 		oauth2:   oauth2Cfg,
+		mapping:  cfg.Mapping,
 	}, nil
 }
 
@@ -100,29 +106,21 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code, expectedNonce string)
 		return nil, nil, fmt.Errorf("nonce mismatch: expected %q, got %q", expectedNonce, idToken.Nonce)
 	}
 
-	// Extract claims from the ID token.
-	var idClaims struct {
-		Email         string   `json:"email"`
-		EmailVerified bool     `json:"email_verified"`
-		Name          string   `json:"name"`
-		Sub           string   `json:"sub"`
-		Groups        []string `json:"groups"`
-	}
-	if err := idToken.Claims(&idClaims); err != nil {
+	// Extract the full claims bag, then resolve unified fields through the
+	// configured mapping (claim names vary widely across IdPs).
+	var rawClaims map[string]any
+	if err := idToken.Claims(&rawClaims); err != nil {
 		return nil, nil, fmt.Errorf("extracting id_token claims: %w", err)
 	}
-
-	// Build raw claims map for custom attribute mapping.
-	var rawClaims map[string]any
-	_ = idToken.Claims(&rawClaims)
+	email, name, groups := resolveOIDCClaims(rawClaims, p.mapping)
 
 	return &Claims{
-		Subject:    idClaims.Sub,
-		Email:      idClaims.Email,
-		Name:       idClaims.Name,
-		Groups:     idClaims.Groups,
+		Subject:    idToken.Subject,
+		Email:      email,
+		Name:       name,
+		Groups:     groups,
 		Provider:   "oidc",
-		ExternalID: idClaims.Sub,
+		ExternalID: idToken.Subject,
 		IssuedAt:   idToken.IssuedAt,
 		ExpiresAt:  idToken.Expiry,
 		Raw:        rawClaims,
@@ -138,24 +136,52 @@ func (p *OIDCProvider) UserInfo(ctx context.Context, token *oauth2.Token) (*Clai
 		return nil, fmt.Errorf("userinfo: %w", err)
 	}
 
-	var info struct {
-		Email  string   `json:"email"`
-		Name   string   `json:"name"`
-		Sub    string   `json:"sub"`
-		Groups []string `json:"groups"`
-	}
-	if err := userInfo.Claims(&info); err != nil {
+	var raw map[string]any
+	if err := userInfo.Claims(&raw); err != nil {
 		return nil, fmt.Errorf("userinfo claims: %w", err)
 	}
+	email, name, groups := resolveOIDCClaims(raw, p.mapping)
 
 	return &Claims{
-		Subject:    info.Sub,
-		Email:      info.Email,
-		Name:       info.Name,
-		Groups:     info.Groups,
+		Subject:    userInfo.Subject,
+		Email:      email,
+		Name:       name,
+		Groups:     groups,
 		Provider:   "oidc",
-		ExternalID: info.Sub,
+		ExternalID: userInfo.Subject,
+		Raw:        raw,
 	}, nil
+}
+
+// OIDCDiscovery summarizes what was learned from the issuer's discovery
+// document — used by the "test connection" flow to confirm a working provider
+// and to hint which scopes/claims (e.g. groups) the IdP actually supports.
+type OIDCDiscovery struct {
+	Issuer                string   `json:"issuer"`
+	AuthorizationEndpoint string   `json:"authorizationEndpoint"`
+	TokenEndpoint         string   `json:"tokenEndpoint"`
+	UserinfoEndpoint      string   `json:"userinfoEndpoint,omitempty"`
+	ScopesSupported       []string `json:"scopesSupported,omitempty"`
+	ClaimsSupported       []string `json:"claimsSupported,omitempty"`
+}
+
+// Discovery returns the discovery metadata resolved at construction.
+func (p *OIDCProvider) Discovery() OIDCDiscovery {
+	var raw struct {
+		Issuer           string   `json:"issuer"`
+		UserinfoEndpoint string   `json:"userinfo_endpoint"`
+		ScopesSupported  []string `json:"scopes_supported"`
+		ClaimsSupported  []string `json:"claims_supported"`
+	}
+	_ = p.provider.Claims(&raw)
+	return OIDCDiscovery{
+		Issuer:                raw.Issuer,
+		AuthorizationEndpoint: p.oauth2.Endpoint.AuthURL,
+		TokenEndpoint:         p.oauth2.Endpoint.TokenURL,
+		UserinfoEndpoint:      raw.UserinfoEndpoint,
+		ScopesSupported:       raw.ScopesSupported,
+		ClaimsSupported:       raw.ClaimsSupported,
+	}
 }
 
 // TokenSource returns an oauth2.TokenSource for the given token.

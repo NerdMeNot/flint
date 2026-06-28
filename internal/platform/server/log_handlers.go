@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -13,6 +14,50 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
+
+// handleGetRunLogs returns the combined per-step logs for a run as
+// { logs: { stepName: text } } — the UI's "All output" view.
+// GET /api/v1/runs/:id/logs
+func (s *Server) handleGetRunLogs(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	if s.deps.Logs == nil {
+		apiInternal(ctx, c, "log sink not configured")
+		return
+	}
+	orgID, err := s.deps.Q.GetRunOrgID(ctx, runID)
+	if err != nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+	wfID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || wfID == nil {
+		c.JSON(consts.StatusOK, utils.H{"logs": utils.H{}})
+		return
+	}
+	state, err := s.deps.Engine.QueryWorkflow(ctx, *wfID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to query workflow")
+		return
+	}
+
+	logs := map[string]string{}
+	for _, st := range state.Steps {
+		if st.StartedAt == nil {
+			continue // not started → no logs
+		}
+		lines, rerr := s.deps.Logs.Read(ctx, logsink.LogRef{OrgID: orgID, RunID: runID, StepName: st.Name})
+		if rerr != nil {
+			continue
+		}
+		var sb strings.Builder
+		for _, l := range lines {
+			sb.WriteString(l.Content)
+			sb.WriteByte('\n')
+		}
+		logs[st.Name] = sb.String()
+	}
+	c.JSON(consts.StatusOK, utils.H{"logs": logs})
+}
 
 // handleGetStepLogs returns historical logs for a step.
 // GET /api/v1/runs/:id/logs/:step

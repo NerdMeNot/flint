@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"time"
 
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -29,38 +31,27 @@ type personalTokenCreatedResponse struct {
 func (s *Server) handleListPersonalTokens(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
 
-	// Get the user ID from email.
-	var userID string
-	err := s.deps.DB.QueryRow(ctx,
-		`SELECT id FROM users WHERE org_id = $1 AND email = $2`,
-		claims.OrgID, claims.Email).Scan(&userID)
+	user, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{OrgID: claims.OrgID, Email: claims.Email})
 	if err != nil {
 		apiNotFound(ctx, c, "user not found")
 		return
 	}
 
-	rows, err := s.deps.DB.Query(ctx,
-		`SELECT id, name, expires_at, last_used_at, created_at
-		 FROM personal_tokens WHERE user_id = $1
-		 ORDER BY created_at DESC`, userID)
+	rows, err := s.deps.Q.ListPersonalTokensByUser(ctx, user.ID)
 	if err != nil {
 		apiInternal(ctx, c, "failed to list personal tokens")
 		return
 	}
-	defer rows.Close()
 
-	var result []personalTokenResponse
-	for rows.Next() {
-		var t personalTokenResponse
-		if err := rows.Scan(&t.ID, &t.Name, &t.ExpiresAt, &t.LastUsedAt, &t.CreatedAt); err != nil {
-			apiInternal(ctx, c, "failed to scan personal token")
-			return
-		}
-		result = append(result, t)
-	}
-
-	if result == nil {
-		result = []personalTokenResponse{}
+	result := make([]personalTokenResponse, 0, len(rows))
+	for _, t := range rows {
+		result = append(result, personalTokenResponse{
+			ID:         t.ID,
+			Name:       t.Name,
+			ExpiresAt:  formatTimePtrOpt(t.ExpiresAt),
+			LastUsedAt: formatTimePtrOpt(t.LastUsedAt),
+			CreatedAt:  t.CreatedAt.Format(time.RFC3339),
+		})
 	}
 	c.JSON(consts.StatusOK, utils.H{"items": result})
 }
@@ -77,11 +68,7 @@ func (s *Server) handleCreatePersonalToken(ctx context.Context, c *app.RequestCo
 
 	claims := claimsFromCtx(ctx)
 
-	// Get the user ID.
-	var userID string
-	err := s.deps.DB.QueryRow(ctx,
-		`SELECT id FROM users WHERE org_id = $1 AND email = $2`,
-		claims.OrgID, claims.Email).Scan(&userID)
+	user, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{OrgID: claims.OrgID, Email: claims.Email})
 	if err != nil {
 		apiNotFound(ctx, c, "user not found")
 		return
@@ -101,12 +88,19 @@ func (s *Server) handleCreatePersonalToken(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	var id string
-	err = s.deps.DB.QueryRow(ctx,
-		`INSERT INTO personal_tokens (user_id, name, token_hash, expires_at)
-		 VALUES ($1, $2, $3, $4) RETURNING id`,
-		userID, req.Name, string(hash), req.ExpiresAt,
-	).Scan(&id)
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		if t, perr := time.Parse(time.RFC3339, *req.ExpiresAt); perr == nil {
+			expiresAt = &t
+		}
+	}
+
+	id, err := s.deps.Q.CreatePersonalToken(ctx, db.CreatePersonalTokenParams{
+		UserID:    user.ID,
+		Name:      req.Name,
+		TokenHash: string(hash),
+		ExpiresAt: expiresAt,
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to create personal token")
 		return
@@ -129,8 +123,7 @@ func (s *Server) handleRevokePersonalToken(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	_, err := s.deps.DB.Exec(ctx, `DELETE FROM personal_tokens WHERE id = $1`, id)
-	if err != nil {
+	if err := s.deps.Q.DeletePersonalToken(ctx, id); err != nil {
 		apiInternal(ctx, c, "failed to revoke personal token")
 		return
 	}

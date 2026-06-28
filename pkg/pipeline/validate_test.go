@@ -560,3 +560,51 @@ steps:
 	require.False(t, result.Valid())
 	assert.NotEmpty(t, result.Errors()[0].Code)
 }
+
+func TestValidate_WaitStep_Valid(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: hold
+    wait:
+      signal: deploy-ok
+      timeout: 24h
+  - name: ship
+    image: alpine:3.19
+    run: echo ship
+    dependsOn: [hold]
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	require.True(t, result.Valid(), "wait step should validate: %v", result.Errors())
+
+	p, err := pipeline.Parse([]byte(yaml))
+	require.NoError(t, err)
+	require.NotNil(t, p.Steps[0].Wait)
+	assert.Equal(t, "wait", p.Steps[0].ExecType())
+	assert.Equal(t, "deploy-ok", p.Steps[0].Wait.Signal)
+}
+
+func TestValidate_WaitStep_RejectsContainerFields(t *testing.T) {
+	yaml := `
+triggers:
+  push:
+    branches: [main]
+steps:
+  - name: hold
+    image: alpine:3.19
+    runner: big-pool
+    wait:
+      signal: deploy-ok
+      timeout: not-a-duration
+`
+	result := pipeline.Validate([]byte(yaml), pipeline.ValidateOptions{})
+	require.False(t, result.Valid())
+	joined := ""
+	for _, e := range result.Errors() {
+		joined += e.Message + "\n"
+	}
+	assert.Contains(t, joined, "wait steps cannot have")
+	assert.Contains(t, joined, "invalid wait timeout")
+}

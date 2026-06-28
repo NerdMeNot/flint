@@ -37,6 +37,8 @@ Durable by default, K8s-native, and not Jenkins.`,
 
 	root.AddCommand(validateCmd())
 	root.AddCommand(adminCmd())
+	root.AddCommand(devCmd())
+	root.AddCommand(runnerCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

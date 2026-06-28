@@ -18,8 +18,7 @@ var inputPattern = regexp.MustCompile(`\$\{\{\s*inputs\.(\S+?)\s*\}\}`)
 // The pipeline package defines this interface — callers (engine, CLI) provide
 // implementations that know how to fetch from K8s, git, or the local filesystem.
 type TemplateResolver interface {
-	// ResolveStep resolves a single-step template (StepTemplate CRD).
-	// ref is a plain name like "ecr-login".
+	// ResolveStep resolves a single-step template by name (e.g. "ecr-login").
 	ResolveStep(ctx context.Context, name string) (*ResolvedStepTemplate, error)
 
 	// ResolveFile resolves a file-based template (local or cross-repo).
@@ -27,7 +26,7 @@ type TemplateResolver interface {
 	ResolveFile(ctx context.Context, ref string) (*ResolvedFileTemplate, error)
 }
 
-// ResolvedStepTemplate is a resolved StepTemplate CRD.
+// ResolvedStepTemplate is a resolved single-step template.
 type ResolvedStepTemplate struct {
 	Name   string
 	Inputs []TemplateInput
@@ -60,17 +59,17 @@ type TemplateInput struct {
 type UseRefKind int
 
 const (
-	UseRefCRD       UseRefKind = iota // plain name — StepTemplate CRD
+	UseRefName      UseRefKind = iota // plain name — a registered step template
 	UseRefLocal                       // starts with ./ — local file
 	UseRefCrossRepo                   // org/repo/path@ref — cross-repo
 )
 
-// UseRef is a parsed use: reference, classified by source type (CRD, local file, or cross-repo).
+// UseRef is a parsed use: reference, classified by source type (name, local file, or cross-repo).
 type UseRef struct {
 	Kind UseRefKind
 	Raw  string // original string
 
-	// For CRD references:
+	// For named-template references:
 	Name string
 
 	// For local file references:
@@ -114,9 +113,9 @@ func ParseUseRef(ref string) UseRef {
 		}
 	}
 
-	// Default: CRD template name
+	// Default: a plain template name
 	return UseRef{
-		Kind: UseRefCRD,
+		Kind: UseRefName,
 		Raw:  ref,
 		Name: ref,
 	}
@@ -125,7 +124,7 @@ func ParseUseRef(ref string) UseRef {
 // malformedCrossRepoRef reports a diagnostic message if ref looks like a
 // cross-repo reference (it contains '@') but is missing required parts. It
 // mirrors ParseUseRef's cross-repo rule so that a ref ParseUseRef silently
-// downgrades to a CRD-name lookup (e.g. "//path@", "org/@v1") is surfaced as an
+// downgrades to a name lookup (e.g. "//path@", "org/@v1") is surfaced as an
 // error instead. Returns "" for valid or non-cross-repo refs.
 func malformedCrossRepoRef(ref string) string {
 	ref = strings.TrimSpace(ref)
@@ -134,7 +133,7 @@ func malformedCrossRepoRef(ref string) string {
 	}
 	atIdx := strings.LastIndex(ref, "@")
 	if atIdx <= 0 {
-		return "" // no '@' → plain CRD name, not a cross-repo ref
+		return "" // no '@' → plain template name, not a cross-repo ref
 	}
 	path := ref[:atIdx]
 	gitRef := ref[atIdx+1:]
@@ -157,7 +156,7 @@ const maxResolveDepth = 10 // Prevent circular template references
 // using the provided resolver. It returns a new pipeline with templates inlined.
 // This does not modify the original pipeline.
 //
-// For CRD step templates, the use: step is replaced with a run: step using
+// For named step templates, the use: step is replaced with a run: step using
 // the template's image and command, with inputs substituted.
 //
 // For file-based templates, the use: step is replaced with the file's steps
@@ -208,7 +207,7 @@ func resolveStep(ctx context.Context, s *Step, resolver TemplateResolver, depth 
 		return s, nil
 	}
 
-	// Built-in templates — resolved without a CRD or file lookup.
+	// Built-in templates — resolved without a registry or file lookup.
 	if resolved, ok := resolveBuiltin(s); ok {
 		return resolved, nil
 	}
@@ -216,8 +215,8 @@ func resolveStep(ctx context.Context, s *Step, resolver TemplateResolver, depth 
 	ref := ParseUseRef(s.Use)
 
 	switch ref.Kind {
-	case UseRefCRD:
-		return resolveCRDTemplate(ctx, s, ref, resolver)
+	case UseRefName:
+		return resolveNamedTemplate(ctx, s, ref, resolver)
 	case UseRefLocal, UseRefCrossRepo:
 		return resolveFileTemplate(ctx, s, ref, resolver, depth)
 	default:
@@ -225,7 +224,7 @@ func resolveStep(ctx context.Context, s *Step, resolver TemplateResolver, depth 
 	}
 }
 
-func resolveCRDTemplate(ctx context.Context, s *Step, ref UseRef, resolver TemplateResolver) (*Step, error) {
+func resolveNamedTemplate(ctx context.Context, s *Step, ref UseRef, resolver TemplateResolver) (*Step, error) {
 	tmpl, err := resolver.ResolveStep(ctx, ref.Name)
 	if err != nil {
 		return nil, &ParseError{
@@ -246,7 +245,7 @@ func resolveCRDTemplate(ctx context.Context, s *Step, ref UseRef, resolver Templ
 	resolved.Use = ""
 	resolved.With = nil
 
-	// Substitute ${{ inputs.NAME }} in the template's fields. A StepTemplate CRD
+	// Substitute ${{ inputs.NAME }} in the template's fields. A named step template
 	// only exposes Run and Image, so those are the only template-provided fields
 	// that can reference inputs (the use-step's own fields are not substituted —
 	// template inputs are internal to the template).
@@ -259,7 +258,7 @@ func resolveCRDTemplate(ctx context.Context, s *Step, ref UseRef, resolver Templ
 	return &resolved, nil
 }
 
-// resolveBuiltin handles built-in step templates that don't require a CRD or
+// resolveBuiltin handles built-in step templates that do not require a registry or
 // file lookup. Returns (resolved, true) if the use: ref matches a built-in,
 // or (nil, false) otherwise.
 //

@@ -33,19 +33,21 @@ type RunCreator interface {
 
 // Deps holds all dependencies for the HTTP server.
 type Deps struct {
-	Config       *config.Config
-	DB           db.Pool
-	Q            db.Querier // sqlc type-safe queries (interface for mockability)
-	Engine       engine.Engine
-	Forge        forge.ForgeProvider
-	Secrets      secret.SecretStore
-	Logs         logsink.LogSink
-	LogBroadcast LogStream     // SSE log streaming; nil disables streaming
-	Sessions     auth.Sessions // JWT session management
-	Mode         string
-	OIDCProvider auth.OIDCAuth    // nil if not configured
-	SAMLProvider auth.SAMLAuth    // nil if not configured
-	Enforcer     casbin.IEnforcer // Casbin RBAC enforcer (interface for mockability)
+	Config         *config.Config
+	DB             db.Pool
+	Q              db.Querier // sqlc type-safe queries (interface for mockability)
+	Engine         engine.Engine
+	Forge          forge.ForgeProvider
+	Secrets        secret.SecretStore
+	Logs           logsink.LogSink
+	LogBroadcast   LogStream     // SSE log streaming; nil disables streaming
+	StateBroadcast StateStream   // SSE run-state streaming; nil disables streaming
+	Sessions       auth.Sessions // JWT session management
+	Mode           string
+	Demo           bool             // local demo deployment (seeded data + simulated execution); drives the UI banner only
+	OIDCProvider   auth.OIDCAuth    // nil if not configured
+	SAMLProvider   auth.SAMLAuth    // nil if not configured
+	Enforcer       casbin.IEnforcer // Casbin RBAC enforcer (interface for mockability)
 
 	// APIRoutes are product route registrars mounted under the authenticated
 	// /api/v1 group (e.g. Flint Workflows). Wired by the composition root.

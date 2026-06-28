@@ -23,6 +23,50 @@ SELECT id, project_id, workflow_file, trigger_type, trigger_ref, commit_sha,
 FROM pipeline_runs
 WHERE id = $1;
 
+-- name: ListRunsFiltered :many
+-- Global CI run list with optional project/status filters, joined to the project
+-- for display, plus a compact per-step summary (name+status) the UI renders as
+-- stage pips. Powers GET /api/v1/runs.
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE (sqlc.arg('project_id')::text = '' OR pr.project_id::text = sqlc.arg('project_id'))
+  AND (sqlc.arg('status')::text = '' OR pr.status = sqlc.arg('status'))
+  AND (
+    sqlc.arg('cursor_ts')::text = ''
+    -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
+    -- cursor without trying (and failing) to encode '' as a uuid.
+    OR (pr.started_at, pr.id) < (sqlc.arg('cursor_ts')::timestamptz, NULLIF(sqlc.arg('cursor_id')::text, '')::uuid)
+  )
+ORDER BY pr.started_at DESC, pr.id DESC
+LIMIT sqlc.arg('lim');
+
+-- name: GetRunDetail :one
+-- Single CI run with project display fields + the per-step summary, for
+-- GET /api/v1/runs/:id.
+SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
+       pr.workflow_file, pr.trigger_ref AS branch, pr.trigger_type,
+       pr.commit_sha, pr.commit_message, pr.triggered_by, pr.environment,
+       pr.error_message,
+       p.display_name AS project_name, p.id AS project_id,
+       p.colour AS project_colour, p.repo_path,
+       COALESCE((
+         SELECT json_agg(json_build_object('name', s.name, 'status', s.status) ORDER BY s.wave, s.name)
+         FROM steps s WHERE s.workflow_id = pr.workflow_id
+       ), '[]')::jsonb AS steps
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.id = $1;
+
 -- name: InsertPipelineRun :exec
 INSERT INTO pipeline_runs (id, project_id, org_id, workflow_file,
     trigger_type, trigger_ref, commit_sha, commit_message, triggered_by,
@@ -85,7 +129,9 @@ FROM pipeline_runs
 WHERE org_id = sqlc.arg('org_id') AND kind = 'workflow'
   AND ( sqlc.arg('cursor_ts')::text = ''
         OR started_at < sqlc.arg('cursor_ts')::timestamptz
-        OR (started_at = sqlc.arg('cursor_ts')::timestamptz AND id < sqlc.arg('cursor_id')) )
+        -- NULLIF(...::text,'') keeps the param TEXT so an empty first-page cursor
+        -- binds without pgx trying to encode '' as a uuid.
+        OR (started_at = sqlc.arg('cursor_ts')::timestamptz AND id < NULLIF(sqlc.arg('cursor_id')::text, '')::uuid) )
 ORDER BY started_at DESC, id DESC
 LIMIT sqlc.arg('lim');
 
@@ -109,3 +155,15 @@ SELECT workflow_id FROM pipeline_runs WHERE id = $1;
 -- name: GetOriginalRunParams :one
 SELECT project_id, org_id, workflow_file, trigger_ref, commit_sha, environment
 FROM pipeline_runs WHERE id = $1;
+
+-- name: SearchRuns :many
+-- Run search by branch / commit SHA for the global ⌘K search.
+SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
+       COALESCE(p.display_name, p.repo_path)::text AS project_name,
+       p.colour AS project_colour
+FROM pipeline_runs pr
+JOIN projects p ON p.id = pr.project_id
+WHERE pr.org_id = sqlc.arg('org_id')
+  AND (pr.trigger_ref ILIKE sqlc.arg('pattern') OR pr.commit_sha ILIKE sqlc.arg('pattern'))
+ORDER BY pr.started_at DESC
+LIMIT 10;

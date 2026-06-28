@@ -20,7 +20,6 @@ type PoolSpec struct {
 	Resources    ResourceProfile
 	NodeSelector map[string]string
 	Tolerations  []corev1.Toleration
-	Spot         bool
 
 	// ServiceAccountName is the K8s ServiceAccount assigned to step pods
 	// in this pool. Used for IAM role-based auth:

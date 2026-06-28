@@ -4,7 +4,9 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (idempotency_key) DO NOTHING;
 
 -- name: ClaimOutboxBatch :many
-UPDATE flint_outbox SET status = 'processing', attempts = attempts + 1
+-- claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
+-- can detect events stranded by a worker crash mid-delivery.
+UPDATE flint_outbox SET status = 'processing', attempts = attempts + 1, claimed_at = now()
 WHERE id IN (
     SELECT id FROM flint_outbox
     WHERE status = 'pending' AND process_after <= now()
@@ -13,6 +15,13 @@ WHERE id IN (
     FOR UPDATE SKIP LOCKED
 )
 RETURNING id, event_type, payload, attempts, max_attempts;
+
+-- name: RecoverStaleOutboxEvents :execrows
+-- Returns events stranded in 'processing' (worker crashed between claim and
+-- resolve/fail) back to 'pending' for redelivery. attempts was already incremented
+-- at claim, so a poison event still terminates at 'failed' after max_attempts.
+UPDATE flint_outbox SET status = 'pending'
+WHERE status = 'processing' AND claimed_at < now() - interval '5 minutes';
 
 -- name: ResolveOutboxEvent :exec
 UPDATE flint_outbox SET status = 'resolved', resolved_at = now()

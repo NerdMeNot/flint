@@ -1,6 +1,21 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Shield, Eye, EyeOff, AlertCircle, Loader2, ArrowRight } from 'lucide-react'
+import { storeSession } from '#/lib/auth-token'
+
+// The Go API returns errors as { error: { code, message, requestId } }, but some
+// paths return a plain string. Extract a renderable string either way — never the
+// raw object (React can't render it, and it leaks requestId into the UI).
+function errMessage(data: unknown, fallback: string): string {
+  const d = data as { error?: unknown; message?: unknown } | null
+  const e = d?.error
+  if (typeof e === 'string') return e
+  if (e && typeof (e as { message?: unknown }).message === 'string') {
+    return (e as { message: string }).message
+  }
+  if (typeof d?.message === 'string') return d.message
+  return fallback
+}
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -43,7 +58,7 @@ function LoginPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || data.message || 'Login failed')
+        setError(errMessage(data, 'Login failed'))
         return
       }
 
@@ -62,8 +77,7 @@ function LoginPage() {
       }
 
       // Success — store tokens and redirect.
-      localStorage.setItem('flint_access_token', data.accessToken)
-      localStorage.setItem('flint_refresh_token', data.refreshToken)
+      storeSession(data.accessToken, data.refreshToken)
       navigate({ to: '/' })
     } catch {
       setError('Unable to connect to server')
@@ -93,12 +107,11 @@ function LoginPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || data.message || 'Verification failed')
+        setError(errMessage(data, 'Verification failed'))
         return
       }
 
-      localStorage.setItem('flint_access_token', data.accessToken)
-      localStorage.setItem('flint_refresh_token', data.refreshToken)
+      storeSession(data.accessToken, data.refreshToken)
       navigate({ to: '/' })
     } catch {
       setError('Unable to connect to server')
@@ -133,13 +146,12 @@ function LoginPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || data.message || 'Password change failed')
+        setError(errMessage(data, 'Password change failed'))
         return
       }
 
       // Password changed — store tokens and continue.
-      localStorage.setItem('flint_access_token', accessToken)
-      localStorage.setItem('flint_refresh_token', refreshToken)
+      storeSession(accessToken, refreshToken)
       navigate({ to: '/' })
     } catch {
       setError('Unable to connect to server')

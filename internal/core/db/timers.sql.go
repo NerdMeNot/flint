@@ -66,48 +66,46 @@ func (q *Queries) CreateTimer(ctx context.Context, arg CreateTimerParams) error 
 	return err
 }
 
-const fireDueTimers = `-- name: FireDueTimers :many
-UPDATE timers SET fired = true
-WHERE id IN (
-    SELECT id FROM timers
-    WHERE fired = false AND fires_at <= now()
-    ORDER BY fires_at
-    LIMIT 100
-    FOR UPDATE SKIP LOCKED
-)
-RETURNING id, workflow_id, step_name, timer_type
+const lockNextDueTimer = `-- name: LockNextDueTimer :one
+SELECT id, workflow_id, step_name, timer_type
+FROM timers
+WHERE fired = false AND fires_at <= now()
+ORDER BY fires_at
+LIMIT 1
+FOR UPDATE SKIP LOCKED
 `
 
-type FireDueTimersRow struct {
+type LockNextDueTimerRow struct {
 	ID         string `json:"id"`
 	WorkflowID string `json:"workflow_id"`
 	StepName   string `json:"step_name"`
 	TimerType  string `json:"timer_type"`
 }
 
-func (q *Queries) FireDueTimers(ctx context.Context) ([]FireDueTimersRow, error) {
-	rows, err := q.db.Query(ctx, fireDueTimers)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FireDueTimersRow{}
-	for rows.Next() {
-		var i FireDueTimersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkflowID,
-			&i.StepName,
-			&i.TimerType,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// Claims one due timer, locking the row (FOR UPDATE SKIP LOCKED) for the duration
+// of the caller's transaction. The caller handles the timer's effect and marks it
+// fired in the SAME transaction, so `fired = true` only commits if the effect
+// commits — a crash mid-handle rolls back and the timer is retried next tick
+// (exactly-once handling, not the previous at-most-once).
+func (q *Queries) LockNextDueTimer(ctx context.Context) (LockNextDueTimerRow, error) {
+	row := q.db.QueryRow(ctx, lockNextDueTimer)
+	var i LockNextDueTimerRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.StepName,
+		&i.TimerType,
+	)
+	return i, err
+}
+
+const markTimerFired = `-- name: MarkTimerFired :exec
+UPDATE timers SET fired = true WHERE id = $1
+`
+
+func (q *Queries) MarkTimerFired(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, markTimerFired, id)
+	return err
 }
 
 const upsertTimer = `-- name: UpsertTimer :exec

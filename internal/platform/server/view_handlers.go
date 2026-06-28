@@ -5,10 +5,22 @@ import (
 	"encoding/json"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
+
+// savedViewOwnerID maps the authenticated principal to the owning user's UUID.
+// saved_views.owner_user_id is a FK to users(id), whereas the auth subject is the
+// user's email/external id — so we resolve via the email.
+func (s *Server) savedViewOwnerID(ctx context.Context, claims *auth.Claims, orgID string) (string, error) {
+	u, err := s.deps.Q.GetUserByEmail(ctx, db.GetUserByEmailParams{OrgID: orgID, Email: claims.Email})
+	if err != nil {
+		return "", err
+	}
+	return u.ID, nil
+}
 
 // savedViewResponse is a user's saved view — a named navigation target (a route
 // plus its URL filters/selector). Personal to the owning user.
@@ -50,8 +62,13 @@ func (s *Server) handleListSavedViews(ctx context.Context, c *app.RequestContext
 		apiInternal(ctx, c, "failed to get org")
 		return
 	}
+	ownerID, err := s.savedViewOwnerID(ctx, claims, org.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to resolve user")
+		return
+	}
 	rows, err := s.deps.Q.ListSavedViews(ctx, db.ListSavedViewsParams{
-		OrgID: org.ID, OwnerUserID: claims.Subject,
+		OrgID: org.ID, OwnerUserID: ownerID,
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list views")
@@ -86,8 +103,13 @@ func (s *Server) handleCreateSavedView(ctx context.Context, c *app.RequestContex
 		apiInternal(ctx, c, "failed to get org")
 		return
 	}
+	ownerID, err := s.savedViewOwnerID(ctx, claims, org.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to resolve user")
+		return
+	}
 	id, err := s.deps.Q.CreateSavedView(ctx, db.CreateSavedViewParams{
-		OrgID: org.ID, OwnerUserID: claims.Subject,
+		OrgID: org.ID, OwnerUserID: ownerID,
 		Name: req.Name, Route: req.Route, Selector: selectorJSON(req.Search),
 	})
 	if err != nil {
@@ -112,8 +134,13 @@ func (s *Server) handleDeleteSavedView(ctx context.Context, c *app.RequestContex
 		apiInternal(ctx, c, "failed to get org")
 		return
 	}
+	ownerID, err := s.savedViewOwnerID(ctx, claims, org.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to resolve user")
+		return
+	}
 	rows, err := s.deps.Q.DeleteSavedView(ctx, db.DeleteSavedViewParams{
-		ID: c.Param("id"), OrgID: org.ID, OwnerUserID: claims.Subject,
+		ID: c.Param("id"), OrgID: org.ID, OwnerUserID: ownerID,
 	})
 	if err != nil || rows == 0 {
 		apiNotFound(ctx, c, "view not found")
