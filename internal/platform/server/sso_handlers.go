@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -32,11 +33,31 @@ func (s *Server) handleListAuthProviders(ctx context.Context, c *app.RequestCont
 	oidcConfigured := s.deps.OIDCProvider != nil
 	samlConfigured := s.deps.SAMLProvider != nil
 
-	c.JSON(consts.StatusOK, utils.H{
+	resp := utils.H{
 		"providers":      result,
 		"oidcConfigured": oidcConfigured,
 		"samlConfigured": samlConfigured,
-	})
+	}
+
+	// Surface SAML certificate expiry so the UI can warn before a silent outage.
+	if sp, ok := s.deps.SAMLProvider.(*auth.SAMLProvider); ok {
+		ce := sp.CertExpiry()
+		cert := utils.H{}
+		now := time.Now()
+		if ce.IdPNotAfter != nil {
+			cert["idpNotAfter"] = ce.IdPNotAfter.UTC().Format(time.RFC3339)
+			cert["idpDaysLeft"] = int(ce.IdPNotAfter.Sub(now).Hours() / 24)
+		}
+		if ce.SPNotAfter != nil {
+			cert["spNotAfter"] = ce.SPNotAfter.UTC().Format(time.RFC3339)
+			cert["spDaysLeft"] = int(ce.SPNotAfter.Sub(now).Hours() / 24)
+		}
+		if len(cert) > 0 {
+			resp["samlCert"] = cert
+		}
+	}
+
+	c.JSON(consts.StatusOK, resp)
 }
 
 // handleUpdateAuthProvider configures or updates an SSO provider.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -39,8 +40,39 @@ func New(deps Deps) *Server {
 	h.Use(s.requestIDMiddleware())
 
 	s.registerRoutes()
+	s.startSAMLMetadataRefresh()
 
 	return s
+}
+
+// startSAMLMetadataRefresh periodically re-fetches the SAML IdP metadata (when a
+// metadata URL is configured) and hot-swaps the provider, so IdP certificate
+// rotations are picked up automatically — zero-downtime, no admin action. Matches
+// the existing pointer-swap hot-reload pattern.
+func (s *Server) startSAMLMetadataRefresh() {
+	go func() {
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			s.refreshSAMLMetadata(context.Background())
+		}
+	}()
+}
+
+func (s *Server) refreshSAMLMetadata(ctx context.Context) {
+	masterKey, err := s.deps.Config.Encryption.DecodeMasterKey()
+	if err != nil {
+		return
+	}
+	pc, err := auth.LoadProviderConfig(ctx, s.deps.Q, masterKey, "saml")
+	if err != nil || pc == nil || pc.MetadataURL == "" {
+		return // only metadata-URL configs benefit from a refresh
+	}
+	np, err := auth.BuildSAMLProvider(*pc, s.deps.Config.Server.BaseURL)
+	if err != nil {
+		return // keep the existing provider on a transient fetch failure
+	}
+	s.deps.SAMLProvider = np
 }
 
 // Engine returns the underlying Hertz route engine for unit testing.

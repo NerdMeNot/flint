@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, ShieldCheck, Settings2 } from 'lucide-react'
+import { Plus, ShieldCheck, Settings2, AlertTriangle } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { ConfirmButton } from '#/components/ConfirmButton'
@@ -90,6 +90,12 @@ function SSOSettings() {
                       {liveFor(p.providerType) ? 'Active' : 'Saved — restart required'}
                     </span>
                   </div>
+                  {p.providerType === 'saml' && providers?.samlCert?.idpDaysLeft != null && (
+                    <CertBadge label="IdP certificate" days={providers.samlCert.idpDaysLeft} date={providers.samlCert.idpNotAfter} />
+                  )}
+                  {p.providerType === 'saml' && providers?.samlCert?.spDaysLeft != null && (
+                    <CertBadge label="SP certificate" days={providers.samlCert.spDaysLeft} date={providers.samlCert.spNotAfter} />
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -112,6 +118,23 @@ function SSOSettings() {
           <ScimProvisioning />
         </div>
       )}
+    </div>
+  )
+}
+
+// CertBadge surfaces an X.509 certificate's expiry, escalating to a warning as it
+// nears — the silent SSO outage most products ignore.
+function CertBadge({ label, days, date }: { label: string; days: number; date?: string }) {
+  const tone = days < 14 ? 'text-destructive' : days < 30 ? 'text-[var(--warning)]' : 'text-muted-foreground'
+  const Icon = days < 30 ? AlertTriangle : ShieldCheck
+  const when = date ? new Date(date).toLocaleDateString() : ''
+  return (
+    <div className={`flex items-center gap-1.5 mt-0.5 text-xs ${tone}`}>
+      <Icon size={12} />
+      <span>
+        {label} {days < 0 ? 'has expired' : `expires in ${days} day${days === 1 ? '' : 's'}`}
+        {when ? ` (${when})` : ''}
+      </span>
     </div>
   )
 }
