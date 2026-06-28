@@ -491,6 +491,20 @@ export interface TestLoginResult {
   }
 }
 
+// Sign-in diagnostics log (B5).
+export interface SignInEvent {
+  time: string
+  result: 'success' | 'failure'
+  email?: string
+  ip?: string
+  reason?: string
+  detail?: string
+  summary?: string
+}
+export interface SignInLog {
+  events: SignInEvent[]
+}
+
 // SCIM provisioning status.
 export interface ScimStatus {
   configured: boolean

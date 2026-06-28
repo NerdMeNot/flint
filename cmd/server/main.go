@@ -291,9 +291,17 @@ func run(cmd *cobra.Command, args []string) error {
 			SigningKey: []byte(cfg.Auth.JWT.Secret),
 			Issuer:     cfg.Server.BaseURL,
 		}),
-		OIDCProvider: oidcProvider,
-		SAMLProvider: samlProvider,
-		Enforcer:     enforcer,
+		Enforcer: enforcer,
+	}
+	// Assign SSO providers only when actually constructed. Boxing a nil
+	// *auth.OIDCProvider/*auth.SAMLProvider into the interface field would make
+	// it a non-nil typed-nil interface, defeating the `!= nil` guards in the
+	// auth handlers (and panicking when a method is then called on it).
+	if oidcProvider != nil {
+		deps.OIDCProvider = oidcProvider
+	}
+	if samlProvider != nil {
+		deps.SAMLProvider = samlProvider
 	}
 
 	// Push run-state changes to SSE subscribers on each committed transition

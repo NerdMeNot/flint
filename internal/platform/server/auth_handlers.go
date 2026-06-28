@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
@@ -81,13 +82,88 @@ func (s *Server) auditEvent(ctx context.Context, orgID, userID, action, resource
 	})
 }
 
-// auditLoginFailure records a failed SSO login attempt with the reason.
-func (s *Server) auditLoginFailure(ctx context.Context, c *app.RequestContext, reason string) {
+// auditLoginFailure records a failed SSO login with a short reason code and the
+// raw error detail (stored in metadata) so the sign-in log can show exactly which
+// field/check failed.
+func (s *Server) auditLoginFailure(ctx context.Context, c *app.RequestContext, reason, detail string) {
 	org, err := s.deps.Q.GetOrg(ctx)
 	if err != nil {
 		return
 	}
-	s.auditEvent(ctx, org.ID, "", "auth.login.failed", "session", reason, extractClientIP(c))
+	meta, _ := json.Marshal(map[string]string{"reason": reason, "detail": detail})
+	rid := reason
+	_ = s.deps.Q.InsertAuditEntryWithMeta(ctx, db.InsertAuditEntryWithMetaParams{
+		OrgID:        org.ID,
+		Action:       "auth.login.failed",
+		ResourceType: "session",
+		ResourceID:   &rid,
+		Column6:      extractClientIP(c),
+		Metadata:     meta,
+	})
+}
+
+// handleSignInLog returns the recent SSO sign-in attempts (success + failure)
+// with field-level diagnostics — the per-connection sign-in history.
+func (s *Server) handleSignInLog(ctx context.Context, c *app.RequestContext) {
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		apiInternal(ctx, c, "failed to load org")
+		return
+	}
+	rows, err := s.deps.Q.ListRecentSignIns(ctx, db.ListRecentSignInsParams{OrgID: org.ID, Limit: 30})
+	if err != nil {
+		logErr(ctx, err, "list sign-ins")
+		apiInternal(ctx, c, "failed to list sign-ins")
+		return
+	}
+	events := make([]utils.H, 0, len(rows))
+	for _, r := range rows {
+		e := utils.H{
+			"time":   r.CreatedAt.UTC().Format(time.RFC3339),
+			"result": "success",
+			"email":  derefStr(r.UserEmail),
+			"ip":     r.IpAddress,
+		}
+		if r.Action == "auth.login.failed" {
+			e["result"] = "failure"
+			var m struct {
+				Reason string `json:"reason"`
+				Detail string `json:"detail"`
+			}
+			_ = json.Unmarshal(r.Metadata, &m)
+			e["reason"] = m.Reason
+			e["detail"] = m.Detail
+			e["summary"] = classifyAuthError(m.Detail, m.Reason)
+		}
+		events = append(events, e)
+	}
+	c.JSON(consts.StatusOK, utils.H{"events": events})
+}
+
+// classifyAuthError turns a raw provider error into a short, human-readable,
+// field-level explanation (the WorkOS/Scalekit diagnostics model).
+func classifyAuthError(detail, reason string) string {
+	d := strings.ToLower(detail)
+	switch {
+	case reason == "no_provider":
+		return "No SSO provider configured"
+	case strings.Contains(d, "audience"):
+		return "Audience (SP Entity ID) mismatch"
+	case strings.Contains(d, "nonce"):
+		return "Nonce mismatch (possible replay)"
+	case strings.Contains(d, "destination") || strings.Contains(d, "recipient"):
+		return "ACS URL / destination mismatch"
+	case strings.Contains(d, "signature") || strings.Contains(d, "verifying"):
+		return "Signature verification failed"
+	case strings.Contains(d, "expired") || strings.Contains(d, "notonorafter") || strings.Contains(d, "clock") || strings.Contains(d, "issue delay"):
+		return "Assertion expired or clock skew"
+	case strings.Contains(d, "email"):
+		return "No email returned by the IdP"
+	case strings.Contains(d, "issuer") || strings.Contains(d, "iss "):
+		return "Issuer mismatch"
+	default:
+		return "Authentication failed"
+	}
 }
 
 // handleDeviceCode initiates the device authorization flow for TUI/CLI.
@@ -566,7 +642,7 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	s.auditLoginFailure(ctx, c, "no_provider")
+	s.auditLoginFailure(ctx, c, "no_provider", "")
 	c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("No SSO provider configured")))
 }
 
@@ -608,7 +684,7 @@ func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) 
 	claims, idpToken, err := s.deps.OIDCProvider.Exchange(ctx, code, nonce, codeVerifier)
 	if err != nil {
 		logErr(ctx, err, "OIDC exchange failed")
-		s.auditLoginFailure(ctx, c, "oidc:exchange_failed")
+		s.auditLoginFailure(ctx, c, "oidc:exchange_failed", err.Error())
 		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
 		return
 	}
@@ -654,7 +730,7 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 	claims, err := s.deps.SAMLProvider.ValidateResponse(samlResponse)
 	if err != nil {
 		logErr(ctx, err, "SAML validation failed")
-		s.auditLoginFailure(ctx, c, "saml:validation_failed")
+		s.auditLoginFailure(ctx, c, "saml:validation_failed", err.Error())
 		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
 		return
 	}

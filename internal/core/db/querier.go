@@ -204,6 +204,7 @@ type Querier interface {
 	InsertAPIKeyEnvironmentScope(ctx context.Context, arg InsertAPIKeyEnvironmentScopeParams) error
 	InsertAPIKeyWorkspaceScope(ctx context.Context, arg InsertAPIKeyWorkspaceScopeParams) error
 	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
+	InsertAuditEntryWithMeta(ctx context.Context, arg InsertAuditEntryWithMetaParams) error
 	// Device authorization flow (DB-backed; replaces the in-memory map).
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertForgeConnection(ctx context.Context, arg InsertForgeConnectionParams) (string, error)
@@ -278,6 +279,8 @@ type Querier interface {
 	// keeps it a single indexed pass for the latest run per project.
 	ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error)
 	ListProtectedEnvironments(ctx context.Context, orgID string) ([]ListProtectedEnvironmentsRow, error)
+	// Recent SSO sign-in attempts (success + failure) for the sign-in diagnostics log.
+	ListRecentSignIns(ctx context.Context, arg ListRecentSignInsParams) ([]ListRecentSignInsRow, error)
 	ListRoleAssignmentsByRole(ctx context.Context, roleID string) ([]ListRoleAssignmentsByRoleRow, error)
 	ListRoleAssignmentsBySubject(ctx context.Context, subject string) ([]ListRoleAssignmentsBySubjectRow, error)
 	// ────────────────────────────────────────────────────────────
