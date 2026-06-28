@@ -903,6 +903,16 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
+	// Require-SSO: when enabled, IdP-provisioned users must sign in via SSO.
+	// Local/manual accounts (external_id == email, e.g. the bootstrap admin and
+	// any admin-created user) are the break-glass path and are never blocked.
+	if org.RequireSso && user.ExternalID != user.Email {
+		s.auditLoginFailure(ctx, c, "require_sso", req.Email)
+		apiError(ctx, c, consts.StatusForbidden, "SSO_REQUIRED",
+			"your organization requires single sign-on; use \"Sign in with SSO\"")
+		return
+	}
+
 	// Verify password (Argon2id).
 	if !auth.VerifyPassword(req.Password, *user.PasswordHash) {
 		_ = s.deps.Q.RecordLoginAttempt(ctx, db.RecordLoginAttemptParams{

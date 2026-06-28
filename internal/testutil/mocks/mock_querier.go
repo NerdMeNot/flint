@@ -7240,6 +7240,24 @@ func (_m *Querier) SetOrgRequireProjectWorkspace(ctx context.Context, arg db.Set
 	return r0
 }
 
+// SetOrgRequireSSO provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetOrgRequireSSO(ctx context.Context, arg db.SetOrgRequireSSOParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetOrgRequireSSO")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetOrgRequireSSOParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetOrgStrictGroups provides a mock function with given fields: ctx, arg
 func (_m *Querier) SetOrgStrictGroups(ctx context.Context, arg db.SetOrgStrictGroupsParams) error {
 	ret := _m.Called(ctx, arg)

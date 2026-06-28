@@ -39,7 +39,7 @@ func (q *Queries) GetOrCreateDefaultOrg(ctx context.Context) (string, error) {
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, slug, concurrency_limit, require_project_workspace, sso_strict_groups FROM orgs LIMIT 1
+SELECT id, name, slug, concurrency_limit, require_project_workspace, sso_strict_groups, require_sso FROM orgs LIMIT 1
 `
 
 type GetOrgRow struct {
@@ -49,6 +49,7 @@ type GetOrgRow struct {
 	ConcurrencyLimit        int32  `json:"concurrency_limit"`
 	RequireProjectWorkspace bool   `json:"require_project_workspace"`
 	SsoStrictGroups         bool   `json:"sso_strict_groups"`
+	RequireSso              bool   `json:"require_sso"`
 }
 
 func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
@@ -61,6 +62,7 @@ func (q *Queries) GetOrg(ctx context.Context) (GetOrgRow, error) {
 		&i.ConcurrencyLimit,
 		&i.RequireProjectWorkspace,
 		&i.SsoStrictGroups,
+		&i.RequireSso,
 	)
 	return i, err
 }
@@ -100,6 +102,20 @@ type SetOrgRequireProjectWorkspaceParams struct {
 
 func (q *Queries) SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error {
 	_, err := q.db.Exec(ctx, setOrgRequireProjectWorkspace, arg.Require, arg.ID)
+	return err
+}
+
+const setOrgRequireSSO = `-- name: SetOrgRequireSSO :exec
+UPDATE orgs SET require_sso = $1 WHERE id = $2
+`
+
+type SetOrgRequireSSOParams struct {
+	Require bool   `json:"require"`
+	ID      string `json:"id"`
+}
+
+func (q *Queries) SetOrgRequireSSO(ctx context.Context, arg SetOrgRequireSSOParams) error {
+	_, err := q.db.Exec(ctx, setOrgRequireSSO, arg.Require, arg.ID)
 	return err
 }
 

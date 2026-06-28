@@ -159,6 +159,7 @@ type Org struct {
 	ConcurrencyLimit        int32     `json:"concurrency_limit"`
 	RequireProjectWorkspace bool      `json:"require_project_workspace"`
 	SsoStrictGroups         bool      `json:"sso_strict_groups"`
+	RequireSso              bool      `json:"require_sso"`
 }
 
 type PersonalToken struct {

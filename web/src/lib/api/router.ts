@@ -832,6 +832,11 @@ const auth = {
     list: os.handler(async () => {
       return backendGet<AuthProviders>('/auth/providers')
     }),
+    setRequireSso: os
+      .input(z.object({ enabled: z.boolean() }))
+      .handler(async ({ input }) => {
+        return backendPut<{ requireSso: boolean }>('/auth/require-sso', input)
+      }),
     save: os
       .input(z.object({
         providerType: z.enum(['oidc', 'saml']),

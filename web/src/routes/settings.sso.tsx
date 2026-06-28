@@ -9,6 +9,7 @@ import { SSOWizard } from '#/components/sso/SSOWizard'
 import { GroupRoleMappings } from '#/components/sso/GroupRoleMappings'
 import { ScimProvisioning } from '#/components/sso/ScimProvisioning'
 import { SignInLog } from '#/components/sso/SignInLog'
+import { RequireSso } from '#/components/sso/RequireSso'
 
 export const Route = createFileRoute('/settings/sso')({
   component: SSOSettings,
@@ -116,6 +117,7 @@ function SSOSettings() {
           ))}
           </div>
           <GroupRoleMappings />
+          <RequireSso />
           <ScimProvisioning />
           <SignInLog />
         </div>

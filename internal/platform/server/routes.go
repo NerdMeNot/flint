@@ -260,6 +260,7 @@ func (s *Server) registerAPIRoutes() {
 	v1.DELETE("/auth/provider/:type", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleDeleteAuthProvider)
 	v1.GET("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetGroupMappings)
 	v1.PUT("/auth/group-mappings", s.requirePermission(auth.ObjRole, auth.ActManage), s.handlePutGroupMappings)
+	v1.PUT("/auth/require-sso", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleSetRequireSSO)
 
 	// SCIM token management (the SCIM data-plane lives at /scim/v2 with its own auth).
 	v1.GET("/auth/scim", s.requirePermission(auth.ObjRole, auth.ActManage), s.handleGetScimStatus)
