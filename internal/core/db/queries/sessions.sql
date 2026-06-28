@@ -7,7 +7,7 @@ VALUES ($1, $2, $3, $4::inet, $5,
 RETURNING id;
 
 -- name: GetSessionByTokenHash :one
-SELECT id, user_id, token_hash, idp_token_enc, ip_address, user_agent,
+SELECT id, user_id, token_hash, idp_token_enc, logout_state_enc, ip_address, user_agent,
        created_at, last_activity, expires_at, idle_expires_at, revoked_at
 FROM sessions
 WHERE token_hash = $1;
@@ -21,6 +21,9 @@ WHERE id = $1 AND revoked_at IS NULL;
 
 -- name: UpdateSessionIdpToken :exec
 UPDATE sessions SET idp_token_enc = $2 WHERE id = $1;
+
+-- name: UpdateSessionLogoutState :exec
+UPDATE sessions SET logout_state_enc = $2 WHERE id = $1;
 
 -- name: RevokeSession :exec
 UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL;

@@ -17,6 +17,15 @@ export function getAccessToken(): string | null {
   }
 }
 
+export function getRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(REFRESH_KEY)
+  } catch {
+    return null
+  }
+}
+
 // storeSession persists the tokens after a successful login (client-side). The
 // access token is also mirrored to a cookie so SSR can forward it to the API.
 export function storeSession(accessToken: string, refreshToken: string): void {
@@ -42,4 +51,28 @@ export function clearSession(): void {
     // ignore
   }
   document.cookie = `${ACCESS_COOKIE}=; path=/; max-age=0; SameSite=Lax`
+}
+
+// logout revokes the session server-side, clears the local session, and then
+// navigates away. When the session was established via SSO and the IdP supports
+// Single Logout, the backend returns a `logoutUrl` and we redirect the browser
+// there to terminate the upstream IdP session too; otherwise we go to /login.
+export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken()
+  let logoutUrl = ''
+  try {
+    const res = await fetch('/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    })
+    if (res.ok) {
+      const data = (await res.json()) as { logoutUrl?: string }
+      logoutUrl = data.logoutUrl ?? ''
+    }
+  } catch {
+    // best-effort: still clear the local session below
+  }
+  clearSession()
+  window.location.href = logoutUrl || '/login'
 }

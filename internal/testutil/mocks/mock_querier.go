@@ -7694,6 +7694,24 @@ func (_m *Querier) UpdateSessionIdpToken(ctx context.Context, arg db.UpdateSessi
 	return r0
 }
 
+// UpdateSessionLogoutState provides a mock function with given fields: ctx, arg
+func (_m *Querier) UpdateSessionLogoutState(ctx context.Context, arg db.UpdateSessionLogoutStateParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateSessionLogoutState")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.UpdateSessionLogoutStateParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // UpdateSessionSyncedAt provides a mock function with given fields: ctx, id
 func (_m *Querier) UpdateSessionSyncedAt(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)

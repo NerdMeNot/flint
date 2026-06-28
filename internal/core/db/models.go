@@ -337,18 +337,19 @@ type Secret struct {
 }
 
 type Session struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	TokenHash     string     `json:"token_hash"`
-	IdpTokenEnc   []byte     `json:"idp_token_enc"`
-	IpAddress     *string    `json:"ip_address"`
-	UserAgent     *string    `json:"user_agent"`
-	CreatedAt     time.Time  `json:"created_at"`
-	LastActivity  time.Time  `json:"last_activity"`
-	LastSyncedAt  *time.Time `json:"last_synced_at"`
-	ExpiresAt     time.Time  `json:"expires_at"`
-	IdleExpiresAt time.Time  `json:"idle_expires_at"`
-	RevokedAt     *time.Time `json:"revoked_at"`
+	ID             string     `json:"id"`
+	UserID         string     `json:"user_id"`
+	TokenHash      string     `json:"token_hash"`
+	IdpTokenEnc    []byte     `json:"idp_token_enc"`
+	LogoutStateEnc []byte     `json:"logout_state_enc"`
+	IpAddress      *string    `json:"ip_address"`
+	UserAgent      *string    `json:"user_agent"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastActivity   time.Time  `json:"last_activity"`
+	LastSyncedAt   *time.Time `json:"last_synced_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	IdleExpiresAt  time.Time  `json:"idle_expires_at"`
+	RevokedAt      *time.Time `json:"revoked_at"`
 }
 
 type Signal struct {

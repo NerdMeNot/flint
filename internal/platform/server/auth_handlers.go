@@ -59,6 +59,12 @@ func (s *Server) registerAuthRoutes() {
 	s.hertz.GET("/auth/oidc/callback", authLimit, s.handleOIDCCallback)
 	s.hertz.POST("/auth/saml/acs", authLimit, s.handleSAMLACS)
 	s.hertz.GET("/auth/saml/metadata", s.handleSAMLMetadata)
+
+	// Single Logout endpoints: the post-logout redirect target (OIDC) and the
+	// SAML SingleLogout service (SP-initiated response + IdP-initiated request).
+	s.hertz.GET("/auth/oidc/logout-complete", s.handleOIDCLogoutComplete)
+	s.hertz.GET("/auth/saml/slo", authLimit, s.handleSAMLSLO)
+	s.hertz.POST("/auth/saml/slo", authLimit, s.handleSAMLSLO)
 }
 
 // auditEvent writes a best-effort audit entry that is NOT tied to an
@@ -356,7 +362,7 @@ func (s *Server) handleLogout(ctx context.Context, c *app.RequestContext) {
 
 	tokenHash := auth.HashToken(req.RefreshToken)
 
-	// Look up the session to get user info for audit.
+	// Look up the session (for audit + Single Logout material) before revoking.
 	sess, _ := s.deps.Q.GetSessionByTokenHash(ctx, tokenHash)
 
 	_ = s.deps.Q.RevokeSessionByHash(ctx, tokenHash)
@@ -373,7 +379,16 @@ func (s *Server) handleLogout(ctx context.Context, c *app.RequestContext) {
 		})
 	}
 
-	c.JSON(consts.StatusOK, utils.H{"status": "logged out"})
+	// Single Logout: if this session was established via SSO and the IdP
+	// supports it, hand the SPA the IdP logout URL to redirect the browser to,
+	// terminating the upstream session too. Local revoke already happened, so a
+	// missing/unsupported IdP just degrades to a local-only logout.
+	if st, ok := s.decodeLogoutState(sess.LogoutStateEnc); ok {
+		logoutResponse(c, s.ssoLogoutURL(st))
+		return
+	}
+
+	logoutResponse(c, "")
 }
 
 // handleListSessions returns the current user's active sessions.
@@ -741,6 +756,13 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// Store NameID + SessionIndex as SAML Single Logout material.
+	if claims.Subject != "" {
+		s.persistLogoutState(ctx, deviceCode, ssoLogoutState{
+			Provider: "saml", NameID: claims.Subject, SessionIndex: claims.SessionIndex,
+		})
+	}
+
 	c.Data(consts.StatusOK, "text/html", []byte(authSuccessHTML))
 }
 
@@ -770,6 +792,14 @@ func (s *Server) completeSSOWithToken(ctx context.Context, deviceCode string, cl
 	_, err := s.completeSSO(ctx, deviceCode, claims)
 	if err != nil {
 		return err
+	}
+
+	// Store the ID token as RP-initiated logout material (id_token_hint), so a
+	// later logout can terminate the upstream OIDC session (Single Logout).
+	if idpToken != nil {
+		if rawID, ok := idpToken.Extra("id_token").(string); ok && rawID != "" {
+			s.persistLogoutState(ctx, deviceCode, ssoLogoutState{Provider: "oidc", IDToken: rawID})
+		}
 	}
 
 	// Store IdP token in the session for sync daemon validation — envelope-
