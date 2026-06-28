@@ -235,7 +235,11 @@ CREATE TABLE public.orgs (
     -- When true, SSO users receive ONLY the roles their IdP groups map to
     -- (deny-by-default); the configured default role is not granted as a
     -- fallback. See sso_group_role_mappings.
-    sso_strict_groups boolean DEFAULT false NOT NULL
+    sso_strict_groups boolean DEFAULT false NOT NULL,
+    -- When true, IdP-provisioned users must sign in via SSO; password login is
+    -- rejected for them. Local/manual accounts (external_id = email) remain a
+    -- break-glass path and are never locked out.
+    require_sso boolean DEFAULT false NOT NULL
 );
 
 

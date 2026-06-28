@@ -428,6 +428,7 @@ export const AuthProvidersSchema = z.object({
   providers: z.array(z.object({ id: z.string(), providerType: z.string(), displayName: z.string() })),
   oidcConfigured: z.boolean(),
   samlConfigured: z.boolean(),
+  requireSso: z.optional(z.boolean()),
   samlCert: z.optional(z.object({
     idpNotAfter: z.optional(z.string()),
     idpDaysLeft: z.optional(z.number()),

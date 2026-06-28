@@ -1,11 +1,14 @@
 -- name: GetOrg :one
-SELECT id, name, slug, concurrency_limit, require_project_workspace, sso_strict_groups FROM orgs LIMIT 1;
+SELECT id, name, slug, concurrency_limit, require_project_workspace, sso_strict_groups, require_sso FROM orgs LIMIT 1;
 
 -- name: SetOrgRequireProjectWorkspace :exec
 UPDATE orgs SET require_project_workspace = @require WHERE id = @id;
 
 -- name: SetOrgStrictGroups :exec
 UPDATE orgs SET sso_strict_groups = @strict WHERE id = @id;
+
+-- name: SetOrgRequireSSO :exec
+UPDATE orgs SET require_sso = @require WHERE id = @id;
 
 -- name: GetOrCreateDefaultOrg :one
 INSERT INTO orgs (name, slug)

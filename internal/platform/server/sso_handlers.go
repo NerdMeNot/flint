@@ -39,6 +39,11 @@ func (s *Server) handleListAuthProviders(ctx context.Context, c *app.RequestCont
 		"samlConfigured": samlConfigured,
 	}
 
+	// Surface the Require-SSO enforcement flag.
+	if org, err := s.deps.Q.GetOrg(ctx); err == nil {
+		resp["requireSso"] = org.RequireSso
+	}
+
 	// Surface SAML certificate expiry so the UI can warn before a silent outage.
 	if sp, ok := s.deps.SAMLProvider.(*auth.SAMLProvider); ok {
 		ce := sp.CertExpiry()
@@ -275,6 +280,42 @@ func (s *Server) handlePutGroupMappings(ctx context.Context, c *app.RequestConte
 
 	s.recordAudit(ctx, "auth.group_mappings.updated", "auth_provider")
 	c.JSON(consts.StatusOK, utils.H{"status": "saved"})
+}
+
+// handleSetRequireSSO toggles the Require-SSO enforcement flag. Enabling it is
+// guarded (test-before-enforce): refuse unless an OIDC or SAML provider is
+// actually configured, so an admin can't lock the org out of the only sign-in
+// path. Local/manual accounts always remain a break-glass path regardless.
+func (s *Server) handleSetRequireSSO(ctx context.Context, c *app.RequestContext) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+
+	if req.Enabled && s.deps.OIDCProvider == nil && s.deps.SAMLProvider == nil {
+		apiBadRequest(ctx, c, "configure and test an SSO provider before requiring SSO")
+		return
+	}
+
+	org, err := s.deps.Q.GetOrg(ctx)
+	if err != nil {
+		apiInternal(ctx, c, "failed to load org")
+		return
+	}
+	if err := s.deps.Q.SetOrgRequireSSO(ctx, db.SetOrgRequireSSOParams{Require: req.Enabled, ID: org.ID}); err != nil {
+		apiInternal(ctx, c, "failed to update require-sso")
+		return
+	}
+
+	action := "auth.require_sso.disabled"
+	if req.Enabled {
+		action = "auth.require_sso.enabled"
+	}
+	s.recordAudit(ctx, action, "auth_provider")
+	c.JSON(consts.StatusOK, utils.H{"requireSso": req.Enabled})
 }
 
 // handleDeleteAuthProvider removes an SSO provider configuration.

@@ -431,6 +431,7 @@ type Querier interface {
 	SetDefaultRunnerPool(ctx context.Context, name string) error
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
 	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
+	SetOrgRequireSSO(ctx context.Context, arg SetOrgRequireSSOParams) error
 	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
 	// Record the inbound forge webhook id after provisioning (or clear it on removal).
 	SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error
