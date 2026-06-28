@@ -157,10 +157,15 @@ func syncSession(ctx context.Context, q *db.Queries, pool db.Pool,
 		}
 	}
 
-	// Sync group memberships (additive).
+	// Sync group memberships (additive) and group→role mappings.
 	if len(claims.Groups) > 0 {
 		if err := syncTeams(ctx, q, sess.OrgID, sess.UserID, claims.Groups); err != nil {
 			log.Warn().Err(err).Str("user", sess.Email).Msg("idpsync: team sync failed")
+		}
+
+		// Reconcile IdP-derived role assignments from group→role mappings.
+		if err := reconcileGroupRoles(ctx, q, sess.OrgID, sess.Email, claims.Groups); err != nil {
+			log.Warn().Err(err).Str("user", sess.Email).Msg("idpsync: group role sync failed")
 		}
 
 		// Regenerate Casbin policies for this user.

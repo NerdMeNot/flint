@@ -28,6 +28,10 @@ import {
   type Session,
   type MfaSetup,
   type AuthProviders,
+  type ProviderTestResult,
+  type GroupMappings,
+  type ScimStatus,
+  providerConfigSchema,
   type WorkflowRun,
   type WorkflowRunDetail,
   type SavedView,
@@ -38,6 +42,10 @@ import {
   backendPut,
   backendPatch,
   backendDelete,
+  backendGetRoot,
+  backendPostRoot,
+  backendPutRoot,
+  backendDeleteRoot,
 } from './backend'
 
 // ---------------------------------------------------------------------------
@@ -68,11 +76,12 @@ type Capability = {
 }
 
 // meta reports the backend's data mode so the client can warn when the server is
-// serving canned mock data (`flint server --mock`) rather than real state.
+// a local demo deployment (seeded data + simulated step execution) rather than
+// production.
 const meta = {
   get: os.handler(async () => {
-    const m = await backendGet<{ mode: 'mock' | 'live' }>('/meta')
-    return { mode: m.mode, usingMockData: m.mode === 'mock' }
+    const m = await backendGet<{ mode: 'demo' | 'live' }>('/meta')
+    return { mode: m.mode, isDemo: m.mode === 'demo' }
   }),
 }
 
@@ -112,6 +121,55 @@ const projects = {
     .handler(async ({ input }) => {
       return backendGet<Project>(`/projects/${input.id}`)
     }),
+
+  // Register a project (the canonical create path; the Project CRD is an optional
+  // adapter onto the same row). repo + forgeRef required.
+  create: os
+    .input(z.object({
+      repo: z.string(),
+      forgeRef: z.string(),
+      displayName: z.optional(z.string()),
+      description: z.optional(z.string()),
+      colour: z.optional(z.string()),
+      workspace: z.optional(z.string()),
+      defaultBranch: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendPost<{ id: string; repo: string; webhookProvisioned: boolean }>('/projects', input)
+    }),
+
+  update: os
+    .input(z.object({
+      id: z.string(),
+      displayName: z.optional(z.string()),
+      description: z.optional(z.string()),
+      colour: z.optional(z.string()),
+      workspace: z.optional(z.string()),
+      defaultBranch: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      const { id, ...body } = input
+      return backendPatch(`/projects/${id}`, body)
+    }),
+
+  archive: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return backendDelete(`/projects/${input.id}`)
+    }),
+
+  restore: os
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/projects/${input.id}/restore`)
+    }),
+
+  // Archived projects (admin) — a flat list for restore.
+  archived: os.handler(async () => {
+    return backendGet<{ items: Array<{ id: string; name: string; repo: string; workspace: string; colour: string; createdAt: string }> }>(
+      '/projects', { archived: 'true' },
+    )
+  }),
 
   setTags: os
     .input(z.object({ id: z.string(), tags: z.array(z.string()) }))
@@ -466,6 +524,22 @@ const users = {
     .handler(async ({ input }) => {
       return backendGet<Paginated<User>>('/users', { limit: input.limit, cursor: input.cursor })
     }),
+
+  // Provision a local (email + password) user and assign a role. Returns the
+  // generated password when one wasn't supplied (shown once).
+  create: os
+    .input(z.object({
+      email: z.string(),
+      name: z.optional(z.string()),
+      role: z.optional(z.string()),
+      password: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendPost<{ id: string; email: string; role: string; generatedPassword?: string }>(
+        '/users',
+        input,
+      )
+    }),
 }
 
 // ---------------------------------------------------------------------------
@@ -595,12 +669,68 @@ const personalTokens = {
 // Runners
 // ---------------------------------------------------------------------------
 
+const runnerInput = z.object({
+  name: z.string(),
+  description: z.optional(z.string()),
+  // Optional pool defaults — blank means the pool stamps no request, so each job
+  // sizes itself.
+  cpu: z.optional(z.string()),
+  memory: z.optional(z.string()),
+  arch: z.optional(z.string()),
+  gpu: z.optional(z.object({ vendor: z.string(), model: z.optional(z.string()), count: z.optional(z.number()) })),
+  // Reference-mode node targeting — how the pool's pods reach existing nodes.
+  nodeSelector: z.optional(z.record(z.string(), z.string())),
+  tolerations: z.optional(z.array(z.object({
+    key: z.string(),
+    operator: z.optional(z.enum(['Equal', 'Exists'])),
+    value: z.optional(z.string()),
+    effect: z.optional(z.enum(['NoSchedule', 'PreferNoSchedule', 'NoExecute'])),
+  }))),
+  mode: z.optional(z.enum(['reference', 'managed'])),
+  managed: z.optional(z.object({
+    capacityType: z.optional(z.enum(['spot-preferred', 'spot', 'on-demand'])),
+    instanceFamilies: z.optional(z.array(z.string())),
+    cpuLimit: z.optional(z.number()),
+    gpuLimit: z.optional(z.number()),
+    scaleToZero: z.optional(z.boolean()),
+    consolidateAfter: z.optional(z.string()),
+    diskGiB: z.optional(z.number()),
+    amiFamily: z.optional(z.string()),
+  })),
+})
+
 const runners = {
   list: os
     .input(z.object({ limit: z.optional(z.number()), cursor: z.optional(z.string()) }))
     .handler(async ({ input }) => {
       return backendGet<Paginated<RunnerPool>>('/runners', { limit: input.limit, cursor: input.cursor })
     }),
+
+  create: os.input(runnerInput).handler(async ({ input }) => {
+    return backendPost<{ name: string }>('/runners', input)
+  }),
+
+  update: os.input(runnerInput).handler(async ({ input }) => {
+    const { name, ...body } = input
+    return backendPatch(`/runners/${name}`, body)
+  }),
+
+  delete: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendDelete(`/runners/${input.name}`)
+  }),
+
+  manifests: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendGet<{ nodePool: string; nodeClass: string; combined: string }>(`/runners/${input.name}/manifests`)
+  }),
+
+  // Whether managed (Karpenter) provisioning is available for this deployment.
+  provisioning: os.handler(async () => {
+    return backendGet<{ configured: boolean; cloud: string }>('/provisioning')
+  }),
+
+  setDefault: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendPost(`/runners/${input.name}/default`, {})
+  }),
 }
 
 // ---------------------------------------------------------------------------
@@ -645,8 +775,10 @@ const org = {
 }
 
 const auth = {
+  // The session/auth endpoints live at the server root (not /api/v1), so they use
+  // the *Root backend helpers.
   me: os.handler(async () => {
-    return backendGet<AuthUser>('/auth/me')
+    return backendGetRoot<AuthUser>('/auth/me')
   }),
 
   updateProfile: os
@@ -657,39 +789,39 @@ const auth = {
       colorTheme: z.optional(z.string()),
     }))
     .handler(async ({ input }) => {
-      return backendPut('/auth/profile', input)
+      return backendPutRoot('/auth/profile', input)
     }),
 
   changePassword: os
     .input(z.object({ currentPassword: z.string(), newPassword: z.string() }))
     .handler(async ({ input }) => {
-      return backendPost('/auth/change-password', input)
+      return backendPostRoot('/auth/change-password', input)
     }),
 
   sessions: {
     list: os.handler(async () => {
-      return backendGet<{ items: Session[] }>('/auth/sessions').then((r) => r.items)
+      return backendGetRoot<{ items: Session[] }>('/auth/sessions').then((r) => r.items)
     }),
     revoke: os
       .input(z.object({ id: z.string() }))
       .handler(async ({ input }) => {
-        return backendDelete(`/auth/sessions/${input.id}`)
+        return backendDeleteRoot(`/auth/sessions/${input.id}`)
       }),
   },
 
   mfa: {
     setup: os.handler(async () => {
-      return backendPost<MfaSetup>('/auth/mfa/setup')
+      return backendPostRoot<MfaSetup>('/auth/mfa/setup')
     }),
     verifySetup: os
       .input(z.object({ code: z.string() }))
       .handler(async ({ input }) => {
-        return backendPost('/auth/mfa/setup/verify', input)
+        return backendPostRoot('/auth/mfa/setup/verify', input)
       }),
     disable: os
       .input(z.object({ code: z.string() }))
       .handler(async () => {
-        return backendDelete('/auth/mfa')
+        return backendDeleteRoot('/auth/mfa')
       }),
   },
 
@@ -701,22 +833,48 @@ const auth = {
       .input(z.object({
         providerType: z.enum(['oidc', 'saml']),
         displayName: z.optional(z.string()),
-        config: z.object({
-          issuerUrl: z.optional(z.string()),
-          clientId: z.optional(z.string()),
-          clientSecret: z.optional(z.string()),
-          metadataUrl: z.optional(z.string()),
-          entityId: z.optional(z.string()),
-        }),
+        config: providerConfigSchema,
       }))
       .handler(async ({ input }) => {
         return backendPut('/auth/provider', input)
+      }),
+    test: os
+      .input(z.object({
+        providerType: z.enum(['oidc', 'saml']),
+        config: providerConfigSchema,
+      }))
+      .handler(async ({ input }) => {
+        return backendPost<ProviderTestResult>('/auth/provider/test', input)
       }),
     delete: os
       .input(z.object({ providerType: z.string() }))
       .handler(async ({ input }) => {
         return backendDelete(`/auth/provider/${input.providerType}`)
       }),
+    groupMappings: {
+      get: os.handler(async () => {
+        return backendGet<GroupMappings>('/auth/group-mappings')
+      }),
+      save: os
+        .input(z.object({
+          strict: z.boolean(),
+          mappings: z.array(z.object({ groupName: z.string(), roleId: z.string() })),
+        }))
+        .handler(async ({ input }) => {
+          return backendPut('/auth/group-mappings', input)
+        }),
+    },
+    scim: {
+      get: os.handler(async () => {
+        return backendGet<ScimStatus>('/auth/scim')
+      }),
+      generate: os.handler(async () => {
+        return backendPost<{ token: string; baseUrl: string }>('/auth/scim/token')
+      }),
+      revoke: os.handler(async () => {
+        return backendDelete('/auth/scim/token')
+      }),
+    },
   },
 }
 

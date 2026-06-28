@@ -49,15 +49,14 @@ func (s *Server) registerAuthRoutes() {
 	s.hertz.POST("/auth/mfa/setup/verify", s.authMiddleware(), s.handleMFASetupVerify)
 	s.hertz.DELETE("/auth/mfa", s.authMiddleware(), s.handleMFADisable)
 
-	// SSO routes — no JWT required (these establish the JWT).
+	// SSO routes — no JWT required (these establish the JWT). Registered
+	// unconditionally so that providers configured via the API (hot-reloaded
+	// after boot) have working callbacks without a restart; the handlers guard
+	// on the provider being configured at request time.
 	s.hertz.GET("/auth/login", s.handleLogin)
-	if s.deps.OIDCProvider != nil {
-		s.hertz.GET("/auth/oidc/callback", s.handleOIDCCallback)
-	}
-	if s.deps.SAMLProvider != nil {
-		s.hertz.POST("/auth/saml/acs", s.handleSAMLACS)
-		s.hertz.GET("/auth/saml/metadata", s.handleSAMLMetadata)
-	}
+	s.hertz.GET("/auth/oidc/callback", s.handleOIDCCallback)
+	s.hertz.POST("/auth/saml/acs", s.handleSAMLACS)
+	s.hertz.GET("/auth/saml/metadata", s.handleSAMLMetadata)
 }
 
 // handleDeviceCode initiates the device authorization flow for TUI/CLI.
@@ -336,10 +335,6 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		if roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email); len(roles) > 0 {
 			role = roles[0]
 		}
-	} else if s.deps.MockMode {
-		// No Casbin in mock mode — the mock admin is omnipotent.
-		permissions = []string{"*:*"}
-		role = "admin"
 	}
 
 	// Persisted profile fields (display name override, avatar, appearance prefs)
@@ -359,6 +354,16 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		mfaEnabled = user.TotpVerified
 	}
 
+	// The client types permissions/groups as string[]; serialize empty as [] not
+	// null so consumers (e.g. the profile page) can read .length safely.
+	if permissions == nil {
+		permissions = []string{}
+	}
+	groups := claims.Groups
+	if groups == nil {
+		groups = []string{}
+	}
+
 	c.JSON(consts.StatusOK, utils.H{
 		"userId":      claims.Subject,
 		"email":       claims.Email,
@@ -368,7 +373,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 		"role":        role,
 		"permissions": permissions,
 		"provider":    claims.Provider,
-		"groups":      claims.Groups,
+		"groups":      groups,
 		"themeMode":   themeMode,
 		"colorTheme":  colorTheme,
 		"mfaEnabled":  mfaEnabled,
@@ -533,6 +538,11 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 
 // handleOIDCCallback handles the OIDC authorization code callback.
 func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) {
+	if s.deps.OIDCProvider == nil {
+		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("OIDC is not configured")))
+		return
+	}
+
 	code := string(c.Query("code"))
 	state := string(c.Query("state"))
 
@@ -570,6 +580,11 @@ func (s *Server) handleOIDCCallback(ctx context.Context, c *app.RequestContext) 
 
 // handleSAMLACS handles the SAML Assertion Consumer Service POST.
 func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
+	if s.deps.SAMLProvider == nil {
+		c.HTML(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("SAML is not configured")))
+		return
+	}
+
 	samlResponse := string(c.FormValue("SAMLResponse"))
 	relayState := string(c.FormValue("RelayState"))
 
@@ -604,6 +619,11 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 
 // handleSAMLMetadata returns the SP metadata XML.
 func (s *Server) handleSAMLMetadata(ctx context.Context, c *app.RequestContext) {
+	if s.deps.SAMLProvider == nil {
+		apiNotFound(ctx, c, "SAML is not configured")
+		return
+	}
+
 	xml, err := s.deps.SAMLProvider.MetadataXML()
 	if err != nil {
 		logErr(ctx, err, "failed to generate SAML metadata")
@@ -656,7 +676,7 @@ func (s *Server) completeSSO(ctx context.Context, deviceCode string, claims *aut
 
 	// Sync user, teams, and Casbin assignments.
 	userID, err := auth.SyncUserOnLogin(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer,
-		org.ID, claims, s.deps.Config.Auth.AdminUsers, s.deps.Config.Auth.DefaultRoleOrFallback())
+		org.ID, claims, s.deps.Config.Auth.AdminUsers, s.deps.Config.Auth.DefaultRoleOrFallback(), org.SsoStrictGroups)
 	if err != nil {
 		return "", fmt.Errorf("syncing user: %w", err)
 	}
@@ -687,13 +707,6 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 	}
 	if err := c.BindJSON(&req); err != nil || req.Email == "" || req.Password == "" {
 		apiBadRequest(ctx, c, "email and password are required")
-		return
-	}
-
-	// Mock mode has no users table — accept any credentials and issue a session
-	// for the fixed mock admin (authMiddleware injects that identity anyway).
-	if s.deps.MockMode {
-		s.issueLocalAuthTokens(ctx, c, "user-mock", "admin@flint.dev", mockOrgID, false)
 		return
 	}
 

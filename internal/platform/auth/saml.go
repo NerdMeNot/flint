@@ -19,11 +19,18 @@ import (
 
 // SAMLProviderConfig configures a SAML Service Provider.
 type SAMLProviderConfig struct {
-	MetadataURL string // IdP metadata URL
+	MetadataURL string // IdP metadata URL (fetched at construction)
+	MetadataXML string // Raw IdP metadata XML, as an alternative to MetadataURL
 	EntityID    string // SP entity ID (default: {baseURL}/auth/saml/metadata)
 	ACSURL      string // Assertion Consumer Service URL (e.g., {baseURL}/auth/saml/acs)
 	CertPEM     string // Optional SP signing certificate (PEM)
 	KeyPEM      string // Optional SP signing private key (PEM)
+
+	// NameIDFormat requested in the AuthnRequest. Empty defaults to emailAddress.
+	NameIDFormat string
+	// Mapping lists the attribute names that carry email/name/groups. Empty
+	// fields fall back to the well-known defaults (incl. the Entra groups URI).
+	Mapping SAMLMapping
 }
 
 // SAMLAuth is the interface for SAML authentication. *SAMLProvider implements
@@ -39,7 +46,8 @@ var _ SAMLAuth = (*SAMLProvider)(nil)
 
 // SAMLProvider wraps crewjam/saml for SAML SP operations.
 type SAMLProvider struct {
-	sp saml.ServiceProvider
+	sp      saml.ServiceProvider
+	mapping SAMLMapping
 }
 
 // NewSAMLProvider creates a SAML Service Provider by fetching IdP metadata.
@@ -81,25 +89,34 @@ func NewSAMLProvider(cfg SAMLProviderConfig) (*SAMLProvider, error) {
 		key = tlsCert.PrivateKey.(*rsa.PrivateKey)
 	}
 
-	// Fetch IdP metadata.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	metadataURL, err := url.Parse(cfg.MetadataURL)
-	if err != nil {
-		return nil, fmt.Errorf("parsing metadata URL: %w", err)
-	}
-
-	idpMetadata, err := samlsp.FetchMetadata(ctx, http.DefaultClient, *metadataURL)
-	if err != nil {
-		return nil, fmt.Errorf("fetching IdP metadata from %s: %w", cfg.MetadataURL, err)
+	// Resolve IdP metadata, either from raw XML or by fetching the metadata URL.
+	var idpMetadata *saml.EntityDescriptor
+	switch {
+	case cfg.MetadataXML != "":
+		idpMetadata, err = samlsp.ParseMetadata([]byte(cfg.MetadataXML))
+		if err != nil {
+			return nil, fmt.Errorf("parsing IdP metadata XML: %w", err)
+		}
+	case cfg.MetadataURL != "":
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		metadataURL, perr := url.Parse(cfg.MetadataURL)
+		if perr != nil {
+			return nil, fmt.Errorf("parsing metadata URL: %w", perr)
+		}
+		idpMetadata, err = samlsp.FetchMetadata(ctx, http.DefaultClient, *metadataURL)
+		if err != nil {
+			return nil, fmt.Errorf("fetching IdP metadata from %s: %w", cfg.MetadataURL, err)
+		}
+	default:
+		return nil, fmt.Errorf("SAML provider requires either MetadataURL or MetadataXML")
 	}
 
 	sp := saml.ServiceProvider{
 		EntityID:          entityIDURL.String(),
 		AcsURL:            *acsURL,
 		IDPMetadata:       idpMetadata,
-		AuthnNameIDFormat: saml.EmailAddressNameIDFormat,
+		AuthnNameIDFormat: nameIDFormat(cfg.NameIDFormat),
 	}
 
 	if cert != nil && key != nil {
@@ -107,7 +124,40 @@ func NewSAMLProvider(cfg SAMLProviderConfig) (*SAMLProvider, error) {
 		sp.Key = key
 	}
 
-	return &SAMLProvider{sp: sp}, nil
+	return &SAMLProvider{sp: sp, mapping: cfg.Mapping}, nil
+}
+
+// nameIDFormat maps a configured NameID format string to a crewjam NameIDFormat,
+// defaulting to emailAddress (the format Flint keys users on).
+func nameIDFormat(s string) saml.NameIDFormat {
+	switch s {
+	case "":
+		return saml.EmailAddressNameIDFormat
+	case string(saml.PersistentNameIDFormat):
+		return saml.PersistentNameIDFormat
+	case string(saml.TransientNameIDFormat):
+		return saml.TransientNameIDFormat
+	case string(saml.UnspecifiedNameIDFormat):
+		return saml.UnspecifiedNameIDFormat
+	default:
+		return saml.NameIDFormat(s)
+	}
+}
+
+// SAMLDiscovery summarizes the IdP metadata resolved at construction — used by
+// the "test connection" flow to confirm the IdP was reachable and parseable.
+type SAMLDiscovery struct {
+	IDPEntityID string `json:"idpEntityId"`
+	SSOURL      string `json:"ssoUrl,omitempty"`
+}
+
+// Discovery returns a summary of the configured IdP metadata.
+func (p *SAMLProvider) Discovery() SAMLDiscovery {
+	d := SAMLDiscovery{SSOURL: p.sp.GetSSOBindingLocation(saml.HTTPRedirectBinding)}
+	if p.sp.IDPMetadata != nil {
+		d.IDPEntityID = p.sp.IDPMetadata.EntityID
+	}
+	return d
 }
 
 // MetadataXML returns the SP metadata as XML bytes.
@@ -165,7 +215,9 @@ func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 		}
 	}
 
-	// Extract attributes.
+	// Build the attribute bag (also indexed by FriendlyName when present, since
+	// some IdPs only set one of Name/FriendlyName), then resolve the unified
+	// fields through the configured mapping.
 	raw := make(map[string]any)
 	for _, stmt := range assertion.AttributeStatements {
 		for _, attr := range stmt.Attributes {
@@ -173,30 +225,25 @@ func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
 			for i, v := range attr.Values {
 				values[i] = v.Value
 			}
-
-			// Store all values in raw.
+			var stored any = values
 			if len(values) == 1 {
-				raw[attr.Name] = values[0]
-			} else {
-				raw[attr.Name] = values
+				stored = values[0]
 			}
-
-			// Map well-known attributes.
-			switch attr.Name {
-			case "email", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress":
-				if len(values) > 0 {
-					claims.Email = values[0]
-				}
-			case "name", "displayName", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name":
-				if len(values) > 0 {
-					claims.Name = values[0]
-				}
-			case "groups", "memberOf", "http://schemas.xmlsoap.org/claims/Group":
-				claims.Groups = values
+			if attr.Name != "" {
+				raw[attr.Name] = stored
+			}
+			if attr.FriendlyName != "" {
+				raw[attr.FriendlyName] = stored
 			}
 		}
 	}
 
+	email, name, groups := resolveSAMLAttributes(raw, p.mapping)
+	if email != "" {
+		claims.Email = email
+	}
+	claims.Name = name
+	claims.Groups = groups
 	claims.Raw = raw
 
 	// Set expiry from conditions.

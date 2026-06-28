@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -77,20 +78,36 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	defer pool.Close()
 
-	// OIDC provider.
+	// OIDC provider. Sourced from the DB first (so it matches the server's
+	// API-managed config, including claim mapping), falling back to the file.
 	var oidcProvider *auth.OIDCProvider
-	if auth.OIDCConfigured(cfg.Auth.OIDC.IssuerURL, cfg.Auth.OIDC.ClientID) {
-		oidcProvider, err = auth.NewOIDCProvider(ctx, auth.OIDCProviderConfig{
-			IssuerURL:    cfg.Auth.OIDC.IssuerURL,
-			ClientID:     cfg.Auth.OIDC.ClientID,
-			ClientSecret: cfg.Auth.OIDC.ClientSecret,
-		})
-		if err != nil {
-			return fmt.Errorf("OIDC provider: %w", err)
+	{
+		var pc *auth.ProviderConfig
+		if masterKey, mkErr := cfg.Encryption.DecodeMasterKey(); mkErr == nil {
+			if pc, err = auth.LoadProviderConfig(ctx, db.New(pool), masterKey, "oidc"); err != nil {
+				return fmt.Errorf("loading OIDC provider config: %w", err)
+			}
 		}
-		log.Info().Str("issuer", cfg.Auth.OIDC.IssuerURL).Msg("OIDC provider configured")
-	} else {
-		log.Warn().Msg("OIDC not configured — sync will only clean up expired sessions")
+		if pc == nil && auth.OIDCConfigured(cfg.Auth.OIDC.IssuerURL, cfg.Auth.OIDC.ClientID) {
+			pc = &auth.ProviderConfig{
+				IssuerURL:    cfg.Auth.OIDC.IssuerURL,
+				ClientID:     cfg.Auth.OIDC.ClientID,
+				ClientSecret: cfg.Auth.OIDC.ClientSecret,
+				Scopes:       cfg.Auth.OIDC.Scopes,
+				EmailClaim:   cfg.Auth.OIDC.EmailClaim,
+				NameClaim:    cfg.Auth.OIDC.NameClaim,
+				GroupsClaim:  cfg.Auth.OIDC.GroupsClaim,
+			}
+		}
+		if pc != nil && pc.HasOIDC() {
+			// syncd has no callback endpoint; the redirect URL is unused here.
+			if oidcProvider, err = auth.BuildOIDCProvider(ctx, *pc, cfg.Server.BaseURL); err != nil {
+				return fmt.Errorf("OIDC provider: %w", err)
+			}
+			log.Info().Str("issuer", pc.IssuerURL).Msg("OIDC provider configured")
+		} else {
+			log.Warn().Msg("OIDC not configured — sync will only clean up expired sessions")
+		}
 	}
 
 	// Casbin enforcer for policy regeneration after group sync.

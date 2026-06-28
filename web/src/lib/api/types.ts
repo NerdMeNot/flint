@@ -342,6 +342,31 @@ export const RunnerPoolSchema = z.object({
   gpuVendor: z.optional(z.string()),
   gpuModel: z.optional(z.string()),
   gpuCount: z.optional(z.number()),
+  mode: z.optional(z.string()),
+  // The default pool is used when a pipeline sets no runner:. Exactly one is true.
+  isDefault: z.optional(z.boolean()),
+  // How a reference pool targets existing nodes (managed pools derive these).
+  nodeSelector: z.optional(z.record(z.string(), z.string())),
+  tolerations: z.optional(z.array(z.object({
+    key: z.string(),
+    operator: z.optional(z.string()),
+    value: z.optional(z.string()),
+    effect: z.optional(z.string()),
+  }))),
+  // Managed capacity envelope — present only for mode === 'managed'. Lets the
+  // editor round-trip a managed pool's Karpenter intent.
+  managed: z.optional(
+    z.object({
+      capacityType: z.optional(z.string()),
+      instanceFamilies: z.optional(z.array(z.string())),
+      cpuLimit: z.optional(z.number()),
+      gpuLimit: z.optional(z.number()),
+      scaleToZero: z.optional(z.boolean()),
+      consolidateAfter: z.optional(z.string()),
+      diskGiB: z.optional(z.number()),
+      amiFamily: z.optional(z.string()),
+    }),
+  ),
   ready: z.boolean(),
   createdAt: z.string(),
 })
@@ -405,6 +430,67 @@ export const AuthProvidersSchema = z.object({
   samlConfigured: z.boolean(),
 })
 export type AuthProviders = z.infer<typeof AuthProvidersSchema>
+
+// SSO provider configuration. A single generic shape carries both OIDC and SAML
+// fields plus the configurable claim/attribute mapping; the UI presets merely
+// pre-fill these. Mirrors the Go auth.ProviderConfig struct (JSON tags).
+export const providerConfigSchema = z.object({
+  // OIDC
+  issuerUrl: z.optional(z.string()),
+  clientId: z.optional(z.string()),
+  clientSecret: z.optional(z.string()),
+  scopes: z.optional(z.array(z.string())),
+  emailClaim: z.optional(z.string()),
+  nameClaim: z.optional(z.string()),
+  groupsClaim: z.optional(z.string()),
+  // SAML
+  metadataUrl: z.optional(z.string()),
+  metadataXml: z.optional(z.string()),
+  entityId: z.optional(z.string()),
+  nameIdFormat: z.optional(z.string()),
+  emailAttributes: z.optional(z.array(z.string())),
+  nameAttributes: z.optional(z.array(z.string())),
+  groupsAttributes: z.optional(z.array(z.string())),
+  spCertPem: z.optional(z.string()),
+  spKeyPem: z.optional(z.string()),
+})
+export type ProviderConfig = z.infer<typeof providerConfigSchema>
+
+// IdP group → role mappings + strict (deny-by-default) flag.
+export interface GroupRoleMapping {
+  groupName: string
+  roleId: string
+  roleSlug?: string
+  roleName?: string
+}
+export interface GroupMappings {
+  mappings: GroupRoleMapping[]
+  strict: boolean
+}
+
+// SCIM provisioning status.
+export interface ScimStatus {
+  configured: boolean
+  baseUrl: string
+}
+
+// Result of POST /auth/provider/test — a non-persisting connection check.
+export interface ProviderTestResult {
+  ok: boolean
+  error?: string
+  oidc?: {
+    issuer: string
+    authorizationEndpoint: string
+    tokenEndpoint: string
+    userinfoEndpoint?: string
+    scopesSupported?: string[]
+    claimsSupported?: string[]
+  }
+  saml?: {
+    idpEntityId: string
+    ssoUrl?: string
+  }
+}
 
 export const SearchResultSchema = z.object({
   projects: z.array(ProjectSchema),
