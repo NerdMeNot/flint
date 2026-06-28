@@ -8,6 +8,8 @@ CREATE TABLE public.device_codes (
     user_code      text NOT NULL,
     oauth_state    text,
     nonce          text,
+    code_verifier  text, -- PKCE (S256) verifier for the OIDC code exchange
+
     completed      boolean NOT NULL DEFAULT false,
     access_token   text,
     refresh_token  text,

@@ -44,8 +44,19 @@ func (c *IdPSyncConfig) staleAfter() time.Duration {
 // RunIdPSyncLoop periodically validates active sessions against the IdP.
 // It checks if users are still valid, syncs group memberships, and revokes
 // sessions for deactivated users.
+// EncryptIdpToken marshals an OAuth2 token and envelope-encrypts it with the
+// master key for at-rest storage in sessions.idp_token_enc. Used by both the
+// login handler and the sync daemon so the format stays consistent.
+func EncryptIdpToken(token *oauth2.Token, masterKey []byte) ([]byte, error) {
+	j, err := json.Marshal(token)
+	if err != nil {
+		return nil, err
+	}
+	return secret.Encrypt(j, masterKey, 1)
+}
+
 func RunIdPSyncLoop(ctx context.Context, cfg IdPSyncConfig, pool db.Pool,
-	oidc *OIDCProvider, secrets secret.SecretStore, enforcer casbin.IEnforcer) error {
+	oidc *OIDCProvider, masterKey []byte, enforcer casbin.IEnforcer) error {
 
 	log.Info().
 		Dur("interval", cfg.interval()).
@@ -61,13 +72,13 @@ func RunIdPSyncLoop(ctx context.Context, cfg IdPSyncConfig, pool db.Pool,
 			log.Info().Msg("idpsync: loop stopped")
 			return nil
 		case <-ticker.C:
-			syncCycle(ctx, cfg, pool, oidc, secrets, enforcer)
+			syncCycle(ctx, cfg, pool, oidc, masterKey, enforcer)
 		}
 	}
 }
 
 func syncCycle(ctx context.Context, cfg IdPSyncConfig, pool db.Pool,
-	oidc *OIDCProvider, secrets secret.SecretStore, enforcer casbin.IEnforcer) {
+	oidc *OIDCProvider, masterKey []byte, enforcer casbin.IEnforcer) {
 
 	q := db.New(pool)
 
@@ -89,7 +100,7 @@ func syncCycle(ctx context.Context, cfg IdPSyncConfig, pool db.Pool,
 
 	synced, revoked := 0, 0
 	for _, sess := range sessions {
-		err := syncSession(ctx, q, pool, oidc, secrets, enforcer, sess)
+		err := syncSession(ctx, q, pool, oidc, masterKey, enforcer, sess)
 		if err != nil {
 			log.Warn().Err(err).Str("user", sess.Email).Msg("idpsync: session sync failed, revoking")
 			if revokeErr := q.RevokeUserSessions(ctx, sess.UserID); revokeErr != nil {
@@ -113,22 +124,23 @@ func syncCycle(ctx context.Context, cfg IdPSyncConfig, pool db.Pool,
 }
 
 func syncSession(ctx context.Context, q *db.Queries, pool db.Pool,
-	oidc *OIDCProvider, secrets secret.SecretStore, enforcer casbin.IEnforcer,
+	oidc *OIDCProvider, masterKey []byte, enforcer casbin.IEnforcer,
 	sess db.ListSessionsForSyncRow) error {
 
 	if oidc == nil {
 		return fmt.Errorf("OIDC provider not configured")
 	}
 
-	// Decrypt the stored IdP token.
+	// Decrypt the stored IdP token (envelope-encrypted at rest with the master key).
 	var idpToken oauth2.Token
 	if sess.IdpTokenEnc == nil {
 		return fmt.Errorf("no IdP token stored")
 	}
-
-	// The IdP token is stored as JSON, optionally encrypted.
-	// For now, assume JSON encoding (encryption can be added later via secret store).
-	if err := json.Unmarshal(sess.IdpTokenEnc, &idpToken); err != nil {
+	tokenJSON, _, err := secret.Decrypt(sess.IdpTokenEnc, masterKey)
+	if err != nil {
+		return fmt.Errorf("decrypt IdP token: %w", err)
+	}
+	if err := json.Unmarshal(tokenJSON, &idpToken); err != nil {
 		return fmt.Errorf("unmarshal IdP token: %w", err)
 	}
 
@@ -146,12 +158,13 @@ func syncSession(ctx context.Context, q *db.Queries, pool db.Pool,
 		return fmt.Errorf("UserInfo failed: %w", err)
 	}
 
-	// If the token was rotated by the IdP, save the new one.
+	// If the token was rotated by the IdP, save the new one (re-encrypted).
 	if newToken.AccessToken != idpToken.AccessToken {
-		tokenJSON, _ := json.Marshal(newToken)
-		if err := q.UpdateSessionIdpToken(ctx, db.UpdateSessionIdpTokenParams{
+		if enc, err := EncryptIdpToken(newToken, masterKey); err != nil {
+			log.Warn().Err(err).Str("session", sess.ID).Msg("idpsync: failed to encrypt rotated IdP token")
+		} else if err := q.UpdateSessionIdpToken(ctx, db.UpdateSessionIdpTokenParams{
 			ID:          sess.ID,
-			IdpTokenEnc: tokenJSON,
+			IdpTokenEnc: enc,
 		}); err != nil {
 			log.Warn().Err(err).Str("session", sess.ID).Msg("idpsync: failed to update IdP token")
 		}

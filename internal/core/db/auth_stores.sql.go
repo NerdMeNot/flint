@@ -140,6 +140,17 @@ func (q *Queries) GetDeviceCode(ctx context.Context, deviceCode string) (GetDevi
 	return i, err
 }
 
+const getDeviceCodeCodeVerifier = `-- name: GetDeviceCodeCodeVerifier :one
+SELECT code_verifier FROM device_codes WHERE device_code = $1
+`
+
+func (q *Queries) GetDeviceCodeCodeVerifier(ctx context.Context, deviceCode string) (*string, error) {
+	row := q.db.QueryRow(ctx, getDeviceCodeCodeVerifier, deviceCode)
+	var code_verifier *string
+	err := row.Scan(&code_verifier)
+	return code_verifier, err
+}
+
 const getDeviceCodeNonce = `-- name: GetDeviceCodeNonce :one
 SELECT nonce FROM device_codes WHERE device_code = $1
 `
@@ -254,17 +265,23 @@ func (q *Queries) RecordTOTPUse(ctx context.Context, arg RecordTOTPUseParams) (s
 }
 
 const setDeviceCodeOAuthState = `-- name: SetDeviceCodeOAuthState :exec
-UPDATE device_codes SET oauth_state = $2, nonce = $3 WHERE device_code = $1
+UPDATE device_codes SET oauth_state = $2, nonce = $3, code_verifier = $4 WHERE device_code = $1
 `
 
 type SetDeviceCodeOAuthStateParams struct {
-	DeviceCode string  `json:"device_code"`
-	OauthState *string `json:"oauth_state"`
-	Nonce      *string `json:"nonce"`
+	DeviceCode   string  `json:"device_code"`
+	OauthState   *string `json:"oauth_state"`
+	Nonce        *string `json:"nonce"`
+	CodeVerifier *string `json:"code_verifier"`
 }
 
 func (q *Queries) SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error {
-	_, err := q.db.Exec(ctx, setDeviceCodeOAuthState, arg.DeviceCode, arg.OauthState, arg.Nonce)
+	_, err := q.db.Exec(ctx, setDeviceCodeOAuthState,
+		arg.DeviceCode,
+		arg.OauthState,
+		arg.Nonce,
+		arg.CodeVerifier,
+	)
 	return err
 }
 

@@ -131,6 +131,7 @@ type Querier interface {
 	GetDashboardActivity(ctx context.Context, limit int32) ([]GetDashboardActivityRow, error)
 	GetDashboardSummary(ctx context.Context) ([]GetDashboardSummaryRow, error)
 	GetDeviceCode(ctx context.Context, deviceCode string) (GetDeviceCodeRow, error)
+	GetDeviceCodeCodeVerifier(ctx context.Context, deviceCode string) (*string, error)
 	GetDeviceCodeNonce(ctx context.Context, deviceCode string) (*string, error)
 	GetDeviceCodeRefreshToken(ctx context.Context, deviceCode string) (*string, error)
 	GetEnvVariable(ctx context.Context, id string) (GetEnvVariableRow, error)
@@ -409,6 +410,9 @@ type Querier interface {
 	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
 	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
 	RunsNeedingCleanup(ctx context.Context, limit int32) ([]string, error)
+	ScimGetTeamInOrg(ctx context.Context, arg ScimGetTeamInOrgParams) (ScimGetTeamInOrgRow, error)
+	// Org-scoped fetch by id (SCIM tenant isolation — never resolve another org's user).
+	ScimGetUserInOrg(ctx context.Context, arg ScimGetUserInOrgParams) (ScimGetUserInOrgRow, error)
 	// Provision/update a user from SCIM. Keyed on (org_id, external_id).
 	ScimUpsertUser(ctx context.Context, arg ScimUpsertUserParams) (ScimUpsertUserRow, error)
 	// Project search by name / repo for the global ⌘K search.

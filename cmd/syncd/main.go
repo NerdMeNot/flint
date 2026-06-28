@@ -125,7 +125,11 @@ func run(cmd *cobra.Command, args []string) error {
 
 	log.Info().Msg("flint-syncd ready")
 
-	return auth.RunIdPSyncLoop(ctx, syncCfg, pool, oidcProvider, nil, enforcer)
+	// Master key to decrypt/re-encrypt stored IdP tokens; if absent, sessions
+	// with stored tokens are skipped (the daemon still cleans up expired ones).
+	masterKey, _ := cfg.Encryption.DecodeMasterKey()
+
+	return auth.RunIdPSyncLoop(ctx, syncCfg, pool, oidcProvider, masterKey, enforcer)
 }
 
 func parseDuration(s string, fallback time.Duration) time.Duration {

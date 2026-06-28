@@ -18,6 +18,12 @@ import (
 // membership or active-state changes, Casbin policies are regenerated for the
 // affected users so access reflects provisioning immediately.
 
+// scimAudit records a SCIM provisioning mutation (org from the bearer token, no
+// user JWT) for the audit log.
+func (s *Server) scimAudit(ctx context.Context, c *app.RequestContext, action, resourceType, resourceID string) {
+	s.auditEvent(ctx, scimOrgFromCtx(ctx), "", action, resourceType, resourceID, extractClientIP(c))
+}
+
 // ── Discovery ──────────────────────────────────────────────────────────────
 
 func (s *Server) handleSCIMServiceProviderConfig(ctx context.Context, c *app.RequestContext) {
@@ -44,7 +50,11 @@ func (s *Server) handleSCIMListUsers(ctx context.Context, c *app.RequestContext)
 		writeSCIMError(c, consts.StatusInternalServerError, "failed to list users")
 		return
 	}
-	fAttr, fVal := scimFilterEq(string(c.Query("filter")))
+	fAttr, fVal, ok := scimFilterEq(string(c.Query("filter")))
+	if !ok {
+		writeSCIMError(c, consts.StatusBadRequest, `unsupported filter; only a single 'attr eq "value"' clause is supported`)
+		return
+	}
 
 	resources := make([]any, 0, len(users))
 	for _, u := range users {
@@ -69,7 +79,7 @@ func (s *Server) handleSCIMListUsers(ctx context.Context, c *app.RequestContext)
 }
 
 func (s *Server) handleSCIMGetUser(ctx context.Context, c *app.RequestContext) {
-	u, err := s.deps.Q.GetUserByID(ctx, c.Param("id"))
+	u, err := s.deps.Q.ScimGetUserInOrg(ctx, db.ScimGetUserInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "user not found")
 		return
@@ -119,12 +129,13 @@ func (s *Server) handleSCIMCreateUser(ctx context.Context, c *app.RequestContext
 		writeSCIMError(c, consts.StatusInternalServerError, "failed to create user")
 		return
 	}
+	s.scimAudit(ctx, c, "scim.user.created", "user", row.ID)
 	writeSCIM(c, consts.StatusCreated, scimUserResource(s.scimBaseURL(), row.ID, externalID, email, name, active, row.CreatedAt))
 }
 
 func (s *Server) handleSCIMReplaceUser(ctx context.Context, c *app.RequestContext) {
 	orgID := scimOrgFromCtx(ctx)
-	u, err := s.deps.Q.GetUserByID(ctx, c.Param("id"))
+	u, err := s.deps.Q.ScimGetUserInOrg(ctx, db.ScimGetUserInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "user not found")
 		return
@@ -157,7 +168,7 @@ func (s *Server) handleSCIMReplaceUser(ctx context.Context, c *app.RequestContex
 }
 
 func (s *Server) handleSCIMPatchUser(ctx context.Context, c *app.RequestContext) {
-	u, err := s.deps.Q.GetUserByID(ctx, c.Param("id"))
+	u, err := s.deps.Q.ScimGetUserInOrg(ctx, db.ScimGetUserInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "user not found")
 		return
@@ -187,11 +198,12 @@ func (s *Server) handleSCIMPatchUser(ctx context.Context, c *app.RequestContext)
 			s.deprovisionUser(ctx, u.ID, u.Email)
 		}
 	}
+	s.scimAudit(ctx, c, "scim.user.updated", "user", u.ID)
 	writeSCIM(c, consts.StatusOK, scimUserResource(s.scimBaseURL(), u.ID, u.ExternalID, u.Email, derefStr(u.Name), active, timeZero()))
 }
 
 func (s *Server) handleSCIMDeleteUser(ctx context.Context, c *app.RequestContext) {
-	u, err := s.deps.Q.GetUserByID(ctx, c.Param("id"))
+	u, err := s.deps.Q.ScimGetUserInOrg(ctx, db.ScimGetUserInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "user not found")
 		return
@@ -206,6 +218,7 @@ func (s *Server) handleSCIMDeleteUser(ctx context.Context, c *app.RequestContext
 		return
 	}
 	s.deprovisionUser(ctx, u.ID, u.Email)
+	s.scimAudit(ctx, c, "scim.user.deactivated", "user", u.ID)
 	c.SetStatusCode(consts.StatusNoContent)
 }
 
@@ -227,7 +240,11 @@ func (s *Server) handleSCIMListGroups(ctx context.Context, c *app.RequestContext
 		writeSCIMError(c, consts.StatusInternalServerError, "failed to list groups")
 		return
 	}
-	fAttr, fVal := scimFilterEq(string(c.Query("filter")))
+	fAttr, fVal, ok := scimFilterEq(string(c.Query("filter")))
+	if !ok {
+		writeSCIMError(c, consts.StatusBadRequest, `unsupported filter; only a single 'attr eq "value"' clause is supported`)
+		return
+	}
 	resources := make([]any, 0, len(teams))
 	for _, t := range teams {
 		if fVal != "" && fAttr == "displayname" && !strings.EqualFold(t.Name, fVal) {
@@ -242,7 +259,7 @@ func (s *Server) handleSCIMListGroups(ctx context.Context, c *app.RequestContext
 }
 
 func (s *Server) handleSCIMGetGroup(ctx context.Context, c *app.RequestContext) {
-	team, err := s.deps.Q.GetTeam(ctx, c.Param("id"))
+	team, err := s.deps.Q.ScimGetTeamInOrg(ctx, db.ScimGetTeamInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "group not found")
 		return
@@ -271,11 +288,12 @@ func (s *Server) handleSCIMCreateGroup(ctx context.Context, c *app.RequestContex
 	for _, m := range body.Members {
 		s.addGroupMember(ctx, teamID, m.Value)
 	}
+	s.scimAudit(ctx, c, "scim.group.created", "team", teamID)
 	writeSCIM(c, consts.StatusCreated, scimGroupResource(s.scimBaseURL(), teamID, body.DisplayName, s.groupMembers(ctx, teamID)))
 }
 
 func (s *Server) handleSCIMReplaceGroup(ctx context.Context, c *app.RequestContext) {
-	team, err := s.deps.Q.GetTeam(ctx, c.Param("id"))
+	team, err := s.deps.Q.ScimGetTeamInOrg(ctx, db.ScimGetTeamInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "group not found")
 		return
@@ -302,7 +320,7 @@ func (s *Server) handleSCIMReplaceGroup(ctx context.Context, c *app.RequestConte
 }
 
 func (s *Server) handleSCIMPatchGroup(ctx context.Context, c *app.RequestContext) {
-	team, err := s.deps.Q.GetTeam(ctx, c.Param("id"))
+	team, err := s.deps.Q.ScimGetTeamInOrg(ctx, db.ScimGetTeamInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "group not found")
 		return
@@ -346,11 +364,12 @@ func (s *Server) handleSCIMPatchGroup(ctx context.Context, c *app.RequestContext
 			}
 		}
 	}
+	s.scimAudit(ctx, c, "scim.group.updated", "team", team.ID)
 	writeSCIM(c, consts.StatusOK, scimGroupResource(s.scimBaseURL(), team.ID, team.Name, s.groupMembers(ctx, team.ID)))
 }
 
 func (s *Server) handleSCIMDeleteGroup(ctx context.Context, c *app.RequestContext) {
-	team, err := s.deps.Q.GetTeam(ctx, c.Param("id"))
+	team, err := s.deps.Q.ScimGetTeamInOrg(ctx, db.ScimGetTeamInOrgParams{ID: c.Param("id"), OrgID: scimOrgFromCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeSCIMError(c, consts.StatusNotFound, "group not found")
 		return
@@ -367,6 +386,7 @@ func (s *Server) handleSCIMDeleteGroup(ctx context.Context, c *app.RequestContex
 	for _, m := range members {
 		s.regenSubject(ctx, m.Display) // Display holds the member email
 	}
+	s.scimAudit(ctx, c, "scim.group.deleted", "team", team.ID)
 	c.SetStatusCode(consts.StatusNoContent)
 }
 

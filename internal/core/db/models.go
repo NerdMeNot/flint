@@ -70,6 +70,7 @@ type DeviceCode struct {
 	UserCode     string     `json:"user_code"`
 	OauthState   *string    `json:"oauth_state"`
 	Nonce        *string    `json:"nonce"`
+	CodeVerifier *string    `json:"code_verifier"`
 	Completed    bool       `json:"completed"`
 	AccessToken  *string    `json:"access_token"`
 	RefreshToken *string    `json:"refresh_token"`

@@ -206,6 +206,67 @@ func (q *Queries) ListScimUsers(ctx context.Context, orgID string) ([]ListScimUs
 	return items, nil
 }
 
+const scimGetTeamInOrg = `-- name: ScimGetTeamInOrg :one
+SELECT id, name, slug, COALESCE(source, 'internal')::text AS source FROM teams
+WHERE id = $1 AND org_id = $2
+`
+
+type ScimGetTeamInOrgParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+type ScimGetTeamInOrgRow struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Slug   string `json:"slug"`
+	Source string `json:"source"`
+}
+
+func (q *Queries) ScimGetTeamInOrg(ctx context.Context, arg ScimGetTeamInOrgParams) (ScimGetTeamInOrgRow, error) {
+	row := q.db.QueryRow(ctx, scimGetTeamInOrg, arg.ID, arg.OrgID)
+	var i ScimGetTeamInOrgRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.Source,
+	)
+	return i, err
+}
+
+const scimGetUserInOrg = `-- name: ScimGetUserInOrg :one
+SELECT id, email, external_id, name, is_active FROM users
+WHERE id = $1 AND org_id = $2
+`
+
+type ScimGetUserInOrgParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+type ScimGetUserInOrgRow struct {
+	ID         string  `json:"id"`
+	Email      string  `json:"email"`
+	ExternalID string  `json:"external_id"`
+	Name       *string `json:"name"`
+	IsActive   bool    `json:"is_active"`
+}
+
+// Org-scoped fetch by id (SCIM tenant isolation — never resolve another org's user).
+func (q *Queries) ScimGetUserInOrg(ctx context.Context, arg ScimGetUserInOrgParams) (ScimGetUserInOrgRow, error) {
+	row := q.db.QueryRow(ctx, scimGetUserInOrg, arg.ID, arg.OrgID)
+	var i ScimGetUserInOrgRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.ExternalID,
+		&i.Name,
+		&i.IsActive,
+	)
+	return i, err
+}
+
 const scimUpsertUser = `-- name: ScimUpsertUser :one
 INSERT INTO users (org_id, email, external_id, name, is_active)
 VALUES ($1, $2, $3, $4, $5)

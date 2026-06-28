@@ -17,17 +17,17 @@ type OIDCAuth struct {
 	mock.Mock
 }
 
-// AuthURL provides a mock function with given fields: state, nonce
-func (_m *OIDCAuth) AuthURL(state string, nonce string) string {
-	ret := _m.Called(state, nonce)
+// AuthURL provides a mock function with given fields: state, nonce, codeVerifier
+func (_m *OIDCAuth) AuthURL(state string, nonce string, codeVerifier string) string {
+	ret := _m.Called(state, nonce, codeVerifier)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AuthURL")
 	}
 
 	var r0 string
-	if rf, ok := ret.Get(0).(func(string, string) string); ok {
-		r0 = rf(state, nonce)
+	if rf, ok := ret.Get(0).(func(string, string, string) string); ok {
+		r0 = rf(state, nonce, codeVerifier)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
@@ -35,9 +35,9 @@ func (_m *OIDCAuth) AuthURL(state string, nonce string) string {
 	return r0
 }
 
-// Exchange provides a mock function with given fields: ctx, code, expectedNonce
-func (_m *OIDCAuth) Exchange(ctx context.Context, code string, expectedNonce string) (*auth.Claims, *oauth2.Token, error) {
-	ret := _m.Called(ctx, code, expectedNonce)
+// Exchange provides a mock function with given fields: ctx, code, expectedNonce, codeVerifier
+func (_m *OIDCAuth) Exchange(ctx context.Context, code string, expectedNonce string, codeVerifier string) (*auth.Claims, *oauth2.Token, error) {
+	ret := _m.Called(ctx, code, expectedNonce, codeVerifier)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Exchange")
@@ -46,27 +46,27 @@ func (_m *OIDCAuth) Exchange(ctx context.Context, code string, expectedNonce str
 	var r0 *auth.Claims
 	var r1 *oauth2.Token
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*auth.Claims, *oauth2.Token, error)); ok {
-		return rf(ctx, code, expectedNonce)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*auth.Claims, *oauth2.Token, error)); ok {
+		return rf(ctx, code, expectedNonce, codeVerifier)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) *auth.Claims); ok {
-		r0 = rf(ctx, code, expectedNonce)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *auth.Claims); ok {
+		r0 = rf(ctx, code, expectedNonce, codeVerifier)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*auth.Claims)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) *oauth2.Token); ok {
-		r1 = rf(ctx, code, expectedNonce)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) *oauth2.Token); ok {
+		r1 = rf(ctx, code, expectedNonce, codeVerifier)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(*oauth2.Token)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, string, string) error); ok {
-		r2 = rf(ctx, code, expectedNonce)
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, string) error); ok {
+		r2 = rf(ctx, code, expectedNonce, codeVerifier)
 	} else {
 		r2 = ret.Error(2)
 	}

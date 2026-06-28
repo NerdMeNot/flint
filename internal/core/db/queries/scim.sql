@@ -17,6 +17,15 @@ UPDATE scim_tokens SET last_used_at = now() WHERE token_hash = $1;
 SELECT id, email, external_id, name, is_active FROM users
 WHERE org_id = $1 AND external_id = $2;
 
+-- name: ScimGetUserInOrg :one
+-- Org-scoped fetch by id (SCIM tenant isolation — never resolve another org's user).
+SELECT id, email, external_id, name, is_active FROM users
+WHERE id = $1 AND org_id = $2;
+
+-- name: ScimGetTeamInOrg :one
+SELECT id, name, slug, COALESCE(source, 'internal')::text AS source FROM teams
+WHERE id = $1 AND org_id = $2;
+
 -- name: ScimUpsertUser :one
 -- Provision/update a user from SCIM. Keyed on (org_id, external_id).
 INSERT INTO users (org_id, email, external_id, name, is_active)

@@ -106,7 +106,9 @@ func (s *Server) registerRoutes() {
 // registerSCIMRoutes mounts the SCIM 2.0 provisioning data-plane. It uses its
 // own bearer-token middleware (not JWT) and SCIM-formatted errors.
 func (s *Server) registerSCIMRoutes() {
-	scim := s.hertz.Group("/scim/v2", s.scimAuthMiddleware())
+	// Per-IP rate limit, generous enough for an IdP's initial bulk provisioning
+	// sync but a cap against abuse.
+	scim := s.hertz.Group("/scim/v2", s.ipRateLimit(newIPRateLimiter(50, 100)), s.scimAuthMiddleware())
 
 	scim.GET("/ServiceProviderConfig", s.handleSCIMServiceProviderConfig)
 
