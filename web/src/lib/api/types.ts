@@ -428,6 +428,12 @@ export const AuthProvidersSchema = z.object({
   providers: z.array(z.object({ id: z.string(), providerType: z.string(), displayName: z.string() })),
   oidcConfigured: z.boolean(),
   samlConfigured: z.boolean(),
+  samlCert: z.optional(z.object({
+    idpNotAfter: z.optional(z.string()),
+    idpDaysLeft: z.optional(z.number()),
+    spNotAfter: z.optional(z.string()),
+    spDaysLeft: z.optional(z.number()),
+  })),
 })
 export type AuthProviders = z.infer<typeof AuthProvidersSchema>
 

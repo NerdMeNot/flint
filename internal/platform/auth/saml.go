@@ -160,6 +160,46 @@ func (p *SAMLProvider) Discovery() SAMLDiscovery {
 	return d
 }
 
+// CertExpiry reports the earliest IdP signing-certificate expiry (parsed from
+// the IdP metadata) and the SP signing-certificate expiry (if configured) — so
+// the UI can warn before a silent SSO outage. nil fields mean "not available".
+type CertExpiry struct {
+	IdPNotAfter *time.Time `json:"idpNotAfter,omitempty"`
+	SPNotAfter  *time.Time `json:"spNotAfter,omitempty"`
+}
+
+func (p *SAMLProvider) CertExpiry() CertExpiry {
+	var ce CertExpiry
+	if p.sp.IDPMetadata != nil {
+		for _, idp := range p.sp.IDPMetadata.IDPSSODescriptors {
+			for _, kd := range idp.KeyDescriptors {
+				if kd.Use == "encryption" {
+					continue // signing certs only
+				}
+				for _, xc := range kd.KeyInfo.X509Data.X509Certificates {
+					der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(xc.Data))
+					if err != nil {
+						continue
+					}
+					cert, err := x509.ParseCertificate(der)
+					if err != nil {
+						continue
+					}
+					if ce.IdPNotAfter == nil || cert.NotAfter.Before(*ce.IdPNotAfter) {
+						t := cert.NotAfter
+						ce.IdPNotAfter = &t
+					}
+				}
+			}
+		}
+	}
+	if p.sp.Certificate != nil {
+		t := p.sp.Certificate.NotAfter
+		ce.SPNotAfter = &t
+	}
+	return ce
+}
+
 // MetadataXML returns the SP metadata as XML bytes.
 func (p *SAMLProvider) MetadataXML() ([]byte, error) {
 	md := p.sp.Metadata()
