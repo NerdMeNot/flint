@@ -88,6 +88,21 @@ func (idp *testIdP) grant(code string, claims map[string]any) {
 	idp.mu.Unlock()
 }
 
+// signLogoutToken mints a back-channel logout token signed by the IdP key, so we
+// can drive VerifyLogoutToken exactly as a real IdP would.
+func (idp *testIdP) signLogoutToken(t *testing.T, claims jwt.MapClaims) string {
+	t.Helper()
+	base := jwt.MapClaims{"iss": idp.srv.URL, "aud": "flint-client", "iat": time.Now().Unix(), "jti": "jti-1"}
+	for k, v := range claims {
+		base[k] = v
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, base)
+	tok.Header["kid"] = idp.kid
+	signed, err := tok.SignedString(idp.priv)
+	require.NoError(t, err)
+	return signed
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
@@ -143,6 +158,42 @@ func TestOIDCProvider_Integration(t *testing.T) {
 
 	t.Run("Exchange fails on an unknown code", func(t *testing.T) {
 		_, _, err := p.Exchange(ctx, "no-such-code", "n", "verifier-abcdefghijklmnopqrstuvwxyz0123456789")
+		require.Error(t, err)
+	})
+}
+
+// VerifyLogoutToken must accept a spec-compliant back-channel logout token and
+// reject the malformed variants (with nonce, without the event).
+func TestOIDCProvider_BackchannelLogout(t *testing.T) {
+	idp := newTestIdP(t)
+	ctx := context.Background()
+	p, err := NewOIDCProvider(ctx, OIDCProviderConfig{
+		IssuerURL: idp.srv.URL, ClientID: "flint-client",
+		RedirectURL: "https://flint.example/auth/oidc/callback",
+	})
+	require.NoError(t, err)
+	const event = "http://schemas.openid.net/event/backchannel-logout"
+
+	t.Run("valid logout token yields the subject", func(t *testing.T) {
+		tok := idp.signLogoutToken(t, jwt.MapClaims{
+			"sub": "user-42", "events": map[string]any{event: map[string]any{}},
+		})
+		sub, _, err := p.VerifyLogoutToken(ctx, tok)
+		require.NoError(t, err)
+		assert.Equal(t, "user-42", sub)
+	})
+
+	t.Run("a token carrying a nonce is rejected (it's an ID token, not a logout token)", func(t *testing.T) {
+		tok := idp.signLogoutToken(t, jwt.MapClaims{
+			"sub": "u", "nonce": "n", "events": map[string]any{event: map[string]any{}},
+		})
+		_, _, err := p.VerifyLogoutToken(ctx, tok)
+		require.Error(t, err)
+	})
+
+	t.Run("a token missing the backchannel-logout event is rejected", func(t *testing.T) {
+		tok := idp.signLogoutToken(t, jwt.MapClaims{"sub": "u", "events": map[string]any{}})
+		_, _, err := p.VerifyLogoutToken(ctx, tok)
 		require.Error(t, err)
 	})
 }

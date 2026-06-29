@@ -86,6 +86,7 @@ func (s *Server) registerAuthRoutes() {
 	// Single Logout endpoints: the post-logout redirect target (OIDC) and the
 	// SAML SingleLogout service (SP-initiated response + IdP-initiated request).
 	s.hertz.GET("/auth/oidc/logout-complete", s.handleOIDCLogoutComplete)
+	s.hertz.POST("/auth/oidc/backchannel-logout", authLimit, s.handleOIDCBackchannelLogout)
 	s.hertz.GET("/auth/saml/slo", authLimit, s.handleSAMLSLO)
 	s.hertz.POST("/auth/saml/slo", authLimit, s.handleSAMLSLO)
 }
