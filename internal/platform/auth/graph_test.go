@@ -18,10 +18,11 @@ import (
 // endpoint, so the GraphClient's token flow, overage fetch, paging, and
 // GUID→name resolution are all exercised end-to-end without a real tenant.
 type mockGraph struct {
-	srv    *httptest.Server
-	groups map[string]string // object id -> display name
-	member map[string][]string
-	pageBy int // if >0, paginate getMemberObjects into chunks of this size
+	srv       *httptest.Server
+	groups    map[string]string // object id -> display name
+	member    map[string][]string
+	pageBy    int // if >0, paginate getMemberObjects into chunks of this size
+	getByIdsN int // count of directoryObjects/getByIds calls (to assert caching)
 }
 
 func newMockGraph(t *testing.T) *mockGraph {
@@ -33,6 +34,7 @@ func newMockGraph(t *testing.T) *mockGraph {
 		_, _ = io.WriteString(w, `{"access_token":"graph-token","token_type":"Bearer","expires_in":3600}`)
 	})
 	mux.HandleFunc("/v1.0/directoryObjects/getByIds", func(w http.ResponseWriter, r *http.Request) {
+		m.getByIdsN++
 		var req struct {
 			IDs []string `json:"ids"`
 		}
@@ -159,6 +161,23 @@ func TestGraphClient_ResolveGroups(t *testing.T) {
 		_, err := g.ResolveGroups(ctx, "", nil, true)
 		assert.Error(t, err)
 	})
+}
+
+func TestGraphClient_NameCache(t *testing.T) {
+	m := newMockGraph(t)
+	m.groups["11111111-1111-1111-1111-111111111111"] = "Engineering"
+	g := m.client()
+	ctx := context.Background()
+	guids := []string{"11111111-1111-1111-1111-111111111111"}
+
+	r1, err := g.ResolveGroups(ctx, "u", guids, false)
+	require.NoError(t, err)
+	r2, err := g.ResolveGroups(ctx, "u", guids, false)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"Engineering"}, r1)
+	assert.Equal(t, r1, r2)
+	assert.Equal(t, 1, m.getByIdsN, "second resolution should be served from cache, not Graph")
 }
 
 func TestNewGraphClient_NilWhenUnconfigured(t *testing.T) {

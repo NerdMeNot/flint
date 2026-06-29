@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -42,6 +43,17 @@ type GraphClient struct {
 	ts      oauth2.TokenSource
 	http    *http.Client
 	baseURL string
+
+	// nameCache memoizes group GUID→display-name so high-volume logins don't
+	// re-hit Graph (and its throttling limits) for the same groups every time.
+	mu        sync.RWMutex
+	nameCache map[string]nameEntry
+	cacheTTL  time.Duration
+}
+
+type nameEntry struct {
+	name string
+	exp  time.Time
 }
 
 // NewGraphClient builds a Graph client backed by an auto-refreshing
@@ -60,9 +72,11 @@ func NewGraphClient(cfg GraphConfig) *GraphClient {
 		Scopes:       []string{base + "/.default"},
 	}
 	return &GraphClient{
-		ts:      cc.TokenSource(context.Background()),
-		http:    &http.Client{Timeout: 10 * time.Second},
-		baseURL: base,
+		ts:        cc.TokenSource(context.Background()),
+		http:      &http.Client{Timeout: 10 * time.Second},
+		baseURL:   base,
+		nameCache: map[string]nameEntry{},
+		cacheTTL:  time.Hour,
 	}
 }
 
@@ -145,7 +159,24 @@ func (g *GraphClient) memberGroups(ctx context.Context, userObjectID string) ([]
 // directoryObjects/getByIds batch endpoint (chunked at the Graph limit of 1000).
 func (g *GraphClient) groupDisplayNames(ctx context.Context, ids []string) (map[string]string, error) {
 	out := make(map[string]string, len(ids))
-	for _, chunk := range chunkStrings(ids, 1000) {
+
+	// Serve cache hits; collect the misses to fetch.
+	var miss []string
+	now := time.Now()
+	g.mu.RLock()
+	for _, id := range ids {
+		if e, ok := g.nameCache[id]; ok && e.exp.After(now) {
+			out[id] = e.name
+		} else {
+			miss = append(miss, id)
+		}
+	}
+	g.mu.RUnlock()
+	if len(miss) == 0 {
+		return out, nil
+	}
+
+	for _, chunk := range chunkStrings(miss, 1000) {
 		payload, _ := json.Marshal(map[string]any{"ids": chunk, "types": []string{"group"}})
 		var resp struct {
 			Value []struct {
@@ -157,9 +188,13 @@ func (g *GraphClient) groupDisplayNames(ctx context.Context, ids []string) (map[
 		if err := g.do(ctx, http.MethodPost, url, string(payload), &resp); err != nil {
 			return nil, err
 		}
+		exp := time.Now().Add(g.cacheTTL)
+		g.mu.Lock()
 		for _, v := range resp.Value {
 			out[v.ID] = v.DisplayName
+			g.nameCache[v.ID] = nameEntry{name: v.DisplayName, exp: exp}
 		}
+		g.mu.Unlock()
 	}
 	return out, nil
 }
