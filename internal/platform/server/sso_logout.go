@@ -102,6 +102,49 @@ func (s *Server) handleOIDCLogoutComplete(ctx context.Context, c *app.RequestCon
 	c.Redirect(consts.StatusFound, []byte("/login"))
 }
 
+// handleOIDCBackchannelLogout implements OIDC Back-Channel Logout 1.0: the IdP
+// POSTs a signed logout_token here (no browser involved) when a user's session
+// is terminated upstream. We verify it and revoke that user's local sessions, so
+// an IdP-side logout propagates even when the user never returns to Flint.
+func (s *Server) handleOIDCBackchannelLogout(ctx context.Context, c *app.RequestContext) {
+	// Per spec: never cache, and respond 400 on failure / 200 on success.
+	c.Header("Cache-Control", "no-store")
+
+	p, ok := s.deps.OIDCProvider.(*auth.OIDCProvider)
+	if !ok || p == nil {
+		apiBadRequest(ctx, c, "OIDC is not configured")
+		return
+	}
+	rawToken := string(c.FormValue("logout_token"))
+	if rawToken == "" {
+		apiBadRequest(ctx, c, "logout_token is required")
+		return
+	}
+	subject, _, err := p.VerifyLogoutToken(ctx, rawToken)
+	if err != nil {
+		logErr(ctx, err, "backchannel logout token rejected")
+		apiBadRequest(ctx, c, "invalid logout_token")
+		return
+	}
+
+	// Map the subject to the local user and revoke their sessions. We revoke by
+	// user (not per-sid) since Flint doesn't index sessions by IdP sid — a
+	// back-channel logout signs the user out of Flint everywhere.
+	if org, oerr := s.deps.Q.GetOrg(ctx); oerr == nil && subject != "" {
+		if user, uerr := s.deps.Q.GetUserByExternalID(ctx, db.GetUserByExternalIDParams{
+			OrgID: org.ID, ExternalID: subject,
+		}); uerr == nil {
+			_ = s.deps.Q.RevokeUserSessions(ctx, user.ID)
+			rid := user.ID
+			_ = s.deps.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
+				OrgID: org.ID, UserID: &rid, Action: "auth.logout.backchannel",
+				ResourceType: "session",
+			})
+		}
+	}
+	c.JSON(consts.StatusOK, utils.H{"status": "logged out"})
+}
+
 // handleSAMLSLO handles the SAML SingleLogout endpoint for both directions:
 //   - SAMLResponse present  → the IdP's acknowledgement of our SP-initiated
 //     LogoutRequest. Validate and bounce to login.

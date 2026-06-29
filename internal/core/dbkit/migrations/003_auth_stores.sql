@@ -9,6 +9,7 @@ CREATE TABLE public.device_codes (
     oauth_state    text,
     nonce          text,
     code_verifier  text, -- PKCE (S256) verifier for the OIDC code exchange
+    saml_request_id text, -- AuthnRequest ID, bound to the SAML response (InResponseTo)
 
     completed      boolean NOT NULL DEFAULT false,
     access_token   text,
@@ -34,6 +35,15 @@ CREATE TABLE public.mfa_pending_tokens (
 );
 CREATE INDEX idx_mfa_pending_expiry ON public.mfa_pending_tokens (expires_at);
 
+-- One-time-use guard for SAML assertions: an assertion ID may be consumed once,
+-- within its validity window, defeating replay of a captured response.
+CREATE TABLE public.saml_used_assertions (
+    assertion_id text PRIMARY KEY,
+    expires_at   timestamptz NOT NULL
+);
+CREATE INDEX idx_saml_used_assertions_expiry ON public.saml_used_assertions (expires_at);
+
 -- +goose Down
+DROP TABLE public.saml_used_assertions;
 DROP TABLE public.mfa_pending_tokens;
 DROP TABLE public.device_codes;

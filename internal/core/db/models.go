@@ -66,19 +66,20 @@ type CasbinRule struct {
 }
 
 type DeviceCode struct {
-	DeviceCode   string     `json:"device_code"`
-	UserCode     string     `json:"user_code"`
-	OauthState   *string    `json:"oauth_state"`
-	Nonce        *string    `json:"nonce"`
-	CodeVerifier *string    `json:"code_verifier"`
-	Completed    bool       `json:"completed"`
-	AccessToken  *string    `json:"access_token"`
-	RefreshToken *string    `json:"refresh_token"`
-	UserID       *string    `json:"user_id"`
-	IntervalSecs int32      `json:"interval_secs"`
-	LastPolledAt *time.Time `json:"last_polled_at"`
-	ExpiresAt    time.Time  `json:"expires_at"`
-	CreatedAt    time.Time  `json:"created_at"`
+	DeviceCode    string     `json:"device_code"`
+	UserCode      string     `json:"user_code"`
+	OauthState    *string    `json:"oauth_state"`
+	Nonce         *string    `json:"nonce"`
+	CodeVerifier  *string    `json:"code_verifier"`
+	SamlRequestID *string    `json:"saml_request_id"`
+	Completed     bool       `json:"completed"`
+	AccessToken   *string    `json:"access_token"`
+	RefreshToken  *string    `json:"refresh_token"`
+	UserID        *string    `json:"user_id"`
+	IntervalSecs  int32      `json:"interval_secs"`
+	LastPolledAt  *time.Time `json:"last_polled_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type EnvVariable struct {
@@ -304,6 +305,11 @@ type RunnerPool struct {
 	Ready                 bool        `json:"ready"`
 	CreatedAt             time.Time   `json:"created_at"`
 	UpdatedAt             time.Time   `json:"updated_at"`
+}
+
+type SamlUsedAssertion struct {
+	AssertionID string    `json:"assertion_id"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type SavedView struct {

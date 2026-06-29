@@ -13,7 +13,7 @@ type SAMLAuth struct {
 }
 
 // AuthURL provides a mock function with given fields: relayState
-func (_m *SAMLAuth) AuthURL(relayState string) (string, error) {
+func (_m *SAMLAuth) AuthURL(relayState string) (string, string, error) {
 	ret := _m.Called(relayState)
 
 	if len(ret) == 0 {
@@ -21,8 +21,9 @@ func (_m *SAMLAuth) AuthURL(relayState string) (string, error) {
 	}
 
 	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (string, error)); ok {
+	var r1 string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(string) (string, string, error)); ok {
 		return rf(relayState)
 	}
 	if rf, ok := ret.Get(0).(func(string) string); ok {
@@ -31,13 +32,19 @@ func (_m *SAMLAuth) AuthURL(relayState string) (string, error) {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
+	if rf, ok := ret.Get(1).(func(string) string); ok {
 		r1 = rf(relayState)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Get(1).(string)
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(string) error); ok {
+		r2 = rf(relayState)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MetadataXML provides a mock function with no fields
@@ -70,9 +77,9 @@ func (_m *SAMLAuth) MetadataXML() ([]byte, error) {
 	return r0, r1
 }
 
-// ValidateResponse provides a mock function with given fields: samlResponse
-func (_m *SAMLAuth) ValidateResponse(samlResponse string) (*auth.Claims, error) {
-	ret := _m.Called(samlResponse)
+// ValidateResponse provides a mock function with given fields: samlResponse, expectedRequestID
+func (_m *SAMLAuth) ValidateResponse(samlResponse string, expectedRequestID string) (*auth.Claims, error) {
+	ret := _m.Called(samlResponse, expectedRequestID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ValidateResponse")
@@ -80,19 +87,19 @@ func (_m *SAMLAuth) ValidateResponse(samlResponse string) (*auth.Claims, error) 
 
 	var r0 *auth.Claims
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (*auth.Claims, error)); ok {
-		return rf(samlResponse)
+	if rf, ok := ret.Get(0).(func(string, string) (*auth.Claims, error)); ok {
+		return rf(samlResponse, expectedRequestID)
 	}
-	if rf, ok := ret.Get(0).(func(string) *auth.Claims); ok {
-		r0 = rf(samlResponse)
+	if rf, ok := ret.Get(0).(func(string, string) *auth.Claims); ok {
+		r0 = rf(samlResponse, expectedRequestID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*auth.Claims)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(samlResponse)
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(samlResponse, expectedRequestID)
 	} else {
 		r1 = ret.Error(1)
 	}

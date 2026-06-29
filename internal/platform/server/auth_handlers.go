@@ -86,6 +86,7 @@ func (s *Server) registerAuthRoutes() {
 	// Single Logout endpoints: the post-logout redirect target (OIDC) and the
 	// SAML SingleLogout service (SP-initiated response + IdP-initiated request).
 	s.hertz.GET("/auth/oidc/logout-complete", s.handleOIDCLogoutComplete)
+	s.hertz.POST("/auth/oidc/backchannel-logout", authLimit, s.handleOIDCBackchannelLogout)
 	s.hertz.GET("/auth/saml/slo", authLimit, s.handleSAMLSLO)
 	s.hertz.POST("/auth/saml/slo", authLimit, s.handleSAMLSLO)
 }
@@ -671,12 +672,16 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if s.deps.SAMLProvider != nil {
-		authURL, err := s.deps.SAMLProvider.AuthURL(state)
+		authURL, requestID, err := s.deps.SAMLProvider.AuthURL(state)
 		if err != nil {
 			logErr(ctx, err, "failed to generate SAML auth URL")
 			c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("SAML error")))
 			return
 		}
+		// Persist the AuthnRequest ID so the ACS can bind the response to it.
+		_ = s.deps.Q.SetDeviceCodeSAMLRequestID(ctx, db.SetDeviceCodeSAMLRequestIDParams{
+			DeviceCode: deviceCode, SamlRequestID: &requestID,
+		})
 		c.Redirect(consts.StatusFound, []byte(authURL))
 		return
 	}
@@ -765,13 +770,31 @@ func (s *Server) handleSAMLACS(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Validate the SAML response.
-	claims, err := s.deps.SAMLProvider.ValidateResponse(samlResponse)
+	// Validate the SAML response, bound to the AuthnRequest we issued for this
+	// device-flow login (InResponseTo), rejecting unsolicited/mismatched responses.
+	reqIDPtr, _ := s.deps.Q.GetDeviceCodeSAMLRequestID(ctx, deviceCode)
+	claims, err := s.deps.SAMLProvider.ValidateResponse(samlResponse, derefStr(reqIDPtr))
 	if err != nil {
 		logErr(ctx, err, "SAML validation failed")
 		s.auditLoginFailure(ctx, c, "saml:validation_failed", err.Error())
 		c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
 		return
+	}
+
+	// One-time-use: refuse a replayed assertion even within its validity window.
+	if claims.AssertionID != "" {
+		exp := claims.ExpiresAt
+		if exp.IsZero() {
+			exp = time.Now().Add(10 * time.Minute)
+		}
+		fresh, merr := s.deps.Q.MarkSAMLAssertionUsed(ctx, db.MarkSAMLAssertionUsedParams{
+			AssertionID: claims.AssertionID, ExpiresAt: exp,
+		})
+		if merr != nil || fresh == 0 {
+			s.auditLoginFailure(ctx, c, "saml:replay", "assertion already used")
+			c.Data(consts.StatusBadRequest, "text/html", []byte(authErrorHTML("Authentication failed")))
+			return
+		}
 	}
 
 	if _, err := s.completeSSO(ctx, deviceCode, claims); err != nil {

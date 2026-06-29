@@ -16,6 +16,7 @@ type Claims struct {
 	Provider     string // "oidc" or "saml"
 	ExternalID   string // raw IdP identifier for user matching
 	SessionIndex string // SAML AuthnStatement SessionIndex (for SLO)
+	AssertionID  string // SAML assertion ID (for one-time-use replay protection)
 	IssuedAt     time.Time
 	ExpiresAt    time.Time
 	Raw          map[string]any // all claims/attributes for custom mapping

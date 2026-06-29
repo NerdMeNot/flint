@@ -44,8 +44,14 @@ type SAMLProviderConfig struct {
 // SAMLAuth is the interface for SAML authentication. *SAMLProvider implements
 // it; tests can mock it to avoid real IdP metadata fetching and response validation.
 type SAMLAuth interface {
-	AuthURL(relayState string) (string, error)
-	ValidateResponse(samlResponse string) (*Claims, error)
+	// AuthURL returns the IdP redirect URL and the generated AuthnRequest ID,
+	// which the caller persists and passes back to ValidateResponse so the
+	// response can be bound to this exact request (InResponseTo).
+	AuthURL(relayState string) (url, requestID string, err error)
+	// ValidateResponse validates a SAML response, requiring its InResponseTo to
+	// match expectedRequestID (pass "" only for IdP-initiated flows, which Flint
+	// does not use). It rejects unsolicited/mismatched responses.
+	ValidateResponse(samlResponse, expectedRequestID string) (*Claims, error)
 	MetadataXML() ([]byte, error)
 }
 
@@ -217,22 +223,22 @@ func (p *SAMLProvider) MetadataXML() ([]byte, error) {
 
 // AuthURL returns the URL to redirect the user to for SAML authentication.
 // The relayState is returned by the IdP after authentication (used for CSRF / device flow binding).
-func (p *SAMLProvider) AuthURL(relayState string) (string, error) {
+func (p *SAMLProvider) AuthURL(relayState string) (string, string, error) {
 	authnRequest, err := p.sp.MakeAuthenticationRequest(
 		p.sp.GetSSOBindingLocation(saml.HTTPRedirectBinding),
 		saml.HTTPRedirectBinding,
 		saml.HTTPPostBinding,
 	)
 	if err != nil {
-		return "", fmt.Errorf("creating AuthnRequest: %w", err)
+		return "", "", fmt.Errorf("creating AuthnRequest: %w", err)
 	}
 
 	redirectURL, err := authnRequest.Redirect(relayState, &p.sp)
 	if err != nil {
-		return "", fmt.Errorf("building redirect URL: %w", err)
+		return "", "", fmt.Errorf("building redirect URL: %w", err)
 	}
 
-	return redirectURL.String(), nil
+	return redirectURL.String(), authnRequest.ID, nil
 }
 
 // SLOConfigured reports whether the IdP advertises a SingleLogoutService, i.e.
@@ -289,23 +295,32 @@ func (p *SAMLProvider) LogoutResponseURL(requestID, relayState string) (string, 
 	return u.String(), nil
 }
 
-// ValidateResponse validates a SAML response and extracts claims.
-func (p *SAMLProvider) ValidateResponse(samlResponse string) (*Claims, error) {
+// ValidateResponse validates a SAML response and extracts claims. The response
+// must be in reply to expectedRequestID (InResponseTo), binding it to the
+// AuthnRequest Flint issued and rejecting unsolicited/replayed responses.
+func (p *SAMLProvider) ValidateResponse(samlResponse, expectedRequestID string) (*Claims, error) {
 	// Decode the base64-encoded SAML response.
 	responseBytes, err := base64.StdEncoding.DecodeString(samlResponse)
 	if err != nil {
 		return nil, fmt.Errorf("decoding SAML response: %w", err)
 	}
 
-	assertion, err := p.sp.ParseXMLResponse(responseBytes, []string{""}, p.sp.AcsURL)
+	// Require InResponseTo == the request we issued. crewjam treats an empty
+	// string in possibleRequestIDs as "accept unsolicited"; we never want that,
+	// so refuse if we have no request to bind against.
+	if expectedRequestID == "" {
+		return nil, fmt.Errorf("no AuthnRequest to bind the SAML response to (unsolicited responses are rejected)")
+	}
+	assertion, err := p.sp.ParseXMLResponse(responseBytes, []string{expectedRequestID}, p.sp.AcsURL)
 	if err != nil {
 		return nil, fmt.Errorf("validating SAML response: %w", err)
 	}
 
 	// Extract claims from the assertion.
 	claims := &Claims{
-		Provider: "saml",
-		IssuedAt: time.Now(),
+		Provider:    "saml",
+		IssuedAt:    time.Now(),
+		AssertionID: assertion.ID,
 	}
 
 	if assertion.Subject != nil && assertion.Subject.NameID != nil {

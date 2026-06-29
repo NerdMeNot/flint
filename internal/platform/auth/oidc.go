@@ -50,6 +50,7 @@ type OIDCProvider struct {
 	clientID           string
 	endSessionEndpoint string // RP-initiated logout endpoint, if the IdP advertises one
 	graph              *GraphClient
+	logoutVerifier     *oidc.IDTokenVerifier // for back-channel logout tokens
 }
 
 // NewOIDCProvider creates an OIDC provider by performing discovery on the issuer URL.
@@ -61,6 +62,14 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 
 	verifier := provider.Verifier(&oidc.Config{
 		ClientID: cfg.ClientID,
+	})
+
+	// Logout tokens (back-channel logout) carry no `exp` in some IdPs and are
+	// validated by their `events`/`iat` instead; use a verifier that skips the
+	// expiry check but still validates signature, issuer, and audience.
+	logoutVerifier := provider.Verifier(&oidc.Config{
+		ClientID:        cfg.ClientID,
+		SkipExpiryCheck: true,
 	})
 
 	scopes := cfg.Scopes
@@ -92,7 +101,41 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCProviderConfig) (*OIDCProvider
 		clientID:           cfg.ClientID,
 		endSessionEndpoint: disc.EndSessionEndpoint,
 		graph:              cfg.Graph,
+		logoutVerifier:     logoutVerifier,
 	}, nil
+}
+
+// VerifyLogoutToken validates an OIDC Back-Channel Logout 1.0 logout token and
+// returns the subject and session ID (sid) it identifies. It enforces the
+// spec's logout-specific rules: a valid signature/issuer/audience, the
+// backchannel-logout event in `events`, a `sub` or `sid`, and the absence of a
+// `nonce` (which would make it an ID token, not a logout token).
+func (p *OIDCProvider) VerifyLogoutToken(ctx context.Context, rawToken string) (subject, sid string, err error) {
+	if p.logoutVerifier == nil {
+		return "", "", fmt.Errorf("oidc not configured")
+	}
+	tok, err := p.logoutVerifier.Verify(ctx, rawToken)
+	if err != nil {
+		return "", "", fmt.Errorf("verifying logout token: %w", err)
+	}
+	var c struct {
+		Events map[string]any `json:"events"`
+		SID    string         `json:"sid"`
+		Nonce  string         `json:"nonce"`
+	}
+	if err := tok.Claims(&c); err != nil {
+		return "", "", fmt.Errorf("logout token claims: %w", err)
+	}
+	if c.Nonce != "" {
+		return "", "", fmt.Errorf("logout token must not contain a nonce")
+	}
+	if _, ok := c.Events["http://schemas.openid.net/event/backchannel-logout"]; !ok {
+		return "", "", fmt.Errorf("logout token missing the backchannel-logout event")
+	}
+	if tok.Subject == "" && c.SID == "" {
+		return "", "", fmt.Errorf("logout token has neither sub nor sid")
+	}
+	return tok.Subject, c.SID, nil
 }
 
 // AuthURL returns the URL to redirect the user to for OIDC authentication.

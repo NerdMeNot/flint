@@ -5,13 +5,17 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"encoding/xml"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/beevik/etree"
 	"github.com/crewjam/saml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,8 +86,9 @@ func TestSAMLProvider_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("AuthURL builds a redirect-binding AuthnRequest to the IdP SSO endpoint", func(t *testing.T) {
-		raw, err := p.AuthURL("relay-1")
+		raw, requestID, err := p.AuthURL("relay-1")
 		require.NoError(t, err)
+		assert.NotEmpty(t, requestID)
 		u, err := url.Parse(raw)
 		require.NoError(t, err)
 		assert.Equal(t, "idp.example.com", u.Host)
@@ -112,5 +117,87 @@ func TestSAMLProvider_Integration(t *testing.T) {
 		ce := p.CertExpiry()
 		require.NotNil(t, ce.IdPNotAfter)
 		assert.WithinDuration(t, idpExpiry, *ce.IdPNotAfter, time.Minute)
+	})
+}
+
+// spProvider lets the crewjam IdP find our SP's metadata when validating the
+// AuthnRequest and addressing the response.
+type spProvider struct{ md *saml.EntityDescriptor }
+
+func (s spProvider) GetServiceProvider(_ *http.Request, _ string) (*saml.EntityDescriptor, error) {
+	return s.md, nil
+}
+
+// TestSAMLProvider_SignedRoundTrip is the strongest SAML test: a crewjam IdP
+// mints a genuinely RSA-signed Response in reply to our SP's AuthnRequest, and
+// we run it through the real ValidateResponse — exercising signature validation,
+// InResponseTo request-binding, and claim extraction against a signed assertion.
+func TestSAMLProvider_SignedRoundTrip(t *testing.T) {
+	idpExpiry := time.Now().Add(90 * 24 * time.Hour)
+	idpCert, idpKey, _ := makeTestCert(t, "Round-trip IdP", idpExpiry)
+	metadataXML := testIdPMetadataXML(t, idpCert, idpKey)
+
+	p, err := BuildSAMLProvider(ProviderConfig{
+		MetadataXML: metadataXML,
+		EntityID:    "https://flint.example.com/saml",
+		EmailAttrs:  []string{"mail"},
+		GroupsAttrs: []string{"eduPersonAffiliation"},
+	}, "https://flint.example.com")
+	require.NoError(t, err)
+
+	idp := &saml.IdentityProvider{
+		Key:                     idpKey,
+		Certificate:             idpCert,
+		MetadataURL:             url.URL{Scheme: "https", Host: "idp.example.com", Path: "/metadata"},
+		SSOURL:                  url.URL{Scheme: "https", Host: "idp.example.com", Path: "/sso"},
+		ServiceProviderProvider: spProvider{md: p.sp.Metadata()},
+	}
+
+	// mintResponse drives a full SP→IdP→SP exchange and returns the base64
+	// SAMLResponse plus the request ID the SP expects it to answer.
+	mintResponse := func(t *testing.T) (samlResponse, requestID string) {
+		t.Helper()
+		authURL, reqID, err := p.AuthURL("relay-xyz")
+		require.NoError(t, err)
+		httpReq := httptest.NewRequest(http.MethodGet, authURL, nil)
+
+		idpReq, err := saml.NewIdpAuthnRequest(idp, httpReq)
+		require.NoError(t, err)
+		require.NoError(t, idpReq.Validate())
+
+		idpReq.Now = time.Now()
+		require.NoError(t, saml.DefaultAssertionMaker{}.MakeAssertion(idpReq, &saml.Session{
+			ID: "sess-1", NameID: "alice@flint.dev", UserEmail: "alice@flint.dev",
+			Groups: []string{"engineering", "admins"}, Index: "session-index-7",
+		}))
+		require.NoError(t, idpReq.MakeResponse())
+
+		doc := etree.NewDocument()
+		doc.SetRoot(idpReq.ResponseEl)
+		xmlBytes, err := doc.WriteToBytes()
+		require.NoError(t, err)
+		return base64.StdEncoding.EncodeToString(xmlBytes), reqID
+	}
+
+	t.Run("a signed response bound to our request validates and yields claims", func(t *testing.T) {
+		resp, reqID := mintResponse(t)
+		claims, err := p.ValidateResponse(resp, reqID)
+		require.NoError(t, err)
+		assert.Equal(t, "alice@flint.dev", claims.Email)
+		assert.ElementsMatch(t, []string{"engineering", "admins"}, claims.Groups)
+		assert.NotEmpty(t, claims.AssertionID)
+		assert.Equal(t, "session-index-7", claims.SessionIndex)
+	})
+
+	t.Run("a response for a different request is rejected (InResponseTo binding)", func(t *testing.T) {
+		resp, _ := mintResponse(t)
+		_, err := p.ValidateResponse(resp, "id-some-other-request")
+		require.Error(t, err)
+	})
+
+	t.Run("an unsolicited response (no expected request) is rejected", func(t *testing.T) {
+		resp, _ := mintResponse(t)
+		_, err := p.ValidateResponse(resp, "")
+		require.Error(t, err)
 	})
 }
