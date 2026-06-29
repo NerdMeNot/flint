@@ -81,6 +81,15 @@ func (q *Queries) DeleteExpiredMFAPendingTokens(ctx context.Context) error {
 	return err
 }
 
+const deleteExpiredSAMLAssertions = `-- name: DeleteExpiredSAMLAssertions :exec
+DELETE FROM saml_used_assertions WHERE expires_at < now()
+`
+
+func (q *Queries) DeleteExpiredSAMLAssertions(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredSAMLAssertions)
+	return err
+}
+
 const deleteMFAPendingToken = `-- name: DeleteMFAPendingToken :exec
 DELETE FROM mfa_pending_tokens WHERE token = $1
 `
@@ -173,6 +182,17 @@ func (q *Queries) GetDeviceCodeRefreshToken(ctx context.Context, deviceCode stri
 	return refresh_token, err
 }
 
+const getDeviceCodeSAMLRequestID = `-- name: GetDeviceCodeSAMLRequestID :one
+SELECT saml_request_id FROM device_codes WHERE device_code = $1
+`
+
+func (q *Queries) GetDeviceCodeSAMLRequestID(ctx context.Context, deviceCode string) (*string, error) {
+	row := q.db.QueryRow(ctx, getDeviceCodeSAMLRequestID, deviceCode)
+	var saml_request_id *string
+	err := row.Scan(&saml_request_id)
+	return saml_request_id, err
+}
+
 const getMFAPendingToken = `-- name: GetMFAPendingToken :one
 SELECT user_id, email, org_id FROM mfa_pending_tokens
 WHERE token = $1 AND expires_at > now()
@@ -241,6 +261,26 @@ func (q *Queries) InsertMFAPendingToken(ctx context.Context, arg InsertMFAPendin
 	return err
 }
 
+const markSAMLAssertionUsed = `-- name: MarkSAMLAssertionUsed :execrows
+INSERT INTO saml_used_assertions (assertion_id, expires_at)
+VALUES ($1, $2) ON CONFLICT (assertion_id) DO NOTHING
+`
+
+type MarkSAMLAssertionUsedParams struct {
+	AssertionID string    `json:"assertion_id"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+// One-time-use guard: succeeds (1 row) the first time an assertion ID is seen,
+// and returns 0 rows on replay. Bounded by the assertion's own validity window.
+func (q *Queries) MarkSAMLAssertionUsed(ctx context.Context, arg MarkSAMLAssertionUsedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markSAMLAssertionUsed, arg.AssertionID, arg.ExpiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const recordTOTPUse = `-- name: RecordTOTPUse :one
 
 UPDATE users SET mfa_last_used_period = $2
@@ -282,6 +322,20 @@ func (q *Queries) SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCode
 		arg.Nonce,
 		arg.CodeVerifier,
 	)
+	return err
+}
+
+const setDeviceCodeSAMLRequestID = `-- name: SetDeviceCodeSAMLRequestID :exec
+UPDATE device_codes SET saml_request_id = $2 WHERE device_code = $1
+`
+
+type SetDeviceCodeSAMLRequestIDParams struct {
+	DeviceCode    string  `json:"device_code"`
+	SamlRequestID *string `json:"saml_request_id"`
+}
+
+func (q *Queries) SetDeviceCodeSAMLRequestID(ctx context.Context, arg SetDeviceCodeSAMLRequestIDParams) error {
+	_, err := q.db.Exec(ctx, setDeviceCodeSAMLRequestID, arg.DeviceCode, arg.SamlRequestID)
 	return err
 }
 

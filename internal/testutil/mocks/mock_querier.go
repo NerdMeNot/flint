@@ -1432,6 +1432,24 @@ func (_m *Querier) DeleteExpiredMFAPendingTokens(ctx context.Context) error {
 	return r0
 }
 
+// DeleteExpiredSAMLAssertions provides a mock function with given fields: ctx
+func (_m *Querier) DeleteExpiredSAMLAssertions(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteExpiredSAMLAssertions")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteExpiredSessions provides a mock function with given fields: ctx
 func (_m *Querier) DeleteExpiredSessions(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -2322,6 +2340,36 @@ func (_m *Querier) GetDeviceCodeRefreshToken(ctx context.Context, deviceCode str
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetDeviceCodeRefreshToken")
+	}
+
+	var r0 *string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*string, error)); ok {
+		return rf(ctx, deviceCode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *string); ok {
+		r0 = rf(ctx, deviceCode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, deviceCode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetDeviceCodeSAMLRequestID provides a mock function with given fields: ctx, deviceCode
+func (_m *Querier) GetDeviceCodeSAMLRequestID(ctx context.Context, deviceCode string) (*string, error) {
+	ret := _m.Called(ctx, deviceCode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeviceCodeSAMLRequestID")
 	}
 
 	var r0 *string
@@ -6412,6 +6460,34 @@ func (_m *Querier) MarkRunCleaned(ctx context.Context, id string) error {
 	return r0
 }
 
+// MarkSAMLAssertionUsed provides a mock function with given fields: ctx, arg
+func (_m *Querier) MarkSAMLAssertionUsed(ctx context.Context, arg db.MarkSAMLAssertionUsedParams) (int64, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkSAMLAssertionUsed")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.MarkSAMLAssertionUsedParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.MarkSAMLAssertionUsedParams) int64); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.MarkSAMLAssertionUsedParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // MarkStepDispatched provides a mock function with given fields: ctx, arg
 func (_m *Querier) MarkStepDispatched(ctx context.Context, arg db.MarkStepDispatchedParams) error {
 	ret := _m.Called(ctx, arg)
@@ -7214,6 +7290,24 @@ func (_m *Querier) SetDeviceCodeOAuthState(ctx context.Context, arg db.SetDevice
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.SetDeviceCodeOAuthStateParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetDeviceCodeSAMLRequestID provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetDeviceCodeSAMLRequestID(ctx context.Context, arg db.SetDeviceCodeSAMLRequestIDParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetDeviceCodeSAMLRequestID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetDeviceCodeSAMLRequestIDParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)

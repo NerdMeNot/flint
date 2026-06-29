@@ -19,15 +19,16 @@ import (
 // those handlers branch to here when the state belongs to a pending test.
 
 type testLogin struct {
-	protocol string // "oidc" | "saml"
-	nonce    string
-	verifier string
-	oidc     auth.OIDCAuth
-	saml     auth.SAMLAuth
-	status   string // "pending" | "complete" | "error"
-	result   *testLoginResult
-	errMsg   string
-	created  time.Time
+	protocol  string // "oidc" | "saml"
+	nonce     string
+	verifier  string
+	samlReqID string // SAML AuthnRequest ID, bound to the response
+	oidc      auth.OIDCAuth
+	saml      auth.SAMLAuth
+	status    string // "pending" | "complete" | "error"
+	result    *testLoginResult
+	errMsg    string
+	created   time.Time
 }
 
 type testLoginResult struct {
@@ -107,7 +108,7 @@ func (s *Server) handleStartTestLogin(ctx context.Context, c *app.RequestContext
 			return
 		}
 		tl.saml = p
-		authURL, err = p.AuthURL(state)
+		authURL, tl.samlReqID, err = p.AuthURL(state)
 		if err != nil {
 			apiBadRequest(ctx, c, "SAML auth URL failed: "+err.Error())
 			return
@@ -149,7 +150,7 @@ func (s *Server) completeOIDCTestLogin(ctx context.Context, c *app.RequestContex
 // completeSAMLTestLogin is invoked from the SAML ACS when the RelayState belongs
 // to a pending test.
 func (s *Server) completeSAMLTestLogin(c *app.RequestContext, tl *testLogin, samlResponse string) {
-	claims, err := tl.saml.ValidateResponse(samlResponse)
+	claims, err := tl.saml.ValidateResponse(samlResponse, tl.samlReqID)
 	s.finishTestLogin(c, tl, claims, err)
 }
 

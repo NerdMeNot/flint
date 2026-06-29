@@ -34,6 +34,21 @@ SELECT nonce FROM device_codes WHERE device_code = $1;
 -- name: GetDeviceCodeCodeVerifier :one
 SELECT code_verifier FROM device_codes WHERE device_code = $1;
 
+-- name: SetDeviceCodeSAMLRequestID :exec
+UPDATE device_codes SET saml_request_id = $2 WHERE device_code = $1;
+
+-- name: GetDeviceCodeSAMLRequestID :one
+SELECT saml_request_id FROM device_codes WHERE device_code = $1;
+
+-- name: MarkSAMLAssertionUsed :execrows
+-- One-time-use guard: succeeds (1 row) the first time an assertion ID is seen,
+-- and returns 0 rows on replay. Bounded by the assertion's own validity window.
+INSERT INTO saml_used_assertions (assertion_id, expires_at)
+VALUES ($1, $2) ON CONFLICT (assertion_id) DO NOTHING;
+
+-- name: DeleteExpiredSAMLAssertions :exec
+DELETE FROM saml_used_assertions WHERE expires_at < now();
+
 -- name: GetDeviceCodeRefreshToken :one
 SELECT refresh_token FROM device_codes WHERE device_code = $1;
 

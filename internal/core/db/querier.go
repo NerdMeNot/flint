@@ -83,6 +83,7 @@ type Querier interface {
 	DeleteEnvironment(ctx context.Context, id string) error
 	DeleteExpiredDeviceCodes(ctx context.Context) error
 	DeleteExpiredMFAPendingTokens(ctx context.Context) error
+	DeleteExpiredSAMLAssertions(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteForgeConnection(ctx context.Context, id string) (int64, error)
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
@@ -134,6 +135,7 @@ type Querier interface {
 	GetDeviceCodeCodeVerifier(ctx context.Context, deviceCode string) (*string, error)
 	GetDeviceCodeNonce(ctx context.Context, deviceCode string) (*string, error)
 	GetDeviceCodeRefreshToken(ctx context.Context, deviceCode string) (*string, error)
+	GetDeviceCodeSAMLRequestID(ctx context.Context, deviceCode string) (*string, error)
 	GetEnvVariable(ctx context.Context, id string) (GetEnvVariableRow, error)
 	GetEnvironment(ctx context.Context, id string) (GetEnvironmentRow, error)
 	GetExistingWorkflow(ctx context.Context, runID string) (string, error)
@@ -365,6 +367,9 @@ type Querier interface {
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
+	// One-time-use guard: succeeds (1 row) the first time an assertion ID is seen,
+	// and returns 0 rows on replay. Bounded by the assertion's own validity window.
+	MarkSAMLAssertionUsed(ctx context.Context, arg MarkSAMLAssertionUsedParams) (int64, error)
 	// Records that a claimed step was successfully handed to an executor. dispatched_at
 	// distinguishes "running, has a Job" from "claimed but the worker died before
 	// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
@@ -430,6 +435,7 @@ type Querier interface {
 	// Promotes one pool to default and demotes all others atomically.
 	SetDefaultRunnerPool(ctx context.Context, name string) error
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
+	SetDeviceCodeSAMLRequestID(ctx context.Context, arg SetDeviceCodeSAMLRequestIDParams) error
 	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
 	SetOrgRequireSSO(ctx context.Context, arg SetOrgRequireSSOParams) error
 	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
