@@ -29,6 +29,8 @@ type RunCreator interface {
 	HandleWebhook(ctx context.Context, headers http.Header, body []byte, forgeType string) ([]string, error)
 	TriggerManual(ctx context.Context, projectID, branch, workflowFile, environment string) (runID, workflowID string, err error)
 	Rerun(ctx context.Context, runID string) (newRunID, workflowID string, err error)
+	RerunFailed(ctx context.Context, runID string) (newRunID, workflowID string, err error)
+	RetryFromStep(ctx context.Context, runID, stepName string) (newRunID, workflowID string, err error)
 }
 
 // Deps holds all dependencies for the HTTP server.

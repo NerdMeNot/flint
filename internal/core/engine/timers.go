@@ -78,6 +78,11 @@ func handleTimer(ctx context.Context, qtx *db.Queries, t db.LockNextDueTimerRow)
 		}); err != nil {
 			return err
 		}
+		emitStepEvent(ctx, qtx, stepTransition{
+			workflowID: t.WorkflowID, stepName: t.StepName, attempt: -1,
+			from: stepRunning, to: stepFailed, eventType: "timed_out", actor: actorEngine,
+			reason: "step execution timed out",
+		})
 		log.Warn().Str("step", t.StepName).Msg("engine: step timed out")
 		return advanceWorkflow(ctx, qtx, t.WorkflowID, 0)
 
@@ -95,6 +100,10 @@ func handleTimer(ctx context.Context, qtx *db.Queries, t db.LockNextDueTimerRow)
 		}); err != nil {
 			return err
 		}
+		emitStepEvent(ctx, qtx, stepTransition{
+			workflowID: t.WorkflowID, stepName: t.StepName, attempt: -1,
+			from: stepWaiting, to: stepFailed, eventType: "timed_out", actor: actorEngine, reason: msg,
+		})
 		log.Warn().Str("step", t.StepName).Str("type", t.TimerType).Msg("engine: " + msg)
 		return advanceWorkflow(ctx, qtx, t.WorkflowID, 0)
 
@@ -107,6 +116,10 @@ func handleTimer(ctx context.Context, qtx *db.Queries, t db.LockNextDueTimerRow)
 		}); err != nil {
 			return err
 		}
+		emitStepEvent(ctx, qtx, stepTransition{
+			workflowID: t.WorkflowID, stepName: t.StepName, attempt: -1,
+			from: stepRetryWait, to: stepQueued, eventType: "retry_requeued", actor: actorEngine,
+		})
 		log.Info().Str("step", t.StepName).Msg("engine: retry backoff expired, re-queuing")
 		return nil
 	}

@@ -31,6 +31,11 @@ type Engine interface {
 	// root workflows, in a single Postgres transaction.
 	StartWorkflowWithWaves(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step) (workflowID string, err error)
 
+	// StartWorkflowSeeded is StartWorkflowWithWaves with carry-over: steps named in
+	// seed are pre-completed as succeeded with their prior results, so only the
+	// remaining steps run. Backs re-run-failed and retry-from-step.
+	StartWorkflowSeeded(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step, seed map[string]StepResult) (workflowID string, err error)
+
 	// CompleteStep reports that a step has finished (success or failure).
 	// Validates the task token, updates step status, handles retries,
 	// and advances the workflow — all in one transaction.
@@ -43,6 +48,21 @@ type Engine interface {
 
 	// CancelWorkflow marks a workflow and all non-terminal steps as cancelled.
 	CancelWorkflow(ctx context.Context, workflowID string) error
+
+	// PauseWorkflow halts new step dispatch for a running workflow. In-flight steps
+	// run to completion; no new steps are claimed or queued until ResumeWorkflow.
+	// Idempotent: pausing a non-running workflow is a no-op.
+	PauseWorkflow(ctx context.Context, workflowID string) error
+
+	// ResumeWorkflow returns a paused workflow to running and advances it so
+	// newly-eligible steps are queued. Idempotent: resuming a non-paused workflow
+	// is a no-op.
+	ResumeWorkflow(ctx context.Context, workflowID string) error
+
+	// ResolveStepManually forces a non-terminal step to a terminal outcome
+	// (succeeded|failed|skipped) on operator command, recording who and why. The
+	// escape hatch for a step an executor will never complete.
+	ResolveStepManually(ctx context.Context, workflowID, stepName, outcome, actor, reason string) error
 
 	// QueryWorkflow returns the current state of a workflow and its steps.
 	QueryWorkflow(ctx context.Context, workflowID string) (*WorkflowState, error)

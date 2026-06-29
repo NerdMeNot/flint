@@ -172,12 +172,18 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/runs/:id", s.requirePermission(auth.ObjRun, auth.ActRead), s.getRun)
 		v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
 		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
+		v1.GET("/runs/:id/events", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunEvents)
 		v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
 		v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
 		v1.GET("/runs/:id/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunLogs)
 		v1.GET("/runs/:id/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamRunState)
 		v1.POST("/runs/:id/cancel", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleCancelRun)
+		v1.POST("/runs/:id/pause", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handlePauseRun)
+		v1.POST("/runs/:id/resume", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleResumeRun)
 		v1.POST("/runs/:id/retry", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryRun)
+		v1.POST("/runs/:id/rerun-failed", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRerunFailed)
+		v1.POST("/runs/:id/retry-from/:step", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.handleRetryFromStep)
+		v1.POST("/runs/:id/steps/:step/resolve", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleResolveStep)
 
 		// Gates.
 		v1.GET("/gates", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListGates)

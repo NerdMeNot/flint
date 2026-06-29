@@ -55,6 +55,19 @@ func (e *PgEngine) Close() {}
 // and hand them to the engine, which executes them generically. Idempotent for
 // root workflows, like StartWorkflow.
 func (e *PgEngine) StartWorkflowWithWaves(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step) (string, error) {
+	return e.startWorkflow(ctx, input, waves, nil)
+}
+
+// StartWorkflowSeeded starts a workflow whose steps named in seed are pre-completed
+// as 'succeeded' with their carried-over results (and their outputs folded into the
+// workflow's step_outputs), so only the remaining steps execute. This is the engine
+// primitive behind re-run-failed and retry-from-step: the caller decides which steps
+// to carry over (every step NOT in seed runs fresh, gated normally by its deps).
+func (e *PgEngine) StartWorkflowSeeded(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step, seed map[string]StepResult) (string, error) {
+	return e.startWorkflow(ctx, input, waves, seed)
+}
+
+func (e *PgEngine) startWorkflow(ctx context.Context, input StartWorkflowInput, waves [][]pipeline.Step, seed map[string]StepResult) (string, error) {
 	logger := observe.Logger(ctx)
 
 	tx, err := e.pool.Begin(ctx)
@@ -105,7 +118,7 @@ func (e *PgEngine) StartWorkflowWithWaves(ctx context.Context, input StartWorkfl
 		return "", fmt.Errorf("engine: update workflow: %w", err)
 	}
 
-	if err := createStepsAndAdvance(ctx, qtx, workflowID, waves); err != nil {
+	if err := createStepsAndAdvance(ctx, qtx, workflowID, waves, seed); err != nil {
 		return "", err
 	}
 
@@ -127,49 +140,54 @@ func (e *PgEngine) StartWorkflowWithWaves(ctx context.Context, input StartWorkfl
 }
 
 // createStepsAndAdvance inserts step rows for the resolved waves and advances the
-// workflow (queuing wave 0). Shared by every product entry point.
-func createStepsAndAdvance(ctx context.Context, qtx *db.Queries, workflowID string, waves [][]pipeline.Step) error {
+// workflow (queuing the initially-eligible steps). Shared by every product entry
+// point. Steps named in seed are inserted already-succeeded with their carried-over
+// result (re-run-failed / retry-from-step); seed is nil for a normal start.
+func createStepsAndAdvance(ctx context.Context, qtx *db.Queries, workflowID string, waves [][]pipeline.Step, seed map[string]StepResult) error {
+	seededOutputs := make(map[string]StepResult)
 	for waveIdx, wave := range waves {
 		for _, step := range wave {
-			timeoutSec := 7200
-			if step.Timeout != "" {
-				if d, parseErr := time.ParseDuration(step.Timeout); parseErr == nil {
-					timeoutSec = int(d.Seconds())
-				}
-			}
-			maxAttempts := 1
-			retryBackoff := "exponential"
-			retryIntervalSec := 5
-			onFailure := "fail"
+			p := buildInsertStepParams(workflowID, waveIdx, step)
 
-			if step.ContinueOnError {
-				onFailure = "continue"
-			}
-			if step.Retry != nil {
-				if step.Retry.Attempts > 0 {
-					maxAttempts = step.Retry.Attempts
+			if res, ok := seed[step.Name]; ok && res.Success {
+				if err := qtx.InsertSeededStep(ctx, db.InsertSeededStepParams{
+					WorkflowID:           p.WorkflowID,
+					Name:                 p.Name,
+					ExecType:             p.ExecType,
+					Wave:                 p.Wave,
+					MaxAttempts:          p.MaxAttempts,
+					StepDef:              p.StepDef,
+					TimeoutSeconds:       p.TimeoutSeconds,
+					RetryBackoff:         p.RetryBackoff,
+					RetryIntervalSeconds: p.RetryIntervalSeconds,
+					OnFailure:            p.OnFailure,
+					Result:               mustJSON(res),
+				}); err != nil {
+					return fmt.Errorf("engine: insert seeded step %s: %w", step.Name, err)
 				}
-				if step.Retry.Delay != "" {
-					if d, parseErr := time.ParseDuration(step.Retry.Delay); parseErr == nil {
-						retryIntervalSec = int(d.Seconds())
-					}
-				}
+				seededOutputs[step.Name] = res
+				emitStepEvent(ctx, qtx, stepTransition{
+					workflowID: workflowID, stepName: step.Name, attempt: 0,
+					to: stepSucceeded, eventType: "seeded", actor: actorEngine,
+					reason: "carried over from prior run",
+				})
+				continue
 			}
 
-			if err := qtx.InsertStep(ctx, db.InsertStepParams{
-				WorkflowID:           workflowID,
-				Name:                 step.Name,
-				ExecType:             step.ExecType(),
-				Wave:                 int32(waveIdx),
-				MaxAttempts:          int32(maxAttempts),
-				StepDef:              mustJSON(step),
-				TimeoutSeconds:       int32(timeoutSec),
-				RetryBackoff:         retryBackoff,
-				RetryIntervalSeconds: int32(retryIntervalSec),
-				OnFailure:            onFailure,
-			}); err != nil {
+			if err := qtx.InsertStep(ctx, p); err != nil {
 				return fmt.Errorf("engine: insert step %s: %w", step.Name, err)
 			}
+		}
+	}
+
+	// Persist carried-over outputs so downstream `dependsOn` gating and
+	// steps.<name>.<output> expressions resolve against the seeded results.
+	if len(seededOutputs) > 0 {
+		if err := qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
+			ID:      workflowID,
+			Column2: mustJSON(seededOutputs),
+		}); err != nil {
+			return fmt.Errorf("engine: seed step outputs: %w", err)
 		}
 	}
 
@@ -177,6 +195,48 @@ func createStepsAndAdvance(ctx context.Context, qtx *db.Queries, workflowID stri
 		return fmt.Errorf("engine: advance: %w", err)
 	}
 	return nil
+}
+
+// buildInsertStepParams derives the persisted step row from a pipeline.Step,
+// resolving timeout, retry policy, and onFailure from the step definition.
+func buildInsertStepParams(workflowID string, waveIdx int, step pipeline.Step) db.InsertStepParams {
+	timeoutSec := 7200
+	if step.Timeout != "" {
+		if d, parseErr := time.ParseDuration(step.Timeout); parseErr == nil {
+			timeoutSec = int(d.Seconds())
+		}
+	}
+	maxAttempts := 1
+	retryBackoff := "exponential"
+	retryIntervalSec := 5
+	onFailure := "fail"
+
+	if step.ContinueOnError {
+		onFailure = "continue"
+	}
+	if step.Retry != nil {
+		if step.Retry.Attempts > 0 {
+			maxAttempts = step.Retry.Attempts
+		}
+		if step.Retry.Delay != "" {
+			if d, parseErr := time.ParseDuration(step.Retry.Delay); parseErr == nil {
+				retryIntervalSec = int(d.Seconds())
+			}
+		}
+	}
+
+	return db.InsertStepParams{
+		WorkflowID:           workflowID,
+		Name:                 step.Name,
+		ExecType:             step.ExecType(),
+		Wave:                 int32(waveIdx),
+		MaxAttempts:          int32(maxAttempts),
+		StepDef:              mustJSON(step),
+		TimeoutSeconds:       int32(timeoutSec),
+		RetryBackoff:         retryBackoff,
+		RetryIntervalSeconds: int32(retryIntervalSec),
+		OnFailure:            onFailure,
+	}
 }
 
 // CompleteStep reports that a step has finished.
@@ -226,13 +286,19 @@ func (e *PgEngine) completeStepOnce(ctx context.Context, token TaskToken, result
 	}
 	observe.StepsCompleted.Add(ctx, 1, metric.WithAttributes(attribute.String("status", newStatus)))
 
-	// Update step.
-	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     stepRow.ID,
-		Status: newStatus,
-		Result: mustJSON(result),
+	// Update step through the transition chokepoint (validates, updates the row,
+	// records a history event). The agent (or in-process executor) is the actor.
+	if err := transitionStep(ctx, qtx, stepTransition{
+		stepID:     stepRow.ID,
+		workflowID: token.WorkflowID,
+		stepName:   token.StepName,
+		attempt:    token.Attempt,
+		from:       stepRow.Status,
+		to:         newStatus,
+		result:     &result,
+		actor:      actorAgent,
 	}); err != nil {
-		return fmt.Errorf("engine: update step: %w", err)
+		return fmt.Errorf("engine: complete step transition: %w", err)
 	}
 
 	// Cancel timeout timer.
@@ -299,6 +365,16 @@ func maybeScheduleRetry(ctx context.Context, qtx *db.Queries, stepID, workflowID
 	}); err != nil {
 		return false, fmt.Errorf("engine: create retry timer: %w", err)
 	}
+	// Record the retry on the freshly-parked attempt (retry_wait) for the timeline.
+	emitStepEvent(ctx, qtx, stepTransition{
+		workflowID: workflowID,
+		stepName:   stepName,
+		attempt:    attempt + 1,
+		eventType:  "retry_scheduled",
+		to:         stepRetryWait,
+		actor:      actorEngine,
+		metadata:   map[string]any{"backoffSeconds": int(backoff.Seconds()), "ofMaxAttempts": maxAttempts},
+	})
 	return true, nil
 }
 
@@ -339,8 +415,25 @@ func (e *PgEngine) cancelWorkflowOnce(ctx context.Context, workflowID string) er
 	if err := qtx.CancelWorkflow(ctx, workflowID); err != nil {
 		return fmt.Errorf("engine: cancel workflow: %w", err)
 	}
-	if err := qtx.CancelPendingSteps(ctx, workflowID); err != nil {
+	emitWorkflowEvent(ctx, qtx, workflowTransition{
+		workflowID: workflowID,
+		to:         wfCancelled,
+		eventType:  "workflow_cancelled",
+		actor:      actorEngine,
+	})
+	cancelled, err := qtx.CancelPendingSteps(ctx, workflowID)
+	if err != nil {
 		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel pending steps")
+	}
+	for _, st := range cancelled {
+		emitStepEvent(ctx, qtx, stepTransition{
+			workflowID: workflowID,
+			stepName:   st.Name,
+			attempt:    int(st.Attempt),
+			from:       st.OldStatus,
+			to:         stepCancelled,
+			actor:      actorEngine,
+		})
 	}
 	if err := qtx.CancelAllWorkflowTimers(ctx, workflowID); err != nil {
 		log.Error().Err(err).Str("workflowID", workflowID).Msg("engine: failed to cancel timers")
@@ -362,6 +455,151 @@ func (e *PgEngine) cancelWorkflowOnce(ctx context.Context, workflowID string) er
 	_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
 	e.notifyState(ctx, workflowID)
 	return nil
+}
+
+// PauseWorkflow transitions a running workflow to paused. No new steps are
+// claimed (ClaimQueuedSteps filters to running workflows) or queued
+// (advanceWorkflow no-ops unless running) until ResumeWorkflow. In-flight steps
+// still finish and record results.
+func (e *PgEngine) PauseWorkflow(ctx context.Context, workflowID string) error {
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	qtx := db.New(e.pool).WithTx(tx)
+
+	n, err := qtx.PauseWorkflow(ctx, workflowID)
+	if err != nil {
+		return fmt.Errorf("engine: pause workflow: %w", err)
+	}
+	if n == 0 {
+		return nil // not running — idempotent no-op
+	}
+	if err := qtx.SetRunStatusByWorkflow(ctx, db.SetRunStatusByWorkflowParams{
+		WorkflowID: &workflowID, Status: "paused",
+	}); err != nil {
+		log.Warn().Err(err).Str("workflow", workflowID).Msg("engine: failed to mark run paused")
+	}
+	emitWorkflowEvent(ctx, qtx, workflowTransition{
+		workflowID: workflowID, from: wfRunning, to: wfPaused, eventType: "paused",
+	})
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	e.notifyState(ctx, workflowID)
+	return nil
+}
+
+// ResumeWorkflow transitions a paused workflow back to running and advances it so
+// steps that became eligible while paused are queued.
+func (e *PgEngine) ResumeWorkflow(ctx context.Context, workflowID string) error {
+	return retryOnConflict(ctx, func() error {
+		tx, err := e.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		qtx := db.New(e.pool).WithTx(tx)
+
+		n, err := qtx.ResumeWorkflow(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("engine: resume workflow: %w", err)
+		}
+		if n == 0 {
+			return nil // not paused — idempotent no-op
+		}
+		if err := qtx.SetRunStatusByWorkflow(ctx, db.SetRunStatusByWorkflowParams{
+			WorkflowID: &workflowID, Status: "running",
+		}); err != nil {
+			log.Warn().Err(err).Str("workflow", workflowID).Msg("engine: failed to mark run running")
+		}
+		emitWorkflowEvent(ctx, qtx, workflowTransition{
+			workflowID: workflowID, from: wfPaused, to: wfRunning, eventType: "resumed",
+		})
+		if err := advanceWorkflow(ctx, qtx, workflowID, 0); err != nil {
+			return fmt.Errorf("engine: advance after resume: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
+		e.notifyState(ctx, workflowID)
+		return nil
+	})
+}
+
+// ResolveStepManually forces a non-terminal step to a terminal outcome
+// (succeeded, failed, or skipped) on operator command — the escape hatch for a
+// step wedged 'running'/'waiting' that an executor will never complete. It records
+// a manual_resolve history event attributing the actor and reason, then advances
+// the workflow. A real completion arriving later for the same step hits the
+// terminal-idempotency guard in CompleteStep and is a safe no-op.
+func (e *PgEngine) ResolveStepManually(ctx context.Context, workflowID, stepName, outcome, actor, reason string) error {
+	switch outcome {
+	case stepSucceeded, stepFailed, stepSkipped:
+	default:
+		return fmt.Errorf("engine: invalid manual outcome %q (want succeeded|failed|skipped)", outcome)
+	}
+	return retryOnConflict(ctx, func() error {
+		tx, err := e.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		qtx := db.New(e.pool).WithTx(tx)
+
+		st, err := qtx.LockLatestStep(ctx, db.LockLatestStepParams{WorkflowID: workflowID, Name: stepName})
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				return fmt.Errorf("engine: step %q not found", stepName)
+			}
+			return fmt.Errorf("engine: lock step: %w", err)
+		}
+		if isTerminal(st.Status) {
+			return fmt.Errorf("engine: step %q already %s", stepName, st.Status)
+		}
+
+		result := StepResult{StepName: stepName, Success: outcome == stepSucceeded}
+		if outcome != stepSucceeded && reason != "" {
+			result.Error = reason
+		}
+		var resultPtr *StepResult
+		if outcome != stepSkipped {
+			resultPtr = &result
+		}
+		if err := transitionStep(ctx, qtx, stepTransition{
+			stepID: st.ID, workflowID: workflowID, stepName: stepName, attempt: int(st.Attempt),
+			from: st.Status, to: outcome, result: resultPtr, eventType: "manual_resolve",
+			actor: actorOperator(actor), reason: reason, force: true,
+		}); err != nil {
+			return err
+		}
+		// A manually-succeeded step may feed downstream deps/expressions.
+		if outcome == stepSucceeded {
+			if err := qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
+				ID:      workflowID,
+				Column2: mustJSON(map[string]StepResult{stepName: result}),
+			}); err != nil {
+				return fmt.Errorf("engine: record manual step outputs: %w", err)
+			}
+		}
+		// Cancel any pending timeout/gate/wait timer for the step.
+		if err := qtx.CancelTimer(ctx, db.CancelTimerParams{
+			WorkflowID: workflowID, StepName: stepName, TimerType: timerTimeout,
+		}); err != nil {
+			log.Warn().Err(err).Str("step", stepName).Msg("engine: failed to cancel timer on manual resolve")
+		}
+		if err := advanceWorkflow(ctx, qtx, workflowID, 0); err != nil {
+			return fmt.Errorf("engine: advance after manual resolve: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		_ = db.New(e.pool).NotifyEngine(ctx, workflowID)
+		e.notifyState(ctx, workflowID)
+		return nil
+	})
 }
 
 // QueryWorkflow returns the current state of a workflow.
@@ -418,6 +656,13 @@ func finishWorkflow(ctx context.Context, qtx *db.Queries, workflowID, status str
 		log.Error().Err(err).Str("workflowID", workflowID).Str("status", status).
 			Msg("engine: failed to finish workflow (sweep will recover)")
 	}
+	emitWorkflowEvent(ctx, qtx, workflowTransition{
+		workflowID: workflowID,
+		from:       wfRunning,
+		to:         status,
+		eventType:  "workflow_finished",
+		actor:      actorEngine,
+	})
 	if err := qtx.FinishRun(ctx, db.FinishRunParams{WorkflowID: &workflowID, Status: status}); err != nil {
 		log.Error().Err(err).Str("workflowID", workflowID).Str("status", status).
 			Msg("engine: failed to finish run")

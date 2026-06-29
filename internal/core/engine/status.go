@@ -45,3 +45,78 @@ func isTerminal(status string) bool {
 		return false
 	}
 }
+
+// Workflow statuses (workflows_status_check).
+const (
+	wfPending   = "pending"
+	wfRunning   = "running"
+	wfPaused    = "paused"
+	wfSucceeded = "succeeded"
+	wfFailed    = "failed"
+	wfCancelled = "cancelled"
+)
+
+// allowedStepTransitions is the explicit step-status transition table. A step
+// status may only move to one of its listed targets; anything else is a
+// programming error and is rejected by transitionStep (unless force is set, for
+// operator intervention). Terminal statuses have no entry — they never transition.
+//
+// This is the single, greppable source of truth for the step state machine. The
+// claim path (queued→running|waiting) is bulk SQL and validated here too.
+var allowedStepTransitions = map[string][]string{
+	stepPending:   {stepQueued, stepSkipped, stepCancelled},
+	stepRetryWait: {stepQueued, stepCancelled},
+	stepQueued:    {stepRunning, stepWaiting, stepPending, stepSkipped, stepCancelled},
+	stepRunning:   {stepSucceeded, stepFailed, stepCancelled},
+	stepWaiting:   {stepSucceeded, stepFailed, stepCancelled},
+}
+
+// allowedWorkflowTransitions is the workflow-status transition table.
+var allowedWorkflowTransitions = map[string][]string{
+	wfPending: {wfRunning, wfCancelled},
+	wfRunning: {wfPaused, wfSucceeded, wfFailed, wfCancelled},
+	wfPaused:  {wfRunning, wfCancelled},
+}
+
+// stepTransitionAllowed reports whether from→to is a legal step transition.
+// A no-op (from == to) is allowed so idempotent re-applies don't error.
+func stepTransitionAllowed(from, to string) bool {
+	if from == to {
+		return true
+	}
+	for _, t := range allowedStepTransitions[from] {
+		if t == to {
+			return true
+		}
+	}
+	return false
+}
+
+// workflowTransitionAllowed reports whether from→to is a legal workflow transition.
+func workflowTransitionAllowed(from, to string) bool {
+	if from == to {
+		return true
+	}
+	for _, t := range allowedWorkflowTransitions[from] {
+		if t == to {
+			return true
+		}
+	}
+	return false
+}
+
+// Engine event actors — who caused a transition (engine_events.actor).
+const (
+	actorEngine   = "engine"
+	actorAgent    = "agent"
+	actorInformer = "informer"
+	actorSweep    = "sweep"
+	// operator actions use "operator:<userID>" — see actorOperator.
+)
+
+func actorOperator(userID string) string {
+	if userID == "" {
+		return "operator"
+	}
+	return "operator:" + userID
+}

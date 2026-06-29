@@ -34,6 +34,7 @@ import {
   ListTree,
   Hourglass,
   Gauge,
+  History,
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
@@ -56,7 +57,7 @@ export const Route = createFileRoute('/ci/runs/$id')({
   component: RunDetailPage,
 })
 
-type RunView = 'steps' | 'waterfall' | 'dag' | 'output'
+type RunView = 'steps' | 'waterfall' | 'dag' | 'timeline' | 'output'
 
 // Ticking clock — re-renders every second only while a run is live.
 function useNow(active: boolean): number {
@@ -81,7 +82,7 @@ function fmtSecs(secs: number): string {
 // it reaches a terminal status.
 const liveRefetch = (q: { state: { data?: { status?: string } } }) => {
   const s = q.state.data?.status
-  return s === 'running' || s === 'pending' ? 4000 : false
+  return s === 'running' || s === 'pending' || s === 'paused' ? 4000 : false
 }
 
 function RunDetailPage() {
@@ -259,6 +260,8 @@ function RunDetailPage() {
                 <LogPanel
                   step={step}
                   steps={steps}
+                  runId={id}
+                  runStatus={run.status}
                   logs={logsData?.lines ?? null}
                   maximized={logsMaximized}
                   onToggleMaximize={() => setLogsMaximized((v) => !v)}
@@ -275,6 +278,8 @@ function RunDetailPage() {
         <RunGantt steps={steps} selectedStep={selectedStep} onStepClick={drillToStep} />
       ) : view === 'output' ? (
         <AllLogsPanel runId={id} steps={steps} />
+      ) : view === 'timeline' ? (
+        <RunTimeline runId={id} />
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
           <PanelHeader
@@ -307,7 +312,108 @@ function ViewTabs({ view, onChange }: { view: RunView; onChange: (v: RunView) =>
       <ViewToggle label="Steps" icon={<ListTree size={13} />} active={view === 'steps'} onClick={() => onChange('steps')} />
       <ViewToggle label="Waterfall" icon={<Activity size={13} />} active={view === 'waterfall'} onClick={() => onChange('waterfall')} />
       <ViewToggle label="DAG" icon={<Network size={13} />} active={view === 'dag'} onClick={() => onChange('dag')} />
+      <ViewToggle label="Timeline" icon={<History size={13} />} active={view === 'timeline'} onClick={() => onChange('timeline')} />
       <ViewToggle label="Output" icon={<ScrollText size={13} />} active={view === 'output'} onClick={() => onChange('output')} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Timeline — the durable transition history (engine_events) for this run.
+// ---------------------------------------------------------------------------
+
+const EVENT_LABELS: Record<string, string> = {
+  queued: 'Queued',
+  claimed: 'Started',
+  parked: 'Waiting',
+  dispatched: 'Dispatched',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  cancelled: 'Cancelled',
+  timed_out: 'Timed out',
+  retry_scheduled: 'Retry scheduled',
+  retry_requeued: 'Retry re-queued',
+  gate_approved: 'Gate approved',
+  gate_rejected: 'Gate rejected',
+  wait_signaled: 'Signal received',
+  dispatch_failed: 'Dispatch failed',
+  manual_resolve: 'Manually resolved',
+  invoke_completed: 'Child workflow completed',
+  seeded: 'Carried over',
+  paused: 'Run paused',
+  resumed: 'Run resumed',
+  workflow_finished: 'Run finished',
+  workflow_cancelled: 'Run cancelled',
+}
+
+const EVENT_TONE: Record<string, string> = {
+  succeeded: 'text-emerald-500',
+  gate_approved: 'text-emerald-500',
+  wait_signaled: 'text-emerald-500',
+  workflow_finished: 'text-emerald-500',
+  failed: 'text-destructive',
+  timed_out: 'text-destructive',
+  dispatch_failed: 'text-destructive',
+  gate_rejected: 'text-destructive',
+  cancelled: 'text-muted-foreground',
+  skipped: 'text-muted-foreground',
+  workflow_cancelled: 'text-muted-foreground',
+  manual_resolve: 'text-amber-500',
+  paused: 'text-amber-500',
+  seeded: 'text-muted-foreground',
+}
+
+function RunTimeline({ runId }: { runId: string }) {
+  const { data, isLoading } = useQuery(orpc.runs.events.queryOptions({ input: { runId } }))
+  const events = data?.events ?? []
+
+  return (
+    <div className="island-shell !p-0 overflow-hidden">
+      <PanelHeader
+        icon={<History size={14} className="text-primary" />}
+        title="Timeline"
+        subtitle={`${events.length} event${events.length === 1 ? '' : 's'}`}
+      />
+      {isLoading ? (
+        <div className="p-8 flex items-center justify-center text-muted-foreground text-sm">
+          <Loader2 size={14} className="animate-spin mr-2" /> Loading timeline…
+        </div>
+      ) : events.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground text-sm">No events recorded yet.</div>
+      ) : (
+        <ol className="divide-y divide-border/60">
+          {events.map((e, i) => {
+            const label = EVENT_LABELS[e.event] ?? e.event
+            const tone = EVENT_TONE[e.event] ?? 'text-foreground'
+            return (
+              <li key={i} className="flex items-start gap-3 px-4 py-2.5 text-sm">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className={`font-medium ${tone}`}>{label}</span>
+                    {e.stepName && (
+                      <span className="font-mono text-xs text-muted-foreground truncate">{e.stepName}</span>
+                    )}
+                    {typeof e.attempt === 'number' && e.attempt > 0 && (
+                      <span className="text-[10px] text-muted-foreground">attempt {e.attempt + 1}</span>
+                    )}
+                  </div>
+                  {(e.reason || e.actor !== 'engine') && (
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {e.actor !== 'engine' && <span className="opacity-80">{e.actor}</span>}
+                      {e.reason && <span>{e.actor !== 'engine' ? ' · ' : ''}{e.reason}</span>}
+                    </div>
+                  )}
+                </div>
+                <time className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={formatDateTime(Date.parse(e.at))}>
+                  {formatAgo(Date.parse(e.at))}
+                </time>
+              </li>
+            )
+          })}
+        </ol>
+      )}
     </div>
   )
 }
@@ -320,6 +426,9 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
   const invalidate = [orpc.runs.get.key({ input: { id: run.id } }), orpc.runs.list.key()]
   const cancel = useAction((id: string) => client.runs.cancel({ runId: id }), { invalidate })
   const retry = useAction((id: string) => client.runs.retry({ runId: id }), { invalidate })
+  const pause = useAction((id: string) => client.runs.pause({ runId: id }), { invalidate })
+  const resume = useAction((id: string) => client.runs.resume({ runId: id }), { invalidate })
+  const rerunFailed = useAction((id: string) => client.runs.rerunFailed({ runId: id }), { invalidate })
   return (
     <div className="island-shell p-4 sm:p-5 mb-4 lg:mb-5">
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -371,7 +480,29 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
         )}
 
         <div className="flex items-center gap-2 ml-auto">
-          {(run.status === 'running' || run.status === 'pending') && (
+          {run.status === 'running' && (
+            <button
+              type="button"
+              onClick={() => pause.mutate(run.id)}
+              disabled={pause.isPending}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+            >
+              {pause.isPending ? <Loader2 size={12} className="animate-spin" /> : <Pause size={12} />}
+              {pause.isPending ? 'Pausing…' : 'Pause'}
+            </button>
+          )}
+          {run.status === 'paused' && (
+            <button
+              type="button"
+              onClick={() => resume.mutate(run.id)}
+              disabled={resume.isPending}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+            >
+              {resume.isPending ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
+              {resume.isPending ? 'Resuming…' : 'Resume'}
+            </button>
+          )}
+          {(run.status === 'running' || run.status === 'pending' || run.status === 'paused') && (
             <button
               type="button"
               onClick={() => cancel.mutate(run.id)}
@@ -383,15 +514,26 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
             </button>
           )}
           {(run.status === 'failed' || run.status === 'cancelled') && (
-            <button
-              type="button"
-              onClick={() => retry.mutate(run.id)}
-              disabled={retry.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
-            >
-              {retry.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-              {retry.isPending ? 'Retrying…' : 'Retry'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => rerunFailed.mutate(run.id)}
+                disabled={rerunFailed.isPending}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+              >
+                {rerunFailed.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                {rerunFailed.isPending ? 'Re-running…' : 'Re-run failed'}
+              </button>
+              <button
+                type="button"
+                onClick={() => retry.mutate(run.id)}
+                disabled={retry.isPending}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+              >
+                {retry.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                {retry.isPending ? 'Retrying…' : 'Re-run all'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -735,11 +877,87 @@ function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; 
 // Log panel — replaces overview when a step is selected
 // ---------------------------------------------------------------------------
 
+// StepActions exposes operator controls on the selected step: retry the whole run
+// from this step (on a finished run), or force-resolve a wedged non-terminal step.
+const STEP_TERMINAL = ['succeeded', 'failed', 'skipped', 'cancelled']
+
+function StepActions({ runId, runStatus, step }: { runId: string; runStatus: string; step: any }) {
+  const invalidate = [
+    orpc.runs.get.key({ input: { id: runId } }),
+    orpc.runs.steps.key({ input: { runId } }),
+    orpc.runs.events.key({ input: { runId } }),
+  ]
+  const retryFrom = useAction(
+    (_: void) => client.runs.retryFromStep({ runId, stepName: step.name }),
+    { invalidate: [orpc.runs.list.key()] },
+  )
+  const resolve = useAction(
+    (outcome: 'succeeded' | 'failed' | 'skipped') =>
+      client.runs.resolveStep({ runId, stepName: step.name, outcome }),
+    { invalidate },
+  )
+
+  const runDone = ['succeeded', 'failed', 'cancelled'].includes(runStatus)
+  const stepStuck = !STEP_TERMINAL.includes(step.status)
+
+  if (!runDone && !stepStuck) return null
+
+  return (
+    <div className="flex items-center gap-1.5 mr-1">
+      {runDone && (
+        <button
+          type="button"
+          onClick={() => retryFrom.mutate()}
+          disabled={retryFrom.isPending}
+          title="Re-run the pipeline starting from this step"
+          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+        >
+          {retryFrom.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+          <span className="hidden sm:inline">Retry from here</span>
+        </button>
+      )}
+      {stepStuck && (
+        <>
+          <button
+            type="button"
+            onClick={() => resolve.mutate('succeeded')}
+            disabled={resolve.isPending}
+            title="Force this step to succeeded"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-emerald-500 hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            <CheckCircle size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => resolve.mutate('skipped')}
+            disabled={resolve.isPending}
+            title="Force this step to skipped"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            <ChevronRight size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => resolve.mutate('failed')}
+            disabled={resolve.isPending}
+            title="Force this step to failed"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-destructive hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            <XCircle size={13} />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function LogPanel({
-  step, steps, logs, maximized, onToggleMaximize, onSelectStep, onBackToOverview,
+  step, steps, runId, runStatus, logs, maximized, onToggleMaximize, onSelectStep, onBackToOverview,
 }: {
   step: any
   steps: any[]
+  runId: string
+  runStatus: string
   logs: string | null
   maximized: boolean
   onToggleMaximize: () => void
@@ -837,6 +1055,7 @@ function LogPanel({
             <ChevronRight size={chevronSize} />
           </button>
           <span className="block w-px h-5 bg-border mx-1.5" />
+          <StepActions runId={runId} runStatus={runStatus} step={step} />
           {maximized ? (
             <>
               <button
@@ -1021,6 +1240,11 @@ function StatusBadge({ status }: { status: string }) {
     waiting: {
       icon: <Clock size={12} />,
       label: 'Waiting',
+      className: 'bg-warning/10 text-warning border-warning/20',
+    },
+    paused: {
+      icon: <Pause size={12} />,
+      label: 'Paused',
       className: 'bg-warning/10 text-warning border-warning/20',
     },
     cancelled: {

@@ -20,7 +20,18 @@ UPDATE workflows SET status = $2, finished_at = now() WHERE id = $1;
 
 -- name: CancelWorkflow :exec
 UPDATE workflows SET status = 'cancelled', cancelled_at = now(), finished_at = now()
-WHERE id = $1 AND status IN ('pending', 'running');
+WHERE id = $1 AND status IN ('pending', 'running', 'paused');
+
+-- name: PauseWorkflow :execrows
+-- First-writer-wins: only a 'running' workflow can be paused. Returns rows
+-- affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
+-- skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
+UPDATE workflows SET status = 'paused' WHERE id = $1 AND status = 'running';
+
+-- name: ResumeWorkflow :execrows
+-- Inverse of PauseWorkflow. The caller advances the workflow after resuming so
+-- newly-eligible steps are queued.
+UPDATE workflows SET status = 'running' WHERE id = $1 AND status = 'paused';
 
 -- name: CancelChildWorkflows :exec
 UPDATE workflows SET status = 'cancelled', cancelled_at = now(), finished_at = now()
@@ -40,6 +51,11 @@ SELECT dag_waves FROM workflows WHERE id = $1;
 
 -- name: GetWorkflowInput :one
 SELECT input FROM workflows WHERE id = $1;
+
+-- name: GetWorkflowStepOutputs :one
+-- The accumulated step_outputs map (stepName → StepResult) for a workflow. Used by
+-- re-run-failed / retry-from-step to seed carried-over results into the new run.
+SELECT step_outputs FROM workflows WHERE id = $1;
 
 -- name: GetWorkflowInputs :many
 -- Batch variant: fetch inputs for all workflows in a claimed step batch in one

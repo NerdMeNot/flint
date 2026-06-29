@@ -19,11 +19,12 @@ import (
 // Loop is the worker main loop. It polls Postgres for queued steps,
 // fires timers, dispatches steps via a StepExecutor, and sweeps for stale state.
 type Loop struct {
-	pool      db.Pool
-	engine    *PgEngine
-	executors ExecutorRegistry
-	config    LoopConfig
-	wake      chan struct{}
+	pool       db.Pool
+	engine     *PgEngine
+	executors  ExecutorRegistry
+	config     LoopConfig
+	wake       chan struct{}
+	outboxWake chan struct{}
 }
 
 // NewLoop creates a worker loop. executors maps step exec types to the executor
@@ -31,11 +32,12 @@ type Loop struct {
 // claimed but never dispatched).
 func NewLoop(engine *PgEngine, executors ExecutorRegistry, cfg LoopConfig) *Loop {
 	return &Loop{
-		pool:      engine.pool,
-		engine:    engine,
-		executors: executors,
-		config:    cfg,
-		wake:      make(chan struct{}, 1),
+		pool:       engine.pool,
+		engine:     engine,
+		executors:  executors,
+		config:     cfg,
+		wake:       make(chan struct{}, 1),
+		outboxWake: make(chan struct{}, 1),
 	}
 }
 
@@ -48,6 +50,10 @@ func (l *Loop) Run(ctx context.Context) error {
 
 	// Start LISTEN/NOTIFY listener for instant wakeup.
 	go l.listenNotify(ctx)
+
+	// Deliver outbox events (webhooks) on a dedicated goroutine so a slow endpoint
+	// can never stall step claiming/dispatch on the tick loop.
+	go l.runOutbox(ctx)
 
 	ticker := time.NewTicker(l.config.pollInterval())
 	sweepTicker := time.NewTicker(l.config.sweepInterval())
@@ -81,14 +87,30 @@ func (l *Loop) tick(ctx context.Context) {
 	l.processRejections(ctx)
 	l.processSignalWaits(ctx)
 
-	// Phase 3: Process outbox events (webhook delivery).
-	processOutbox(ctx, l.pool)
-
-	// Phase 4: Claim and dispatch queued steps.
+	// Phase 3: Claim and dispatch queued steps.
 	l.claimAndDispatch(ctx)
 
-	// Phase 5: Tear down resources for runs that just reached a terminal state.
+	// Phase 4: Tear down resources for runs that just reached a terminal state.
 	l.cleanupFinishedRuns(ctx)
+}
+
+// runOutbox delivers webhook outbox events on its own goroutine, decoupled from
+// the tick loop. It runs on the poll interval and also wakes on a NOTIFY (a
+// finished/cancelled run enqueues webhook events and signals the engine channel),
+// so delivery stays prompt without coupling webhook latency to step dispatch.
+func (l *Loop) runOutbox(ctx context.Context) {
+	ticker := time.NewTicker(l.config.pollInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-l.outboxWake:
+			processOutbox(ctx, l.pool)
+		case <-ticker.C:
+			processOutbox(ctx, l.pool)
+		}
+	}
 }
 
 // cleanupFinishedRuns tears down executor resources (workspace pod, leftover
@@ -149,6 +171,17 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 		}); err != nil {
 			log.Error().Err(err).Str("step", c.Name).Msg("engine: failed to set task token")
 		}
+
+		// Record the claim transition (queued → running, or → waiting for gates/waits)
+		// for the run timeline. The claim itself happened in bulk SQL (ClaimQueuedSteps).
+		claimEvent := "claimed"
+		if c.Status == stepWaiting {
+			claimEvent = "parked"
+		}
+		emitStepEvent(ctx, q, stepTransition{
+			workflowID: c.WorkflowID, stepName: c.Name, attempt: int(c.Attempt),
+			from: stepQueued, to: c.Status, eventType: claimEvent,
+		})
 
 		input, ok := inputs[c.WorkflowID]
 		if !ok {
@@ -271,6 +304,14 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 	if err := q.MarkStepDispatched(ctx, db.MarkStepDispatchedParams{ID: c.ID, K8sJobName: handlePtr}); err != nil {
 		log.Warn().Err(err).Str("step", c.Name).Msg("engine: failed to record step dispatch")
 	}
+	dispatchMeta := map[string]any{}
+	if handle != "" {
+		dispatchMeta["handle"] = handle
+	}
+	emitStepEvent(ctx, q, stepTransition{
+		workflowID: c.WorkflowID, stepName: c.Name, attempt: int(c.Attempt),
+		eventType: "dispatched", to: stepRunning, from: stepRunning, metadata: dispatchMeta,
+	})
 }
 
 // failStepAndAdvance handles a dispatch failure: it re-locks the step to read its
@@ -298,10 +339,11 @@ func (l *Loop) failStepAndAdvance(ctx context.Context, workflowID, stepName stri
 		return // already resolved by another path
 	}
 
-	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     stepRow.ID,
-		Status: stepFailed,
-		Result: mustJSON(StepResult{StepName: stepName, Success: false, Error: cause.Error()}),
+	dispatchFailResult := StepResult{StepName: stepName, Success: false, Error: cause.Error()}
+	if err := transitionStep(ctx, qtx, stepTransition{
+		stepID: stepRow.ID, workflowID: workflowID, stepName: stepName, attempt: attempt,
+		from: stepRow.Status, to: stepFailed, result: &dispatchFailResult,
+		eventType: "dispatch_failed", reason: cause.Error(),
 	}); err != nil {
 		log.Error().Err(err).Str("step", stepName).Msg("engine: failed to mark step failed after dispatch error")
 		return
@@ -380,10 +422,10 @@ func (l *Loop) approveNextGate(ctx context.Context) (done bool) {
 		log.Error().Err(err).Str("step", g.StepName).Msg("engine: failed to consume approval signal")
 		return true
 	}
-	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     g.StepID,
-		Status: stepSucceeded,
-		Result: mustJSON(StepResult{StepName: g.StepName, Success: true}),
+	approveResult := StepResult{StepName: g.StepName, Success: true}
+	if err := transitionStep(ctx, qtx, stepTransition{
+		stepID: g.StepID, workflowID: g.WorkflowID, stepName: g.StepName, attempt: int(g.Attempt),
+		from: stepWaiting, to: stepSucceeded, result: &approveResult, eventType: "gate_approved",
 	}); err != nil {
 		log.Error().Err(err).Str("step", g.StepName).Msg("engine: failed to approve gate step")
 		return true
@@ -447,10 +489,10 @@ func (l *Loop) rejectNextGate(ctx context.Context) (done bool) {
 		log.Error().Err(err).Str("step", r.StepName).Msg("engine: failed to consume rejection signal")
 		return true
 	}
-	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     r.StepID,
-		Status: stepFailed,
-		Result: mustJSON(StepResult{StepName: r.StepName, Success: false, Error: reason}),
+	rejectResult := StepResult{StepName: r.StepName, Success: false, Error: reason}
+	if err := transitionStep(ctx, qtx, stepTransition{
+		stepID: r.StepID, workflowID: r.WorkflowID, stepName: r.StepName, attempt: int(r.Attempt),
+		from: stepWaiting, to: stepFailed, result: &rejectResult, eventType: "gate_rejected", reason: reason,
 	}); err != nil {
 		log.Error().Err(err).Str("step", r.StepName).Msg("engine: failed to reject gate step")
 		return true
@@ -516,10 +558,9 @@ func (l *Loop) resolveNextWaitStep(ctx context.Context) (done bool) {
 		log.Error().Err(err).Str("step", w.StepName).Msg("engine: failed to consume wait signal")
 		return true
 	}
-	if err := qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-		ID:     w.StepID,
-		Status: stepSucceeded,
-		Result: mustJSON(result),
+	if err := transitionStep(ctx, qtx, stepTransition{
+		stepID: w.StepID, workflowID: w.WorkflowID, stepName: w.StepName, attempt: int(w.Attempt),
+		from: stepWaiting, to: stepSucceeded, result: &result, eventType: "wait_signaled",
 	}); err != nil {
 		log.Error().Err(err).Str("step", w.StepName).Msg("engine: failed to resolve wait step")
 		return true
@@ -616,6 +657,9 @@ func (l *Loop) sweep(ctx context.Context) {
 	}
 	if err := q.DeleteConsumedSignals(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup consumed signals failed")
+	}
+	if err := q.CleanupOldEngineEvents(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: cleanup old engine events failed")
 	}
 
 	// 5. Tear down resources for terminal runs not yet cleaned. Same exactly-once
@@ -765,8 +809,15 @@ func (l *Loop) listenNotify(ctx context.Context) {
 				}
 				break // reconnect
 			}
+			// Wake both the tick loop (advancement) and the outbox delivery loop:
+			// a committed state transition both queues work and may have enqueued
+			// webhook events. Non-blocking — a coalesced wake is fine.
 			select {
 			case l.wake <- struct{}{}:
+			default:
+			}
+			select {
+			case l.outboxWake <- struct{}{}:
 			default:
 			}
 		}

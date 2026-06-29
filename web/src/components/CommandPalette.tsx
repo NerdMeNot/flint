@@ -339,6 +339,7 @@ function RunStatusDot({ status }: { status: PipelineRun['status'] }) {
     failed: 'var(--destructive)',
     running: 'var(--primary)',
     pending: 'var(--muted-foreground)',
+    paused: 'var(--warning)',
     cancelled: 'var(--muted-foreground)',
   }
   return (

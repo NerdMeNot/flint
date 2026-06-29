@@ -5,6 +5,7 @@ const SPARK: Record<RunStatusValue, string> = {
   failed: 'bg-destructive',
   running: 'bg-primary animate-pulse',
   pending: 'bg-border',
+  paused: 'bg-warning/70',
   cancelled: 'bg-muted-foreground/40',
 }
 
