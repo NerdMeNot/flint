@@ -82,6 +82,20 @@ type DeviceCode struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+type EngineEvent struct {
+	ID         string      `json:"id"`
+	WorkflowID string      `json:"workflow_id"`
+	StepName   *string     `json:"step_name"`
+	Attempt    pgtype.Int4 `json:"attempt"`
+	EventType  string      `json:"event_type"`
+	FromStatus *string     `json:"from_status"`
+	ToStatus   *string     `json:"to_status"`
+	Actor      string      `json:"actor"`
+	Reason     *string     `json:"reason"`
+	Metadata   []byte      `json:"metadata"`
+	CreatedAt  time.Time   `json:"created_at"`
+}
+
 type EnvVariable struct {
 	ID          string    `json:"id"`
 	OrgID       string    `json:"org_id"`

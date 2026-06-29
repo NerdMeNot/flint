@@ -104,6 +104,11 @@ UPDATE pipeline_runs SET status = $2, finished_at = now(),
     duration_ms = EXTRACT(EPOCH FROM (now() - started_at)) * 1000
 WHERE workflow_id = $1;
 
+-- name: SetRunStatusByWorkflow :exec
+-- Sets the run row's status from its workflow (used for pause/resume so the run
+-- list and detail reflect the paused state). Does not touch finished_at.
+UPDATE pipeline_runs SET status = sqlc.arg(status) WHERE workflow_id = sqlc.arg(workflow_id);
+
 -- name: GetRunOrgID :one
 SELECT org_id FROM pipeline_runs WHERE id = $1;
 

@@ -58,94 +58,59 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 		log.Warn().Err(err).Str("workflow", workflowID).Msg("engine: signal consumption error")
 	}
 
-	// 6. Determine whether the pipeline has experienced an unrecoverable failure
-	// so far. This drives `when:` semantics for pending steps.
+	// 7. Per-edge DAG gating. Walk steps in topological order (dag_waves provides a
+	// valid ordering — every dependency appears in an earlier wave) and queue each
+	// pending step as soon as ITS OWN dependencies are terminal, rather than waiting
+	// for the entire previous wave to finish. Independent branches advance
+	// independently; a fast branch no longer blocks on a slow unrelated sibling.
+	// We continue past failed steps so `when: onFailure`/`always` steps still run.
 	//
-	// A step failure is unrecoverable when its onFailure policy is not "continue".
-	// We compute this from already-terminal steps before processing any pending
-	// ones, so that `when: onFailure` steps in a later wave see the correct state.
-	pipelineFailed := isPipelineFailed(dagWaves, stepByName)
-
-	// 7. Walk waves in order. Unlike the old early-exit model, we continue past
-	// failed waves so that steps with `when: onFailure` or `when: always` can
-	// still be queued. Steps whose `when:` condition is not met are skipped.
-	for waveIdx, wave := range dagWaves {
-		allComplete := true
-
+	// `when:` is evaluated against the step's OWN upstream subgraph (dependency-
+	// scoped), not the global pipeline state: an onSuccess step is skipped only if a
+	// transitive ancestor of THAT step failed, so a failure in an unrelated branch
+	// leaves this step alone. This matches GitHub Actions success()/failure() and
+	// Argo's depends. The global pipeline-failure verdict still drives the final
+	// workflow status (step 8), not per-step gating.
+	for _, wave := range dagWaves {
 		for _, stepName := range wave {
 			step, exists := stepByName[stepName]
-			if !exists {
+			if !exists || step.status != stepPending {
 				continue
 			}
 
-			switch step.status {
-			case "succeeded", "skipped", "failed", "cancelled":
-				// Already terminal — nothing to do.
-
-			case "pending":
-				// Wait for the previous wave to finish before queuing this one.
-				if waveIdx > 0 && !waveComplete(dagWaves[waveIdx-1], stepByName) {
-					allComplete = false
-					continue
-				}
-
-				// Check `when:` condition against current pipeline failure state.
-				if !stepShouldRun(step.when, pipelineFailed) {
-					setStepStatus(ctx, qtx, step.id, "skipped")
-					stepByName[stepName] = stepRow{
-						id:          step.id,
-						status:      "skipped",
-						onFailure:   step.onFailure,
-						ifCondition: step.ifCondition,
-						when:        step.when,
-					}
-					continue
-				}
-
-				// Evaluate if-condition.
-				if step.ifCondition != "" {
-					exprCtx := buildEngineExprContext(input, stepOutputs)
-					shouldRun, _ := pipeline.EvalCondition(step.ifCondition, exprCtx)
-					if !shouldRun {
-						setStepStatus(ctx, qtx, step.id, "skipped")
-						stepByName[stepName] = stepRow{
-							id:          step.id,
-							status:      "skipped",
-							onFailure:   step.onFailure,
-							ifCondition: step.ifCondition,
-							when:        step.when,
-						}
-						continue
-					}
-				}
-
-				setStepStatus(ctx, qtx, step.id, "queued")
-				stepByName[stepName] = stepRow{
-					id:          step.id,
-					status:      "queued",
-					onFailure:   step.onFailure,
-					ifCondition: step.ifCondition,
-					when:        step.when,
-				}
-				allComplete = false
-
-			default:
-				// Running, queued, waiting — not yet done.
-				allComplete = false
+			// Eligible only once every upstream dependency is terminal.
+			if !dependenciesTerminal(step.dependsOn, stepByName) {
+				continue
 			}
-		}
 
-		if !allComplete {
-			break
+			// Dependency-scoped `when:` — did any of THIS step's ancestors fail?
+			if !stepShouldRun(step.when, ancestorFailed(stepName, stepByName)) {
+				stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
+					withReason("when condition not met"))
+				continue
+			}
+
+			// Evaluate if-condition.
+			if step.ifCondition != "" {
+				exprCtx := buildEngineExprContext(input, stepOutputs)
+				shouldRun, _ := pipeline.EvalCondition(step.ifCondition, exprCtx)
+				if !shouldRun {
+					stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
+						withReason("if condition evaluated false"))
+					continue
+				}
+			}
+
+			stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepQueued)
 		}
 	}
 
-	// 8. Check if all waves are complete and finish the workflow.
+	// 8. Check if all waves are complete and finish the workflow. The FINAL status is
+	// still a global verdict: any unrecoverable step failure fails the run, even if
+	// dependency-scoped `when:` let independent branches finish.
 	if allWavesComplete(dagWaves, stepByName) {
-		// Re-evaluate pipelineFailed with the now-complete step map.
-		pipelineFailed = isPipelineFailed(dagWaves, stepByName)
 		finalStatus := "succeeded"
-		if pipelineFailed {
+		if isPipelineFailed(dagWaves, stepByName) {
 			finalStatus = "failed"
 		}
 		finishWorkflow(ctx, qtx, workflowID, finalStatus)
@@ -178,6 +143,12 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 				StepName:   *parent.ParentStep,
 			}); err != nil {
 				log.Error().Err(err).Str("parent", *parent.ParentID).Msg("engine: failed to complete parent invoke step")
+			} else {
+				emitStepEvent(ctx, qtx, stepTransition{
+					workflowID: *parent.ParentID, stepName: *parent.ParentStep, attempt: -1,
+					from: stepRunning, to: finalStatus, eventType: "invoke_completed", actor: actorEngine,
+					metadata: map[string]any{"childWorkflow": workflowID},
+				})
 			}
 			if err := qtx.UpdateStepOutputs(ctx, db.UpdateStepOutputsParams{
 				ID:      *parent.ParentID,
@@ -195,20 +166,21 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 	return nil
 }
 
-// stepShouldRun reports whether a step should be queued given the current
-// pipeline failure state.
+// stepShouldRun reports whether a step should be queued given whether its upstream
+// (its transitive dependency subgraph) has an unrecoverable failure. Dependency-
+// scoped: upstreamFailed is computed per step by ancestorFailed, not globally.
 //
-//   - "" or "onSuccess": run only if the pipeline has not failed
-//   - "onFailure":       run only if the pipeline has failed
+//   - "" or "onSuccess": run only if no ancestor failed
+//   - "onFailure":       run only if an ancestor failed
 //   - "always":          run unconditionally
-func stepShouldRun(when string, pipelineFailed bool) bool {
+func stepShouldRun(when string, upstreamFailed bool) bool {
 	switch when {
 	case "onFailure":
-		return pipelineFailed
+		return upstreamFailed
 	case "always":
 		return true
 	default: // "" or "onSuccess"
-		return !pipelineFailed
+		return !upstreamFailed
 	}
 }
 
@@ -232,10 +204,13 @@ func isPipelineFailed(dagWaves [][]string, stepByName map[string]stepRow) bool {
 
 type stepRow struct {
 	id          string
+	name        string
 	status      string
+	attempt     int
 	onFailure   string
 	ifCondition string
 	when        string
+	dependsOn   []string
 }
 
 func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (map[string]stepRow, error) {
@@ -247,8 +222,11 @@ func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (m
 	for _, row := range rows {
 		s := stepRow{
 			id:        row.ID,
+			name:      row.Name,
 			status:    row.Status,
+			attempt:   int(row.Attempt),
 			onFailure: row.OnFailure,
+			dependsOn: decodeDependsOn(row.DependsOn),
 		}
 		if row.IfCondition != nil {
 			if v, ok := row.IfCondition.(string); ok {
@@ -265,24 +243,60 @@ func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (m
 	return result, nil
 }
 
-func setStepStatus(ctx context.Context, qtx *db.Queries, stepID, status string) {
-	var err error
-	switch status {
-	case "queued":
-		err = qtx.SetStepQueued(ctx, stepID)
-	case "skipped":
-		err = qtx.SetStepSkipped(ctx, stepID)
-	default:
-		err = qtx.UpdateStepResult(ctx, db.UpdateStepResultParams{
-			ID:     stepID,
-			Status: status,
-			Result: nil,
-		})
+// decodeDependsOn normalizes the step_def->'dependsOn' JSONB (delivered by pgx as
+// interface{}, typically []interface{}) into a []string of upstream step names.
+func decodeDependsOn(raw interface{}) []string {
+	if raw == nil {
+		return nil
 	}
+	b, err := json.Marshal(raw)
 	if err != nil {
-		log.Error().Err(err).Str("stepID", stepID).Str("status", status).
-			Msg("engine: failed to set step status")
+		return nil
 	}
+	var deps []string
+	if json.Unmarshal(b, &deps) != nil {
+		return nil
+	}
+	return deps
+}
+
+// markStep applies a step status change through the transition chokepoint (which
+// validates, updates the row, and records a history event) and returns the
+// updated stepRow with all other fields preserved, ready to store back into the
+// in-memory stepByName map.
+func markStep(ctx context.Context, qtx *db.Queries, workflowID string, s stepRow, to string, opts ...func(*stepTransition)) stepRow {
+	t := stepTransition{
+		stepID:     s.id,
+		workflowID: workflowID,
+		stepName:   s.name,
+		attempt:    s.attempt,
+		from:       s.status,
+		to:         to,
+		actor:      actorEngine,
+	}
+	for _, o := range opts {
+		o(&t)
+	}
+	if err := transitionStep(ctx, qtx, t); err != nil {
+		log.Error().Err(err).Str("step", s.name).Str("to", to).
+			Msg("engine: step transition failed")
+		return s
+	}
+	s.status = to
+	return s
+}
+
+// markStep option helpers.
+func withReason(reason string) func(*stepTransition) {
+	return func(t *stepTransition) { t.reason = reason }
+}
+
+func withResult(r StepResult) func(*stepTransition) {
+	return func(t *stepTransition) { t.result = &r }
+}
+
+func withActor(actor string) func(*stepTransition) {
+	return func(t *stepTransition) { t.actor = actor }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -309,18 +323,13 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 			continue
 		}
 
-		newStatus := "succeeded"
+		newStatus := stepSucceeded
 		if !signal.Success {
-			newStatus = "failed"
+			newStatus = stepFailed
 		}
-		setStepStatus(ctx, qtx, step.id, newStatus)
-		stepByName[signal.StepName] = stepRow{
-			id:          step.id,
-			status:      newStatus,
-			onFailure:   step.onFailure,
-			ifCondition: step.ifCondition,
-			when:        step.when,
-		}
+		result := StepResult{StepName: signal.StepName, Success: signal.Success, Error: signal.Reason}
+		stepByName[signal.StepName] = markStep(ctx, qtx, workflowID, step, newStatus,
+			withResult(result), withActor(actorInformer), withReason(signal.Reason))
 
 		log.Info().
 			Str("step", signal.StepName).
@@ -331,8 +340,65 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 }
 
 // ─────────────────────────────────────────────────────────────
-// wave helpers
+// dependency / wave helpers
 // ─────────────────────────────────────────────────────────────
+
+// dependenciesTerminal reports whether every upstream dependency of a step has
+// reached a terminal status, making the step eligible to leave 'pending'. A
+// dependency name not present in the step map is treated as satisfied: the DAG
+// resolver prunes edges to env-filtered steps, and a non-existent dependency
+// cannot gate progress (matching the prior wave model, which also ignored absent
+// names).
+func dependenciesTerminal(deps []string, stepByName map[string]stepRow) bool {
+	for _, d := range deps {
+		s, ok := stepByName[d]
+		if !ok {
+			continue
+		}
+		if !isTerminal(s.status) {
+			return false
+		}
+	}
+	return true
+}
+
+// ancestorFailed reports whether any TRANSITIVE dependency of stepName failed
+// unrecoverably (status 'failed' with onFailure != "continue"). This scopes the
+// `when:` condition to the step's own upstream subgraph rather than the whole
+// pipeline, so an onSuccess step in one branch is unaffected by a failure in an
+// unrelated branch — dependency-scoped semantics matching GitHub Actions
+// success()/failure() and Argo's depends. Walking the full ancestor closure (not
+// just direct deps) means a chain/diamond failure still propagates even when the
+// direct dependency was skipped because of it. The DAG is acyclic; the seen set
+// guards against a malformed cycle and bounds the walk.
+func ancestorFailed(stepName string, stepByName map[string]stepRow) bool {
+	seen := map[string]bool{}
+	var walk func(string) bool
+	walk = func(name string) bool {
+		s, ok := stepByName[name]
+		if !ok {
+			return false
+		}
+		for _, dep := range s.dependsOn {
+			if seen[dep] {
+				continue
+			}
+			seen[dep] = true
+			d, ok := stepByName[dep]
+			if !ok {
+				continue
+			}
+			if d.status == stepFailed && d.onFailure != "continue" {
+				return true
+			}
+			if walk(dep) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(stepName)
+}
 
 func waveComplete(waveNames []string, stepByName map[string]stepRow) bool {
 	for _, name := range waveNames {

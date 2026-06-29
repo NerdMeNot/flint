@@ -117,21 +117,33 @@ func (_m *Querier) CancelChildWorkflows(ctx context.Context, parentID *string) e
 }
 
 // CancelPendingSteps provides a mock function with given fields: ctx, workflowID
-func (_m *Querier) CancelPendingSteps(ctx context.Context, workflowID string) error {
+func (_m *Querier) CancelPendingSteps(ctx context.Context, workflowID string) ([]db.CancelPendingStepsRow, error) {
 	ret := _m.Called(ctx, workflowID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CancelPendingSteps")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+	var r0 []db.CancelPendingStepsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.CancelPendingStepsRow, error)); ok {
+		return rf(ctx, workflowID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.CancelPendingStepsRow); ok {
 		r0 = rf(ctx, workflowID)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.CancelPendingStepsRow)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, workflowID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // CancelTimer provides a mock function with given fields: ctx, arg
@@ -310,6 +322,24 @@ func (_m *Querier) CleanupFiredTimers(ctx context.Context) error {
 
 	if len(ret) == 0 {
 		panic("no return value specified for CleanupFiredTimers")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// CleanupOldEngineEvents provides a mock function with given fields: ctx
+func (_m *Querier) CleanupOldEngineEvents(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CleanupOldEngineEvents")
 	}
 
 	var r0 error
@@ -3780,6 +3810,36 @@ func (_m *Querier) GetWorkflowStatus(ctx context.Context, id string) (db.GetWork
 	return r0, r1
 }
 
+// GetWorkflowStepOutputs provides a mock function with given fields: ctx, id
+func (_m *Querier) GetWorkflowStepOutputs(ctx context.Context, id string) ([]byte, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetWorkflowStepOutputs")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]byte, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []byte); ok {
+		r0 = rf(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetWorkspaceByID provides a mock function with given fields: ctx, id
 func (_m *Querier) GetWorkspaceByID(ctx context.Context, id string) (db.GetWorkspaceByIDRow, error) {
 	ret := _m.Called(ctx, id)
@@ -3946,6 +4006,24 @@ func (_m *Querier) InsertDeviceCode(ctx context.Context, arg db.InsertDeviceCode
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.InsertDeviceCodeParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// InsertEngineEvent provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertEngineEvent(ctx context.Context, arg db.InsertEngineEventParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertEngineEvent")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertEngineEventParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -4190,6 +4268,24 @@ func (_m *Querier) InsertScimToken(ctx context.Context, arg db.InsertScimTokenPa
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.InsertScimTokenParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// InsertSeededStep provides a mock function with given fields: ctx, arg
+func (_m *Querier) InsertSeededStep(ctx context.Context, arg db.InsertSeededStepParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertSeededStep")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.InsertSeededStepParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -4689,6 +4785,66 @@ func (_m *Querier) ListDueWorkflowSchedules(ctx context.Context) ([]db.ListDueWo
 
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListEngineEventsByStep provides a mock function with given fields: ctx, arg
+func (_m *Querier) ListEngineEventsByStep(ctx context.Context, arg db.ListEngineEventsByStepParams) ([]db.EngineEvent, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListEngineEventsByStep")
+	}
+
+	var r0 []db.EngineEvent
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEngineEventsByStepParams) ([]db.EngineEvent, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.ListEngineEventsByStepParams) []db.EngineEvent); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.EngineEvent)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.ListEngineEventsByStepParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListEngineEventsByWorkflow provides a mock function with given fields: ctx, workflowID
+func (_m *Querier) ListEngineEventsByWorkflow(ctx context.Context, workflowID string) ([]db.EngineEvent, error) {
+	ret := _m.Called(ctx, workflowID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListEngineEventsByWorkflow")
+	}
+
+	var r0 []db.EngineEvent
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]db.EngineEvent, error)); ok {
+		return rf(ctx, workflowID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []db.EngineEvent); ok {
+		r0 = rf(ctx, workflowID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.EngineEvent)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, workflowID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -6256,6 +6412,34 @@ func (_m *Querier) ListWorkspacesWithCounts(ctx context.Context, arg db.ListWork
 	return r0, r1
 }
 
+// LockLatestStep provides a mock function with given fields: ctx, arg
+func (_m *Querier) LockLatestStep(ctx context.Context, arg db.LockLatestStepParams) (db.LockLatestStepRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockLatestStep")
+	}
+
+	var r0 db.LockLatestStepRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.LockLatestStepParams) (db.LockLatestStepRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.LockLatestStepParams) db.LockLatestStepRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.LockLatestStepRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.LockLatestStepParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LockNextApprovedGate provides a mock function with given fields: ctx
 func (_m *Querier) LockNextApprovedGate(ctx context.Context) (db.LockNextApprovedGateRow, error) {
 	ret := _m.Called(ctx)
@@ -6540,6 +6724,34 @@ func (_m *Querier) NotifyEngine(ctx context.Context, pgNotify string) error {
 	}
 
 	return r0
+}
+
+// PauseWorkflow provides a mock function with given fields: ctx, id
+func (_m *Querier) PauseWorkflow(ctx context.Context, id string) (int64, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PauseWorkflow")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // ProjectHealthByID provides a mock function with given fields: ctx, projectID
@@ -6900,6 +7112,34 @@ func (_m *Querier) RestoreProject(ctx context.Context, id string) error {
 	}
 
 	return r0
+}
+
+// ResumeWorkflow provides a mock function with given fields: ctx, id
+func (_m *Querier) ResumeWorkflow(ctx context.Context, id string) (int64, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResumeWorkflow")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // RevokeSession provides a mock function with given fields: ctx, id
@@ -7380,6 +7620,24 @@ func (_m *Querier) SetProjectWebhookID(ctx context.Context, arg db.SetProjectWeb
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.SetProjectWebhookIDParams) error); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetRunStatusByWorkflow provides a mock function with given fields: ctx, arg
+func (_m *Querier) SetRunStatusByWorkflow(ctx context.Context, arg db.SetRunStatusByWorkflowParams) error {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetRunStatusByWorkflow")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.SetRunStatusByWorkflowParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)

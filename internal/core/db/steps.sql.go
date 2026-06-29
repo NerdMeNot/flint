@@ -10,14 +10,46 @@ import (
 	"time"
 )
 
-const cancelPendingSteps = `-- name: CancelPendingSteps :exec
+const cancelPendingSteps = `-- name: CancelPendingSteps :many
+WITH affected AS (
+    SELECT steps.id, steps.name, steps.attempt, steps.status AS old_status
+    FROM steps
+    WHERE steps.workflow_id = $1 AND steps.status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
+    FOR UPDATE
+)
 UPDATE steps SET status = 'cancelled', finished_at = now()
-WHERE workflow_id = $1 AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
+FROM affected
+WHERE steps.id = affected.id
+RETURNING affected.name, affected.attempt, affected.old_status
 `
 
-func (q *Queries) CancelPendingSteps(ctx context.Context, workflowID string) error {
-	_, err := q.db.Exec(ctx, cancelPendingSteps, workflowID)
-	return err
+type CancelPendingStepsRow struct {
+	Name      string `json:"name"`
+	Attempt   int32  `json:"attempt"`
+	OldStatus string `json:"old_status"`
+}
+
+// Cancels every non-terminal step of a workflow and returns each affected step's
+// name, attempt, and prior status so the caller can record a per-step 'cancelled'
+// history event. The CTE captures old_status before the UPDATE overwrites it.
+func (q *Queries) CancelPendingSteps(ctx context.Context, workflowID string) ([]CancelPendingStepsRow, error) {
+	rows, err := q.db.Query(ctx, cancelPendingSteps, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CancelPendingStepsRow{}
+	for rows.Next() {
+		var i CancelPendingStepsRow
+		if err := rows.Scan(&i.Name, &i.Attempt, &i.OldStatus); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const claimQueuedSteps = `-- name: ClaimQueuedSteps :many
@@ -26,11 +58,12 @@ UPDATE steps SET
     started_at = now(),
     deadline_at = now() + make_interval(secs := timeout_seconds)
 WHERE id IN (
-    SELECT id FROM steps
-    WHERE status = 'queued'
-    ORDER BY wave, queued_at
+    SELECT steps.id FROM steps
+    JOIN workflows w ON w.id = steps.workflow_id AND w.status = 'running'
+    WHERE steps.status = 'queued'
+    ORDER BY steps.wave, steps.queued_at
     LIMIT $1
-    FOR UPDATE SKIP LOCKED
+    FOR UPDATE OF steps SKIP LOCKED
 )
 RETURNING id, workflow_id, name, exec_type, attempt, step_def, status
 `
@@ -45,6 +78,12 @@ type ClaimQueuedStepsRow struct {
 	Status     string `json:"status"`
 }
 
+// Claims queued steps whose workflow is 'running' (a single predicate that also
+// enforces pause: a paused workflow's steps are simply not claimable). FOR UPDATE
+// OF steps locks only the step rows — never the workflow row — so claiming cannot
+// contend with advanceWorkflow's FOR UPDATE on the workflow. The workflow status
+// read is best-effort: a pause committing after this read may let one already-
+// queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 func (q *Queries) ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error) {
 	rows, err := q.db.Query(ctx, claimQueuedSteps, limit)
 	if err != nil {
@@ -227,6 +266,48 @@ func (q *Queries) GetStepStatus(ctx context.Context, arg GetStepStatusParams) (s
 	return status, err
 }
 
+const insertSeededStep = `-- name: InsertSeededStep :exec
+INSERT INTO steps (workflow_id, name, exec_type, status, wave, max_attempts,
+    step_def, timeout_seconds, retry_backoff, retry_interval_seconds, on_failure,
+    result, queued_at, started_at, finished_at)
+VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), now())
+`
+
+type InsertSeededStepParams struct {
+	WorkflowID           string `json:"workflow_id"`
+	Name                 string `json:"name"`
+	ExecType             string `json:"exec_type"`
+	Wave                 int32  `json:"wave"`
+	MaxAttempts          int32  `json:"max_attempts"`
+	StepDef              []byte `json:"step_def"`
+	TimeoutSeconds       int32  `json:"timeout_seconds"`
+	RetryBackoff         string `json:"retry_backoff"`
+	RetryIntervalSeconds int32  `json:"retry_interval_seconds"`
+	OnFailure            string `json:"on_failure"`
+	Result               []byte `json:"result"`
+}
+
+// Inserts a step already in terminal 'succeeded' state, carrying a result copied
+// from a prior run. Used by re-run-failed / retry-from-step to skip work that
+// already succeeded while still satisfying downstream dependencies and expression
+// context (steps.<name>.<output>).
+func (q *Queries) InsertSeededStep(ctx context.Context, arg InsertSeededStepParams) error {
+	_, err := q.db.Exec(ctx, insertSeededStep,
+		arg.WorkflowID,
+		arg.Name,
+		arg.ExecType,
+		arg.Wave,
+		arg.MaxAttempts,
+		arg.StepDef,
+		arg.TimeoutSeconds,
+		arg.RetryBackoff,
+		arg.RetryIntervalSeconds,
+		arg.OnFailure,
+		arg.Result,
+	)
+	return err
+}
+
 const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (workflow_id, name, exec_type, status, wave, max_attempts,
     step_def, timeout_seconds, retry_backoff, retry_interval_seconds, on_failure)
@@ -263,9 +344,10 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 }
 
 const latestStepsByWorkflow = `-- name: LatestStepsByWorkflow :many
-SELECT DISTINCT ON (name) id, name, status, on_failure,
+SELECT DISTINCT ON (name) id, name, status, attempt, on_failure,
     step_def->>'if' AS if_condition,
-    step_def->>'when' AS when_condition
+    step_def->>'when' AS when_condition,
+    step_def->'dependsOn' AS depends_on
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC
 `
@@ -274,9 +356,11 @@ type LatestStepsByWorkflowRow struct {
 	ID            string      `json:"id"`
 	Name          string      `json:"name"`
 	Status        string      `json:"status"`
+	Attempt       int32       `json:"attempt"`
 	OnFailure     string      `json:"on_failure"`
 	IfCondition   interface{} `json:"if_condition"`
 	WhenCondition interface{} `json:"when_condition"`
+	DependsOn     interface{} `json:"depends_on"`
 }
 
 func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error) {
@@ -292,9 +376,11 @@ func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) 
 			&i.ID,
 			&i.Name,
 			&i.Status,
+			&i.Attempt,
 			&i.OnFailure,
 			&i.IfCondition,
 			&i.WhenCondition,
+			&i.DependsOn,
 		); err != nil {
 			return nil, err
 		}
@@ -492,8 +578,34 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 	return items, nil
 }
 
+const lockLatestStep = `-- name: LockLatestStep :one
+SELECT id, status, attempt FROM steps
+WHERE workflow_id = $1 AND name = $2
+ORDER BY attempt DESC LIMIT 1
+FOR UPDATE
+`
+
+type LockLatestStepParams struct {
+	WorkflowID string `json:"workflow_id"`
+	Name       string `json:"name"`
+}
+
+type LockLatestStepRow struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Attempt int32  `json:"attempt"`
+}
+
+// Row-locks the latest attempt of a step for an operator override (manual resolve).
+func (q *Queries) LockLatestStep(ctx context.Context, arg LockLatestStepParams) (LockLatestStepRow, error) {
+	row := q.db.QueryRow(ctx, lockLatestStep, arg.WorkflowID, arg.Name)
+	var i LockLatestStepRow
+	err := row.Scan(&i.ID, &i.Status, &i.Attempt)
+	return i, err
+}
+
 const lockNextApprovedGate = `-- name: LockNextApprovedGate :one
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-' || s.name
@@ -508,6 +620,7 @@ type LockNextApprovedGateRow struct {
 	StepID     string `json:"step_id"`
 	WorkflowID string `json:"workflow_id"`
 	StepName   string `json:"step_name"`
+	Attempt    int32  `json:"attempt"`
 	SignalID   string `json:"signal_id"`
 }
 
@@ -524,13 +637,14 @@ func (q *Queries) LockNextApprovedGate(ctx context.Context) (LockNextApprovedGat
 		&i.StepID,
 		&i.WorkflowID,
 		&i.StepName,
+		&i.Attempt,
 		&i.SignalID,
 	)
 	return i, err
 }
 
 const lockNextRejectedGate = `-- name: LockNextRejectedGate :one
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id, sig.payload
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-reject-' || s.name
@@ -545,6 +659,7 @@ type LockNextRejectedGateRow struct {
 	StepID     string `json:"step_id"`
 	WorkflowID string `json:"workflow_id"`
 	StepName   string `json:"step_name"`
+	Attempt    int32  `json:"attempt"`
 	SignalID   string `json:"signal_id"`
 	Payload    []byte `json:"payload"`
 }
@@ -558,6 +673,7 @@ func (q *Queries) LockNextRejectedGate(ctx context.Context) (LockNextRejectedGat
 		&i.StepID,
 		&i.WorkflowID,
 		&i.StepName,
+		&i.Attempt,
 		&i.SignalID,
 		&i.Payload,
 	)
@@ -565,7 +681,7 @@ func (q *Queries) LockNextRejectedGate(ctx context.Context) (LockNextRejectedGat
 }
 
 const lockNextSignaledWaitStep = `-- name: LockNextSignaledWaitStep :one
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id, sig.payload
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = COALESCE(NULLIF(s.step_def->'wait'->>'signal', ''), s.name)
@@ -580,6 +696,7 @@ type LockNextSignaledWaitStepRow struct {
 	StepID     string `json:"step_id"`
 	WorkflowID string `json:"workflow_id"`
 	StepName   string `json:"step_name"`
+	Attempt    int32  `json:"attempt"`
 	SignalID   string `json:"signal_id"`
 	Payload    []byte `json:"payload"`
 }
@@ -595,6 +712,7 @@ func (q *Queries) LockNextSignaledWaitStep(ctx context.Context) (LockNextSignale
 		&i.StepID,
 		&i.WorkflowID,
 		&i.StepName,
+		&i.Attempt,
 		&i.SignalID,
 		&i.Payload,
 	)

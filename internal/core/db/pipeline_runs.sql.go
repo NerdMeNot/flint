@@ -743,6 +743,22 @@ func (q *Queries) SearchRuns(ctx context.Context, arg SearchRunsParams) ([]Searc
 	return items, nil
 }
 
+const setRunStatusByWorkflow = `-- name: SetRunStatusByWorkflow :exec
+UPDATE pipeline_runs SET status = $1 WHERE workflow_id = $2
+`
+
+type SetRunStatusByWorkflowParams struct {
+	Status     string  `json:"status"`
+	WorkflowID *string `json:"workflow_id"`
+}
+
+// Sets the run row's status from its workflow (used for pause/resume so the run
+// list and detail reflect the paused state). Does not touch finished_at.
+func (q *Queries) SetRunStatusByWorkflow(ctx context.Context, arg SetRunStatusByWorkflowParams) error {
+	_, err := q.db.Exec(ctx, setRunStatusByWorkflow, arg.Status, arg.WorkflowID)
+	return err
+}
+
 const updateRunStatus = `-- name: UpdateRunStatus :exec
 UPDATE pipeline_runs SET status = $2 WHERE id = $1
 `

@@ -38,6 +38,60 @@ func (_m *Engine) Close() {
 	_m.Called()
 }
 
+// PauseWorkflow provides a mock function with given fields: ctx, workflowID
+func (_m *Engine) PauseWorkflow(ctx context.Context, workflowID string) error {
+	ret := _m.Called(ctx, workflowID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PauseWorkflow")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, workflowID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// ResumeWorkflow provides a mock function with given fields: ctx, workflowID
+func (_m *Engine) ResumeWorkflow(ctx context.Context, workflowID string) error {
+	ret := _m.Called(ctx, workflowID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResumeWorkflow")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, workflowID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// ResolveStepManually provides a mock function with given fields: ctx, workflowID, stepName, outcome, actor, reason
+func (_m *Engine) ResolveStepManually(ctx context.Context, workflowID string, stepName string, outcome string, actor string, reason string) error {
+	ret := _m.Called(ctx, workflowID, stepName, outcome, actor, reason)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveStepManually")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, workflowID, stepName, outcome, actor, reason)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // CompleteStep provides a mock function with given fields: ctx, taskToken, result
 func (_m *Engine) CompleteStep(ctx context.Context, taskToken string, result engine.StepResult) error {
 	ret := _m.Called(ctx, taskToken, result)
@@ -124,6 +178,33 @@ func (_m *Engine) StartWorkflowWithWaves(ctx context.Context, input engine.Start
 	}
 	if rf, ok := ret.Get(1).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step) error); ok {
 		r1 = rf(ctx, input, waves)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// StartWorkflowSeeded provides a mock function with given fields: ctx, input, waves, seed
+func (_m *Engine) StartWorkflowSeeded(ctx context.Context, input engine.StartWorkflowInput, waves [][]pipeline.Step, seed map[string]engine.StepResult) (string, error) {
+	ret := _m.Called(ctx, input, waves, seed)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartWorkflowSeeded")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step, map[string]engine.StepResult) (string, error)); ok {
+		return rf(ctx, input, waves, seed)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step, map[string]engine.StepResult) string); ok {
+		r0 = rf(ctx, input, waves, seed)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, engine.StartWorkflowInput, [][]pipeline.Step, map[string]engine.StepResult) error); ok {
+		r1 = rf(ctx, input, waves, seed)
 	} else {
 		r1 = ret.Error(1)
 	}

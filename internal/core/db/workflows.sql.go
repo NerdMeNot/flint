@@ -22,7 +22,7 @@ func (q *Queries) CancelChildWorkflows(ctx context.Context, parentID *string) er
 
 const cancelWorkflow = `-- name: CancelWorkflow :exec
 UPDATE workflows SET status = 'cancelled', cancelled_at = now(), finished_at = now()
-WHERE id = $1 AND status IN ('pending', 'running')
+WHERE id = $1 AND status IN ('pending', 'running', 'paused')
 `
 
 func (q *Queries) CancelWorkflow(ctx context.Context, id string) error {
@@ -147,6 +147,19 @@ func (q *Queries) GetWorkflowStatus(ctx context.Context, id string) (GetWorkflow
 	return i, err
 }
 
+const getWorkflowStepOutputs = `-- name: GetWorkflowStepOutputs :one
+SELECT step_outputs FROM workflows WHERE id = $1
+`
+
+// The accumulated step_outputs map (stepName → StepResult) for a workflow. Used by
+// re-run-failed / retry-from-step to seed carried-over results into the new run.
+func (q *Queries) GetWorkflowStepOutputs(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getWorkflowStepOutputs, id)
+	var step_outputs []byte
+	err := row.Scan(&step_outputs)
+	return step_outputs, err
+}
+
 const insertWorkflow = `-- name: InsertWorkflow :one
 INSERT INTO workflows (run_id, parent_id, parent_step, status, input)
 VALUES ($1, $2, $3, 'pending', $4)
@@ -196,6 +209,21 @@ func (q *Queries) LockWorkflow(ctx context.Context, id string) (LockWorkflowRow,
 	return i, err
 }
 
+const pauseWorkflow = `-- name: PauseWorkflow :execrows
+UPDATE workflows SET status = 'paused' WHERE id = $1 AND status = 'running'
+`
+
+// First-writer-wins: only a 'running' workflow can be paused. Returns rows
+// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
+// skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
+func (q *Queries) PauseWorkflow(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, pauseWorkflow, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const recentlyFinishedRunIDs = `-- name: RecentlyFinishedRunIDs :many
 SELECT DISTINCT pr.id AS run_id FROM pipeline_runs pr
 JOIN workflows w ON w.run_id = pr.id
@@ -222,6 +250,20 @@ func (q *Queries) RecentlyFinishedRunIDs(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const resumeWorkflow = `-- name: ResumeWorkflow :execrows
+UPDATE workflows SET status = 'running' WHERE id = $1 AND status = 'paused'
+`
+
+// Inverse of PauseWorkflow. The caller advances the workflow after resuming so
+// newly-eligible steps are queued.
+func (q *Queries) ResumeWorkflow(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, resumeWorkflow, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const sweepStaleWorkflows = `-- name: SweepStaleWorkflows :exec

@@ -10,12 +10,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/rs/zerolog/log"
 )
+
+// outboxDeliveryConcurrency bounds how many webhook deliveries run at once within
+// a single processOutbox batch. Delivery is network-bound (a 10s-timeout HTTP
+// call each), so a slow endpoint must not stall the others — they fan out under
+// this cap. Each event in the batch is already claimed ('processing'), so
+// concurrent delivery is safe.
+const outboxDeliveryConcurrency = 8
 
 // WebhookPayload is the JSON body delivered to webhook URLs.
 type WebhookPayload struct {
@@ -41,17 +49,31 @@ func processOutbox(ctx context.Context, pool db.Pool) {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
+	// Fan out delivery under a bounded concurrency cap. A slow endpoint blocks only
+	// its own goroutine, not the rest of the batch (the old serial loop let one
+	// hung webhook stall every later event). db.Queries over a pgxpool and the HTTP
+	// client are both concurrency-safe.
+	sem := make(chan struct{}, outboxDeliveryConcurrency)
+	var wg sync.WaitGroup
 	for _, evt := range events {
-		switch evt.EventType {
-		case "webhook":
-			deliverWebhook(ctx, q, client, evt)
-		default:
-			log.Warn().Str("type", evt.EventType).Msg("outbox: unknown event type, resolving")
-			if err := q.ResolveOutboxEvent(ctx, evt.ID); err != nil {
-				log.Error().Err(err).Str("id", evt.ID).Msg("outbox: failed to resolve unknown event")
+		evt := evt
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			switch evt.EventType {
+			case "webhook":
+				deliverWebhook(ctx, q, client, evt)
+			default:
+				log.Warn().Str("type", evt.EventType).Msg("outbox: unknown event type, resolving")
+				if err := q.ResolveOutboxEvent(ctx, evt.ID); err != nil {
+					log.Error().Err(err).Str("id", evt.ID).Msg("outbox: failed to resolve unknown event")
+				}
 			}
-		}
+		}()
 	}
+	wg.Wait()
 }
 
 // webhookOutboxPayload wraps the delivery target and body.

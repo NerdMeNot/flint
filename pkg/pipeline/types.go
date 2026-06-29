@@ -161,7 +161,7 @@ type Step struct {
 	// Execution control
 	Timeout         string     `yaml:"timeout,omitempty" json:"timeout,omitempty"` // default: 1h
 	If              string     `yaml:"if,omitempty" json:"if,omitempty"`           // conditional expression
-	When            string     `yaml:"when,omitempty" json:"when,omitempty"`       // onSuccess (default), onFailure, always
+	When            string     `yaml:"when,omitempty" json:"when,omitempty"`       // onSuccess (default), onFailure, always — scoped to this step's upstream (dependsOn) subgraph, not the whole pipeline
 	ContinueOnError bool       `yaml:"continueOnError,omitempty" json:"continueOnError,omitempty"`
 	Retry           *RetrySpec `yaml:"retry,omitempty" json:"retry,omitempty"`
 

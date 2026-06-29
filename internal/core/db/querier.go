@@ -18,7 +18,10 @@ type Querier interface {
 	ArchiveProject(ctx context.Context, id string) error
 	CancelAllWorkflowTimers(ctx context.Context, workflowID string) error
 	CancelChildWorkflows(ctx context.Context, parentID *string) error
-	CancelPendingSteps(ctx context.Context, workflowID string) error
+	// Cancels every non-terminal step of a workflow and returns each affected step's
+	// name, attempt, and prior status so the caller can record a per-step 'cancelled'
+	// history event. The CTE captures old_status before the UPDATE overwrites it.
+	CancelPendingSteps(ctx context.Context, workflowID string) ([]CancelPendingStepsRow, error)
 	CancelTimer(ctx context.Context, arg CancelTimerParams) error
 	CancelWorkflow(ctx context.Context, id string) error
 	CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error)
@@ -28,9 +31,18 @@ type Querier interface {
 	// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
 	// can detect events stranded by a worker crash mid-delivery.
 	ClaimOutboxBatch(ctx context.Context, limit int32) ([]ClaimOutboxBatchRow, error)
+	// Claims queued steps whose workflow is 'running' (a single predicate that also
+	// enforces pause: a paused workflow's steps are simply not claimable). FOR UPDATE
+	// OF steps locks only the step rows — never the workflow row — so claiming cannot
+	// contend with advanceWorkflow's FOR UPDATE on the workflow. The workflow status
+	// read is best-effort: a pause committing after this read may let one already-
+	// queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
+	// Prune transition history older than 30 days so the table stays bounded. Called
+	// from the sweep alongside the other retention cleanups.
+	CleanupOldEngineEvents(ctx context.Context) error
 	CleanupOldLoginAttempts(ctx context.Context) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
 	ClearUserTOTP(ctx context.Context, id string) error
@@ -200,6 +212,9 @@ type Querier interface {
 	GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error)
 	GetWorkflowParent(ctx context.Context, id string) (GetWorkflowParentRow, error)
 	GetWorkflowStatus(ctx context.Context, id string) (GetWorkflowStatusRow, error)
+	// The accumulated step_outputs map (stepName → StepResult) for a workflow. Used by
+	// re-run-failed / retry-from-step to seed carried-over results into the new run.
+	GetWorkflowStepOutputs(ctx context.Context, id string) ([]byte, error)
 	GetWorkspaceByID(ctx context.Context, id string) (GetWorkspaceByIDRow, error)
 	GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlugParams) (GetWorkspaceBySlugRow, error)
 	GlobalVariableValueExists(ctx context.Context, variableID string) (bool, error)
@@ -209,6 +224,10 @@ type Querier interface {
 	InsertAuditEntryWithMeta(ctx context.Context, arg InsertAuditEntryWithMetaParams) error
 	// Device authorization flow (DB-backed; replaces the in-memory map).
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
+	// Append one transition to the durable history log. Written in the same tx as the
+	// state change it records (see internal/core/engine/transition.go). Append-only:
+	// rows are never updated.
+	InsertEngineEvent(ctx context.Context, arg InsertEngineEventParams) error
 	InsertForgeConnection(ctx context.Context, arg InsertForgeConnectionParams) (string, error)
 	// IdP-derived assignment from a group→role mapping. Never downgrades an existing
 	// (manual) 'internal' row.
@@ -227,6 +246,11 @@ type Querier interface {
 	InsertRoleWorkspaceScope(ctx context.Context, arg InsertRoleWorkspaceScopeParams) error
 	InsertSSOGroupRoleMapping(ctx context.Context, arg InsertSSOGroupRoleMappingParams) error
 	InsertScimToken(ctx context.Context, arg InsertScimTokenParams) error
+	// Inserts a step already in terminal 'succeeded' state, carrying a result copied
+	// from a prior run. Used by re-run-failed / retry-from-step to skip work that
+	// already succeeded while still satisfying downstream dependencies and expression
+	// context (steps.<name>.<output>).
+	InsertSeededStep(ctx context.Context, arg InsertSeededStepParams) error
 	InsertSignal(ctx context.Context, arg InsertSignalParams) error
 	InsertStep(ctx context.Context, arg InsertStepParams) error
 	InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) (string, error)
@@ -257,6 +281,11 @@ type Querier interface {
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
 	ListDueWorkflowSchedules(ctx context.Context) ([]ListDueWorkflowSchedulesRow, error)
+	// Transition history for a single step across all attempts.
+	ListEngineEventsByStep(ctx context.Context, arg ListEngineEventsByStepParams) ([]EngineEvent, error)
+	// Full transition timeline for a workflow (run), oldest first. Powers the run
+	// timeline / step history UI.
+	ListEngineEventsByWorkflow(ctx context.Context, workflowID string) ([]EngineEvent, error)
 	ListEnvVariableValues(ctx context.Context, orgID string) ([]ListEnvVariableValuesRow, error)
 	ListEnvVariables(ctx context.Context, arg ListEnvVariablesParams) ([]ListEnvVariablesRow, error)
 	ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error)
@@ -338,6 +367,8 @@ type Querier interface {
 	ListWorkflowSchedules(ctx context.Context, orgID string) ([]ListWorkflowSchedulesRow, error)
 	ListWorkspaces(ctx context.Context, arg ListWorkspacesParams) ([]ListWorkspacesRow, error)
 	ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error)
+	// Row-locks the latest attempt of a step for an operator override (manual resolve).
+	LockLatestStep(ctx context.Context, arg LockLatestStepParams) (LockLatestStepRow, error)
 	// Claims one waiting gate that has an unconsumed approval signal, locking the step
 	// row (FOR UPDATE OF s SKIP LOCKED) so concurrent workers never process the same
 	// gate. The caller consumes the signal, transitions the step, and advances — all
@@ -376,6 +407,10 @@ type Querier interface {
 	MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error
 	MarkTimerFired(ctx context.Context, id string) error
 	NotifyEngine(ctx context.Context, pgNotify string) error
+	// First-writer-wins: only a 'running' workflow can be paused. Returns rows
+	// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
+	// skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
+	PauseWorkflow(ctx context.Context, id string) (int64, error)
 	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
 	// Per-project run health for an org: recent statuses (newest first, capped at 10)
 	// plus totals — powers the dashboard health bars / "needs attention".
@@ -408,6 +443,9 @@ type Querier interface {
 	ResolveEnvVars(ctx context.Context, arg ResolveEnvVarsParams) ([]ResolveEnvVarsRow, error)
 	ResolveOutboxEvent(ctx context.Context, id string) error
 	RestoreProject(ctx context.Context, id string) error
+	// Inverse of PauseWorkflow. The caller advances the workflow after resuming so
+	// newly-eligible steps are queued.
+	ResumeWorkflow(ctx context.Context, id string) (int64, error)
 	RevokeSession(ctx context.Context, id string) error
 	RevokeSessionByHash(ctx context.Context, tokenHash string) error
 	// Provider-agnostic deprovisioning sweep: terminate every live session whose
@@ -441,6 +479,9 @@ type Querier interface {
 	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
 	// Record the inbound forge webhook id after provisioning (or clear it on removal).
 	SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error
+	// Sets the run row's status from its workflow (used for pause/resume so the run
+	// list and detail reflect the paused state). Does not touch finished_at.
+	SetRunStatusByWorkflow(ctx context.Context, arg SetRunStatusByWorkflowParams) error
 	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
 	// Clears execution timestamps so a re-queued step (throttled, undispatched, or
 	// first queue) starts with a clean slate. Critical: a stale deadline_at left over

@@ -3,6 +3,16 @@ INSERT INTO steps (workflow_id, name, exec_type, status, wave, max_attempts,
     step_def, timeout_seconds, retry_backoff, retry_interval_seconds, on_failure)
 VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10);
 
+-- name: InsertSeededStep :exec
+-- Inserts a step already in terminal 'succeeded' state, carrying a result copied
+-- from a prior run. Used by re-run-failed / retry-from-step to skip work that
+-- already succeeded while still satisfying downstream dependencies and expression
+-- context (steps.<name>.<output>).
+INSERT INTO steps (workflow_id, name, exec_type, status, wave, max_attempts,
+    step_def, timeout_seconds, retry_backoff, retry_interval_seconds, on_failure,
+    result, queued_at, started_at, finished_at)
+VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), now());
+
 -- name: LockStep :one
 SELECT id, status, max_attempts, retry_backoff, retry_interval_seconds
 FROM steps
@@ -41,14 +51,26 @@ WHERE status = 'running' AND dispatched_at IS NULL
 -- name: SetStepSkipped :exec
 UPDATE steps SET status = 'skipped', finished_at = now() WHERE id = $1;
 
--- name: CancelPendingSteps :exec
+-- name: CancelPendingSteps :many
+-- Cancels every non-terminal step of a workflow and returns each affected step's
+-- name, attempt, and prior status so the caller can record a per-step 'cancelled'
+-- history event. The CTE captures old_status before the UPDATE overwrites it.
+WITH affected AS (
+    SELECT steps.id, steps.name, steps.attempt, steps.status AS old_status
+    FROM steps
+    WHERE steps.workflow_id = $1 AND steps.status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
+    FOR UPDATE
+)
 UPDATE steps SET status = 'cancelled', finished_at = now()
-WHERE workflow_id = $1 AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled');
+FROM affected
+WHERE steps.id = affected.id
+RETURNING affected.name, affected.attempt, affected.old_status;
 
 -- name: LatestStepsByWorkflow :many
-SELECT DISTINCT ON (name) id, name, status, on_failure,
+SELECT DISTINCT ON (name) id, name, status, attempt, on_failure,
     step_def->>'if' AS if_condition,
-    step_def->>'when' AS when_condition
+    step_def->>'when' AS when_condition,
+    step_def->'dependsOn' AS depends_on
 FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC;
 
@@ -60,16 +82,23 @@ FROM steps WHERE workflow_id = $1
 ORDER BY name, attempt DESC;
 
 -- name: ClaimQueuedSteps :many
+-- Claims queued steps whose workflow is 'running' (a single predicate that also
+-- enforces pause: a paused workflow's steps are simply not claimable). FOR UPDATE
+-- OF steps locks only the step rows — never the workflow row — so claiming cannot
+-- contend with advanceWorkflow's FOR UPDATE on the workflow. The workflow status
+-- read is best-effort: a pause committing after this read may let one already-
+-- queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 UPDATE steps SET
     status = CASE WHEN exec_type IN ('gate', 'wait') THEN 'waiting' ELSE 'running' END,
     started_at = now(),
     deadline_at = now() + make_interval(secs := timeout_seconds)
 WHERE id IN (
-    SELECT id FROM steps
-    WHERE status = 'queued'
-    ORDER BY wave, queued_at
+    SELECT steps.id FROM steps
+    JOIN workflows w ON w.id = steps.workflow_id AND w.status = 'running'
+    WHERE steps.status = 'queued'
+    ORDER BY steps.wave, steps.queued_at
     LIMIT $1
-    FOR UPDATE SKIP LOCKED
+    FOR UPDATE OF steps SKIP LOCKED
 )
 RETURNING id, workflow_id, name, exec_type, attempt, step_def, status;
 
@@ -150,6 +179,13 @@ SELECT id, workflow_id, name, exec_type, step_def FROM steps
 WHERE workflow_id = $1 AND name = $2
 ORDER BY attempt DESC LIMIT 1;
 
+-- name: LockLatestStep :one
+-- Row-locks the latest attempt of a step for an operator override (manual resolve).
+SELECT id, status, attempt FROM steps
+WHERE workflow_id = $1 AND name = $2
+ORDER BY attempt DESC LIMIT 1
+FOR UPDATE;
+
 -- name: LockNextApprovedGate :one
 -- Claims one waiting gate that has an unconsumed approval signal, locking the step
 -- row (FOR UPDATE OF s SKIP LOCKED) so concurrent workers never process the same
@@ -157,7 +193,7 @@ ORDER BY attempt DESC LIMIT 1;
 -- in the same transaction, so the effect is atomic and exactly-once. The
 -- status='waiting' predicate is first-writer-wins: once approved or rejected, the
 -- gate is no longer claimable here.
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-' || s.name
@@ -170,7 +206,7 @@ FOR UPDATE OF s SKIP LOCKED;
 -- name: LockNextRejectedGate :one
 -- Same as LockNextApprovedGate but for rejection signals. Returns the payload so
 -- the caller can surface the rejection reason.
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id, sig.payload
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = 'gate-reject-' || s.name
@@ -185,7 +221,7 @@ FOR UPDATE OF s SKIP LOCKED;
 -- (step_def->'wait'->>'signal'). Same atomic lock-and-advance pattern as gates.
 -- Returns the signal payload, which the caller captures into the step outputs so
 -- downstream steps can reference steps.<name>.<key>.
-SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, sig.id AS signal_id, sig.payload
+SELECT s.id AS step_id, s.workflow_id, s.name AS step_name, s.attempt, sig.id AS signal_id, sig.payload
 FROM steps s
 JOIN signals sig ON sig.workflow_id = s.workflow_id
     AND sig.signal_name = COALESCE(NULLIF(s.step_def->'wait'->>'signal', ''), s.name)

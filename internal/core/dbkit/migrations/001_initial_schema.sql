@@ -691,7 +691,31 @@ CREATE TABLE public.workflows (
     started_at timestamptz,
     finished_at timestamptz,
     cancelled_at timestamptz,
-    CONSTRAINT workflows_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text])))
+    CONSTRAINT workflows_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'paused'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: engine_events; Type: TABLE; Schema: public; Owner: -
+--
+-- Append-only audit/history log of every workflow and step state transition.
+-- Written in the same transaction as the state change (CQRS-lite: the current
+-- state still lives on steps/workflows; this is the durable history sidecar that
+-- powers the run timeline, per-attempt retry history, and operator audit). Rows
+-- are never updated; the sweep prunes old ones.
+
+CREATE TABLE public.engine_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    workflow_id uuid NOT NULL,
+    step_name text,
+    attempt integer,
+    event_type text NOT NULL,
+    from_status text,
+    to_status text,
+    actor text DEFAULT 'engine'::text NOT NULL,
+    reason text,
+    metadata jsonb,
+    created_at timestamptz DEFAULT now() NOT NULL
 );
 
 
@@ -1070,6 +1094,14 @@ ALTER TABLE ONLY public.steps
 
 
 --
+-- Name: engine_events engine_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.engine_events
+    ADD CONSTRAINT engine_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: steps steps_workflow_id_name_attempt_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1352,6 +1384,27 @@ CREATE INDEX idx_signals_unconsumed ON public.signals USING btree (workflow_id, 
 --
 
 CREATE INDEX idx_steps_latest_attempt ON public.steps USING btree (workflow_id, name, attempt DESC);
+
+
+--
+-- Name: idx_engine_events_workflow; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_engine_events_workflow ON public.engine_events USING btree (workflow_id, created_at);
+
+
+--
+-- Name: idx_engine_events_step; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_engine_events_step ON public.engine_events USING btree (workflow_id, step_name, attempt);
+
+
+--
+-- Name: idx_engine_events_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_engine_events_created ON public.engine_events USING btree (created_at);
 
 
 --
@@ -1767,6 +1820,13 @@ ALTER TABLE ONLY public.signals
 
 ALTER TABLE ONLY public.steps
     ADD CONSTRAINT steps_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES public.workflows(id) ON DELETE CASCADE;
+
+-- NOTE: engine_events intentionally has NO foreign key to workflows. It is an
+-- append-only audit sidecar written in the same transaction as the state change
+-- it records. A hard FK would take a FOR KEY SHARE lock on the workflow row on
+-- every event insert, which deadlocks against advanceWorkflow's FOR UPDATE on the
+-- same row under concurrent step completion. workflow_id stays an indexed column;
+-- retention is by age (CleanupOldEngineEvents), not cascade.
 
 
 --

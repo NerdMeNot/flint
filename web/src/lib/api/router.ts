@@ -4,6 +4,7 @@ import {
   RunStatus,
   type PipelineRun,
   type PipelineStep,
+  type RunEvent,
   type PipelineDefinition,
   type Project,
   type DashboardSummary,
@@ -264,6 +265,52 @@ const runs = {
     .input(z.object({ runId: z.string() }))
     .handler(async ({ input }) => {
       return backendPost(`/runs/${input.runId}/retry`)
+    }),
+
+  pause: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/runs/${input.runId}/pause`)
+    }),
+
+  resume: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/runs/${input.runId}/resume`)
+    }),
+
+  rerunFailed: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/runs/${input.runId}/rerun-failed`)
+    }),
+
+  retryFromStep: os
+    .input(z.object({ runId: z.string(), stepName: z.string() }))
+    .handler(async ({ input }) => {
+      return backendPost(`/runs/${input.runId}/retry-from/${encodeURIComponent(input.stepName)}`)
+    }),
+
+  resolveStep: os
+    .input(
+      z.object({
+        runId: z.string(),
+        stepName: z.string(),
+        outcome: z.enum(['succeeded', 'failed', 'skipped']),
+        reason: z.optional(z.string()),
+      }),
+    )
+    .handler(async ({ input }) => {
+      return backendPost(`/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/resolve`, {
+          outcome: input.outcome,
+          reason: input.reason ?? '',
+        })
+    }),
+
+  events: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendGet<{ runId: string; events: RunEvent[] }>(`/runs/${input.runId}/events`)
     }),
 }
 

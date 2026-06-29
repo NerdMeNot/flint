@@ -12,6 +12,56 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
 
+// runEventDTO is the API shape of one engine_events row for the run timeline.
+type runEventDTO struct {
+	StepName *string         `json:"stepName,omitempty"`
+	Attempt  *int            `json:"attempt,omitempty"`
+	Event    string          `json:"event"`
+	From     *string         `json:"from,omitempty"`
+	To       *string         `json:"to,omitempty"`
+	Actor    string          `json:"actor"`
+	Reason   *string         `json:"reason,omitempty"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	At       interface{}     `json:"at"`
+}
+
+// handleGetRunEvents returns the durable transition timeline for a run, oldest
+// first — the per-attempt history that the run-detail timeline view renders.
+func (s *Server) handleGetRunEvents(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	workflowID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || workflowID == nil {
+		apiNotFound(ctx, c, "run not found or no workflow")
+		return
+	}
+	rows, err := s.deps.Q.ListEngineEventsByWorkflow(ctx, *workflowID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to load run events")
+		return
+	}
+	events := make([]runEventDTO, 0, len(rows))
+	for _, r := range rows {
+		e := runEventDTO{
+			StepName: r.StepName,
+			Event:    r.EventType,
+			From:     r.FromStatus,
+			To:       r.ToStatus,
+			Actor:    r.Actor,
+			Reason:   r.Reason,
+			At:       r.CreatedAt,
+		}
+		if r.Attempt.Valid {
+			a := int(r.Attempt.Int32)
+			e.Attempt = &a
+		}
+		if len(r.Metadata) > 0 {
+			e.Metadata = json.RawMessage(r.Metadata)
+		}
+		events = append(events, e)
+	}
+	c.JSON(consts.StatusOK, utils.H{"runId": runID, "events": events})
+}
+
 func (s *Server) handleGetRunSteps(ctx context.Context, c *app.RequestContext) {
 	runID := c.Param("id")
 
@@ -60,6 +110,34 @@ func (s *Server) handleCancelRun(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, utils.H{"success": true})
 }
 
+func (s *Server) handlePauseRun(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	workflowID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || workflowID == nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+	if err := s.deps.Engine.PauseWorkflow(ctx, *workflowID); err != nil {
+		apiInternal(ctx, c, "failed to pause workflow")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "status": "paused"})
+}
+
+func (s *Server) handleResumeRun(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	workflowID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || workflowID == nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+	if err := s.deps.Engine.ResumeWorkflow(ctx, *workflowID); err != nil {
+		apiInternal(ctx, c, "failed to resume workflow")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "status": "running"})
+}
+
 func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 	runID := c.Param("id")
 	if s.deps.Runs == nil {
@@ -67,6 +145,74 @@ func (s *Server) handleRetryRun(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	newRunID, workflowID, err := s.deps.Runs.Rerun(ctx, runID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiBadRequest(ctx, c, err.Error())
+		}
+		return
+	}
+	c.JSON(consts.StatusAccepted, utils.H{"id": newRunID, "workflowId": workflowID, "status": "pending"})
+}
+
+func (s *Server) handleResolveStep(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	stepName := c.Param("step")
+	var req struct {
+		Outcome string `json:"outcome"`
+		Reason  string `json:"reason"`
+	}
+	if c.BindJSON(&req) != nil || req.Outcome == "" {
+		apiBadRequest(ctx, c, "outcome is required (succeeded|failed|skipped)")
+		return
+	}
+	workflowID, err := s.deps.Q.GetRunWorkflowID(ctx, runID)
+	if err != nil || workflowID == nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+	actor := ""
+	if claims := claimsFromCtx(ctx); claims != nil {
+		actor = claims.Email
+	}
+	if err := s.deps.Engine.ResolveStepManually(ctx, *workflowID, stepName, req.Outcome, actor, req.Reason); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiBadRequest(ctx, c, err.Error())
+		}
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "status": req.Outcome})
+}
+
+func (s *Server) handleRerunFailed(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	if s.deps.Runs == nil {
+		apiInternal(ctx, c, "run creation unavailable")
+		return
+	}
+	newRunID, workflowID, err := s.deps.Runs.RerunFailed(ctx, runID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiBadRequest(ctx, c, err.Error())
+		}
+		return
+	}
+	c.JSON(consts.StatusAccepted, utils.H{"id": newRunID, "workflowId": workflowID, "status": "pending"})
+}
+
+func (s *Server) handleRetryFromStep(ctx context.Context, c *app.RequestContext) {
+	runID := c.Param("id")
+	stepName := c.Param("step")
+	if s.deps.Runs == nil {
+		apiInternal(ctx, c, "run creation unavailable")
+		return
+	}
+	newRunID, workflowID, err := s.deps.Runs.RetryFromStep(ctx, runID, stepName)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			apiNotFound(ctx, c, err.Error())

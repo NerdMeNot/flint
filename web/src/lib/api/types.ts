@@ -9,6 +9,7 @@ export const RunStatus = z.enum([
   'failed',
   'running',
   'pending',
+  'paused',
   'cancelled',
 ])
 export type RunStatusValue = z.infer<typeof RunStatus>
@@ -122,6 +123,20 @@ export const PipelineStepSchema = z.object({
 })
 
 export const PipelineDefinitionStepSchema = PipelineStepSchema.omit({ status: true, attempt: true, maxAttempts: true, startedAt: true, finishedAt: true, exitCode: true, error: true })
+
+// One durable transition in a run's history (engine_events). Powers the timeline.
+export const RunEventSchema = z.object({
+  stepName: z.optional(z.string()),
+  attempt: z.optional(z.number()),
+  event: z.string(),
+  from: z.optional(z.string()),
+  to: z.optional(z.string()),
+  actor: z.string(),
+  reason: z.optional(z.string()),
+  metadata: z.optional(z.unknown()),
+  at: z.string(),
+})
+export type RunEvent = z.infer<typeof RunEventSchema>
 
 export const PipelineValidationStatus = z.enum(['valid', 'invalid'])
 
