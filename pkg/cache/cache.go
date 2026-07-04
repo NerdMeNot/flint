@@ -162,8 +162,7 @@ func (c *S3Cache) Save(ctx context.Context, root, key string, paths []string) er
 	if err != nil {
 		return fmt.Errorf("cache: create %s: %w", fsKey, err)
 	}
-	// Stream the archive into the writer — no full in-memory staging buffer
-	// (the sidecar runs with a small memory request).
+	// Stream the archive into the writer — no full in-memory staging buffer.
 	if err := compress(root, paths, w); err != nil {
 		_ = w.Close()
 		return fmt.Errorf("cache: compress: %w", err)

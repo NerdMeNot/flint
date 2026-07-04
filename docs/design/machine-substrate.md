@@ -99,10 +99,13 @@ future runtime behind the same `Runtime` interface.
 - **Networking:** containerd steps use host networking; per-step CNI netns +
   service containers are the next runtime increment. `services:` blocks are
   not yet honored by the machine path.
-- **Workspace across machines:** run affinity keeps a run's steps on one
-  machine (scheduler warmth); the S3 sync path covers spill. The per-run
-  workspace pod (`wsagent`) and its gRPC protocol are legacy and slated for
-  removal with the old sidecar agent commands.
+- **Workspace across machines:** run affinity is a scheduler GUARANTEE, not a
+  preference — a run's workspace is a local directory on the machine that
+  started it, so every later step of that run lands there (or waits pending
+  until it frees up). If the machine dies, its assignments fail through the
+  machine-lost path and retries start fresh. There is no cross-machine
+  workspace sync; the legacy per-run workspace pod, sidecar agent, and HTTP
+  `/internal` endpoints have been removed.
 - **Agent download:** cloud-init pulls release binaries from GitHub; a
   self-hosted mirror override belongs in provider config.
 - **dind/buildkit:** `privileged: true` per step exists; a first-class

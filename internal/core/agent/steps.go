@@ -15,23 +15,24 @@ import (
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
-// steps.go — the in-pod steps driver.
+// steps.go — the in-container steps driver.
 //
 // A ci-dialect job compiles to ONE engine step of exec type "steps": a single
-// pod whose sub-steps run sequentially, sharing the image and the workspace.
-// The driver is this binary (static, CGO-free) copied into the shared
-// workspace by the init container and executed as the step container's main
-// process inside the USER'S image. It owns:
+// container whose sub-steps run sequentially, sharing the image and the
+// workspace. The driver is this binary (static, CGO-free), bind-mounted into
+// the step container by the daemon and executed as its main process inside
+// the USER'S image. It owns:
 //
 //   - sequential sub-step execution with per-sub-step env, workingDir, shell,
 //     timeout, retry, and continueOnError
-//   - in-pod if: evaluation against {git, run, env, needs, steps.outputs}
+//   - in-container if: evaluation against {git, run, env, needs, steps.outputs}
 //   - $FLINT_OUTPUT capture per sub-step → steps.outputs.* for later sub-steps
 //   - job-level declared outputs (name → ${{ }} expression), evaluated after
-//     the sub-steps and written to the emit file for the sidecar to report
-//   - the same pod contract as the shell wrapper: combined output appended to
-//     .flint-step.log, exit code written to .flint-exit — the watch sidecar
-//     needs no special handling for group steps.
+//     the sub-steps and appended to the daemon-provided $FLINT_OUTPUT file
+//     (only declared outputs cross the job boundary)
+//
+// Sub-step output goes to stdout/stderr (the daemon's log relay); the job's
+// result is the driver's exit code — the last failing sub-step's.
 
 // StepsConfig is the driver's environment-supplied configuration.
 type StepsConfig struct {
@@ -55,37 +56,6 @@ type SubStep struct {
 	Timeout         string              `json:"timeout"`
 	ContinueOnError bool                `json:"continueOnError"`
 	Retry           *pipeline.RetrySpec `json:"retry"`
-}
-
-// InstallDriver copies the running flint-agent binary into the shared
-// workspace at .flint-bin/flint-agent so the step container (the user's
-// image) can exec the steps driver. Called by the init container for group
-// steps; the sidecar removes the directory before workspace sync-out.
-func InstallDriver(workspace string) error {
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("agent: locate own binary: %w", err)
-	}
-	src, err := os.Open(self)
-	if err != nil {
-		return fmt.Errorf("agent: open own binary: %w", err)
-	}
-	defer src.Close()
-
-	binDir := filepath.Join(workspace, ".flint-bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return fmt.Errorf("agent: create driver dir: %w", err)
-	}
-	dstPath := filepath.Join(binDir, "flint-agent")
-	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err != nil {
-		return fmt.Errorf("agent: create driver copy: %w", err)
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
-		return fmt.Errorf("agent: copy driver: %w", err)
-	}
-	return dst.Close()
 }
 
 // LoadStepsConfig reads the driver configuration from the environment.
@@ -125,29 +95,12 @@ func LoadStepsConfig() (*StepsConfig, error) {
 	return cfg, nil
 }
 
-// RunSteps executes the sub-steps and honours the pod contract (.flint-step.log,
-// .flint-exit, .flint-emit). It returns an error only for driver-level failures;
-// sub-step failures are reported through the exit file.
-func RunSteps(ctx context.Context, cfg *StepsConfig) error {
-	logPath := filepath.Join(cfg.Workspace, ".flint-step.log")
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("agent: open step log: %w", err)
-	}
-	defer logFile.Close()
-	out := io.MultiWriter(os.Stdout, logFile)
-
-	exitCode := runSubSteps(ctx, cfg, out)
-
-	// Pod contract: the sidecar polls .flint-exit for completion.
-	exitPath := filepath.Join(cfg.Workspace, ".flint-exit")
-	if err := os.WriteFile(exitPath, []byte(fmt.Sprintf("%d", exitCode)), 0o644); err != nil {
-		return fmt.Errorf("agent: write exit file: %w", err)
-	}
-	if exitCode != 0 {
-		return fmt.Errorf("agent: job failed with exit code %d", exitCode)
-	}
-	return nil
+// RunSteps executes the sub-steps, streaming their combined output to out
+// (the container's stdout — the daemon's log relay). It returns the job's
+// exit code: 0 on success, otherwise the last failing sub-step's code. The
+// caller exits the driver process with it, so the daemon sees the real code.
+func RunSteps(ctx context.Context, cfg *StepsConfig, out io.Writer) int {
+	return runSubSteps(ctx, cfg, out)
 }
 
 func runSubSteps(ctx context.Context, cfg *StepsConfig, out io.Writer) int {
@@ -215,7 +168,7 @@ func runSubSteps(ctx context.Context, cfg *StepsConfig, out io.Writer) int {
 	}
 
 	// Job-level declared outputs: evaluated against the final steps.outputs
-	// and written to the emit file (key=value) for the sidecar to report.
+	// and appended (key=value) to the daemon-provided $FLINT_OUTPUT file.
 	// Only declared outputs cross the job boundary.
 	if failedCode == 0 && len(cfg.JobOutputs) > 0 {
 		if err := cfg.writeJobOutputs(stepOutputs, out); err != nil {
@@ -289,7 +242,7 @@ func runOneSubStep(ctx context.Context, cfg *StepsConfig, s SubStep, idx int, st
 	return 127
 }
 
-// exprContext builds the in-pod expression context. It mirrors the engine's
+// exprContext builds the in-container expression context. It mirrors the engine's
 // runtime namespaces (git, run, env, needs) plus the job-scoped
 // steps.outputs.* accumulated from earlier sub-steps.
 func (cfg *StepsConfig) exprContext(stepOutputs map[string]string) pipeline.ExprContext {
@@ -320,7 +273,7 @@ func (cfg *StepsConfig) exprContext(stepOutputs map[string]string) pipeline.Expr
 	}
 }
 
-// interpolate resolves ${{ }} templates in a string against the in-pod context.
+// interpolate resolves ${{ }} templates in a string against the in-container context.
 // On error the original string is kept (the subsequent command will surface it).
 func (cfg *StepsConfig) interpolate(s string, stepOutputs map[string]string) string {
 	if !strings.Contains(s, "${{") {
@@ -333,7 +286,7 @@ func (cfg *StepsConfig) interpolate(s string, stepOutputs map[string]string) str
 	return resolved
 }
 
-// interpolatedEnviron returns the pod environment with ${{ }} values resolved —
+// interpolatedEnviron returns the container environment with ${{ }} values resolved —
 // job-level env like VERSION: ${{ needs.build.outputs.version }} reaches the
 // sub-step processes with the actual value.
 func (cfg *StepsConfig) interpolatedEnviron(stepOutputs map[string]string) []string {
@@ -351,13 +304,12 @@ func (cfg *StepsConfig) interpolatedEnviron(stepOutputs map[string]string) []str
 }
 
 // writeJobOutputs evaluates the declared job outputs and appends them to the
-// emit file (the sidecar reports emit-file contents as the step's outputs).
+// daemon-provided $FLINT_OUTPUT file (the job-level output channel; the
+// daemon reads it from the step IO dir and reports it as the step's outputs).
 func (cfg *StepsConfig) writeJobOutputs(stepOutputs map[string]string, out io.Writer) error {
-	// $FLINT_OUTPUT is the job-level output channel (the daemon reads it from
-	// the step IO dir); the workspace .flint-emit path is the pod-era default.
 	emitPath := os.Getenv("FLINT_OUTPUT")
 	if emitPath == "" {
-		emitPath = filepath.Join(cfg.Workspace, ".flint-emit")
+		return fmt.Errorf("FLINT_OUTPUT is not set — job outputs need the daemon-provided output file")
 	}
 	f, err := os.OpenFile(emitPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

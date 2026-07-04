@@ -91,9 +91,8 @@ func (b *BootstrapConfig) EmailOrDefault() string {
 type ServerConfig struct {
 	Port int `mapstructure:"port"`
 	// GRPCPort is the AgentService listener (flint-agent control channel).
-	GRPCPort      int    `mapstructure:"grpcPort"`
-	BaseURL       string `mapstructure:"baseUrl"`
-	InternalToken string `mapstructure:"internalToken"` // shared secret for /internal agent endpoints
+	GRPCPort int    `mapstructure:"grpcPort"`
+	BaseURL  string `mapstructure:"baseUrl"`
 	// WebDist serves a built web UI (static assets + SPA index fallback)
 	// straight from this process — no separate web deployment or reverse
 	// proxy. Empty disables static serving.

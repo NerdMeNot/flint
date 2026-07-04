@@ -282,11 +282,6 @@ func (s *Service) startResolved(ctx context.Context, p *Pipeline, env string, in
 		return "", fmt.Errorf("compile pipeline: %w", err)
 	}
 
-	// ci-dialect jobs are self-contained pods; files cross jobs via artifacts
-	// (object storage), never workspace sync — the engine skips the per-run
-	// workspace pod entirely.
-	input.WorkspaceFlow = "artifacts"
-
 	// Concurrency: cancel-in-progress. Resolve the group (expressions like
 	// "ci-${{ git.branch }}"), stamp it on this run, and cancel still-running
 	// runs of the same project+group — the new commit supersedes them.

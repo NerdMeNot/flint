@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -169,14 +168,8 @@ func (s *Server) registerRoutes() {
 		s.hertz.POST("/webhooks/bitbucket", s.handleWebhook)
 	}
 
-	// Internal agent endpoints + API — internal/user-facing.
+	// User-facing API. Agents talk gRPC (agentgrpc), never HTTP.
 	if mode == "all" || mode == "api" {
-		internal := s.hertz.Group("/internal", s.internalAuthMiddleware())
-		internal.GET("/secrets", s.handleAgentSecrets)
-		internal.GET("/clone-token", s.handleAgentCloneToken)
-		internal.POST("/complete", s.handleAgentComplete)
-		internal.POST("/logs", s.handleAgentLogIngestion)
-
 		s.registerAPIRoutes()
 		s.registerSCIMRoutes()
 	}
@@ -316,30 +309,6 @@ func forgeTypeFromPath(urlPath string) string {
 	default:
 		return "bitbucket"
 	}
-}
-
-// handleAgentComplete receives step completion from the agent.
-// Replaces the agent dialing Temporal directly.
-func (s *Server) handleAgentComplete(ctx context.Context, c *app.RequestContext) {
-	var req struct {
-		TaskToken string            `json:"taskToken"`
-		Result    engine.StepResult `json:"result"`
-	}
-	if err := c.BindJSON(&req); err != nil {
-		apiBadRequest(ctx, c, "invalid request body")
-		return
-	}
-	if req.TaskToken == "" {
-		apiBadRequest(ctx, c, "taskToken is required")
-		return
-	}
-
-	if err := s.deps.Engine.CompleteStep(ctx, req.TaskToken, req.Result); err != nil {
-		apiInternal(ctx, c, err.Error())
-		return
-	}
-
-	c.JSON(consts.StatusOK, utils.H{"status": "ok"})
 }
 
 // handleMetrics serves Prometheus-format metrics via the OTel exporter.

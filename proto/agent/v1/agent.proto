@@ -143,11 +143,11 @@ message StepPayload {
   // pipeline package, so JSON here beats mirroring the whole schema in proto.
   bytes step_def_json = 5;
 
-  // Per-step HMAC task token: authenticates ReportStepComplete and the HTTP
-  // data-plane pulls (secrets, clone token, logs).
+  // Per-step HMAC task token: authenticates ReportStepComplete and the gRPC
+  // data-plane pulls (secrets, clone token).
   string task_token = 6;
-  // Per-run workspace token (HMAC-derived from the run id).
-  string ws_token = 7;
+
+  reserved 7; // was ws_token (per-run workspace pod, removed)
 
   string run_id = 8;
   string org_id = 9;
@@ -157,9 +157,9 @@ message StepPayload {
   string commit_sha = 13;
   string trigger_type = 14;
 
-  // Workspace flow for this run: "local" (all steps on one machine share a
-  // directory) | "s3" (cross-machine diff-sync) | "none". Fixed per run.
-  string workspace_flow = 15;
+  // Field 15 was workspace_flow: run affinity is a scheduler guarantee, so a
+  // run's workspace is always one machine-local directory.
+  reserved 15;
   string environment = 16;
   string pipeline_image = 17;
 

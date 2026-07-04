@@ -3,16 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/NerdMeNot/flint/internal/agentd"
 	"github.com/NerdMeNot/flint/internal/core/agent"
-	"github.com/NerdMeNot/flint/internal/core/wsagent"
 	"github.com/NerdMeNot/flint/internal/version"
 	"github.com/NerdMeNot/flint/pkg/checkout"
-	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +21,7 @@ func main() {
 		Version: version.String(),
 	}
 
-	root.AddCommand(daemonCmd(), sidecarCmd(), initCmd(), watchCmd(), workspaceCmd(), checkoutCmd(), stepsCmd())
+	root.AddCommand(daemonCmd(), checkoutCmd(), stepsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -64,159 +61,30 @@ func daemonCmd() *cobra.Command {
 	return cmd
 }
 
-// sidecarCmd is the single per-step agent container (native sidecar): it
-// prepares the workspace (init phase), writes the init-done marker the step
-// container's startup probe gates on, then watches the step (logs, sync-out,
-// artifact/cache upload, completion). One container instead of the previous
-// init + sidecar pair — one fewer resource request per step pod.
-func sidecarCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "sidecar",
-		Short: "Prepare workspace, then watch the step (single per-step container)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-
-			cfg, err := agent.LoadFromEnv()
-			if err != nil {
-				return err
-			}
-
-			log.Info().
-				Str("version", version.String()).
-				Str("step", cfg.StepName).
-				Str("workspace", cfg.Workspace).
-				Msg("flint-agent sidecar")
-
-			if err := agent.Init(ctx, cfg); err != nil {
-				// Init failure means the step must not start — report and exit
-				// nonzero so the informer/engine resolve the step.
-				agent.ReportError(cfg, err)
-				return err
-			}
-			if err := agent.MarkInitDone(cfg.Workspace); err != nil {
-				agent.ReportError(cfg, err)
-				return err
-			}
-
-			return agent.Watch(ctx, cfg, buildLogSink(cfg))
-		},
-	}
-}
-
-// initCmd runs only the workspace-preparation phase (debugging aid; production
-// pods use the combined sidecar command).
-func initCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "init",
-		Short: "Set up workspace only (debug; production uses sidecar)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := agent.LoadFromEnv()
-			if err != nil {
-				return err
-			}
-			return agent.Init(context.Background(), cfg)
-		},
-	}
-}
-
-// buildLogSink builds the log sink from env config. The default ("server")
-// ships batched lines to flint-server /internal/logs — the server owns durable
-// storage and fans out to SSE subscribers for live tail. A pod-local
-// filesystem sink would die with the pod, so it is only for tests/debugging
-// via FLINT_LOG_SINK=filesystem.
-func buildLogSink(cfg *agent.Config) logsink.LogSink {
-	switch cfg.LogSinkMode {
-	case "filesystem":
-		fsPath := cfg.FSLogPath
-		if fsPath == "" {
-			fsPath = "/tmp/flint-logs"
-		}
-		return &logsink.FilesystemSink{BaseDir: fsPath}
-	default:
-		return &logsink.HTTPSink{
-			ServerURL:     cfg.ServerURL,
-			TaskToken:     cfg.TaskToken,
-			InternalToken: cfg.InternalToken,
-		}
-	}
-}
-
-// watchCmd runs only the watch phase (debugging aid; production pods use the
-// combined sidecar command).
-func watchCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "watch",
-		Short: "Watch step container only (debug; production uses sidecar)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := agent.LoadFromEnv()
-			if err != nil {
-				return err
-			}
-			return agent.Watch(context.Background(), cfg, buildLogSink(cfg))
-		},
-	}
-}
-
-// workspaceCmd runs the per-run workspace gRPC file server.
-// Scheduled by the engine as a dedicated pod before any steps are dispatched.
-func workspaceCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "workspace",
-		Short: "Run the per-run workspace gRPC file server (workspace pod)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-
-			runID := os.Getenv("FLINT_RUN_ID")
-			token := os.Getenv("FLINT_WS_TOKEN")
-			port := os.Getenv("FLINT_WS_PORT")
-			root := os.Getenv("FLINT_WS_ROOT")
-
-			if runID == "" {
-				return fmt.Errorf("FLINT_RUN_ID is required")
-			}
-			if token == "" {
-				return fmt.Errorf("FLINT_WS_TOKEN is required")
-			}
-			if port == "" {
-				port = "7700"
-			}
-			if root == "" {
-				root = "/workspace"
-			}
-
-			addr := "0.0.0.0:" + port
-
-			log.Info().
-				Str("version", version.String()).
-				Str("runID", runID).
-				Str("addr", addr).
-				Str("root", root).
-				Msg("flint-agent workspace")
-
-			return wsagent.ListenAndServe(ctx, addr, token, root)
-		},
-	}
-}
-
-// stepsCmd runs the in-pod steps driver: sequential sub-steps inside the user
-// image for a group ("steps") job. Executed as the step container's main
-// process from the workspace copy installed by the init container.
+// stepsCmd runs the in-container steps driver: sequential sub-steps inside the
+// user image for a group ("steps") job. The daemon bind-mounts this binary
+// into the step container and executes it as the main process.
 func stepsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "steps",
-		Short: "Run a job's sub-steps sequentially (in-pod driver)",
+		Short: "Run a job's sub-steps sequentially (in-container driver)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := agent.LoadStepsConfig()
 			if err != nil {
 				return err
 			}
-			return agent.RunSteps(context.Background(), cfg)
+			// The driver's exit code IS the job's result — the daemon reads it
+			// off the container, so propagate the failing sub-step's code.
+			if code := agent.RunSteps(context.Background(), cfg, os.Stdout); code != 0 {
+				os.Exit(code)
+			}
+			return nil
 		},
 	}
 }
 
 // checkoutCmd performs git checkout as an explicit pipeline step.
-// This replaces the implicit clone in the init container. Developers write:
+// Developers write:
 //
 //	steps:
 //	  - use: checkout
@@ -229,8 +97,8 @@ func checkoutCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			// Read step inputs from FLINT_CHECKOUT_INPUTS env var (JSON map).
-			// This is injected by the engine when dispatching a use: checkout step.
+			// Read step inputs from FLINT_CHECKOUT_INPUTS env var (JSON map),
+			// injected by the daemon when dispatching a use: checkout step.
 			inputs := make(map[string]string)
 			if raw := os.Getenv("FLINT_CHECKOUT_INPUTS"); raw != "" {
 				_ = json.Unmarshal([]byte(raw), &inputs)

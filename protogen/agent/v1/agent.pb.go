@@ -603,21 +603,16 @@ type StepPayload struct {
 	// services, cache/artifact specs, checkout inputs. The agent shares the
 	// pipeline package, so JSON here beats mirroring the whole schema in proto.
 	StepDefJson []byte `protobuf:"bytes,5,opt,name=step_def_json,json=stepDefJson,proto3" json:"step_def_json,omitempty"`
-	// Per-step HMAC task token: authenticates ReportStepComplete and the HTTP
-	// data-plane pulls (secrets, clone token, logs).
-	TaskToken string `protobuf:"bytes,6,opt,name=task_token,json=taskToken,proto3" json:"task_token,omitempty"`
-	// Per-run workspace token (HMAC-derived from the run id).
-	WsToken     string `protobuf:"bytes,7,opt,name=ws_token,json=wsToken,proto3" json:"ws_token,omitempty"`
-	RunId       string `protobuf:"bytes,8,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	OrgId       string `protobuf:"bytes,9,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	ProjectId   string `protobuf:"bytes,10,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	Repo        string `protobuf:"bytes,11,opt,name=repo,proto3" json:"repo,omitempty"`
-	Ref         string `protobuf:"bytes,12,opt,name=ref,proto3" json:"ref,omitempty"`
-	CommitSha   string `protobuf:"bytes,13,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
-	TriggerType string `protobuf:"bytes,14,opt,name=trigger_type,json=triggerType,proto3" json:"trigger_type,omitempty"`
-	// Workspace flow for this run: "local" (all steps on one machine share a
-	// directory) | "s3" (cross-machine diff-sync) | "none". Fixed per run.
-	WorkspaceFlow string `protobuf:"bytes,15,opt,name=workspace_flow,json=workspaceFlow,proto3" json:"workspace_flow,omitempty"`
+	// Per-step HMAC task token: authenticates ReportStepComplete and the gRPC
+	// data-plane pulls (secrets, clone token).
+	TaskToken     string `protobuf:"bytes,6,opt,name=task_token,json=taskToken,proto3" json:"task_token,omitempty"`
+	RunId         string `protobuf:"bytes,8,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	OrgId         string `protobuf:"bytes,9,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	ProjectId     string `protobuf:"bytes,10,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Repo          string `protobuf:"bytes,11,opt,name=repo,proto3" json:"repo,omitempty"`
+	Ref           string `protobuf:"bytes,12,opt,name=ref,proto3" json:"ref,omitempty"`
+	CommitSha     string `protobuf:"bytes,13,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	TriggerType   string `protobuf:"bytes,14,opt,name=trigger_type,json=triggerType,proto3" json:"trigger_type,omitempty"`
 	Environment   string `protobuf:"bytes,16,opt,name=environment,proto3" json:"environment,omitempty"`
 	PipelineImage string `protobuf:"bytes,17,opt,name=pipeline_image,json=pipelineImage,proto3" json:"pipeline_image,omitempty"`
 	// Merged non-secret env (org env_vars + step.env + input env).
@@ -710,13 +705,6 @@ func (x *StepPayload) GetTaskToken() string {
 	return ""
 }
 
-func (x *StepPayload) GetWsToken() string {
-	if x != nil {
-		return x.WsToken
-	}
-	return ""
-}
-
 func (x *StepPayload) GetRunId() string {
 	if x != nil {
 		return x.RunId
@@ -762,13 +750,6 @@ func (x *StepPayload) GetCommitSha() string {
 func (x *StepPayload) GetTriggerType() string {
 	if x != nil {
 		return x.TriggerType
-	}
-	return ""
-}
-
-func (x *StepPayload) GetWorkspaceFlow() string {
-	if x != nil {
-		return x.WorkspaceFlow
 	}
 	return ""
 }
@@ -2312,7 +2293,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tstep_name\x18\x03 \x01(\tR\bstepName\x12\x18\n" +
 	"\aattempt\x18\x04 \x01(\x05R\aattempt\x12/\n" +
-	"\apayload\x18\x05 \x01(\v2\x15.agent.v1.StepPayloadR\apayload\"\xb0\b\n" +
+	"\apayload\x18\x05 \x01(\v2\x15.agent.v1.StepPayloadR\apayload\"\xfa\a\n" +
 	"\vStepPayload\x12\x17\n" +
 	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x1f\n" +
 	"\vworkflow_id\x18\x02 \x01(\tR\n" +
@@ -2321,8 +2302,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\texec_type\x18\x04 \x01(\tR\bexecType\x12\"\n" +
 	"\rstep_def_json\x18\x05 \x01(\fR\vstepDefJson\x12\x1d\n" +
 	"\n" +
-	"task_token\x18\x06 \x01(\tR\ttaskToken\x12\x19\n" +
-	"\bws_token\x18\a \x01(\tR\awsToken\x12\x15\n" +
+	"task_token\x18\x06 \x01(\tR\ttaskToken\x12\x15\n" +
 	"\x06run_id\x18\b \x01(\tR\x05runId\x12\x15\n" +
 	"\x06org_id\x18\t \x01(\tR\x05orgId\x12\x1d\n" +
 	"\n" +
@@ -2332,8 +2312,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x03ref\x18\f \x01(\tR\x03ref\x12\x1d\n" +
 	"\n" +
 	"commit_sha\x18\r \x01(\tR\tcommitSha\x12!\n" +
-	"\ftrigger_type\x18\x0e \x01(\tR\vtriggerType\x12%\n" +
-	"\x0eworkspace_flow\x18\x0f \x01(\tR\rworkspaceFlow\x12 \n" +
+	"\ftrigger_type\x18\x0e \x01(\tR\vtriggerType\x12 \n" +
 	"\venvironment\x18\x10 \x01(\tR\venvironment\x12%\n" +
 	"\x0epipeline_image\x18\x11 \x01(\tR\rpipelineImage\x120\n" +
 	"\x03env\x18\x12 \x03(\v2\x1e.agent.v1.StepPayload.EnvEntryR\x03env\x12O\n" +
@@ -2351,7 +2330,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a@\n" +
 	"\x12SecretMappingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"[\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\a\x10\bJ\x04\b\x0f\x10\x10\"[\n" +
 	"\rObjectStorage\x12\x16\n" +
 	"\x06bucket\x18\x01 \x01(\tR\x06bucket\x12\x16\n" +
 	"\x06region\x18\x02 \x01(\tR\x06region\x12\x1a\n" +

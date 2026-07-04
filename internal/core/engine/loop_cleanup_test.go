@@ -20,9 +20,9 @@ func (r *recordingCleaner) CleanupRun(_ context.Context, runID string) error {
 	return nil
 }
 
-// TestLoop_CancelTriggersCleanup is the regression guard for cancel-doesn't-stop-
-// pods: cancelling a workflow must mark the run cancelled and make it eligible
-// for prompt, exactly-once executor cleanup (workspace pod + Jobs torn down).
+// TestLoop_CancelTriggersCleanup is the regression guard for cancel-leaves-work-
+// running: cancelling a workflow must mark the run cancelled and make it eligible
+// for prompt, exactly-once executor cleanup (outstanding assignments cancelled).
 func TestLoop_CancelTriggersCleanup(t *testing.T) {
 	pool := internalTestDB(t)
 	ctx := context.Background()

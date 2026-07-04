@@ -65,11 +65,10 @@ storage:
 
 # Core secrets. Leave empty to have the chart GENERATE stable random values on
 # first install (preserved across upgrades via helm lookup). Set existingSecret
-# to manage them yourself (keys: jwtSecret, internalToken, masterKey).
+# to manage them yourself (keys: jwtSecret, masterKey).
 secrets:
   existingSecret: ""
   jwtSecret: ""
-  internalToken: ""
   masterKey: "" # hex-encoded 32 bytes (openssl rand -hex 32)
 
 auth:

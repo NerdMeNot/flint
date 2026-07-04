@@ -104,19 +104,8 @@ type StartWorkflowInput struct {
 	TriggerType string
 	TriggeredBy string
 
-	RunnerPool   string
-	JobNamespace string
-	Environment  string // target environment (empty = no env filtering)
-
-	// WorkspaceFlow declares how files move between this run's container
-	// steps, so the executor can skip per-run workspace infrastructure that
-	// would go unused:
-	//   ""          — workspace sync (legacy flat-steps: per-run gRPC pod)
-	//   "artifacts" — explicit artifacts via object storage (the ci dialect:
-	//                 jobs are self-contained pods; no workspace pod needed)
-	//   "none"      — no cross-step file flow (set automatically for runs
-	//                 with at most one container step)
-	WorkspaceFlow string
+	RunnerPool  string
+	Environment string // target environment (empty = no env filtering)
 
 	Env           map[string]string
 	RunURL        string

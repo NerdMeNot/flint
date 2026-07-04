@@ -9,10 +9,6 @@ server:
   # (registration, heartbeats, work claiming, logs).
   grpcPort: 9443
   baseUrl: http://localhost:8080
-  # Shared secret protecting the /internal agent endpoints (step completion,
-  # log ingestion, secret fetch). REQUIRED, min 16 chars, must match between
-  # server and worker. Generate with: openssl rand -hex 24
-  internalToken: "change-me-to-a-random-value!!"
 
 database:
   host: localhost

@@ -23,9 +23,6 @@ func validServerConfig() *config.Config {
 			// 32-byte (64 hex char) master key.
 			MasterKey: strings.Repeat("ab", 32),
 		},
-		Server: config.ServerConfig{
-			InternalToken: "internal-token-at-least-16-chars",
-		},
 	}
 }
 

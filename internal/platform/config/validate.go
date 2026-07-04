@@ -53,15 +53,6 @@ func Validate(cfg *Config, component string) error {
 		} else if len(cfg.Auth.JWT.Secret) < 32 {
 			v.add("auth.jwt.secret must be at least 32 characters")
 		}
-
-		// Internal token guards the /internal agent endpoints and is handed to
-		// agents at dispatch. Required (and matching) on server and worker so
-		// the endpoints can never be left unauthenticated in prod.
-		if cfg.Server.InternalToken == "" {
-			v.add("server.internalToken is required (protects internal agent endpoints)")
-		} else if len(cfg.Server.InternalToken) < 16 {
-			v.add("server.internalToken must be at least 16 characters")
-		}
 	}
 
 	// Server-specific.

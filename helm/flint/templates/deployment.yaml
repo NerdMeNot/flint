@@ -40,11 +40,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "flint.coreSecretName" . }}
                   key: jwtSecret
-            - name: FLINT_SERVER_INTERNALTOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flint.coreSecretName" . }}
-                  key: internalToken
             - name: FLINT_ENCRYPTION_MASTERKEY
               valueFrom:
                 secretKeyRef:

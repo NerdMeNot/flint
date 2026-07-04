@@ -122,11 +122,12 @@ func (l *Loop) tick(ctx context.Context) {
 	l.processRejections(ctx)
 	l.processSignalWaits(ctx)
 
-	// Phase 2.5: Advance workflows with pending informer step-result signals.
+	// Phase 2.5: Advance workflows with pending step-result signals.
 	// This is the crash-recovery path: when an agent dies without reporting,
-	// the K8s informer delivers a step-result signal within seconds — without
-	// this phase nothing would consume it until the step's timeout sweep
-	// (hours later), because tick otherwise only advances via completions.
+	// the fleet's machine-lost sweep delivers a step-result signal within
+	// seconds — without this phase nothing would consume it until the step's
+	// timeout sweep (hours later), because tick otherwise only advances via
+	// completions.
 	l.processStepResultSignals(ctx)
 
 	// Phase 3: Claim and dispatch queued steps.
@@ -166,8 +167,8 @@ func (l *Loop) runOutbox(ctx context.Context) {
 	}
 }
 
-// cleanupFinishedRuns tears down executor resources (workspace pod, leftover
-// Jobs) for terminal runs not yet cleaned. Exactly-once via
+// cleanupFinishedRuns tears down executor resources (outstanding step
+// assignments) for terminal runs not yet cleaned. Exactly-once via
 // pipeline_runs.cleaned_at; runs every tick so cleanup is prompt for ALL
 // terminal transitions — cancel, fail, succeed — not just the sweep window.
 // Marks runs cleaned even when no executor needs cleanup (e.g. http-only or
@@ -339,7 +340,7 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 	}
 	_ = json.Unmarshal(c.StepDef, &stepDef)
 
-	// needs.<job>.outputs.* for the in-pod driver: the outputs of this step's
+	// needs.<job>.outputs.* for the in-container driver: the outputs of this step's
 	// direct dependencies, keyed by base job name (matrix suffix stripped).
 	needsOutputs := map[string]map[string]string{}
 	for _, dep := range stepDef.DependsOn {
@@ -351,11 +352,9 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 	step := claimedStep{
 		id: c.ID, workflowID: c.WorkflowID, name: c.Name,
 		execType: c.ExecType, attempt: int(c.Attempt), taskToken: token, stepDef: c.StepDef,
-		wsToken: DeriveWorkspaceToken(input.RunID, l.config.SigningKey),
-		runID:   input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
+		runID: input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
 		repo: input.Repo, ref: input.Ref, commitSHA: input.CommitSHA,
 		triggerType:   input.TriggerType,
-		workspaceFlow: input.WorkspaceFlow,
 		environment:   input.Environment,
 		pipelineImage: input.PipelineImage,
 		env:           merged,
@@ -371,7 +370,7 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 	if err != nil {
 		log.Error().Err(err).Str("step", c.Name).Msg("engine: dispatch failed")
 		observe.DispatchErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("step", c.Name)))
-		// Route through the retry policy: a transient dispatch error (e.g. a k8s API
+		// Route through the retry policy: a transient dispatch error (e.g. a DB
 		// hiccup) backs off and retries like any failure, rather than terminally
 		// failing the step. If attempts are exhausted it fails and advances so the
 		// workflow doesn't wedge.

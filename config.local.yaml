@@ -4,7 +4,6 @@
 server:
   port: 8080
   baseUrl: http://localhost:8080
-  internalToken: dev-internal-token-0123456789
 
 database:
   host: localhost

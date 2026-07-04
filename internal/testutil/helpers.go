@@ -44,9 +44,8 @@ func NewMocks(t *testing.T) *Mocks {
 func TestConfig() *config.Config {
 	return &config.Config{
 		Server: config.ServerConfig{
-			Port:          8080,
-			BaseURL:       "http://localhost:8080",
-			InternalToken: "test-internal-token",
+			Port:    8080,
+			BaseURL: "http://localhost:8080",
 		},
 		Auth: config.AuthConfig{
 			JWT: config.JWTConfig{

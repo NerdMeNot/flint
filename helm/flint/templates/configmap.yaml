@@ -9,7 +9,7 @@ data:
     server:
       port: 8080
       baseUrl: {{ .Values.server.baseUrl | default (printf "http://%s.%s.svc.cluster.local:8080" (include "flint.fullname" .) .Release.Namespace) | quote }}
-      # internalToken/jwt/masterKey come from env (FLINT_ overrides).
+      # jwt/masterKey come from env (FLINT_ overrides).
 
     database:
       host: {{ include "flint.dbHost" . | quote }}

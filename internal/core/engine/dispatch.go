@@ -12,7 +12,6 @@ type claimedStep struct {
 	execType      string
 	attempt       int
 	taskToken     string
-	wsToken       string // per-run workspace bearer token (HMAC-derived)
 	stepDef       []byte
 	runID         string
 	orgID         string
@@ -21,7 +20,6 @@ type claimedStep struct {
 	ref           string
 	commitSHA     string
 	triggerType   string
-	workspaceFlow string            // ""/"sync" | "artifacts" | "none" (see StartWorkflowInput)
 	environment   string            // target environment for secret scoping
 	pipelineImage string            // pipeline-level default image (fallback)
 	env           map[string]string // merged env vars (org env_vars + step.env + input.Env)
