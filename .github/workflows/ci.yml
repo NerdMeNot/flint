@@ -29,9 +29,9 @@ jobs:
 
     env:
       # Integration tests use this Postgres; without it they'd self-provision a
-      # throwaway instance (see internal/core/engine TestMain). Steps run as
-      # Kubernetes Jobs in production; tests use a fake clientset, so no cluster
-      # is needed here.
+      # throwaway instance (see internal/core/engine TestMain). Step execution
+      # is simulated or bufconn-faked in unit/integration tests; the real agent
+      # path runs in the e2e job below.
       FLINT_TEST_DSN: postgres://flint:flint@localhost:5432/flint?sslmode=disable
 
     steps:
@@ -63,3 +63,41 @@ jobs:
       # race failure is distinguishable from a plain test failure.
       - name: Test (race detector)
         run: go test -race ./...
+
+  # The production path, end to end: control plane on a throwaway Postgres, a
+  # REAL flint-agent in a privileged docker container supervising its bundled
+  # containerd, executing a pipeline as actual containers — image pulls,
+  # cross-step workspace handoff, service containers in a per-step CNI netns.
+  e2e-agent:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: flint
+          POSTGRES_USER: flint
+          POSTGRES_PASSWORD: flint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flint"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      FLINT_TEST_DSN: postgres://flint:flint@localhost:5432/flint?sslmode=disable
+      FLINT_CONTAINERD_E2E: "1"
+      FLINT_CONTAINER_TOOL: docker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Live containerd validation
+        run: go test ./internal/core/fleet/ -run TestContainerdLive -count=1 -v -timeout 20m

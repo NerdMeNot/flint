@@ -42,6 +42,7 @@ type ContainerdConfig struct {
 type Containerd struct {
 	cfg    ContainerdConfig
 	client *containerd.Client
+	cni    *cniManager
 
 	mu    sync.Mutex
 	tasks map[string]*cdHandle
@@ -54,6 +55,15 @@ type cdHandle struct {
 	container containerd.Container
 	task      containerd.Task
 	exitCh    <-chan containerd.ExitStatus
+
+	// Step-with-services state, torn down in Remove.
+	services  []*svcHandle
+	netnsPath string
+}
+
+type svcHandle struct {
+	container containerd.Container
+	task      containerd.Task
 }
 
 func (h *cdHandle) ID() string { return h.id }
@@ -63,7 +73,11 @@ func NewContainerd(cfg ContainerdConfig) *Containerd {
 	if cfg.BundleDir == "" {
 		cfg.BundleDir = filepath.Join(cfg.DataDir, "bin")
 	}
-	return &Containerd{cfg: cfg, tasks: map[string]*cdHandle{}}
+	return &Containerd{
+		cfg:   cfg,
+		tasks: map[string]*cdHandle{},
+		cni:   &cniManager{bundleDir: cfg.BundleDir},
+	}
 }
 
 // Start connects to containerd, launching the bundled daemon when present.
@@ -108,6 +122,9 @@ func (r *Containerd) Start(ctx context.Context) error {
 	// Recovery sweep: kill and remove any containers a previous agent process
 	// left behind (fail-and-retry crash model — the control plane reschedules).
 	r.sweepLeftovers(namespaces.WithNamespace(ctx, containerdNamespace))
+	if n := sweepNetNS(); n > 0 {
+		log.Warn().Int("netns", n).Msg("agentd: removed stale step network namespaces")
+	}
 	return nil
 }
 
@@ -158,7 +175,9 @@ disabled_plugins = ['io.containerd.cri.v1.runtime', 'io.containerd.cri.v1.images
 
 // CreateStep pulls the image (layer-cached across steps), creates the
 // container with the workspace/io/secrets binds and cgroup limits, and starts
-// it with stdio attached.
+// it with stdio attached. Steps with services get a private network namespace
+// shared with their service containers; service-less steps use host
+// networking (no CNI dependency).
 func (r *Containerd) CreateStep(ctx context.Context, spec StepSpec) (Handle, error) {
 	ctx = namespaces.WithNamespace(ctx, containerdNamespace)
 	if spec.Image == "" {
@@ -181,17 +200,59 @@ func (r *Containerd) CreateStep(ctx context.Context, spec StepSpec) (Handle, err
 		"FLINT_WORKSPACE=/workspace",
 	)
 
+	r.mu.Lock()
+	r.seq++
+	id := fmt.Sprintf("flint-%s-%d", sanitizeID(spec.StepName), r.seq)
+	r.mu.Unlock()
+
+	h := &cdHandle{id: id}
+	// One failure-cleanup path for everything allocated below.
+	fail := func(err error) (Handle, error) {
+		r.teardownServices(context.WithoutCancel(ctx), h)
+		return nil, err
+	}
+
+	// Networking: services ⇒ a pinned netns shared by step + services, NAT'd
+	// through the flint bridge, with service names aliased to 127.0.0.1.
+	netOpts := []oci.SpecOpts{oci.WithHostNamespace("network"), oci.WithHostResolvconf}
+	var hostsMount []specs.Mount
+	if len(spec.Services) > 0 {
+		nsPath, err := createNetNS(id)
+		if err != nil {
+			return nil, err
+		}
+		h.netnsPath = nsPath
+		if err := r.cni.Setup(ctx, id, nsPath); err != nil {
+			return fail(err)
+		}
+		hostsPath, err := writeHostsFile(spec.IODir, spec.Services)
+		if err != nil {
+			return fail(err)
+		}
+		hostsMount = []specs.Mount{{
+			Destination: "/etc/hosts", Type: "bind",
+			Source: hostsPath, Options: []string{"rbind", "ro"},
+		}}
+		netOpts = []oci.SpecOpts{
+			oci.WithLinuxNamespace(specs.LinuxNamespace{Type: specs.NetworkNamespace, Path: nsPath}),
+			oci.WithHostResolvconf,
+		}
+
+		for _, svc := range spec.Services {
+			if err := r.startService(ctx, h, spec, svc, hostsMount); err != nil {
+				return fail(fmt.Errorf("service %s: %w", svc.Name, err))
+			}
+		}
+	}
+
 	opts := []oci.SpecOpts{
 		oci.WithImageConfig(image),
 		oci.WithProcessArgs(command...),
 		oci.WithProcessCwd("/workspace"),
 		oci.WithEnv(env),
-		oci.WithMounts(stepMounts(spec)),
-		// Host networking in v1: no CNI dependency on the machine. Per-step
-		// network namespaces + service containers are the documented follow-up.
-		oci.WithHostNamespace("network"),
-		oci.WithHostResolvconf,
+		oci.WithMounts(append(stepMounts(spec), hostsMount...)),
 	}
+	opts = append(opts, netOpts...)
 	if spec.CPUMillis > 0 {
 		period := uint64(100000)
 		quota := int64(spec.CPUMillis) * 100 // millis → CFS quota against 100ms period
@@ -204,11 +265,6 @@ func (r *Containerd) CreateStep(ctx context.Context, spec StepSpec) (Handle, err
 		opts = append(opts, oci.WithPrivileged)
 	}
 
-	r.mu.Lock()
-	r.seq++
-	id := fmt.Sprintf("flint-%s-%d", sanitizeID(spec.StepName), r.seq)
-	r.mu.Unlock()
-
 	container, err := r.client.NewContainer(ctx, id,
 		containerd.WithNewSnapshot(id+"-snap", image),
 		containerd.WithNewSpec(opts...),
@@ -218,31 +274,107 @@ func (r *Containerd) CreateStep(ctx context.Context, spec StepSpec) (Handle, err
 		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("containerd: create container: %w", err)
+		return fail(fmt.Errorf("containerd: create container: %w", err))
 	}
+	h.container = container
 
 	task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStreams(nil, spec.Stdout, spec.Stderr)))
 	if err != nil {
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, fmt.Errorf("containerd: create task: %w", err)
+		return fail(fmt.Errorf("containerd: create task: %w", err))
 	}
 	exitCh, err := task.Wait(ctx)
 	if err != nil {
 		_, _ = task.Delete(ctx, containerd.WithProcessKill)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, err
+		return fail(err)
 	}
 	if err := task.Start(ctx); err != nil {
 		_, _ = task.Delete(ctx, containerd.WithProcessKill)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, fmt.Errorf("containerd: start task: %w", err)
+		return fail(fmt.Errorf("containerd: start task: %w", err))
 	}
 
-	h := &cdHandle{id: id, container: container, task: task, exitCh: exitCh}
+	h.task = task
+	h.exitCh = exitCh
 	r.mu.Lock()
 	r.tasks[id] = h
 	r.mu.Unlock()
 	return h, nil
+}
+
+// startService runs one service container in the step's netns. The image's
+// own entrypoint runs; output interleaves into the step's log stream (boot
+// noise beats invisible failures). Readiness is the step's business — the
+// usual wait-for-port loop — matching what CI users already write.
+func (r *Containerd) startService(ctx context.Context, h *cdHandle, spec StepSpec, svc ServiceSpec, hostsMount []specs.Mount) error {
+	img, err := r.ensureImage(ctx, svc.Image)
+	if err != nil {
+		return err
+	}
+	id := h.id + "-svc-" + sanitizeID(svc.Name)
+	container, err := r.client.NewContainer(ctx, id,
+		containerd.WithNewSnapshot(id+"-snap", img),
+		containerd.WithNewSpec(
+			oci.WithImageConfig(img),
+			oci.WithEnv(svc.Env),
+			oci.WithMounts(hostsMount),
+			oci.WithLinuxNamespace(specs.LinuxNamespace{Type: specs.NetworkNamespace, Path: h.netnsPath}),
+			oci.WithHostResolvconf,
+		),
+		containerd.WithContainerLabels(map[string]string{
+			"flint.run":     spec.RunID,
+			"flint.step":    spec.StepName,
+			"flint.service": svc.Name,
+		}),
+	)
+	if err != nil {
+		return err
+	}
+	task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStreams(nil, spec.Stdout, spec.Stderr)))
+	if err != nil {
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return err
+	}
+	if err := task.Start(ctx); err != nil {
+		_, _ = task.Delete(ctx, containerd.WithProcessKill)
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return err
+	}
+	h.services = append(h.services, &svcHandle{container: container, task: task})
+	return nil
+}
+
+// teardownServices kills service containers and releases the step's netns +
+// bridge attachment. Safe on partially-constructed handles.
+func (r *Containerd) teardownServices(ctx context.Context, h *cdHandle) {
+	ctx = namespaces.WithNamespace(ctx, containerdNamespace)
+	for _, s := range h.services {
+		_, _ = s.task.Delete(ctx, containerd.WithProcessKill)
+		_ = s.container.Delete(ctx, containerd.WithSnapshotCleanup)
+	}
+	h.services = nil
+	if h.netnsPath != "" {
+		r.cni.Teardown(ctx, h.id, h.netnsPath)
+		removeNetNS(h.netnsPath)
+		h.netnsPath = ""
+	}
+}
+
+// writeHostsFile emits the step's /etc/hosts: service names alias 127.0.0.1
+// because step and services share one network namespace.
+func writeHostsFile(ioDir string, services []ServiceSpec) (string, error) {
+	var b strings.Builder
+	b.WriteString("127.0.0.1 localhost")
+	for _, s := range services {
+		b.WriteString(" " + s.Name)
+	}
+	b.WriteString("\n::1 localhost\n")
+	path := filepath.Join(ioDir, "hosts")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write hosts file: %w", err)
+	}
+	return path, nil
 }
 
 func (r *Containerd) Wait(ctx context.Context, handle Handle) (ExitStatus, error) {
@@ -285,6 +417,7 @@ func (r *Containerd) Remove(ctx context.Context, handle Handle) error {
 	ctx = namespaces.WithNamespace(ctx, containerdNamespace)
 	_, _ = h.task.Delete(ctx, containerd.WithProcessKill)
 	_ = h.container.Delete(ctx, containerd.WithSnapshotCleanup)
+	r.teardownServices(ctx, h)
 	r.mu.Lock()
 	delete(r.tasks, h.id)
 	r.mu.Unlock()

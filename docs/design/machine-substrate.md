@@ -96,9 +96,13 @@ future runtime behind the same `Runtime` interface.
 
 ## Deliberate v1 boundaries
 
-- **Networking:** containerd steps use host networking; per-step CNI netns +
-  service containers are the next runtime increment. `services:` blocks are
-  not yet honored by the machine path.
+- **Networking:** service-less steps use host networking (zero CNI
+  dependency). A step with `services:` gets a private network namespace
+  shared with its service containers — NAT'd outbound through the `flint0`
+  bridge (CNI bridge + host-local, bundled), services reachable at
+  `localhost:<port>` and by name via an /etc/hosts alias. Readiness is the
+  step's business (the usual wait-for-port loop). hostshell rejects
+  `services:` loudly.
 - **Workspace across machines:** run affinity is a scheduler GUARANTEE, not a
   preference — a run's workspace is a local directory on the machine that
   started it, so every later step of that run lands there (or waits pending

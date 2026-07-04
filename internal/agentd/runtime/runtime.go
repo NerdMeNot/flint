@@ -39,8 +39,22 @@ type StepSpec struct {
 	MemoryMB   int64
 	Privileged bool
 
+	// Services are sidecar containers (databases, caches) started before the
+	// step and torn down after it. Step and services share one network
+	// namespace, so services are reachable at localhost:<port> and by name
+	// (/etc/hosts alias). Containerd runtime only.
+	Services []ServiceSpec
+
 	// Stdout/Stderr receive the step's output as it happens.
 	Stdout, Stderr io.Writer
+}
+
+// ServiceSpec is one service container: the image's own entrypoint runs with
+// this env in the step's network namespace.
+type ServiceSpec struct {
+	Name  string
+	Image string
+	Env   []string // KEY=VALUE
 }
 
 // Handle identifies a started step for Wait/Kill/Remove.

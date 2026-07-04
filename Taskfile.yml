@@ -239,7 +239,8 @@ tasks:
               while read -r p; do echo "$p" > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true; done < /sys/fs/cgroup/cgroup.procs
               echo "+cpu +memory +pids +io" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
             fi
-            /var/lib/flint-agent/bin/containerd --version >/dev/null 2>&1 || sh /bundle-runtime.sh /var/lib/flint-agent/bin
+            command -v iptables >/dev/null 2>&1 || { apt-get update -q >/dev/null && apt-get install -y -q iptables >/dev/null; }
+            { /var/lib/flint-agent/bin/containerd --version >/dev/null 2>&1 && [ -x /var/lib/flint-agent/bin/cni/bridge ]; } || sh /bundle-runtime.sh /var/lib/flint-agent/bin
             exec /usr/local/bin/flint-agent daemon \
               --server host.containers.internal:9443 \
               --token '"$TOKEN"' --runtime containerd --insecure \

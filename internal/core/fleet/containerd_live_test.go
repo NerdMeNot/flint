@@ -123,7 +123,10 @@ if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
   while read -r p; do echo "$p" > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true; done < /sys/fs/cgroup/cgroup.procs
   echo "+cpu +memory +pids +io" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
 fi
-/var/lib/flint-agent/bin/containerd --version >/dev/null 2>&1 || sh /bundle-runtime.sh /var/lib/flint-agent/bin
+# CNI's bridge NAT needs iptables — present on real machine images
+# (Ubuntu/AL2023), absent from this minimal container base.
+command -v iptables >/dev/null 2>&1 || { apt-get update -q >/dev/null && apt-get install -y -q iptables >/dev/null; }
+{ /var/lib/flint-agent/bin/containerd --version >/dev/null 2>&1 && [ -x /var/lib/flint-agent/bin/cni/bridge ]; } || sh /bundle-runtime.sh /var/lib/flint-agent/bin
 exec /usr/local/bin/flint-agent daemon \
   --server host.containers.internal:%d \
   --token %s --runtime containerd --insecure \
@@ -131,14 +134,21 @@ exec /usr/local/bin/flint-agent daemon \
 
 	agentCtx, stopAgent := context.WithCancel(ctx)
 	defer stopAgent()
-	//nolint:gosec // test harness assembling its own container invocation
-	agentCmd := exec.CommandContext(agentCtx, tool, "run", "--rm", "--privileged",
+	args := []string{"run", "--rm", "--privileged",
 		"--name", dataVol,
-		"-v", agentBin+":/usr/local/bin/flint-agent:ro",
-		"-v", repoRoot(t)+"/scripts/bundle-runtime.sh:/bundle-runtime.sh:ro",
+		"-v", agentBin + ":/usr/local/bin/flint-agent:ro",
+		"-v", repoRoot(t) + "/scripts/bundle-runtime.sh:/bundle-runtime.sh:ro",
 		"-v", "flint-live-bundle-cache:/var/lib/flint-agent/bin",
-		"-v", dataVol+":/var/lib/flint-agent",
-		"docker.io/library/buildpack-deps:bookworm-curl", "sh", "-c", script)
+		"-v", dataVol + ":/var/lib/flint-agent",
+	}
+	// Podman resolves host.containers.internal natively; docker on linux needs
+	// the host-gateway alias injected.
+	if tool != "podman" {
+		args = append(args, "--add-host", "host.containers.internal:host-gateway")
+	}
+	args = append(args, "docker.io/library/buildpack-deps:bookworm-curl", "sh", "-c", script)
+	//nolint:gosec // test harness assembling its own container invocation
+	agentCmd := exec.CommandContext(agentCtx, tool, args...)
 	var agentOut strings.Builder
 	agentCmd.Stdout = &agentOut
 	agentCmd.Stderr = &agentOut
@@ -184,10 +194,21 @@ steps:
       touch /workspace/handoff.txt
       test -f /workspace/handoff.txt
     dependsOn: [identify]
+  - name: services
+    runner: containerd-live
+    services:
+      - name: redis
+        image: docker.io/library/redis:7-alpine
+    run: |
+      for i in $(seq 1 60); do nc -z 127.0.0.1 6379 && break; sleep 1; done
+      nc -z 127.0.0.1 6379
+      nc -z redis 6379
+      wget -q -O /dev/null https://example.com || echo "no outbound (ok if isolated)"
+    dependsOn: [workspace]
 `))
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(4 * time.Minute) // first alpine pull included
+	deadline := time.Now().Add(6 * time.Minute) // first alpine + redis pulls included
 	var state *engine.WorkflowState
 	for time.Now().Before(deadline) {
 		state, err = eng.QueryWorkflow(ctx, wfID)

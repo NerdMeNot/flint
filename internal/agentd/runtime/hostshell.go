@@ -48,6 +48,11 @@ func (r *HostShell) CreateStep(ctx context.Context, spec StepSpec) (Handle, erro
 	if len(spec.Command) == 0 {
 		return nil, errors.New("hostshell: empty command")
 	}
+	// Loud rejection beats a step that green-lights against a service that was
+	// never started.
+	if len(spec.Services) > 0 {
+		return nil, errors.New("hostshell: services require the containerd runtime (hostshell is a dev shim with no containers)")
+	}
 	command := spec.Command
 	// No mount namespace here: the container path of the agent binary maps
 	// back to the host binary.

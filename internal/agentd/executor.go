@@ -168,6 +168,7 @@ func (d *Daemon) runStep(ctx context.Context, a *agentv1.Assignment, logger zero
 		CPUMillis:      payload.GetResources().GetCpuMillis(),
 		MemoryMB:       payload.GetResources().GetMemoryMb(),
 		Privileged:     payload.GetResources().GetPrivileged(),
+		Services:       serviceSpecs(stepDef.Services),
 		Stdout:         relay.writer("stdout"),
 		Stderr:         relay.writer("stderr"),
 	}
@@ -286,6 +287,20 @@ func readEmits(path string) map[string]string {
 
 func failResult(msg string) *agentv1.StepResult {
 	return &agentv1.StepResult{Status: "failed", ExitCode: 1, ErrorMessage: msg}
+}
+
+// serviceSpecs projects the step's services: block into the runtime contract
+// (env map → KEY=VALUE).
+func serviceSpecs(services []pipeline.Service) []agentruntime.ServiceSpec {
+	out := make([]agentruntime.ServiceSpec, 0, len(services))
+	for _, s := range services {
+		env := make([]string, 0, len(s.Env))
+		for k, v := range s.Env {
+			env = append(env, k+"="+v)
+		}
+		out = append(out, agentruntime.ServiceSpec{Name: s.Name, Image: s.Image, Env: env})
+	}
+	return out
 }
 
 func firstNonEmpty(a, b string) string {

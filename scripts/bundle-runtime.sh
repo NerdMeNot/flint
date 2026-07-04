@@ -15,6 +15,7 @@ set -eu
 DEST="${1:-/var/lib/flint-agent/bin}"
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.0.2}"
 RUNC_VERSION="${RUNC_VERSION:-1.2.4}"
+CNI_VERSION="${CNI_VERSION:-1.6.2}"
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -48,6 +49,18 @@ echo "→ runc ${RUNC_VERSION} (${ARCH})"
 curl -fsSL -o "$DEST/runc" \
   "https://github.com/opencontainers/runc/releases/download/v${RUNC_VERSION}/runc.${ARCH}"
 chmod 0755 "$DEST/runc"
+
+# CNI plugins power per-step network namespaces for service containers
+# (bridge + host-local IPAM + loopback). Installed under $DEST/cni. The
+# bridge's outbound NAT shells out to iptables — stock machine images ship
+# it; warn when it's missing so `services:` failures aren't a mystery.
+command -v iptables >/dev/null 2>&1 || \
+  echo "warning: iptables not found — steps with services: need it (apt/dnf install iptables)" >&2
+echo "→ cni plugins ${CNI_VERSION} (${ARCH})"
+mkdir -p "$DEST/cni"
+curl -fsSL -o "$TMP/cni.tgz" \
+  "https://github.com/containernetworking/plugins/releases/download/v${CNI_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_VERSION}.tgz"
+tar -xzf "$TMP/cni.tgz" -C "$DEST/cni" ./bridge ./host-local ./loopback ./portmap
 
 echo "✔ runtime bundle installed to $DEST"
 "$DEST/containerd" --version
