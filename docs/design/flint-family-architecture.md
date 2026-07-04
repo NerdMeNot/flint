@@ -1,5 +1,11 @@
 # Flint Family Architecture
 
+> **July 2026:** the Kubernetes execution substrate described in parts of this
+> document was replaced by the machine substrate — steps now run on raw
+> machines via the `flint-agent` daemon, not as k8s Jobs. See
+> [machine-substrate.md](machine-substrate.md) for the current execution
+> architecture; the product-family layering below still holds.
+
 ## Overview
 
 Flint is evolving from a single CI platform into a **family of related products** built on
