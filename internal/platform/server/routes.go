@@ -9,14 +9,12 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	pgtype "github.com/jackc/pgx/v5/pgtype"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // ── Response structs ──────────────────────────────────────────
@@ -110,24 +108,24 @@ type runnerResponse struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description *string `json:"description,omitempty"`
+	Provider    string  `json:"provider"`
 	CPU         string  `json:"cpu"`
 	Memory      string  `json:"memory"`
+	Disk        *string `json:"disk,omitempty"`
 	Arch        string  `json:"arch"`
 	GPUVendor   *string `json:"gpuVendor,omitempty"`
 	GPUModel    *string `json:"gpuModel,omitempty"`
 	GPUCount    *int32  `json:"gpuCount,omitempty"`
-	Mode        string  `json:"mode"`
-	// Managed carries the capacity envelope for managed pools (nil for reference
-	// pools) so the admin UI can display and round-trip it in the editor.
-	Managed *runner.ManagedSpec `json:"managed,omitempty"`
-	// NodeSelector + Tolerations are how a reference pool targets existing nodes
-	// (managed pools derive these from the pool name). Returned so the editor can
-	// round-trip them.
-	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
-	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
-	IsDefault    bool                `json:"isDefault"`
-	Ready        bool                `json:"ready"`
-	CreatedAt    string              `json:"createdAt"`
+	// Economics policy — surfaced so the pool editor can round-trip it and the
+	// UI can show the speed/cost tradeoff the pool encodes.
+	CapacityType   string `json:"capacityType"`
+	Objective      string `json:"objective"`
+	MinWarm        int32  `json:"minWarm"`
+	MaxMachines    int32  `json:"maxMachines"`
+	IdleTTLSeconds int32  `json:"idleTtlSeconds"`
+	IsDefault      bool   `json:"isDefault"`
+	Ready          bool   `json:"ready"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 func (s *Server) registerAPIRoutes() {
@@ -174,6 +172,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
 		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
 		v1.GET("/runs/:id/cost", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleRunCost)
+		v1.GET("/runs/:id/placement", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleRunPlacement)
 		v1.GET("/runs/:id/events", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunEvents)
 		v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
 		v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)
@@ -281,16 +280,26 @@ func (s *Server) registerAPIRoutes() {
 	v1.PUT("/forge-connections", s.requirePermission(auth.ObjConnection, auth.ActManage), s.handleUpdateForgeConnection)
 	v1.DELETE("/forge-connections/:id", s.requirePermission(auth.ObjConnection, auth.ActManage), s.handleDeleteForgeConnection)
 
-	// Runners.
+	// Runners (machine pools).
 	v1.GET("/runners", s.requirePermission(auth.ObjRunner, auth.ActRead), s.listRunners)
 	v1.POST("/runners", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleCreateRunner)
 	v1.PATCH("/runners/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleUpdateRunner)
 	v1.DELETE("/runners/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleDeleteRunner)
-	v1.GET("/runners/:name/manifests", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleRunnerManifests)
 	v1.POST("/runners/:name/default", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleSetDefaultRunner)
-	// Whether managed (Karpenter) provisioning is available — distinct path to
-	// avoid colliding with the /runners/:name wildcard.
-	v1.GET("/provisioning", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleProvisioningInfo)
+	v1.POST("/runners/:name/token", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleMintPoolJoinToken)
+
+	// Machines (the live fleet) + the economics decision ledger.
+	v1.GET("/machines", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleListMachines)
+	v1.GET("/machines/:id", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleGetMachine)
+	v1.POST("/machines/:id/drain", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleDrainMachine)
+	v1.GET("/decisions", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleListDecisions)
+
+	// Compute providers (the machine sources pools draw from).
+	v1.GET("/providers", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleListComputeProviders)
+	v1.POST("/providers", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleCreateComputeProvider)
+	v1.PATCH("/providers/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleUpdateComputeProvider)
+	v1.DELETE("/providers/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleDeleteComputeProvider)
+	v1.POST("/providers/:name/test", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleTestComputeProvider)
 
 	// Audit entries (renamed from audit-log).
 	v1.GET("/audit-entries", s.requirePermission(auth.ObjAudit, auth.ActRead), s.handleListAuditLog)
@@ -773,7 +782,7 @@ func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
 func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 	lim := parsePagination(c).Limit
 	off := listOffset(c)
-	rows, err := s.deps.Q.ListRunnerPoolsPaged(ctx, db.ListRunnerPoolsPagedParams{
+	rows, err := s.deps.Q.ListMachinePoolsPaged(ctx, db.ListMachinePoolsPagedParams{
 		Limit:  int32(lim),
 		Offset: int32(off),
 	})
@@ -785,34 +794,28 @@ func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 	result := make([]runnerResponse, 0, len(rows))
 	for _, r := range rows {
 		rr := runnerResponse{
-			ID:          r.ID,
-			Name:        r.Name,
-			Description: r.Description,
-			CPU:         r.Cpu,
-			Memory:      r.Memory,
-			Arch:        r.Arch,
-			GPUVendor:   r.GpuVendor,
-			GPUModel:    r.GpuModel,
-			Mode:        r.Mode,
-			IsDefault:   r.IsDefault,
-			Ready:       r.Ready,
-			CreatedAt:   r.CreatedAt.Format(time.RFC3339),
+			ID:             r.ID,
+			Name:           r.Name,
+			Description:    r.Description,
+			Provider:       r.Provider,
+			CPU:            r.Cpu,
+			Memory:         r.Memory,
+			Disk:           r.Disk,
+			Arch:           r.Arch,
+			GPUVendor:      r.GpuVendor,
+			GPUModel:       r.GpuModel,
+			CapacityType:   r.CapacityType,
+			Objective:      r.Objective,
+			MinWarm:        r.MinWarm,
+			MaxMachines:    r.MaxMachines,
+			IdleTTLSeconds: r.IdleTtlSeconds,
+			IsDefault:      r.IsDefault,
+			Ready:          r.Ready,
+			CreatedAt:      r.CreatedAt.Format(time.RFC3339),
 		}
 		if r.GpuCount.Valid {
 			v := r.GpuCount.Int32
 			rr.GPUCount = &v
-		}
-		if r.Mode == "managed" && len(r.ManagedSpec) > 0 {
-			var ms runner.ManagedSpec
-			if json.Unmarshal(r.ManagedSpec, &ms) == nil {
-				rr.Managed = &ms
-			}
-		}
-		if len(r.NodeSelector) > 0 {
-			_ = json.Unmarshal(r.NodeSelector, &rr.NodeSelector)
-		}
-		if len(r.Tolerations) > 0 {
-			_ = json.Unmarshal(r.Tolerations, &rr.Tolerations)
 		}
 		result = append(result, rr)
 	}
