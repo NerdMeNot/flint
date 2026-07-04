@@ -5,32 +5,63 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/NerdMeNot/flint/internal/agentd"
 	"github.com/NerdMeNot/flint/internal/core/agent"
 	"github.com/NerdMeNot/flint/internal/core/wsagent"
+	"github.com/NerdMeNot/flint/internal/version"
 	"github.com/NerdMeNot/flint/pkg/checkout"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-var (
-	version = "dev"
-	commit  = "unknown"
-)
-
 func main() {
 	root := &cobra.Command{
 		Use:     "flint-agent",
-		Short:   "Flint CI agent — sidecar for step execution in K8s Jobs",
-		Version: fmt.Sprintf("%s (%s)", version, commit),
+		Short:   "Flint machine agent — joins a pool and executes CI steps",
+		Version: version.String(),
 	}
 
-	root.AddCommand(sidecarCmd(), initCmd(), watchCmd(), workspaceCmd(), checkoutCmd(), stepsCmd())
+	root.AddCommand(daemonCmd(), sidecarCmd(), initCmd(), watchCmd(), workspaceCmd(), checkoutCmd(), stepsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// daemonCmd runs the persistent machine agent: register with a pool
+// join/bootstrap token, heartbeat, claim assigned steps, execute them.
+func daemonCmd() *cobra.Command {
+	var cfg agentd.Config
+	var labels []string
+
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Run the persistent machine agent (register, heartbeat, execute steps)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(labels) > 0 {
+				cfg.Labels = map[string]string{}
+				for _, l := range labels {
+					k, v, _ := strings.Cut(l, "=")
+					cfg.Labels[k] = v
+				}
+			}
+			log.Info().Str("version", version.String()).Msg("flint-agent daemon starting")
+			return agentd.Run(cmd.Context(), cfg)
+		},
+	}
+
+	cmd.Flags().StringVar(&cfg.ServerURL, "server", "", "control plane gRPC address (host:port)")
+	cmd.Flags().StringVar(&cfg.Token, "token", "", "pool join token or bootstrap token (unused once registered)")
+	cmd.Flags().StringVar(&cfg.MachineID, "machine-id", "", "pre-allocated machine id (elastic machines)")
+	cmd.Flags().StringVar(&cfg.DataDir, "data-dir", "", "agent state root (default /var/lib/flint-agent)")
+	cmd.Flags().IntVar(&cfg.Capacity, "capacity", 0, "max concurrent steps (default NumCPU/2)")
+	cmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "execution runtime: containerd (default) | hostshell (dev only, no isolation)")
+	cmd.Flags().StringSliceVar(&labels, "label", nil, "capability label key=value (repeatable)")
+	cmd.Flags().BoolVar(&cfg.Insecure, "insecure", false, "dial gRPC without TLS (dev/local)")
+	return cmd
 }
 
 // sidecarCmd is the single per-step agent container (native sidecar): it
@@ -51,7 +82,7 @@ func sidecarCmd() *cobra.Command {
 			}
 
 			log.Info().
-				Str("version", version).
+				Str("version", version.String()).
 				Str("step", cfg.StepName).
 				Str("workspace", cfg.Workspace).
 				Msg("flint-agent sidecar")
@@ -156,7 +187,7 @@ func workspaceCmd() *cobra.Command {
 			addr := "0.0.0.0:" + port
 
 			log.Info().
-				Str("version", version).
+				Str("version", version.String()).
 				Str("runID", runID).
 				Str("addr", addr).
 				Str("root", root).
@@ -208,7 +239,7 @@ func checkoutCmd() *cobra.Command {
 			opts := checkout.FromEnvAndInputs(inputs)
 
 			log.Info().
-				Str("version", version).
+				Str("version", version.String()).
 				Str("repo", opts.Repo).
 				Str("ref", opts.Ref).
 				Str("path", opts.Path).

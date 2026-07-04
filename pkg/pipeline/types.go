@@ -263,13 +263,15 @@ type RetrySpec struct {
 
 // ArtifactInput declares an artifact to download before step execution.
 type ArtifactInput struct {
-	From string `yaml:"from" json:"from"` // source step name
-	Path string `yaml:"path" json:"path"` // local path to extract to
+	From string `yaml:"from" json:"from"`                     // source step name
+	Name string `yaml:"name,omitempty" json:"name,omitempty"` // artifact name (defaults to path)
+	Path string `yaml:"path" json:"path"`                     // local path to extract to
 }
 
 // ArtifactOutput declares an artifact to upload after step execution.
 type ArtifactOutput struct {
-	Path string `yaml:"path" json:"path"` // local path to upload
+	Name string `yaml:"name,omitempty" json:"name,omitempty"` // artifact name (defaults to path)
+	Path string `yaml:"path" json:"path"`                     // local path to upload
 }
 
 // Service defines a sidecar container that runs alongside a step.

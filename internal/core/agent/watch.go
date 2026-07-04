@@ -119,7 +119,7 @@ func Watch(ctx context.Context, cfg *Config, sink logsink.LogSink) error {
 			key, keyErr := EvaluateCacheKey(cfg)
 			if keyErr != nil {
 				log.Warn().Err(keyErr).Msg("agent: failed to evaluate cache key (skipping save)")
-			} else if err := cacheStore.Save(ctx, key, cfg.CachePaths); err != nil {
+			} else if err := cacheStore.Save(ctx, cfg.Workspace, key, cfg.CachePaths); err != nil {
 				log.Warn().Err(err).Msg("agent: failed to save cache")
 			}
 		}

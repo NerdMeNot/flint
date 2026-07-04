@@ -21,24 +21,28 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NerdMeNot/flint/pkg/wsfs"
 	"github.com/klauspost/compress/zstd"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/pkg/wsfs"
 )
 
-// Cache manages cross-run dependency caching.
+// Cache manages cross-run dependency caching. All operations are rooted at
+// the step's workspace directory: archive entries are stored root-relative,
+// so a cache saved from one machine's per-run workspace restores cleanly into
+// any other.
 type Cache interface {
-	// Restore downloads and extracts a cached archive into the workspace.
+	// Restore downloads and extracts a cached archive into root.
 	// Returns (true, nil) on cache hit, (false, nil) on miss.
-	Restore(ctx context.Context, key string, paths []string) (bool, error)
+	Restore(ctx context.Context, root, key string, paths []string) (bool, error)
 
 	// RestoreWithFallback tries the exact key, then each restore key as a
 	// PREFIX (newest — lexicographically last — match wins). Returns the key
 	// that hit, or "" on a full miss.
-	RestoreWithFallback(ctx context.Context, key string, restoreKeys []string, paths []string) (string, error)
+	RestoreWithFallback(ctx context.Context, root, key string, restoreKeys []string, paths []string) (string, error)
 
-	// Save compresses the given paths and stores them under the key.
-	Save(ctx context.Context, key string, paths []string) error
+	// Save compresses the given root-relative paths and stores them under key.
+	Save(ctx context.Context, root, key string, paths []string) error
 }
 
 // S3Cache is an S3-backed cache store.
@@ -59,7 +63,7 @@ func NewS3(orgID, projectID, bucket, region string) *S3Cache {
 	}
 }
 
-func (c *S3Cache) Restore(ctx context.Context, key string, paths []string) (bool, error) {
+func (c *S3Cache) Restore(ctx context.Context, root, key string, paths []string) (bool, error) {
 	if key == "" || len(paths) == 0 {
 		return false, nil
 	}
@@ -78,7 +82,7 @@ func (c *S3Cache) Restore(ctx context.Context, key string, paths []string) (bool
 	}
 	defer r.Close()
 
-	if err := extract(r); err != nil {
+	if err := extract(root, r); err != nil {
 		return false, fmt.Errorf("cache: extract %s: %w", key, err)
 	}
 
@@ -89,8 +93,8 @@ func (c *S3Cache) Restore(ctx context.Context, key string, paths []string) (bool
 // RestoreWithFallback tries the exact key first, then each restore key as a
 // prefix over the project's cache entries. A prefix hit restores stale-but-
 // close dependencies so the build only pays the delta.
-func (c *S3Cache) RestoreWithFallback(ctx context.Context, key string, restoreKeys []string, paths []string) (string, error) {
-	if hit, err := c.Restore(ctx, key, paths); err != nil || hit {
+func (c *S3Cache) RestoreWithFallback(ctx context.Context, root, key string, restoreKeys []string, paths []string) (string, error) {
+	if hit, err := c.Restore(ctx, root, key, paths); err != nil || hit {
 		return key, err
 	}
 	if len(restoreKeys) == 0 {
@@ -123,7 +127,7 @@ func (c *S3Cache) RestoreWithFallback(ctx context.Context, key string, restoreKe
 		if best == "" {
 			continue
 		}
-		hit, err := c.Restore(ctx, best, paths)
+		hit, err := c.Restore(ctx, root, best, paths)
 		if err != nil {
 			return "", err
 		}
@@ -135,7 +139,7 @@ func (c *S3Cache) RestoreWithFallback(ctx context.Context, key string, restoreKe
 	return "", nil
 }
 
-func (c *S3Cache) Save(ctx context.Context, key string, paths []string) error {
+func (c *S3Cache) Save(ctx context.Context, root, key string, paths []string) error {
 	if key == "" || len(paths) == 0 {
 		return nil
 	}
@@ -160,7 +164,7 @@ func (c *S3Cache) Save(ctx context.Context, key string, paths []string) error {
 	}
 	// Stream the archive into the writer — no full in-memory staging buffer
 	// (the sidecar runs with a small memory request).
-	if err := compress(paths, w); err != nil {
+	if err := compress(root, paths, w); err != nil {
 		_ = w.Close()
 		return fmt.Errorf("cache: compress: %w", err)
 	}
@@ -192,7 +196,7 @@ type s3Client interface {
 // tar.zst helpers (self-contained, no dependency on agent/tarutil)
 // ─────────────────────────────────────────────────────────────
 
-func compress(paths []string, w io.Writer) error {
+func compress(root string, paths []string, w io.Writer) error {
 	zw, err := zstd.NewWriter(w)
 	if err != nil {
 		return err
@@ -203,15 +207,18 @@ func compress(paths []string, w io.Writer) error {
 	defer tw.Close()
 
 	for _, p := range paths {
-		p = filepath.Clean(p)
-		if err := addToTar(tw, p); err != nil {
+		abs := filepath.Clean(p)
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(root, abs)
+		}
+		if err := addToTar(tw, root, abs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extract(r io.Reader) error {
+func extract(root string, r io.Reader) error {
 	zr, err := zstd.NewReader(r)
 	if err != nil {
 		return err
@@ -228,10 +235,11 @@ func extract(r io.Reader) error {
 			return err
 		}
 
-		target := filepath.Clean(hdr.Name)
-		if strings.Contains(target, "..") {
+		name := filepath.Clean(hdr.Name)
+		if strings.Contains(name, "..") || filepath.IsAbs(name) {
 			continue
 		}
+		target := filepath.Join(root, name)
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -252,8 +260,10 @@ func extract(r io.Reader) error {
 	return nil
 }
 
-func addToTar(tw *tar.Writer, root string) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+// addToTar walks target, storing entries with names relative to root so the
+// archive is portable across workspaces and machines.
+func addToTar(tw *tar.Writer, root, target string) error {
+	return filepath.Walk(target, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -261,7 +271,13 @@ func addToTar(tw *tar.Writer, root string) error {
 		if err != nil {
 			return err
 		}
-		header.Name = path
+		rel, err := filepath.Rel(root, path)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			// Outside the root (absolute caller path from a legacy layout):
+			// keep the cleaned path so the archive stays self-consistent.
+			rel = filepath.Clean(path)
+		}
+		header.Name = rel
 		if err := tw.WriteHeader(header); err != nil {
 			return err
 		}

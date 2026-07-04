@@ -39,18 +39,14 @@ func TestCompressExtract_RoundTrip(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "node_modules/pkg/index.js"), []byte("module.exports = {}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "node_modules/pkg/package.json"), []byte(`{"name":"pkg"}`), 0o644))
 
-	// Compress the paths.
-	paths := []string{filepath.Join(srcDir, "node_modules")}
+	// Compress root-relative paths.
 	var buf bytes.Buffer
-	require.NoError(t, compress(paths, &buf))
+	require.NoError(t, compress(srcDir, []string{"node_modules"}, &buf))
 	assert.Greater(t, buf.Len(), 0, "compressed output should be non-empty")
 
-	// Extract to simulate restoring. The cache extract function writes to
-	// the same absolute paths (like the cache package does), so we extract
-	// from the same working directory context. We'll verify the round-trip
-	// by removing and re-extracting.
+	// Extract back under the same root; archives store root-relative names.
 	require.NoError(t, os.RemoveAll(filepath.Join(srcDir, "node_modules")))
-	require.NoError(t, extract(&buf))
+	require.NoError(t, extract(srcDir, &buf))
 
 	// Verify files are restored.
 	got, err := os.ReadFile(filepath.Join(srcDir, "node_modules/pkg/index.js"))
@@ -66,7 +62,7 @@ func TestRestore_EmptyKey_ReturnsNoOp(t *testing.T) {
 	c := NewS3("org1", "proj1", "bucket", "us-east-1")
 
 	// Empty key should return (false, nil) without touching S3.
-	hit, err := c.Restore(t.Context(), "", []string{"/some/path"})
+	hit, err := c.Restore(t.Context(), "/ws", "", []string{"/some/path"})
 	assert.NoError(t, err)
 	assert.False(t, hit, "empty key should be a no-op (no cache hit)")
 }
@@ -75,7 +71,7 @@ func TestSave_EmptyKey_ReturnsNoOp(t *testing.T) {
 	c := NewS3("org1", "proj1", "bucket", "us-east-1")
 
 	// Empty key should return nil without touching S3.
-	err := c.Save(t.Context(), "", []string{"/some/path"})
+	err := c.Save(t.Context(), "/ws", "", []string{"/some/path"})
 	assert.NoError(t, err, "empty key should be a no-op")
 }
 
@@ -83,7 +79,7 @@ func TestRestore_EmptyPaths_ReturnsNoOp(t *testing.T) {
 	c := NewS3("org1", "proj1", "bucket", "us-east-1")
 
 	// Empty paths should return (false, nil) without touching S3.
-	hit, err := c.Restore(t.Context(), "some-key", nil)
+	hit, err := c.Restore(t.Context(), "/ws", "some-key", nil)
 	assert.NoError(t, err)
 	assert.False(t, hit, "empty paths should be a no-op")
 }
@@ -92,6 +88,6 @@ func TestSave_EmptyPaths_ReturnsNoOp(t *testing.T) {
 	c := NewS3("org1", "proj1", "bucket", "us-east-1")
 
 	// Empty paths should return nil without touching S3.
-	err := c.Save(t.Context(), "some-key", nil)
+	err := c.Save(t.Context(), "/ws", "some-key", nil)
 	assert.NoError(t, err, "empty paths should be a no-op")
 }
