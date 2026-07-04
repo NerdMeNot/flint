@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flint.fullname" . }}
+  labels:
+    {{- include "flint.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      {{- include "flint.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "flint.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "flint.serviceAccountName" . }}
+      containers:
+        - name: server
+          image: {{ include "flint.serverImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Image entrypoint is `flint server` — the single-binary control
+          # plane: API + webhooks + embedded dispatch loop.
+          args:
+            - "--config"
+            - "/etc/flint/config.yaml"
+            - "--mode"
+            - "all"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FLINT_AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flint.coreSecretName" . }}
+                  key: jwtSecret
+            - name: FLINT_SERVER_INTERNALTOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flint.coreSecretName" . }}
+                  key: internalToken
+            - name: FLINT_ENCRYPTION_MASTERKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flint.coreSecretName" . }}
+                  key: masterKey
+            {{- if or .Values.database.existingSecret .Values.database.password .Values.postgresql.internal }}
+            - name: FLINT_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | default (printf "%s-db" (include "flint.fullname" .)) }}
+                  key: password
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/flint
+              readOnly: true
+            {{- if and (eq .Values.storage.mode "filesystem") .Values.storage.filesystem.persistence.enabled }}
+            - name: logs
+              mountPath: {{ .Values.storage.filesystem.path }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "flint.fullname" . }}-config
+        {{- if and (eq .Values.storage.mode "filesystem") .Values.storage.filesystem.persistence.enabled }}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "flint.fullname" . }}-logs
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if and (eq .Values.storage.mode "filesystem") .Values.storage.filesystem.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "flint.fullname" . }}-logs
+  labels:
+    {{- include "flint.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.storage.filesystem.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.filesystem.persistence.size }}
+{{- end }}

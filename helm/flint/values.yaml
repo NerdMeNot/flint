@@ -1,0 +1,105 @@
+# Flint Helm values.
+#
+# This chart hosts the Flint CONTROL PLANE on Kubernetes: one Deployment
+# running the API, webhook ingestion, and the embedded dispatch loop
+# (`flint server --mode all`) plus your Postgres. CI steps do NOT run in this
+# cluster — they run on machines that join pools via the flint-agent daemon
+# (static machines or cloud-provisioned).
+
+image:
+  repository: ghcr.io/nerdmenot/flint
+  tag: "" # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+
+server:
+  replicas: 1
+  # Public URL of this install (webhook target, OIDC redirects, badge links).
+  baseUrl: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+engine:
+  # Machine pool for jobs that set no runner:.
+  defaultPool: standard
+
+database:
+  host: ""
+  port: 5432
+  database: flint
+  user: flint
+  # Provide the password directly, or reference an existing Secret.
+  password: ""
+  existingSecret: "" # secret with key "password"
+  sslMode: disable
+  # Migrations apply automatically on server startup.
+  autoMigrate: true
+
+# Evaluation-only single-replica Postgres. NOT for production — bring your own
+# Postgres (RDS/CloudSQL/Neon/…) and set database.host instead.
+postgresql:
+  internal: false
+  image: postgres:17-alpine
+  storage: 5Gi
+  storageClassName: ""
+
+# Log/artifact/cache storage. filesystem suits single-replica installs;
+# s3 is the production choice and enables artifacts + cache + S3 workspaces.
+storage:
+  mode: filesystem # filesystem | s3
+  filesystem:
+    path: /var/lib/flint/logs
+    # Persist logs across restarts (filesystem mode only).
+    persistence:
+      enabled: false
+      size: 10Gi
+      storageClassName: ""
+  s3:
+    bucket: ""
+    region: ""
+    endpoint: "" # optional: MinIO/R2
+
+# Core secrets. Leave empty to have the chart GENERATE stable random values on
+# first install (preserved across upgrades via helm lookup). Set existingSecret
+# to manage them yourself (keys: jwtSecret, internalToken, masterKey).
+secrets:
+  existingSecret: ""
+  jwtSecret: ""
+  internalToken: ""
+  masterKey: "" # hex-encoded 32 bytes (openssl rand -hex 32)
+
+auth:
+  # Emails that always get org_admin (bootstrap).
+  adminUsers: []
+  defaultRole: viewer
+  sessionDuration: 24h
+
+products:
+  ci:
+    enabled: true
+  workflows:
+    enabled: true
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: []
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Extra environment variables for the server (e.g. FLINT_EXECUTOR=sim to
+# evaluate without joining any machines).
+extraEnv: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

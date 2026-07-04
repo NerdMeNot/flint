@@ -19,12 +19,12 @@ services:
       timeout: 3s
       retries: 10
 
-  # The whole control plane: API + webhooks + embedded worker loop in ONE
+  # The whole control plane: API + webhooks + embedded dispatch loop in ONE
   # process (--mode all). Migrations apply automatically on startup.
   server:
     build:
       context: .
-      target: server
+      target: flint
     ports:
       - "8080:8080"
     depends_on:
@@ -34,13 +34,13 @@ services:
       - ./config.compose.yaml:/etc/flint/config.yaml:ro
       - logs:/tmp/flint-logs
     environment:
-      # Simulated step execution — try Flint without a Kubernetes cluster.
-      # Remove this (and run in a cluster) for real step pods.
+      # Simulated step execution — try Flint without any machines. Remove this
+      # (and join a flint-agent machine) for real step execution.
       FLINT_EXECUTOR: sim
       # Demo mode: a stub forge serves a canned pipeline so you can create a
       # project and trigger runs without connecting GitHub. Remove for real use.
       FLINT_DEMO: "1"
-    command: ["flint-server", "--config", "/etc/flint/config.yaml", "--mode", "all"]
+    command: ["flint", "server", "--config", "/etc/flint/config.yaml", "--mode", "all"]
 
 volumes:
   pgdata:

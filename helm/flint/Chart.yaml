@@ -1,0 +1,14 @@
+apiVersion: v2
+name: flint
+description: >-
+  Flint — fast CI on machines you control, on a Postgres-backed durable
+  engine. This chart hosts the CONTROL PLANE only: one Deployment
+  (API + webhooks + embedded dispatch) plus your Postgres. CI steps run on
+  machines that join pools via the flint-agent daemon — static machines or
+  cloud-provisioned on demand — not in this cluster.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/NerdMeNot/flint
+sources:
+  - https://github.com/NerdMeNot/flint

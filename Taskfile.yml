@@ -1,12 +1,12 @@
 version: '3'
 
 vars:
-  BINS: server worker agent flint syncd
+  BINS: flint flint-agent
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
-  LDFLAGS: -X main.version={{.VERSION}} -X main.commit={{.COMMIT}}
+  LDFLAGS: -X github.com/NerdMeNot/flint/internal/version.Version={{.VERSION}} -X github.com/NerdMeNot/flint/internal/version.Commit={{.COMMIT}}
   # The local sim stack (task dev-sim) runs under mprocs (config: mprocs.yaml),
   # which hot-reloads the Go binaries via air (.air.server.toml/.air.worker.toml,
   # pinned via `go run <pkg>@<ver>`). mprocs is a Rust binary — install once with
@@ -22,18 +22,24 @@ tasks:
   # --- Build ---
 
   build:
-    desc: "Build a single binary (usage: task build BIN=server)"
+    desc: "Build a single binary (usage: task build BIN=flint)"
     cmds:
       - go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/{{.BIN}} ./cmd/{{.BIN}}
     requires:
       vars: [BIN]
 
   build-all:
-    desc: Build all binaries
+    desc: Build both binaries (flint control plane + CLI, flint-agent machine daemon)
     cmds:
       - for: { var: BINS, split: " " }
         task: build
         vars: { BIN: "{{.ITEM}}" }
+
+  build-agent-linux:
+    desc: Cross-compile the linux flint-agent (what machines actually run)
+    cmds:
+      - GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/flint-agent-linux-amd64 ./cmd/flint-agent
+      - GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/flint-agent-linux-arm64 ./cmd/flint-agent
 
   build-web:
     desc: Build the web frontend
@@ -202,16 +208,12 @@ tasks:
       - podman rm -f flint-dev-db
 
   dev-local:
-    desc: Run the full stack locally — steps dispatch to your local Kubernetes cluster
+    desc: Run the control plane locally (single process, embedded dispatch)
     deps:
       - dev-db
     cmds:
       - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
-      - |
-        go run ./cmd/worker --config config.local.yaml &
-        WORKER_PID=$!
-        trap "kill $WORKER_PID 2>/dev/null" EXIT
-        go run ./cmd/server --config config.local.yaml --mode all
+      - go run ./cmd/flint server --config config.local.yaml --mode all
 
   _air-bin:
     internal: true
@@ -236,7 +238,7 @@ tasks:
       - 'for p in $(lsof -ti tcp:8080 tcp:3000 2>/dev/null || true); do kill "$p" 2>/dev/null || true; done'
 
   dev-sim:
-    desc: Run the full local sim stack (Postgres + seed + server + worker + web) under mprocs — REAL engine, simulated step execution (no Kubernetes), hot reload, per-process panes. Needs mprocs (`brew install mprocs`). Log in as admin@flint.dev / flintdev123.
+    desc: Run the full local sim stack (Postgres + seed + server + dispatch + web) under mprocs — REAL engine, simulated step execution (no machines needed), hot reload, per-process panes. Needs mprocs (`brew install mprocs`). Log in as admin@flint.dev / flintdev123.
     deps:
       - dev-db
       - _air-bin
@@ -263,9 +265,9 @@ tasks:
   # --- Docker ---
 
   docker:
-    desc: "Build a Docker image (usage: task docker TARGET=server)"
+    desc: "Build a Docker image (usage: task docker TARGET=flint)"
     cmds:
-      - docker build --target {{.TARGET}} -t ghcr.io/nerdmenot/flint-{{.TARGET}}:{{.VERSION}} -t ghcr.io/nerdmenot/flint-{{.TARGET}}:latest --build-arg VERSION={{.VERSION}} --build-arg COMMIT={{.COMMIT}} .
+      - docker build --target {{.TARGET}} -t ghcr.io/nerdmenot/{{.TARGET}}:{{.VERSION}} -t ghcr.io/nerdmenot/{{.TARGET}}:latest --build-arg VERSION={{.VERSION}} --build-arg COMMIT={{.COMMIT}} .
     requires:
       vars: [TARGET]
 
@@ -276,7 +278,7 @@ tasks:
         task: docker
         vars: { TARGET: "{{.ITEM}}" }
     vars:
-      DOCKER_TARGETS: server worker agent
+      DOCKER_TARGETS: flint flint-agent
 
   # --- Dependencies ---
 

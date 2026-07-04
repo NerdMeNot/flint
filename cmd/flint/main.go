@@ -11,6 +11,7 @@ import (
 	"github.com/NerdMeNot/flint/internal/cliauth"
 	"github.com/NerdMeNot/flint/internal/products/ci"
 	"github.com/NerdMeNot/flint/internal/tui"
+	"github.com/NerdMeNot/flint/internal/version"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -18,8 +19,6 @@ import (
 )
 
 var (
-	version   = "dev"
-	commit    = "unknown"
 	serverURL string
 	runID     string
 	project   string
@@ -29,10 +28,11 @@ var (
 func main() {
 	root := &cobra.Command{
 		Use:   "flint",
-		Short: "Flint — the CI platform your Kubernetes cluster deserves",
-		Long: `Flint is a Kubernetes-native CI platform on a Postgres-backed
-durable engine. Durable by default, K8s-native, and not Jenkins.`,
-		Version: fmt.Sprintf("%s (%s)", version, commit),
+		Short: "Flint — fast CI on machines you control",
+		Long: `Flint is a CI platform on a Postgres-backed durable engine. Steps run on
+raw machines — yours or cloud-provisioned on demand — with the economics
+in your hands. Durable by default, and not Jenkins.`,
+		Version: version.String(),
 		RunE:    runTUI,
 	}
 
@@ -41,6 +41,7 @@ durable engine. Durable by default, K8s-native, and not Jenkins.`,
 	root.Flags().StringVar(&project, "project", "", "jump to project by name")
 	root.Flags().BoolVar(&gates, "gates", false, "show pending gate approvals")
 
+	root.AddCommand(serverCmd())
 	root.AddCommand(loginCmd())
 	root.AddCommand(logoutCmd())
 	root.AddCommand(initPipelineCmd())
@@ -49,7 +50,6 @@ durable engine. Durable by default, K8s-native, and not Jenkins.`,
 	root.AddCommand(logsCmd())
 	root.AddCommand(adminCmd())
 	root.AddCommand(devCmd())
-	root.AddCommand(runnerCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

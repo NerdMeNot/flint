@@ -20,8 +20,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Database.PortOrDefault() != 5432 {
 		t.Errorf("Database.Port = %d, want 5432", cfg.Database.PortOrDefault())
 	}
-	if cfg.Worker.JobNamespaceOrDefault() != "flint-jobs" {
-		t.Errorf("Worker.JobNamespace = %q", cfg.Worker.JobNamespaceOrDefault())
+	if cfg.Engine.DefaultPoolOrDefault() != "standard" {
+		t.Errorf("Engine.DefaultPool = %q", cfg.Engine.DefaultPoolOrDefault())
 	}
 }
 

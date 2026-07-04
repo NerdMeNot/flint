@@ -1,15 +1,16 @@
-# air — live reload for the Flint worker in the local sim stack (task dev-sim).
+# air — live reload for the Flint dispatch loop in the local sim stack
+# (task dev-sim).
 #
 # Runs the REAL engine loop against the seeded local Postgres. mprocs sets
 # FLINT_EXECUTOR=sim, so container steps (run/use/steps) are simulated — no
-# Kubernetes, no pods. On any .go change air rebuilds ./cmd/worker and restarts it.
+# machines needed. On any .go change air rebuilds ./cmd/flint and restarts it.
 root = "."
-tmp_dir = "tmp/worker"
+tmp_dir = "tmp/dispatch"
 
 [build]
-  cmd = "go build -o ./tmp/worker/flint-worker ./cmd/worker"
-  bin = "./tmp/worker/flint-worker"
-  args_bin = ["--config", "config.local.yaml"]
+  cmd = "go build -o ./tmp/dispatch/flint ./cmd/flint"
+  bin = "./tmp/dispatch/flint"
+  args_bin = ["server", "--config", "config.local.yaml", "--mode", "dispatch"]
   include_ext = ["go"]
   exclude_dir = ["web", "tmp", "bin", "vendor", "node_modules", "_reference", "docs", ".git", "helm", "testdata"]
   exclude_regex = ["_test\\.go"]

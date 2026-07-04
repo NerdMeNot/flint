@@ -4,20 +4,20 @@
 #   task dev-sim         (dev-db + air-bin + clear sentinel, then mprocs)
 #   mprocs               (directly, if the DB is up and tmp/bin/air exists)
 #
-# Panes: seed (one-shot) → server + worker + web. Per-process restart (r) / stop
-# (x); quit the whole stack with q.
+# Panes: seed (one-shot) → server + dispatch + web. Per-process restart (r) /
+# stop (x); quit the whole stack with q.
 #
 # ORDERING (mprocs has no depends_on): the seed truncates and rebuilds the data
-# tables, so the server (which bootstraps org/roles) and the worker (which claims
-# steps) must not run until it finishes. scripts/wait-for blocks on the
+# tables, so the server (which bootstraps org/roles) and the dispatch loop (which
+# claims steps) must not run until it finishes. scripts/wait-for blocks on the
 # tmp/.seed-done sentinel the seed writes on success, then `exec`s air — so the PID
 # becomes air and mprocs' `stop: SIGINT` reaches it directly (no orphaned :8080).
 # `task dev-sim` removes a stale sentinel before launch so the gate is honored.
 # The web app tolerates the API being down, so it doesn't wait.
 #
 # Re-running the seed (press r on the seed pane) while the stack is live will
-# truncate under the running worker — fine for a quick reset, but expect in-flight
-# runs to churn.
+# truncate under the running dispatch loop — fine for a quick reset, but expect
+# in-flight runs to churn.
 #
 # Prerequisite: mprocs installed (`brew install mprocs` / `cargo install mprocs`).
 procs:
@@ -29,15 +29,15 @@ procs:
     cmd: ["scripts/wait-for", "tmp/.seed-done", "--", "./tmp/bin/air", "-c", ".air.server.toml"]
     env:
       FLINT_DEMO: "1" # drives the "demo environment" banner in the UI
-      # The dedicated worker pane runs the loop (own logs + hot reload);
+      # The dedicated dispatch pane runs the loop (own logs + hot reload);
       # without this, --mode all would run a second loop in-process.
-      FLINT_DISABLE_EMBEDDED_WORKER: "1"
+      FLINT_NO_EMBEDDED_DISPATCH: "1"
     stop: SIGINT
 
-  worker:
-    cmd: ["scripts/wait-for", "tmp/.seed-done", "--", "./tmp/bin/air", "-c", ".air.worker.toml"]
+  dispatch:
+    cmd: ["scripts/wait-for", "tmp/.seed-done", "--", "./tmp/bin/air", "-c", ".air.dispatch.toml"]
     env:
-      FLINT_EXECUTOR: sim # simulate container steps — no Kubernetes
+      FLINT_EXECUTOR: sim # simulate container steps — no machines needed
     stop: SIGINT
 
   web:

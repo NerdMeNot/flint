@@ -26,9 +26,6 @@ func validServerConfig() *config.Config {
 		Server: config.ServerConfig{
 			InternalToken: "internal-token-at-least-16-chars",
 		},
-		Worker: config.WorkerConfig{
-			AgentImage: "ghcr.io/NerdMeNot/flint-agent:latest",
-		},
 	}
 }
 
@@ -106,16 +103,6 @@ func TestValidate_S3MissingBucket(t *testing.T) {
 	err := config.Validate(cfg, "server")
 	if err == nil {
 		t.Fatal("expected error for missing S3 bucket")
-	}
-}
-
-func TestValidate_WorkerMissingAgentImage(t *testing.T) {
-	cfg := validServerConfig()
-	cfg.Worker.AgentImage = ""
-
-	err := config.Validate(cfg, "worker")
-	if err == nil {
-		t.Fatal("expected error for missing agent image")
 	}
 }
 

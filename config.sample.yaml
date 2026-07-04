@@ -5,6 +5,9 @@
 
 server:
   port: 8080
+  # AgentService gRPC listener — the flint-agent control channel
+  # (registration, heartbeats, work claiming, logs).
+  grpcPort: 9443
   baseUrl: http://localhost:8080
   # Shared secret protecting the /internal agent endpoints (step completion,
   # log ingestion, secret fetch). REQUIRED, min 16 chars, must match between
@@ -21,10 +24,8 @@ database:
   maxConns: 10
   minConns: 2
 
-worker:
-  jobNamespace: flint-jobs
-  agentImage: ghcr.io/NerdMeNot/flint-agent:latest
-  defaultRunnerPool: standard
+engine:
+  defaultPool: standard   # machine pool for jobs that set no runner:
   sweepInterval: 5m       # observer sweep interval (min: 30s, default: 5m)
   runRetentionDays: 90    # delete finished runs after N days (negative = keep forever)
 
@@ -62,6 +63,20 @@ storage:
   #   bucket: flint-artifacts
   #   region: us-east-1
   #   endpoint: ""   # optional: S3-compatible stores (MinIO, R2) — path-style
+
+# Compute providers — the machine sources pools draw from. DB/API-managed
+# (Settings → Providers); this OPTIONAL block bootstraps entries by name at
+# startup for IaC installs. The built-in "static" provider (bring-your-own
+# machines joining via pool tokens) always exists. Credentials never live in
+# this file — use the provider's ambient chain (instance role / env) or set
+# them via the API.
+# providers:
+#   - name: aws-us-east-1
+#     type: aws
+#     region: us-east-1
+#     subnetIds: [subnet-abc123]
+#     securityGroupIds: [sg-abc123]
+#     instanceProfile: flint-machine
 
 # Forge connections (GitHub, GitLab, Bitbucket) are configured per-org
 # via the UI and stored in the database — not in this config file.
