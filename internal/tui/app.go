@@ -22,6 +22,7 @@ type StartOption struct {
 	RunID   string // --run flag
 	Project string // --project flag
 	Gates   bool   // --gates flag
+	Fleet   bool   // `flint fleet`
 }
 
 // App is the root Bubble Tea model.
@@ -40,7 +41,9 @@ func NewApp(client *Client, opts StartOption) *App {
 	app := &App{client: client}
 
 	// Determine initial view.
-	if opts.Gates {
+	if opts.Fleet {
+		app.stack = []View{NewFleetView(client)}
+	} else if opts.Gates {
 		app.stack = []View{NewGatesView(client)}
 	} else if opts.RunID != "" {
 		app.stack = []View{NewRunDetailView(client, opts.RunID)}

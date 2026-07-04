@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { orpc } from '#/lib/orpc'
-import { RunnerPoolEditor } from '#/components/runners/RunnerPoolEditor'
+import { PoolEditor } from '#/components/runners/PoolEditor'
 
 export const Route = createFileRoute('/settings/runners/$name')({
   component: RunnerEditPage,
@@ -28,5 +28,5 @@ function RunnerEditPage() {
 
   // Key by name so navigating between pools remounts the editor — otherwise its
   // useState seeds keep the previous pool's form values.
-  return <RunnerPoolEditor key={pool.name} pool={pool} />
+  return <PoolEditor key={pool.name} pool={pool} />
 }

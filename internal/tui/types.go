@@ -87,3 +87,22 @@ type PendingGate struct {
 	Project  string `json:"projectName"`
 	Branch   string `json:"branch"`
 }
+
+// Machine is one fleet machine. JSON tags match GET /machines items.
+type Machine struct {
+	ID              string   `json:"id"`
+	PoolID          string   `json:"poolId"`
+	Status          string   `json:"status"`
+	Provider        string   `json:"provider"`
+	InstanceType    *string  `json:"instanceType"`
+	CapacityType    *string  `json:"capacityType"`
+	Hostname        *string  `json:"hostname"`
+	Arch            string   `json:"arch"`
+	CPUMillis       int64    `json:"cpuMillis"`
+	MemoryMB        int64    `json:"memoryMb"`
+	PricePerHourUSD *float64 `json:"pricePerHourUsd"`
+	CostToDateUSD   *float64 `json:"costToDateUsd"`
+	StepsCompleted  int32    `json:"stepsCompleted"`
+	LastHeartbeatAt *string  `json:"lastHeartbeatAt"`
+	DrainReason     *string  `json:"drainReason"`
+}

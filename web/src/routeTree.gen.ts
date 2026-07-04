@@ -18,6 +18,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsIndexRouteImport } from './routes/workflows.index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as ProfileIndexRouteImport } from './routes/profile.index'
+import { Route as FleetIndexRouteImport } from './routes/fleet.index'
 import { Route as CiIndexRouteImport } from './routes/ci.index'
 import { Route as WorkflowsIdRouteImport } from './routes/workflows.$id'
 import { Route as SettingsWorkspacesRouteImport } from './routes/settings.workspaces'
@@ -26,6 +27,7 @@ import { Route as SettingsUsersRouteImport } from './routes/settings.users'
 import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
 import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
 import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
+import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
 import { Route as SettingsProjectsRouteImport } from './routes/settings.projects'
 import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
@@ -34,6 +36,7 @@ import { Route as SettingsApiKeysRouteImport } from './routes/settings.api-keys'
 import { Route as ProfileTokensRouteImport } from './routes/profile.tokens'
 import { Route as ProfileSessionsRouteImport } from './routes/profile.sessions'
 import { Route as ProfileSecurityRouteImport } from './routes/profile.security'
+import { Route as FleetIdRouteImport } from './routes/fleet.$id'
 import { Route as CiProjectsRouteImport } from './routes/ci.projects'
 import { Route as CiGatesRouteImport } from './routes/ci.gates'
 import { Route as AuthSplatRouteImport } from './routes/auth.$'
@@ -103,6 +106,11 @@ const ProfileIndexRoute = ProfileIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ProfileRoute,
 } as any)
+const FleetIndexRoute = FleetIndexRouteImport.update({
+  id: '/fleet/',
+  path: '/fleet/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CiIndexRoute = CiIndexRouteImport.update({
   id: '/ci/',
   path: '/ci/',
@@ -141,6 +149,11 @@ const SettingsTagsRoute = SettingsTagsRouteImport.update({
 const SettingsSsoRoute = SettingsSsoRouteImport.update({
   id: '/sso',
   path: '/sso',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
+  id: '/providers',
+  path: '/providers',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
@@ -182,6 +195,11 @@ const ProfileSecurityRoute = ProfileSecurityRouteImport.update({
   id: '/security',
   path: '/security',
   getParentRoute: () => ProfileRoute,
+} as any)
+const FleetIdRoute = FleetIdRouteImport.update({
+  id: '/fleet/$id',
+  path: '/fleet/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const CiProjectsRoute = CiProjectsRouteImport.update({
   id: '/ci/projects',
@@ -311,6 +329,7 @@ export interface FileRoutesByFullPath {
   '/auth/$': typeof AuthSplatRoute
   '/ci/gates': typeof CiGatesRoute
   '/ci/projects': typeof CiProjectsRouteWithChildren
+  '/fleet/$id': typeof FleetIdRoute
   '/profile/security': typeof ProfileSecurityRoute
   '/profile/sessions': typeof ProfileSessionsRoute
   '/profile/tokens': typeof ProfileTokensRoute
@@ -319,6 +338,7 @@ export interface FileRoutesByFullPath {
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
@@ -327,6 +347,7 @@ export interface FileRoutesByFullPath {
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci/': typeof CiIndexRoute
+  '/fleet/': typeof FleetIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
@@ -358,6 +379,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/auth/$': typeof AuthSplatRoute
   '/ci/gates': typeof CiGatesRoute
+  '/fleet/$id': typeof FleetIdRoute
   '/profile/security': typeof ProfileSecurityRoute
   '/profile/sessions': typeof ProfileSessionsRoute
   '/profile/tokens': typeof ProfileTokensRoute
@@ -365,12 +387,14 @@ export interface FileRoutesByTo {
   '/settings/audit-log': typeof SettingsAuditLogRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/variables': typeof SettingsVariablesRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci': typeof CiIndexRoute
+  '/fleet': typeof FleetIndexRoute
   '/profile': typeof ProfileIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/workflows': typeof WorkflowsIndexRoute
@@ -406,6 +430,7 @@ export interface FileRoutesById {
   '/auth/$': typeof AuthSplatRoute
   '/ci/gates': typeof CiGatesRoute
   '/ci/projects': typeof CiProjectsRouteWithChildren
+  '/fleet/$id': typeof FleetIdRoute
   '/profile/security': typeof ProfileSecurityRoute
   '/profile/sessions': typeof ProfileSessionsRoute
   '/profile/tokens': typeof ProfileTokensRoute
@@ -414,6 +439,7 @@ export interface FileRoutesById {
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/environments': typeof SettingsEnvironmentsRouteWithChildren
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
   '/settings/sso': typeof SettingsSsoRoute
   '/settings/tags': typeof SettingsTagsRoute
   '/settings/teams': typeof SettingsTeamsRouteWithChildren
@@ -422,6 +448,7 @@ export interface FileRoutesById {
   '/settings/workspaces': typeof SettingsWorkspacesRoute
   '/workflows/$id': typeof WorkflowsIdRoute
   '/ci/': typeof CiIndexRoute
+  '/fleet/': typeof FleetIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/workflows/': typeof WorkflowsIndexRoute
@@ -458,6 +485,7 @@ export interface FileRouteTypes {
     | '/auth/$'
     | '/ci/gates'
     | '/ci/projects'
+    | '/fleet/$id'
     | '/profile/security'
     | '/profile/sessions'
     | '/profile/tokens'
@@ -466,6 +494,7 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/environments'
     | '/settings/projects'
+    | '/settings/providers'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/teams'
@@ -474,6 +503,7 @@ export interface FileRouteTypes {
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci/'
+    | '/fleet/'
     | '/profile/'
     | '/settings/'
     | '/workflows/'
@@ -505,6 +535,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/auth/$'
     | '/ci/gates'
+    | '/fleet/$id'
     | '/profile/security'
     | '/profile/sessions'
     | '/profile/tokens'
@@ -512,12 +543,14 @@ export interface FileRouteTypes {
     | '/settings/audit-log'
     | '/settings/connections'
     | '/settings/projects'
+    | '/settings/providers'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/variables'
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci'
+    | '/fleet'
     | '/profile'
     | '/settings'
     | '/workflows'
@@ -552,6 +585,7 @@ export interface FileRouteTypes {
     | '/auth/$'
     | '/ci/gates'
     | '/ci/projects'
+    | '/fleet/$id'
     | '/profile/security'
     | '/profile/sessions'
     | '/profile/tokens'
@@ -560,6 +594,7 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/environments'
     | '/settings/projects'
+    | '/settings/providers'
     | '/settings/sso'
     | '/settings/tags'
     | '/settings/teams'
@@ -568,6 +603,7 @@ export interface FileRouteTypes {
     | '/settings/workspaces'
     | '/workflows/$id'
     | '/ci/'
+    | '/fleet/'
     | '/profile/'
     | '/settings/'
     | '/workflows/'
@@ -603,8 +639,10 @@ export interface RootRouteChildren {
   AuthSplatRoute: typeof AuthSplatRoute
   CiGatesRoute: typeof CiGatesRoute
   CiProjectsRoute: typeof CiProjectsRouteWithChildren
+  FleetIdRoute: typeof FleetIdRoute
   WorkflowsIdRoute: typeof WorkflowsIdRoute
   CiIndexRoute: typeof CiIndexRoute
+  FleetIndexRoute: typeof FleetIndexRoute
   WorkflowsIndexRoute: typeof WorkflowsIndexRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
   ApiSseSplatRoute: typeof ApiSseSplatRoute
@@ -678,6 +716,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileIndexRouteImport
       parentRoute: typeof ProfileRoute
     }
+    '/fleet/': {
+      id: '/fleet/'
+      path: '/fleet'
+      fullPath: '/fleet/'
+      preLoaderRoute: typeof FleetIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ci/': {
       id: '/ci/'
       path: '/ci'
@@ -732,6 +777,13 @@ declare module '@tanstack/react-router' {
       path: '/sso'
       fullPath: '/settings/sso'
       preLoaderRoute: typeof SettingsSsoRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/providers': {
+      id: '/settings/providers'
+      path: '/providers'
+      fullPath: '/settings/providers'
+      preLoaderRoute: typeof SettingsProvidersRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/projects': {
@@ -789,6 +841,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile/security'
       preLoaderRoute: typeof ProfileSecurityRouteImport
       parentRoute: typeof ProfileRoute
+    }
+    '/fleet/$id': {
+      id: '/fleet/$id'
+      path: '/fleet/$id'
+      fullPath: '/fleet/$id'
+      preLoaderRoute: typeof FleetIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/ci/projects': {
       id: '/ci/projects'
@@ -1018,6 +1077,7 @@ interface SettingsRouteChildren {
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsEnvironmentsRoute: typeof SettingsEnvironmentsRouteWithChildren
   SettingsProjectsRoute: typeof SettingsProjectsRoute
+  SettingsProvidersRoute: typeof SettingsProvidersRoute
   SettingsSsoRoute: typeof SettingsSsoRoute
   SettingsTagsRoute: typeof SettingsTagsRoute
   SettingsTeamsRoute: typeof SettingsTeamsRouteWithChildren
@@ -1039,6 +1099,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsEnvironmentsRoute: SettingsEnvironmentsRouteWithChildren,
   SettingsProjectsRoute: SettingsProjectsRoute,
+  SettingsProvidersRoute: SettingsProvidersRoute,
   SettingsSsoRoute: SettingsSsoRoute,
   SettingsTagsRoute: SettingsTagsRoute,
   SettingsTeamsRoute: SettingsTeamsRouteWithChildren,
@@ -1083,8 +1144,10 @@ const rootRouteChildren: RootRouteChildren = {
   AuthSplatRoute: AuthSplatRoute,
   CiGatesRoute: CiGatesRoute,
   CiProjectsRoute: CiProjectsRouteWithChildren,
+  FleetIdRoute: FleetIdRoute,
   WorkflowsIdRoute: WorkflowsIdRoute,
   CiIndexRoute: CiIndexRoute,
+  FleetIndexRoute: FleetIndexRoute,
   WorkflowsIndexRoute: WorkflowsIndexRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
   ApiSseSplatRoute: ApiSseSplatRoute,

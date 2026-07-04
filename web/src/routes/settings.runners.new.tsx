@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { RunnerPoolEditor } from '#/components/runners/RunnerPoolEditor'
+import { PoolEditor } from '#/components/runners/PoolEditor'
 
 export const Route = createFileRoute('/settings/runners/new')({
-  component: () => <RunnerPoolEditor />,
+  component: () => <PoolEditor />,
 })

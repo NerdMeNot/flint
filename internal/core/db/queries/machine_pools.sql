@@ -57,8 +57,9 @@ DELETE FROM machine_pools WHERE name = $1;
 
 -- name: ListMachinePoolsPaged :many
 SELECT id, name, description, provider, arch, cpu, memory, disk,
-       gpu_vendor, gpu_model, gpu_count, capacity_type, objective,
-       min_warm, max_machines, idle_ttl_seconds, is_default, ready, created_at
+       gpu_vendor, gpu_model, gpu_count, instance_types, regions,
+       capacity_type, objective, min_warm, max_machines, idle_ttl_seconds,
+       overrides, hourly_cost, is_default, ready, created_at
 FROM machine_pools ORDER BY name LIMIT $1 OFFSET $2;
 
 -- name: SetDefaultMachinePool :exec

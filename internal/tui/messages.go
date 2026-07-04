@@ -52,3 +52,12 @@ type gatesLoadedMsg struct {
 	gates []PendingGate
 	err   error
 }
+
+type machinesLoadedMsg struct {
+	machines []Machine
+	err      error
+}
+
+type machineDrainedMsg struct {
+	err error
+}

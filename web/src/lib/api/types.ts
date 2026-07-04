@@ -347,43 +347,122 @@ export const AuditEntrySchema = z.object({
   createdAt: z.string(),
 })
 
+// A per-branch/event policy override on a pool: which runs it matches and
+// which economics knobs it changes for them.
+export const PolicyOverrideSchema = z.object({
+  match: z.object({
+    branch: z.optional(z.string()),
+    event: z.optional(z.string()),
+  }),
+  set: z.object({
+    minWarm: z.optional(z.number()),
+    capacityType: z.optional(z.string()),
+    objective: z.optional(z.string()),
+    idleTtlSeconds: z.optional(z.number()),
+  }),
+})
+
 export const RunnerPoolSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.optional(z.string()),
+  // compute_providers.name this pool draws machines from ("static" = BYO).
+  provider: z.string(),
   cpu: z.string(),
   memory: z.string(),
+  disk: z.optional(z.string()),
   arch: z.string(),
   gpuVendor: z.optional(z.string()),
   gpuModel: z.optional(z.string()),
   gpuCount: z.optional(z.number()),
-  mode: z.optional(z.string()),
+  // Provider allow-lists narrowing what Quote may offer (elastic pools).
+  instanceTypes: z.optional(z.array(z.string())),
+  regions: z.optional(z.array(z.string())),
+  // Economics policy — the user states the tradeoff, the fleet optimizes
+  // within it. minWarm=0 is zero standing infra.
+  capacityType: z.string(),
+  objective: z.string(),
+  minWarm: z.number(),
+  maxMachines: z.number(),
+  idleTtlSeconds: z.number(),
+  overrides: z.optional(z.array(PolicyOverrideSchema)),
+  // Declared amortized cost for static machines (elastic offers carry real prices).
+  hourlyCost: z.optional(z.number()),
   // The default pool is used when a pipeline sets no runner:. Exactly one is true.
   isDefault: z.optional(z.boolean()),
-  // How a reference pool targets existing nodes (managed pools derive these).
-  nodeSelector: z.optional(z.record(z.string(), z.string())),
-  tolerations: z.optional(z.array(z.object({
-    key: z.string(),
-    operator: z.optional(z.string()),
-    value: z.optional(z.string()),
-    effect: z.optional(z.string()),
-  }))),
-  // Managed capacity envelope — present only for mode === 'managed'. Lets the
-  // editor round-trip a managed pool's Karpenter intent.
-  managed: z.optional(
-    z.object({
-      capacityType: z.optional(z.string()),
-      instanceFamilies: z.optional(z.array(z.string())),
-      cpuLimit: z.optional(z.number()),
-      gpuLimit: z.optional(z.number()),
-      scaleToZero: z.optional(z.boolean()),
-      consolidateAfter: z.optional(z.string()),
-      diskGiB: z.optional(z.number()),
-      amiFamily: z.optional(z.string()),
-    }),
-  ),
   ready: z.boolean(),
   createdAt: z.string(),
+})
+
+export const MachineSchema = z.object({
+  id: z.string(),
+  poolId: z.string(),
+  status: z.string(),
+  provider: z.string(),
+  providerRef: z.optional(z.string()),
+  instanceType: z.optional(z.string()),
+  region: z.optional(z.string()),
+  capacityType: z.optional(z.string()),
+  hostname: z.optional(z.string()),
+  arch: z.string(),
+  cpuMillis: z.number(),
+  memoryMb: z.number(),
+  agentVersion: z.optional(z.string()),
+  pricePerHourUsd: z.optional(z.number()),
+  costToDateUsd: z.optional(z.number()),
+  stepsCompleted: z.number(),
+  requestedAt: z.string(),
+  registeredAt: z.optional(z.string()),
+  lastHeartbeatAt: z.optional(z.string()),
+  idleSince: z.optional(z.string()),
+  drainReason: z.optional(z.string()),
+})
+
+export const MachineEventSchema = z.object({
+  type: z.string(),
+  from: z.optional(z.string()),
+  to: z.optional(z.string()),
+  actor: z.string(),
+  reason: z.optional(z.string()),
+  metadata: z.optional(z.unknown()),
+  createdAt: z.string(),
+})
+
+export const FleetDecisionSchema = z.object({
+  id: z.string(),
+  poolId: z.optional(z.string()),
+  machineId: z.optional(z.string()),
+  type: z.string(),
+  inputs: z.unknown(),
+  chosen: z.optional(z.unknown()),
+  alternatives: z.optional(z.unknown()),
+  outcome: z.optional(z.string()),
+  outcomeMetadata: z.optional(z.unknown()),
+  createdAt: z.string(),
+})
+
+export const ComputeProviderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string(),
+  config: z.record(z.string(), z.unknown()),
+  hasCredentials: z.boolean(),
+  createdAt: z.string(),
+})
+
+export const RunPlacementSchema = z.object({
+  stepName: z.string(),
+  attempt: z.number(),
+  status: z.string(),
+  machineId: z.optional(z.string()),
+  instanceType: z.optional(z.string()),
+  capacityType: z.optional(z.string()),
+  pricePerHourUsd: z.optional(z.number()),
+  queuedAt: z.string(),
+  assignedAt: z.optional(z.string()),
+  startedAt: z.optional(z.string()),
+  finishedAt: z.optional(z.string()),
+  queueWaitMs: z.optional(z.number()),
 })
 
 export const ForgeConnectionSchema = z.object({
@@ -591,5 +670,11 @@ export type ApiKey = z.infer<typeof ApiKeySchema>
 export type PersonalToken = z.infer<typeof PersonalTokenSchema>
 export type AuditEntry = z.infer<typeof AuditEntrySchema>
 export type RunnerPool = z.infer<typeof RunnerPoolSchema>
+export type PolicyOverride = z.infer<typeof PolicyOverrideSchema>
+export type Machine = z.infer<typeof MachineSchema>
+export type MachineEvent = z.infer<typeof MachineEventSchema>
+export type FleetDecision = z.infer<typeof FleetDecisionSchema>
+export type ComputeProvider = z.infer<typeof ComputeProviderSchema>
+export type RunPlacement = z.infer<typeof RunPlacementSchema>
 export type ForgeConnection = z.infer<typeof ForgeConnectionSchema>
 export type AuthUser = z.infer<typeof AuthUserSchema>

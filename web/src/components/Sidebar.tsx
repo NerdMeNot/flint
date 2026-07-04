@@ -6,6 +6,7 @@ import {
   Shield,
   Settings,
   ScrollText,
+  Server,
   Workflow,
   ChevronsLeft,
   Menu,
@@ -22,7 +23,7 @@ import { ViewsNav } from './ViewsNav'
 // A single NavItem type keeps both section arrays unionable so `section.items`
 // is one array type (not a union of arrays, which breaks .map typing).
 type NavItem = {
-  to: '/ci' | '/ci/projects' | '/ci/runs' | '/ci/gates' | '/workflows'
+  to: '/ci' | '/ci/projects' | '/ci/runs' | '/ci/gates' | '/workflows' | '/fleet'
   icon: typeof LayoutDashboard
   label: string
   match: string
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { to: '/ci/projects', icon: FolderGit2, label: 'Projects', match: '/ci/projects' },
   { to: '/ci/runs', icon: ScrollText, label: 'Runs', match: '/ci/runs' },
   { to: '/ci/gates', icon: Shield, label: 'Gates', match: '' },
+  { to: '/fleet', icon: Server, label: 'Fleet', match: '/fleet' },
 ]
 
 const workflowNavItems: NavItem[] = [

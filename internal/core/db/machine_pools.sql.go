@@ -254,8 +254,9 @@ func (q *Queries) ListMachinePools(ctx context.Context) ([]ListMachinePoolsRow, 
 
 const listMachinePoolsPaged = `-- name: ListMachinePoolsPaged :many
 SELECT id, name, description, provider, arch, cpu, memory, disk,
-       gpu_vendor, gpu_model, gpu_count, capacity_type, objective,
-       min_warm, max_machines, idle_ttl_seconds, is_default, ready, created_at
+       gpu_vendor, gpu_model, gpu_count, instance_types, regions,
+       capacity_type, objective, min_warm, max_machines, idle_ttl_seconds,
+       overrides, hourly_cost, is_default, ready, created_at
 FROM machine_pools ORDER BY name LIMIT $1 OFFSET $2
 `
 
@@ -265,25 +266,29 @@ type ListMachinePoolsPagedParams struct {
 }
 
 type ListMachinePoolsPagedRow struct {
-	ID             string      `json:"id"`
-	Name           string      `json:"name"`
-	Description    *string     `json:"description"`
-	Provider       string      `json:"provider"`
-	Arch           string      `json:"arch"`
-	Cpu            string      `json:"cpu"`
-	Memory         string      `json:"memory"`
-	Disk           *string     `json:"disk"`
-	GpuVendor      *string     `json:"gpu_vendor"`
-	GpuModel       *string     `json:"gpu_model"`
-	GpuCount       pgtype.Int4 `json:"gpu_count"`
-	CapacityType   string      `json:"capacity_type"`
-	Objective      string      `json:"objective"`
-	MinWarm        int32       `json:"min_warm"`
-	MaxMachines    int32       `json:"max_machines"`
-	IdleTtlSeconds int32       `json:"idle_ttl_seconds"`
-	IsDefault      bool        `json:"is_default"`
-	Ready          bool        `json:"ready"`
-	CreatedAt      time.Time   `json:"created_at"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    *string        `json:"description"`
+	Provider       string         `json:"provider"`
+	Arch           string         `json:"arch"`
+	Cpu            string         `json:"cpu"`
+	Memory         string         `json:"memory"`
+	Disk           *string        `json:"disk"`
+	GpuVendor      *string        `json:"gpu_vendor"`
+	GpuModel       *string        `json:"gpu_model"`
+	GpuCount       pgtype.Int4    `json:"gpu_count"`
+	InstanceTypes  []string       `json:"instance_types"`
+	Regions        []string       `json:"regions"`
+	CapacityType   string         `json:"capacity_type"`
+	Objective      string         `json:"objective"`
+	MinWarm        int32          `json:"min_warm"`
+	MaxMachines    int32          `json:"max_machines"`
+	IdleTtlSeconds int32          `json:"idle_ttl_seconds"`
+	Overrides      []byte         `json:"overrides"`
+	HourlyCost     pgtype.Numeric `json:"hourly_cost"`
+	IsDefault      bool           `json:"is_default"`
+	Ready          bool           `json:"ready"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 func (q *Queries) ListMachinePoolsPaged(ctx context.Context, arg ListMachinePoolsPagedParams) ([]ListMachinePoolsPagedRow, error) {
@@ -307,11 +312,15 @@ func (q *Queries) ListMachinePoolsPaged(ctx context.Context, arg ListMachinePool
 			&i.GpuVendor,
 			&i.GpuModel,
 			&i.GpuCount,
+			&i.InstanceTypes,
+			&i.Regions,
 			&i.CapacityType,
 			&i.Objective,
 			&i.MinWarm,
 			&i.MaxMachines,
 			&i.IdleTtlSeconds,
+			&i.Overrides,
+			&i.HourlyCost,
 			&i.IsDefault,
 			&i.Ready,
 			&i.CreatedAt,

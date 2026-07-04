@@ -49,6 +49,7 @@ in your hands. Durable by default, and not Jenkins.`,
 	root.AddCommand(runCmd())
 	root.AddCommand(logsCmd())
 	root.AddCommand(adminCmd())
+	root.AddCommand(fleetCmd())
 	root.AddCommand(devCmd())
 
 	if err := root.Execute(); err != nil {

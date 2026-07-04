@@ -116,16 +116,21 @@ type runnerResponse struct {
 	GPUVendor   *string `json:"gpuVendor,omitempty"`
 	GPUModel    *string `json:"gpuModel,omitempty"`
 	GPUCount    *int32  `json:"gpuCount,omitempty"`
+	// Provider allow-lists narrowing what Quote may offer (elastic pools).
+	InstanceTypes []string `json:"instanceTypes,omitempty"`
+	Regions       []string `json:"regions,omitempty"`
 	// Economics policy — surfaced so the pool editor can round-trip it and the
 	// UI can show the speed/cost tradeoff the pool encodes.
-	CapacityType   string `json:"capacityType"`
-	Objective      string `json:"objective"`
-	MinWarm        int32  `json:"minWarm"`
-	MaxMachines    int32  `json:"maxMachines"`
-	IdleTTLSeconds int32  `json:"idleTtlSeconds"`
-	IsDefault      bool   `json:"isDefault"`
-	Ready          bool   `json:"ready"`
-	CreatedAt      string `json:"createdAt"`
+	CapacityType   string          `json:"capacityType"`
+	Objective      string          `json:"objective"`
+	MinWarm        int32           `json:"minWarm"`
+	MaxMachines    int32           `json:"maxMachines"`
+	IdleTTLSeconds int32           `json:"idleTtlSeconds"`
+	Overrides      json.RawMessage `json:"overrides,omitempty"`
+	HourlyCost     *float64        `json:"hourlyCost,omitempty"`
+	IsDefault      bool            `json:"isDefault"`
+	Ready          bool            `json:"ready"`
+	CreatedAt      string          `json:"createdAt"`
 }
 
 func (s *Server) registerAPIRoutes() {
@@ -804,6 +809,8 @@ func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 			Arch:           r.Arch,
 			GPUVendor:      r.GpuVendor,
 			GPUModel:       r.GpuModel,
+			InstanceTypes:  r.InstanceTypes,
+			Regions:        r.Regions,
 			CapacityType:   r.CapacityType,
 			Objective:      r.Objective,
 			MinWarm:        r.MinWarm,
@@ -816,6 +823,13 @@ func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
 		if r.GpuCount.Valid {
 			v := r.GpuCount.Int32
 			rr.GPUCount = &v
+		}
+		if len(r.Overrides) > 0 && string(r.Overrides) != "null" {
+			rr.Overrides = json.RawMessage(r.Overrides)
+		}
+		if f, err := r.HourlyCost.Float64Value(); err == nil && f.Valid {
+			v := f.Float64
+			rr.HourlyCost = &v
 		}
 		result = append(result, rr)
 	}

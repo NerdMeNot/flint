@@ -290,3 +290,17 @@ func (c *Client) StreamStepLogs(ctx context.Context, runID, stepName string, w i
 	}
 	return scanner.Err()
 }
+
+// ListMachines fetches the fleet (all pools, all statuses).
+func (c *Client) ListMachines(ctx context.Context) ([]Machine, error) {
+	var resp struct {
+		Items []Machine `json:"items"`
+	}
+	err := c.get(ctx, "/api/v1/machines?limit=100", &resp)
+	return resp.Items, err
+}
+
+// DrainMachine asks a machine to finish its work and stop claiming.
+func (c *Client) DrainMachine(ctx context.Context, id string) error {
+	return c.post(ctx, "/api/v1/machines/"+id+"/drain", struct{}{}, nil)
+}

@@ -35,6 +35,7 @@ import {
   Hourglass,
   Gauge,
   History,
+  Server,
 } from 'lucide-react'
 import { useCopyToClipboard } from '#/hooks/use-copy-to-clipboard'
 import { relativeToMinutes, median, parseDurationToSeconds } from '#/lib/run-feed'
@@ -700,10 +701,55 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
           </div>
         )}
 
+        <PlacementSection runId={run.id} live={isLive} />
+
         <p className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border/60">
           <ArrowRight size={12} className="text-muted-foreground/50" />
           Select a step to view its logs
         </p>
+      </div>
+    </div>
+  )
+}
+
+// PlacementSection is decision transparency at run scope: which machine ran
+// each step, at what price, and how long it queued. Absent for runs with no
+// machine steps (http-only, sim).
+function PlacementSection({ runId, live }: { runId: string; live: boolean }) {
+  const { data } = useQuery({
+    ...orpc.runs.placement.queryOptions({ input: { runId } }),
+    refetchInterval: live ? 5000 : false,
+  })
+  const placements = data?.placements ?? []
+  if (placements.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+        Placement
+      </p>
+      <div className="space-y-1.5">
+        {placements.map((p) => (
+          <div key={`${p.stepName}-${p.attempt}`} className="flex items-center gap-3 text-[12px]">
+            <Server size={12} className="text-muted-foreground/60 shrink-0" />
+            <span className="text-foreground/90 w-32 sm:w-40 truncate shrink-0">{p.stepName}</span>
+            <span className="font-mono text-muted-foreground truncate flex-1">
+              {p.machineId
+                ? `${p.machineId.slice(0, 8)}${p.instanceType ? ` · ${p.instanceType}` : ''}${p.capacityType === 'spot' ? ' · spot' : ''}`
+                : p.status === 'pending' ? 'waiting for a machine…' : p.status}
+            </span>
+            {p.queueWaitMs != null && (
+              <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0" title="queue wait">
+                +{fmtDur(p.queueWaitMs)}
+              </span>
+            )}
+            {p.pricePerHourUsd != null && (
+              <span className="text-[11px] font-mono tabular-nums text-muted-foreground w-16 text-right shrink-0">
+                ${p.pricePerHourUsd.toFixed(3)}/hr
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

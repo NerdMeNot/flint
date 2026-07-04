@@ -9,6 +9,7 @@ import {
   Lock,
   Key,
   Server,
+  Cloud,
   GitFork,
   ScrollText,
   Globe,
@@ -22,7 +23,7 @@ type AdminTo =
   | '/settings/users' | '/settings/teams' | '/settings/roles'
   | '/settings/sso' | '/settings/api-keys'
   | '/settings/projects' | '/settings/workspaces' | '/settings/tags' | '/settings/environments' | '/settings/variables'
-  | '/settings/runners' | '/settings/connections' | '/settings/audit-log'
+  | '/settings/runners' | '/settings/providers' | '/settings/connections' | '/settings/audit-log'
 
 type AdminItem = { to: AdminTo; icon: typeof UserCircle; label: string }
 type AdminGroup = { section: string; items: AdminItem[] }
@@ -58,7 +59,8 @@ const adminNav: AdminGroup[] = [
   {
     section: 'Infrastructure',
     items: [
-      { to: '/settings/runners', icon: Server, label: 'Runners' },
+      { to: '/settings/runners', icon: Server, label: 'Pools' },
+      { to: '/settings/providers', icon: Cloud, label: 'Providers' },
       { to: '/settings/connections', icon: GitFork, label: 'Connections' },
     ],
   },

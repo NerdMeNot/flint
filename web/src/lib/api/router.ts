@@ -22,6 +22,12 @@ import {
   type ApiKey,
   type PersonalToken,
   type RunnerPool,
+  type Machine,
+  type MachineEvent,
+  type FleetDecision,
+  type ComputeProvider,
+  type RunPlacement,
+  PolicyOverrideSchema,
   type ForgeConnection,
   type AuditEntry,
   type AuthUser,
@@ -265,6 +271,14 @@ const runs = {
         estimatedUsd: number
         rates: { cpuCoreHourUsd: number; memoryGbHrUsd: number }
       }>(`/runs/${input.runId}/cost`)
+    }),
+
+  // Placement transparency: which machine ran each step, at what price, and
+  // how long it waited — the per-run half of the fleet decision ledger.
+  placement: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendGet<{ placements: RunPlacement[] }>(`/runs/${input.runId}/placement`)
     }),
 
   trigger: os
@@ -743,31 +757,26 @@ const personalTokens = {
 const runnerInput = z.object({
   name: z.string(),
   description: z.optional(z.string()),
+  // compute_providers.name the pool draws machines from; default "static" (BYO).
+  provider: z.optional(z.string()),
   // Optional pool defaults — blank means the pool stamps no request, so each job
   // sizes itself.
   cpu: z.optional(z.string()),
   memory: z.optional(z.string()),
+  disk: z.optional(z.string()),
   arch: z.optional(z.string()),
   gpu: z.optional(z.object({ vendor: z.string(), model: z.optional(z.string()), count: z.optional(z.number()) })),
-  // Reference-mode node targeting — how the pool's pods reach existing nodes.
-  nodeSelector: z.optional(z.record(z.string(), z.string())),
-  tolerations: z.optional(z.array(z.object({
-    key: z.string(),
-    operator: z.optional(z.enum(['Equal', 'Exists'])),
-    value: z.optional(z.string()),
-    effect: z.optional(z.enum(['NoSchedule', 'PreferNoSchedule', 'NoExecute'])),
-  }))),
-  mode: z.optional(z.enum(['reference', 'managed'])),
-  managed: z.optional(z.object({
-    capacityType: z.optional(z.enum(['spot-preferred', 'spot', 'on-demand'])),
-    instanceFamilies: z.optional(z.array(z.string())),
-    cpuLimit: z.optional(z.number()),
-    gpuLimit: z.optional(z.number()),
-    scaleToZero: z.optional(z.boolean()),
-    consolidateAfter: z.optional(z.string()),
-    diskGiB: z.optional(z.number()),
-    amiFamily: z.optional(z.string()),
-  })),
+  // Provider allow-lists narrowing what Quote may offer (elastic pools).
+  instanceTypes: z.optional(z.array(z.string())),
+  regions: z.optional(z.array(z.string())),
+  // Economics policy.
+  capacityType: z.optional(z.enum(['spot', 'on_demand', 'any'])),
+  objective: z.optional(z.enum(['cost', 'latency', 'balanced'])),
+  minWarm: z.optional(z.number()),
+  maxMachines: z.optional(z.number()),
+  idleTtlSeconds: z.optional(z.number()),
+  overrides: z.optional(z.array(PolicyOverrideSchema)),
+  hourlyCost: z.optional(z.number()),
 })
 
 const runners = {
@@ -790,17 +799,92 @@ const runners = {
     return backendDelete(`/runners/${input.name}`)
   }),
 
-  manifests: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
-    return backendGet<{ nodePool: string; nodeClass: string; combined: string }>(`/runners/${input.name}/manifests`)
-  }),
-
-  // Whether managed (Karpenter) provisioning is available for this deployment.
-  provisioning: os.handler(async () => {
-    return backendGet<{ configured: boolean; cloud: string }>('/provisioning')
-  }),
-
   setDefault: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
     return backendPost(`/runners/${input.name}/default`, {})
+  }),
+
+  // Mint (or rotate) the pool's agent join token. Plaintext returned exactly once.
+  mintToken: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendPost<{ pool: string; token: string; note: string }>(`/runners/${input.name}/token`, {})
+  }),
+}
+
+// ---------------------------------------------------------------------------
+// Fleet — machines, decisions, placement
+// ---------------------------------------------------------------------------
+
+const machines = {
+  list: os
+    .input(z.object({
+      pool: z.optional(z.string()),
+      status: z.optional(z.string()),
+      limit: z.optional(z.number()),
+      cursor: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendGet<Paginated<Machine>>('/machines', {
+        pool: input.pool, status: input.status, limit: input.limit, cursor: input.cursor,
+      })
+    }),
+
+  get: os.input(z.object({ id: z.string() })).handler(async ({ input }) => {
+    return backendGet<{ machine: Machine; events: MachineEvent[] }>(`/machines/${input.id}`)
+  }),
+
+  drain: os.input(z.object({ id: z.string() })).handler(async ({ input }) => {
+    return backendPost<{ id: string; status: string }>(`/machines/${input.id}/drain`, {})
+  }),
+}
+
+const decisions = {
+  list: os
+    .input(z.object({
+      pool: z.optional(z.string()),
+      type: z.optional(z.string()),
+      limit: z.optional(z.number()),
+      cursor: z.optional(z.string()),
+    }))
+    .handler(async ({ input }) => {
+      return backendGet<Paginated<FleetDecision>>('/decisions', {
+        pool: input.pool, type: input.type, limit: input.limit, cursor: input.cursor,
+      })
+    }),
+}
+
+// ---------------------------------------------------------------------------
+// Compute providers (the machine sources pools draw from)
+// ---------------------------------------------------------------------------
+
+const providerInput = z.object({
+  name: z.string(),
+  type: z.string(),
+  config: z.optional(z.record(z.string(), z.unknown())),
+  credentials: z.optional(z.record(z.string(), z.unknown())),
+})
+
+const computeProviders = {
+  list: os.handler(async () => {
+    return backendGet<{ providers: ComputeProvider[] }>('/providers')
+  }),
+
+  create: os.input(providerInput).handler(async ({ input }) => {
+    return backendPost<{ id: string; name: string }>('/providers', input)
+  }),
+
+  update: os.input(providerInput).handler(async ({ input }) => {
+    const { name, ...body } = input
+    return backendPatch(`/providers/${name}`, body)
+  }),
+
+  delete: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendDelete(`/providers/${input.name}`)
+  }),
+
+  // Dry-run a Quote against the stored provider to verify config/credentials.
+  test: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendPost<{ ok: boolean; error?: string; elastic?: boolean; offers?: unknown[] }>(
+      `/providers/${input.name}/test`, {},
+    )
   }),
 }
 
@@ -1031,6 +1115,9 @@ export const appRouter = os.router({
   apiKeys,
   personalTokens,
   runners,
+  machines,
+  decisions,
+  computeProviders,
   forgeConnections,
   auditEntries,
   org,
