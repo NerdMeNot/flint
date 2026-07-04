@@ -6,12 +6,18 @@
 package pgtest
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // DSN resolves a test database: FLINT_TEST_DSN when set (CI service
@@ -32,9 +38,26 @@ func DSN(t *testing.T) string {
 // Main wraps testing.M: it starts one throwaway Postgres for the package's
 // integration tests (unless -short or FLINT_TEST_DSN pre-set) and exports
 // FLINT_TEST_DSN for DSN(). Call from the package's TestMain.
+//
+// When FLINT_TEST_DSN is pre-set (a CI service container), the server is
+// SHARED across `go test` invocations — the plain and -race suites run
+// back-to-back against it, and tests that count rows would see the previous
+// suite's data. So Main carves a scratch database per invocation and drops
+// it afterward; tests still see a fresh database, matching the local
+// throwaway-instance behaviour.
 func Main(m *testing.M) int {
 	var stop func()
-	if os.Getenv("FLINT_TEST_DSN") == "" && !shortMode() {
+	switch {
+	case shortMode():
+	case os.Getenv("FLINT_TEST_DSN") != "":
+		if dsn, drop, err := createScratchDB(os.Getenv("FLINT_TEST_DSN")); err != nil {
+			// Degrades to the shared database — functional, less isolated.
+			fmt.Fprintf(os.Stderr, "pgtest: scratch database unavailable (%v); using FLINT_TEST_DSN as-is\n", err)
+		} else {
+			stop = drop
+			_ = os.Setenv("FLINT_TEST_DSN", dsn)
+		}
+	default:
 		dsn, stopFn, err := StartLocalPostgres()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "integration tests: %v; set FLINT_TEST_DSN to run them\n", err)
@@ -48,6 +71,42 @@ func Main(m *testing.M) int {
 		stop()
 	}
 	return code
+}
+
+// createScratchDB creates a uniquely named database on the server baseDSN
+// points at and returns a DSN for it plus a drop function.
+func createScratchDB(baseDSN string) (string, func(), error) {
+	ctx := context.Background()
+	u, err := url.Parse(baseDSN)
+	if err != nil {
+		return "", nil, err
+	}
+	nonce := make([]byte, 4)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", nil, err
+	}
+	name := "flint_test_" + hex.EncodeToString(nonce)
+
+	conn, err := pgx.Connect(ctx, baseDSN)
+	if err != nil {
+		return "", nil, err
+	}
+	_, err = conn.Exec(ctx, "CREATE DATABASE "+name)
+	_ = conn.Close(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	u.Path = "/" + name
+	drop := func() {
+		conn, err := pgx.Connect(ctx, baseDSN)
+		if err != nil {
+			return
+		}
+		_, _ = conn.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+		_ = conn.Close(ctx)
+	}
+	return u.String(), drop, nil
 }
 
 // shortMode detects -short without flag.Parse side effects (the caller's
