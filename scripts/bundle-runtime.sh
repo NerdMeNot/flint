@@ -28,6 +28,12 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 
+# containerd release binaries are glibc-linked: stock distro machines
+# (AL2023, Ubuntu, Debian) work; musl systems (Alpine) do not.
+if [ ! -e /lib/ld-linux-aarch64.so.1 ] && [ ! -e /lib64/ld-linux-x86-64.so.2 ] && [ ! -e /lib/ld-linux-armhf.so.3 ]; then
+  echo "warning: no glibc dynamic loader found — containerd release binaries need glibc (Alpine/musl is unsupported)" >&2
+fi
+
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 
+	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
+	"github.com/NerdMeNot/flint/internal/core/fleet"
 	"github.com/NerdMeNot/flint/internal/devseed"
 	"github.com/NerdMeNot/flint/internal/platform/config"
 	"github.com/pressly/goose/v3"
@@ -29,6 +32,70 @@ func devCmd() *cobra.Command {
 	}
 	cmd.AddCommand(seedCmd())
 	cmd.AddCommand(migrateCmd())
+	cmd.AddCommand(joinTokenCmd())
+	return cmd
+}
+
+// joinTokenCmd mints (or rotates) a static pool's agent join token straight in
+// the DB — the dev shortcut behind `task dev-agent`. Production installs mint
+// via POST /api/v1/runners/:name/token instead. Creates the pool when absent
+// so a bare dev-local database is one command away from a joinable fleet.
+func joinTokenCmd() *cobra.Command {
+	var configPath string
+	cmd := &cobra.Command{
+		Use:   "join-token [pool]",
+		Short: "Mint a static pool's agent join token (dev shortcut; creates the pool if missing)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			poolName := "standard"
+			if len(args) == 1 {
+				poolName = args[0]
+			}
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+			pool, err := dbkit.NewPool(ctx, dbkit.Config{
+				Host: cfg.Database.Host, Port: cfg.Database.PortOrDefault(),
+				Database: cfg.Database.Database, User: cfg.Database.User,
+				Password: cfg.Database.Password, SSLMode: cfg.Database.SSLMode,
+			})
+			if err != nil {
+				return fmt.Errorf("database: %w", err)
+			}
+			defer pool.Close()
+			q := db.New(pool)
+
+			if _, err := q.GetMachinePool(ctx, poolName); err != nil {
+				if err := q.UpsertMachinePool(ctx, db.UpsertMachinePoolParams{
+					Name: poolName, Provider: "static", Arch: runtime.GOARCH,
+					Cpu: "4", Memory: "8Gi", CapacityType: "on_demand",
+					Objective: "balanced", MaxMachines: 10, IdleTtlSeconds: 900,
+				}); err != nil {
+					return fmt.Errorf("creating pool %s: %w", poolName, err)
+				}
+				if n, err := q.CountDefaultMachinePools(ctx); err == nil && n == 0 {
+					_ = q.SetDefaultMachinePool(ctx, poolName)
+				}
+				fmt.Fprintf(os.Stderr, "created static pool %q\n", poolName)
+			}
+
+			token, hash, err := fleet.MintToken()
+			if err != nil {
+				return err
+			}
+			if err := q.SetPoolJoinTokenHash(ctx, db.SetPoolJoinTokenHashParams{
+				Name: poolName, JoinTokenHash: &hash,
+			}); err != nil {
+				return err
+			}
+			// Token on stdout only, so `TOKEN=$(flint dev join-token)` works.
+			fmt.Println(token)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "", "path to config file")
 	return cmd
 }
 

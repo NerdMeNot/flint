@@ -128,11 +128,11 @@ func (r *Containerd) launchBundled(ctx context.Context, bin string) (string, err
 root = %q
 state = %q
 
+# Kubernetes' CRI surface is dead weight here (and drags CNI config checks).
+disabled_plugins = ['io.containerd.cri.v1.runtime', 'io.containerd.cri.v1.images', 'io.containerd.grpc.v1.cri']
+
 [grpc]
   address = %q
-
-[plugins.'io.containerd.cri.v1.runtime']
-  disable = true
 `, root, state, socket)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		return "", err

@@ -215,6 +215,36 @@ tasks:
       - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
       - go run ./cmd/flint server --config config.local.yaml --mode all
 
+  dev-agent:
+    desc: Join a REAL flint-agent (bundled containerd, real containers) to the local server — runs dind-style in a privileged Podman container; on macOS it lives inside the podman-machine Linux VM. Requires `task dev-local` running in another terminal.
+    cmds:
+      - GOOS=linux GOARCH={{ARCH}} CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/flint-agent-linux ./cmd/flint-agent
+      # Mint (or rotate) the standard pool's join token, creating the pool if
+      # this is a fresh database.
+      - |
+        TOKEN=$(go run ./cmd/flint dev join-token standard --config config.local.yaml)
+        # cgroup-v2 "no internal processes" dance is dind-only; real machines
+        # have systemd owning the hierarchy. Bundle (containerd+runc) is cached
+        # in a named volume across restarts; agent state is per-invocation.
+        podman volume rm -f flint-dev-agent-data >/dev/null 2>&1 || true
+        exec podman run --rm -it --privileged --name flint-dev-agent \
+          -v "$PWD/bin/flint-agent-linux:/usr/local/bin/flint-agent:ro" \
+          -v "$PWD/scripts/bundle-runtime.sh:/bundle-runtime.sh:ro" \
+          -v flint-dev-agent-bundle:/var/lib/flint-agent/bin \
+          -v flint-dev-agent-data:/var/lib/flint-agent \
+          docker.io/library/buildpack-deps:bookworm-curl sh -c '
+            set -eu
+            if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
+              mkdir -p /sys/fs/cgroup/init
+              while read -r p; do echo "$p" > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true; done < /sys/fs/cgroup/cgroup.procs
+              echo "+cpu +memory +pids +io" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+            fi
+            /var/lib/flint-agent/bin/containerd --version >/dev/null 2>&1 || sh /bundle-runtime.sh /var/lib/flint-agent/bin
+            exec /usr/local/bin/flint-agent daemon \
+              --server host.containers.internal:9443 \
+              --token '"$TOKEN"' --runtime containerd --insecure \
+              --data-dir /var/lib/flint-agent'
+
   _air-bin:
     internal: true
     # Install the pinned air binary to tmp/bin so mprocs can run it DIRECTLY (a
