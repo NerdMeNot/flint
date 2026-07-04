@@ -292,6 +292,7 @@ func (s *Server) registerAPIRoutes() {
 	v1.DELETE("/runners/:name", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleDeleteRunner)
 	v1.POST("/runners/:name/default", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleSetDefaultRunner)
 	v1.POST("/runners/:name/token", s.requirePermission(auth.ObjRunner, auth.ActManage), s.handleMintPoolJoinToken)
+	v1.GET("/runners/:name/insights", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleGetPoolInsights)
 
 	// Machines (the live fleet) + the economics decision ledger.
 	v1.GET("/machines", s.requirePermission(auth.ObjRunner, auth.ActRead), s.handleListMachines)

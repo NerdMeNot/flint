@@ -258,3 +258,74 @@ func orDefaultStr(v, def string) string {
 	}
 	return v
 }
+
+// handleGetPoolInsights returns 7-day observed economics for one pool — spend,
+// machine-hours, warm-hit rate, queue/boot percentiles — plus a what-if block
+// for minWarm=1: what a standing machine would cost per month versus the cold
+// and warm waits actually observed. Arithmetic over ledger/lifecycle rows, no
+// simulation; the numbers are explainable because they are the history.
+func (s *Server) handleGetPoolInsights(ctx context.Context, c *app.RequestContext) {
+	name := c.Param("name")
+	pool, err := s.deps.Q.GetMachinePool(ctx, name)
+	if err != nil {
+		apiNotFound(ctx, c, "runner pool not found")
+		return
+	}
+	machines, err := s.deps.Q.PoolInsightMachines(ctx, pool.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to compute pool insights")
+		return
+	}
+	assigns, err := s.deps.Q.PoolInsightAssignments(ctx, pool.ID)
+	if err != nil {
+		apiInternal(ctx, c, "failed to compute pool insights")
+		return
+	}
+
+	warmHitRate := 0.0
+	if assigns.Total > 0 {
+		warmHitRate = float64(assigns.WarmHits) / float64(assigns.Total)
+	}
+
+	// The standing-machine rate: observed price p50 when the pool has priced
+	// machines, else the operator-declared hourly cost for static pools.
+	rate := machines.PriceP50Usd
+	if rate == 0 {
+		if f, err := pool.HourlyCost.Float64Value(); err == nil && f.Valid {
+			rate = f.Float64
+		}
+	}
+
+	resp := utils.H{
+		"pool":          name,
+		"windowDays":    7,
+		"spendUsd":      machines.SpendUsd,
+		"machineHours":  machines.MachineHours,
+		"boots":         machines.Boots,
+		"bootP50Secs":   machines.BootP50Secs,
+		"priceP50Usd":   machines.PriceP50Usd,
+		"interruptions": machines.Interruptions,
+		"assignments": utils.H{
+			"total":            assigns.Total,
+			"warmHits":         assigns.WarmHits,
+			"warmHitRate":      warmHitRate,
+			"queueP50Secs":     assigns.QueueP50Secs,
+			"queueP95Secs":     assigns.QueueP95Secs,
+			"warmQueueP50Secs": assigns.WarmQueueP50Secs,
+			"coldQueueP50Secs": assigns.ColdQueueP50Secs,
+		},
+	}
+	// What-if minWarm=1: only meaningful with a price signal.
+	if rate > 0 {
+		resp["whatIf"] = utils.H{
+			"minWarmOne": utils.H{
+				"costPerMonthUsd": rate * 730,
+				// A cold run waits for a boot plus its cold queue; a warm run
+				// only queues.
+				"coldWaitP50Secs": machines.BootP50Secs + assigns.ColdQueueP50Secs,
+				"warmWaitP50Secs": assigns.WarmQueueP50Secs,
+			},
+		}
+	}
+	c.JSON(consts.StatusOK, resp)
+}

@@ -516,6 +516,14 @@ type Querier interface {
 	PauseWorkflow(ctx context.Context, id string) (int64, error)
 	// Fleet provisioner input: unbound demand per pool.
 	PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error)
+	// Pool insights (7d): queue waits and the warm-hit rate. A warm hit is an
+	// assignment whose machine was already registered when the work arrived — the
+	// run never waited on a boot.
+	PoolInsightAssignments(ctx context.Context, poolID string) (PoolInsightAssignmentsRow, error)
+	// Pool insights (7d): machine-hours, spend, boots, boot p50, price p50, and
+	// spot interruptions — arithmetic over machine lifecycles clipped to the
+	// window, no simulation. Spend uses each machine's real price when priced.
+	PoolInsightMachines(ctx context.Context, poolID string) (PoolInsightMachinesRow, error)
 	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
 	// Per-project run health for an org: recent statuses (newest first, capped at 10)
 	// plus totals — powers the dashboard health bars / "needs attention".

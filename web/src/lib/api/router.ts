@@ -807,6 +807,39 @@ const runners = {
   mintToken: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
     return backendPost<{ pool: string; token: string; note: string }>(`/runners/${input.name}/token`, {})
   }),
+
+  // 7-day observed economics + the minWarm=1 what-if, computed from the
+  // decision ledger and machine lifecycles.
+  insights: os.input(z.object({ name: z.string() })).handler(async ({ input }) => {
+    return backendGet<PoolInsights>(`/runners/${input.name}/insights`)
+  }),
+}
+
+export type PoolInsights = {
+  pool: string
+  windowDays: number
+  spendUsd: number
+  machineHours: number
+  boots: number
+  bootP50Secs: number
+  priceP50Usd: number
+  interruptions: number
+  assignments: {
+    total: number
+    warmHits: number
+    warmHitRate: number
+    queueP50Secs: number
+    queueP95Secs: number
+    warmQueueP50Secs: number
+    coldQueueP50Secs: number
+  }
+  whatIf?: {
+    minWarmOne: {
+      costPerMonthUsd: number
+      coldWaitP50Secs: number
+      warmWaitP50Secs: number
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

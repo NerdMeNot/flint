@@ -7954,6 +7954,62 @@ func (_m *Querier) PendingAssignmentDemand(ctx context.Context) ([]db.PendingAss
 	return r0, r1
 }
 
+// PoolInsightAssignments provides a mock function with given fields: ctx, poolID
+func (_m *Querier) PoolInsightAssignments(ctx context.Context, poolID string) (db.PoolInsightAssignmentsRow, error) {
+	ret := _m.Called(ctx, poolID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PoolInsightAssignments")
+	}
+
+	var r0 db.PoolInsightAssignmentsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.PoolInsightAssignmentsRow, error)); ok {
+		return rf(ctx, poolID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.PoolInsightAssignmentsRow); ok {
+		r0 = rf(ctx, poolID)
+	} else {
+		r0 = ret.Get(0).(db.PoolInsightAssignmentsRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, poolID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PoolInsightMachines provides a mock function with given fields: ctx, poolID
+func (_m *Querier) PoolInsightMachines(ctx context.Context, poolID string) (db.PoolInsightMachinesRow, error) {
+	ret := _m.Called(ctx, poolID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PoolInsightMachines")
+	}
+
+	var r0 db.PoolInsightMachinesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.PoolInsightMachinesRow, error)); ok {
+		return rf(ctx, poolID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.PoolInsightMachinesRow); ok {
+		r0 = rf(ctx, poolID)
+	} else {
+		r0 = ret.Get(0).(db.PoolInsightMachinesRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, poolID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ProjectHealthByID provides a mock function with given fields: ctx, projectID
 func (_m *Querier) ProjectHealthByID(ctx context.Context, projectID *string) (db.ProjectHealthByIDRow, error) {
 	ret := _m.Called(ctx, projectID)

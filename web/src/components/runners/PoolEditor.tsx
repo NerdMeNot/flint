@@ -270,6 +270,9 @@ export function PoolEditor({ pool }: { pool?: RunnerPool }) {
         <OverridesEditor overrides={overrides} onChange={setOverrides} />
       </Section>
 
+      {/* ── Observed economics (edit mode) ── */}
+      {editing && <InsightsSection poolName={pool.name} minWarm={Number(minWarm) || 0} />}
+
       {/* ── Join token (static pools, edit mode) ── */}
       {editing && isStatic && (
         <Section title="Agent enrollment" caption="Machines join this pool with a join token — mint one, then run flint-agent with it">
@@ -417,6 +420,50 @@ function OverridesEditor({ overrides, onChange }: {
       ))}
     </div>
   )
+}
+
+// InsightsSection shows the pool's last-7-days observed economics and the
+// minWarm=1 what-if — real history, not simulation, so the operator can see
+// exactly what their policy is buying (or costing) before changing it.
+function InsightsSection({ poolName, minWarm }: { poolName: string; minWarm: number }) {
+  const { data } = useQuery(orpc.runners.insights.queryOptions({ input: { name: poolName } }))
+  if (!data || (data.assignments.total === 0 && data.machineHours === 0)) return null
+
+  const a = data.assignments
+  return (
+    <Section title="Last 7 days" caption="Observed from this pool's machines and assignments">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <Insight label="Spend" value={`$${data.spendUsd.toFixed(2)}`} />
+        <Insight label="Machine hours" value={data.machineHours.toFixed(1)} />
+        <Insight label="Warm-hit rate" value={a.total > 0 ? `${Math.round(a.warmHitRate * 100)}%` : '—'} />
+        <Insight label="Queue p50 / p95" value={`${fmtSecs(a.queueP50Secs)} / ${fmtSecs(a.queueP95Secs)}`} />
+        <Insight label="Boot p50" value={data.boots > 0 ? fmtSecs(data.bootP50Secs) : '—'} />
+        <Insight label="Spot interruptions" value={String(data.interruptions)} />
+      </div>
+      {data.whatIf && minWarm === 0 && (
+        <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
+          What if <span className="text-foreground font-medium">minWarm: 1</span>? A standing machine would cost about{' '}
+          <span className="text-foreground font-medium">${data.whatIf.minWarmOne.costPerMonthUsd.toFixed(0)}/month</span>; observed
+          cold runs waited <span className="text-foreground font-medium">{fmtSecs(data.whatIf.minWarmOne.coldWaitP50Secs)}</span> vs{' '}
+          <span className="text-foreground font-medium">{fmtSecs(data.whatIf.minWarmOne.warmWaitP50Secs)}</span> warm.
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function Insight({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
+      <p className="text-sm font-semibold text-foreground tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+function fmtSecs(s: number): string {
+  if (s < 90) return `${Math.round(s)}s`
+  return `${(s / 60).toFixed(1)}m`
 }
 
 function Section({ title, caption, children }: { title: string; caption?: string; children: React.ReactNode }) {
