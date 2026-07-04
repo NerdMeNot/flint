@@ -33,6 +33,7 @@ func devCmd() *cobra.Command {
 	cmd.AddCommand(seedCmd())
 	cmd.AddCommand(migrateCmd())
 	cmd.AddCommand(joinTokenCmd())
+	cmd.AddCommand(fleetDemoCmd())
 	return cmd
 }
 

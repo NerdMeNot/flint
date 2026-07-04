@@ -529,8 +529,11 @@ CREATE TABLE public.compute_providers (
     -- credentials (instance role / env / shared config chain).
     credentials_enc bytea,
     created_at timestamptz DEFAULT now() NOT NULL,
-    updated_at timestamptz DEFAULT now() NOT NULL,
-    CONSTRAINT compute_providers_type_check CHECK ((provider_type = ANY (ARRAY['static'::text, 'aws'::text])))
+    updated_at timestamptz DEFAULT now() NOT NULL
+    -- No provider_type CHECK: types are an open, code-registered set
+    -- (compute.Register), validated at the API against compute.Types(). A DB
+    -- enum would reject third-party provider types without a schema change —
+    -- hostile to the point of the provider interface.
 );
 
 

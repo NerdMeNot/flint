@@ -215,6 +215,29 @@ tasks:
       - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
       - go run ./cmd/flint server --config config.local.yaml --mode all
 
+  dev-fleet:
+    desc: >
+      Dogfood the ELASTIC path with zero cloud: builds the native flint-agent, runs the control
+      plane (fleet loop + gRPC + dispatch), and leaves it up. In another terminal run
+      `task dev-fleet-go` to seed a local elastic pool and trigger a run — the fleet provisions a
+      real flint-agent child process (hostshell runtime) on demand, it registers/claims/runs, then
+      idle-reaps. Watch this log for the full lifecycle; then check /fleet, the decision ledger, and
+      the pool insights.
+    deps:
+      - dev-db
+    cmds:
+      # Native agent — localdev's Create spawns it as a host process (not a container).
+      - task: build
+        vars: { BIN: flint-agent }
+      - DATABASE_URL=postgres://flint:flint@localhost:5432/flint?sslmode=disable task migrate-up
+      - echo "control plane starting — in another terminal, run 'task dev-fleet-go' to provision + trigger"
+      - go run ./cmd/flint server --config config.local.yaml --mode all
+
+  dev-fleet-go:
+    desc: Seed the local elastic pool + trigger a run (pairs with a running `task dev-fleet`).
+    cmds:
+      - go run ./cmd/flint dev fleet-demo --config config.local.yaml
+
   dev-agent:
     desc: Join a REAL flint-agent (bundled containerd, real containers) to the local server — runs dind-style in a privileged Podman container; on macOS it lives inside the podman-machine Linux VM. Requires `task dev-local` running in another terminal.
     cmds:

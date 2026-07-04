@@ -367,7 +367,8 @@ func writeHostsFile(ioDir string, services []ServiceSpec) (string, error) {
 	var b strings.Builder
 	b.WriteString("127.0.0.1 localhost")
 	for _, s := range services {
-		b.WriteString(" " + s.Name)
+		b.WriteByte(' ')
+		b.WriteString(s.Name)
 	}
 	b.WriteString("\n::1 localhost\n")
 	path := filepath.Join(ioDir, "hosts")
