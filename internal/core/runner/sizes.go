@@ -1,7 +1,5 @@
 package runner
 
-import "k8s.io/apimachinery/pkg/api/resource"
-
 // TShirtSize maps human-friendly size names to resource profiles.
 type TShirtSize string
 
@@ -16,12 +14,12 @@ const (
 
 // tshirtSizes maps size names to CPU and memory defaults.
 var tshirtSizes = map[TShirtSize]ResourceProfile{
-	SizeXS:  {CPU: resource.MustParse("500m"), Memory: resource.MustParse("1Gi")},
-	SizeS:   {CPU: resource.MustParse("1"), Memory: resource.MustParse("2Gi")},
-	SizeM:   {CPU: resource.MustParse("2"), Memory: resource.MustParse("4Gi")},
-	SizeL:   {CPU: resource.MustParse("4"), Memory: resource.MustParse("8Gi")},
-	SizeXL:  {CPU: resource.MustParse("8"), Memory: resource.MustParse("16Gi")},
-	Size2XL: {CPU: resource.MustParse("16"), Memory: resource.MustParse("32Gi")},
+	SizeXS:  {CPUMillis: 500, MemoryMB: 1024},
+	SizeS:   {CPUMillis: 1000, MemoryMB: 2048},
+	SizeM:   {CPUMillis: 2000, MemoryMB: 4096},
+	SizeL:   {CPUMillis: 4000, MemoryMB: 8192},
+	SizeXL:  {CPUMillis: 8000, MemoryMB: 16384},
+	Size2XL: {CPUMillis: 16000, MemoryMB: 32768},
 }
 
 // ResourcesForSize returns the resource profile for a t-shirt size.

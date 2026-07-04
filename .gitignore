@@ -63,3 +63,4 @@ web/dist/
 
 # Wire generated (committed, but ignore if regenerating)
 # *_gen.go
+.task/

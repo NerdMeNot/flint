@@ -146,51 +146,6 @@ func TestAllWavesComplete(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// sanitizeK8sName
-// ─────────────────────────────────────────────────────────────
-
-func TestSanitizeK8sName(t *testing.T) {
-	tests := []struct {
-		input string
-		check func(t *testing.T, result string)
-	}{
-		{
-			input: "simple",
-			check: func(t *testing.T, result string) {
-				assert.Contains(t, result, "simple")
-			},
-		},
-		{
-			input: "My.Build_Step",
-			check: func(t *testing.T, result string) {
-				// All lowercase, no dots or underscores.
-				for _, c := range result {
-					assert.True(t, (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-',
-						"unexpected char: %c", c)
-				}
-			},
-		},
-		{
-			input: "my.build",
-			check: func(t *testing.T, result string) {
-				// Two different names that would collide without hash.
-				other := sanitizeK8sName("my-build")
-				assert.NotEqual(t, result, other,
-					"different inputs should produce different names (hash suffix)")
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			result := sanitizeK8sName(tc.input)
-			assert.LessOrEqual(t, len(result), 63, "K8s name must be ≤63 chars")
-			tc.check(t, result)
-		})
-	}
-}
-
-// ─────────────────────────────────────────────────────────────
 // extractMatrixKey
 // ─────────────────────────────────────────────────────────────
 
@@ -199,16 +154,6 @@ func TestExtractMatrixKey(t *testing.T) {
 	assert.Equal(t, "", extractMatrixKey("test"))
 	assert.Equal(t, "", extractMatrixKey("test["))
 	assert.Equal(t, "a", extractMatrixKey("[a]"))
-}
-
-// ─────────────────────────────────────────────────────────────
-// resolveServiceAccount
-// ─────────────────────────────────────────────────────────────
-
-func TestResolveServiceAccount(t *testing.T) {
-	assert.Equal(t, "step-sa", resolveServiceAccount("step-sa", "pipeline-sa"))
-	assert.Equal(t, "pipeline-sa", resolveServiceAccount("", "pipeline-sa"))
-	assert.Equal(t, "", resolveServiceAccount("", ""))
 }
 
 // ─────────────────────────────────────────────────────────────

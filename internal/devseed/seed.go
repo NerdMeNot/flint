@@ -12,19 +12,17 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/rs/zerolog/log"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/projectcfg"
-	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/products/ci"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/rs/zerolog/log"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // Dev admin credentials — printed on seed so you can log in immediately.
@@ -97,15 +95,25 @@ func Run(ctx context.Context, pool db.Pool, signingKey []byte) error {
 		}
 	}
 
-	// Runner pools (reference mode) — a default + variety for the Runners UI and
-	// pipeline validation. Kept across reseeds.
+	// Machine pools — a default + variety for the Runners UI and pipeline
+	// validation. Kept across reseeds. All static (BYO machines) in the seed.
 	for _, rp := range runnerPools {
-		if _, err := q.GetRunnerPool(ctx, rp.name); err == nil {
+		if _, err := q.GetMachinePool(ctx, rp.name); err == nil {
 			continue
 		}
-		p := db.UpsertRunnerPoolParams{
-			Name: rp.name, Cpu: rp.cpu, Memory: rp.memory, Arch: rp.arch,
-			WorkspaceMode: "agent", WorkspaceSize: "10Gi", Mode: "reference",
+		p := db.UpsertMachinePoolParams{
+			Name: rp.name, Provider: "static", Cpu: rp.cpu, Memory: rp.memory, Arch: rp.arch,
+			CapacityType: "on_demand", Objective: "balanced",
+			MinWarm: rp.minWarm, MaxMachines: 10, IdleTtlSeconds: 900,
+		}
+		if rp.capacityType != "" {
+			p.CapacityType = rp.capacityType
+		}
+		if rp.objective != "" {
+			p.Objective = rp.objective
+		}
+		if rp.idleTTLSeconds > 0 {
+			p.IdleTtlSeconds = rp.idleTTLSeconds
 		}
 		if rp.description != "" {
 			d := rp.description
@@ -116,23 +124,12 @@ func Run(ctx context.Context, pool db.Pool, signingKey []byte) error {
 			p.GpuVendor, p.GpuModel = &v, &m
 			p.GpuCount = pgtype.Int4{Int32: rp.gpuCount, Valid: true}
 		}
-		if rp.managed {
-			p.Mode = "managed"
-			ms, _ := json.Marshal(runner.ManagedSpec{CapacityType: "spot-preferred", ScaleToZero: true}.WithDefaults())
-			p.ManagedSpec = ms
-			p.NodeSelector, _ = json.Marshal(runner.PoolNodeSelector(rp.name))
-			p.Tolerations, _ = json.Marshal([]corev1.Toleration{runner.PoolToleration(rp.name)})
-		} else if len(rp.nodeSelector) > 0 {
-			// Reference mode: store only the explicit node targeting. Arch is a
-			// descriptor, not an auto-pinned selector.
-			p.NodeSelector, _ = json.Marshal(rp.nodeSelector)
-		}
-		if err := q.UpsertRunnerPool(ctx, p); err != nil {
+		if err := q.UpsertMachinePool(ctx, p); err != nil {
 			return fmt.Errorf("runner pool %s: %w", rp.name, err)
 		}
 	}
 	// Mark the standard pool the default (pipelines with no runner: use it).
-	if err := q.SetDefaultRunnerPool(ctx, "standard"); err != nil {
+	if err := q.SetDefaultMachinePool(ctx, "standard"); err != nil {
 		return fmt.Errorf("set default runner pool: %w", err)
 	}
 

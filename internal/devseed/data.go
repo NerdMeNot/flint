@@ -27,22 +27,24 @@ var tagKeys = []tagKeySpec{
 	{"compliance", "Compliance", "#ef4444", []string{"pci", "soc2"}},
 }
 
-// runnerPoolSpec seeds the runner-pool catalog (reference mode) so dev-sim has a
-// default pool + variety for the Runners UI and pipeline validation.
+// runnerPoolSpec seeds the machine-pool catalog so dev-sim has a default pool +
+// variety for the Runners UI and pipeline validation. All seed pools are static
+// (BYO machines); the policy fields show the economics knobs in the editor.
 type runnerPoolSpec struct {
 	name, description, cpu, memory, arch string
 	gpuVendor, gpuModel                  string
 	gpuCount                             int32
-	managed                              bool              // true → mode=managed (renders a Karpenter NodePool)
-	nodeSelector                         map[string]string // reference-mode node targeting
+	capacityType, objective              string // "" → on_demand / balanced
+	minWarm                              int32
+	idleTTLSeconds                       int32 // 0 → default 900
 }
 
 var runnerPools = []runnerPoolSpec{
-	{name: "standard", description: "General-purpose CI", cpu: "2", memory: "4Gi", arch: "amd64"},
-	{name: "cpu-large", description: "Compute-heavy builds/tests", cpu: "8", memory: "16Gi", arch: "amd64", nodeSelector: map[string]string{"karpenter.sh/nodepool": "ci-compute"}},
-	{name: "arm64", description: "ARM builds", cpu: "4", memory: "8Gi", arch: "arm64", nodeSelector: map[string]string{"karpenter.sh/nodepool": "ci-arm"}},
-	{name: "gpu", description: "GPU training/inference", cpu: "8", memory: "32Gi", arch: "amd64", gpuVendor: "nvidia", gpuModel: "a100", gpuCount: 1, nodeSelector: map[string]string{"eks.amazonaws.com/nodegroup": "gpu-a100", "karpenter.sh/capacity-type": "spot"}},
-	{name: "spot-managed", description: "Flint-managed spot pool (Karpenter, scale-to-zero)", cpu: "4", memory: "8Gi", arch: "amd64", managed: true},
+	{name: "standard", description: "General-purpose CI", cpu: "2", memory: "4Gi", arch: "amd64", minWarm: 1},
+	{name: "cpu-large", description: "Compute-heavy builds/tests", cpu: "8", memory: "16Gi", arch: "amd64", objective: "latency"},
+	{name: "arm64", description: "ARM builds", cpu: "4", memory: "8Gi", arch: "arm64"},
+	{name: "gpu", description: "GPU training/inference", cpu: "8", memory: "32Gi", arch: "amd64", gpuVendor: "nvidia", gpuModel: "a100", gpuCount: 1},
+	{name: "spot-batch", description: "Cost-optimized batch pool (spot, zero standing infra)", cpu: "4", memory: "8Gi", arch: "amd64", capacityType: "spot", objective: "cost", idleTTLSeconds: 300},
 }
 
 type environmentSpec struct{ name, slug string }

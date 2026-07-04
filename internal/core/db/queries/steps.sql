@@ -35,9 +35,10 @@ WHERE id = $1;
 
 -- name: MarkStepDispatched :exec
 -- Records that a claimed step was successfully handed to an executor. dispatched_at
--- distinguishes "running, has a Job" from "claimed but the worker died before
--- dispatch" — the latter is recovered by RequeueUndispatchedSteps.
-UPDATE steps SET dispatched_at = now(), k8s_job_name = $2 WHERE id = $1;
+-- distinguishes "running, dispatched" from "claimed but the worker died before
+-- dispatch" — the latter is recovered by RequeueUndispatchedSteps. dispatch_handle
+-- is the executor's opaque correlation id (machine executor: step_assignments.id).
+UPDATE steps SET dispatched_at = now(), dispatch_handle = $2 WHERE id = $1;
 
 -- name: RequeueUndispatchedSteps :execrows
 -- Recovers steps that were claimed (status='running') but never dispatched — e.g.
@@ -112,8 +113,8 @@ UPDATE steps SET task_token = t.token
 FROM (SELECT unnest(sqlc.arg(ids)::uuid[]) AS id, unnest(sqlc.arg(tokens)::text[]) AS token) t
 WHERE steps.id = t.id;
 
--- name: SetStepK8sJobName :exec
-UPDATE steps SET k8s_job_name = $2 WHERE id = $1;
+-- name: SetStepDispatchHandle :exec
+UPDATE steps SET dispatch_handle = $2 WHERE id = $1;
 
 -- name: CreateRetryStep :exec
 -- The retry attempt is parked in 'retry_wait', NOT 'pending'. A 'pending' row

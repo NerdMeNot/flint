@@ -350,18 +350,17 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 
 	step := claimedStep{
 		id: c.ID, workflowID: c.WorkflowID, name: c.Name,
-		execType: c.ExecType, taskToken: token, stepDef: c.StepDef,
+		execType: c.ExecType, attempt: int(c.Attempt), taskToken: token, stepDef: c.StepDef,
 		wsToken: DeriveWorkspaceToken(input.RunID, l.config.SigningKey),
 		runID:   input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
 		repo: input.Repo, ref: input.Ref, commitSHA: input.CommitSHA,
-		triggerType:            input.TriggerType,
-		workspaceFlow:          input.WorkspaceFlow,
-		environment:            input.Environment,
-		pipelineImage:          input.PipelineImage,
-		pipelineServiceAccount: input.PipelineServiceAccount,
-		env:                    merged,
-		secretMapping:          stepDef.Secrets,
-		needsOutputs:           needsOutputs,
+		triggerType:   input.TriggerType,
+		workspaceFlow: input.WorkspaceFlow,
+		environment:   input.Environment,
+		pipelineImage: input.PipelineImage,
+		env:           merged,
+		secretMapping: stepDef.Secrets,
+		needsOutputs:  needsOutputs,
 	}
 	handle, err := dispatchStep(ctx, l.executors, step)
 	if errors.Is(err, errNoExecutor) {
@@ -382,13 +381,13 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 
 	observe.StepsDispatched.Add(ctx, 1)
 	// Record dispatch: stamps dispatched_at (so the undispatched sweep ignores this
-	// step) and the executor handle (e.g. k8s Job name) for correlation. handle is
-	// empty for in-process executors (http/sim) — store NULL.
+	// step) and the executor handle (machine executor: assignment id) for
+	// correlation. handle is empty for in-process executors (http/sim) — store NULL.
 	var handlePtr *string
 	if handle != "" {
 		handlePtr = &handle
 	}
-	if err := q.MarkStepDispatched(ctx, db.MarkStepDispatchedParams{ID: c.ID, K8sJobName: handlePtr}); err != nil {
+	if err := q.MarkStepDispatched(ctx, db.MarkStepDispatchedParams{ID: c.ID, DispatchHandle: handlePtr}); err != nil {
 		log.Warn().Err(err).Str("step", c.Name).Msg("engine: failed to record step dispatch")
 	}
 	dispatchMeta := map[string]any{}

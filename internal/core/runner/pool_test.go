@@ -5,19 +5,17 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	"github.com/NerdMeNot/flint/internal/core/runner"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func standardPool() runner.PoolSpec {
 	return runner.PoolSpec{
 		Name:        "standard",
 		Description: "General purpose builds",
+		Provider:    "static",
+		Arch:        "amd64",
 		Resources: runner.ResourceProfile{
-			CPU:    resource.MustParse("2"),
-			Memory: resource.MustParse("4Gi"),
+			CPUMillis: 2000,
+			MemoryMB:  4096,
 		},
 	}
 }
@@ -26,17 +24,14 @@ func gpuPool() runner.PoolSpec {
 	return runner.PoolSpec{
 		Name:        "gpu",
 		Description: "GPU workloads",
+		Provider:    "aws-us-east-1",
+		Arch:        "amd64",
 		Resources: runner.ResourceProfile{
-			CPU:    resource.MustParse("8"),
-			Memory: resource.MustParse("32Gi"),
-			GPU:    &runner.GPURequest{Vendor: "nvidia", Model: "t4", Count: 1},
+			CPUMillis: 8000,
+			MemoryMB:  32768,
+			GPU:       &runner.GPURequest{Vendor: "nvidia", Model: "t4", Count: 1},
 		},
-		NodeSelector: map[string]string{
-			"node.kubernetes.io/instance-type": "p3.2xlarge",
-		},
-		Tolerations: []corev1.Toleration{
-			{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
-		},
+		InstanceTypes: []string{"g4dn.2xlarge"},
 	}
 }
 
@@ -99,11 +94,28 @@ func TestRegistry_ResolveWithSize(t *testing.T) {
 	}
 
 	// Size override should apply.
-	if spec.Resources.CPU.String() != "8" {
-		t.Errorf("CPU = %s, want 8", spec.Resources.CPU.String())
+	if spec.Resources.CPUMillis != 8000 {
+		t.Errorf("CPUMillis = %d, want 8000", spec.Resources.CPUMillis)
 	}
-	if spec.Resources.Memory.String() != "16Gi" {
-		t.Errorf("Memory = %s, want 16Gi", spec.Resources.Memory.String())
+	if spec.Resources.MemoryMB != 16384 {
+		t.Errorf("MemoryMB = %d, want 16384", spec.Resources.MemoryMB)
+	}
+}
+
+func TestRegistry_ResolveWithSize_DoesNotMutateRegistry(t *testing.T) {
+	reg := runner.NewRegistry()
+	reg.Register(standardPool())
+
+	if _, err := reg.ResolveWithSize("standard", runner.SizeXL); err != nil {
+		t.Fatalf("ResolveWithSize() error: %v", err)
+	}
+
+	spec, err := reg.Resolve("standard")
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if spec.Resources.CPUMillis != 2000 {
+		t.Errorf("registry pool mutated by size override: CPUMillis = %d, want 2000", spec.Resources.CPUMillis)
 	}
 }
 
@@ -128,76 +140,19 @@ func TestRegistry_List(t *testing.T) {
 	}
 }
 
-func TestMergeIntoJob(t *testing.T) {
-	spec := gpuPool()
+func TestRegistry_ReplaceAll(t *testing.T) {
+	reg := runner.NewRegistry()
+	reg.Register(standardPool())
+	reg.Register(gpuPool())
 
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-job"},
-		Spec: batchv1.JobSpec{
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{Name: "step", Image: "golang:1.23"},
-					},
-				},
-			},
-		},
-	}
+	reg.ReplaceAll([]runner.PoolSpec{standardPool()})
 
-	runner.MergeIntoJob(&spec, job)
-
-	container := job.Spec.Template.Spec.Containers[0]
-
-	// CPU and memory.
-	if cpu := container.Resources.Requests[corev1.ResourceCPU]; cpu.String() != "8" {
-		t.Errorf("CPU request = %s, want 8", cpu.String())
+	list := reg.List()
+	if len(list) != 1 {
+		t.Fatalf("len(List()) = %d after ReplaceAll, want 1", len(list))
 	}
-	if mem := container.Resources.Requests[corev1.ResourceMemory]; mem.String() != "32Gi" {
-		t.Errorf("Memory request = %s, want 32Gi", mem.String())
-	}
-
-	// GPU.
-	gpuRes := container.Resources.Requests[corev1.ResourceName("nvidia.com/gpu")]
-	if gpuRes.String() != "1" {
-		t.Errorf("GPU request = %s, want 1", gpuRes.String())
-	}
-
-	// Node selector.
-	podSpec := job.Spec.Template.Spec
-	if podSpec.NodeSelector["node.kubernetes.io/instance-type"] != "p3.2xlarge" {
-		t.Errorf("NodeSelector = %v", podSpec.NodeSelector)
-	}
-
-	// Tolerations.
-	if len(podSpec.Tolerations) != 1 {
-		t.Fatalf("len(Tolerations) = %d, want 1", len(podSpec.Tolerations))
-	}
-	if podSpec.Tolerations[0].Key != "nvidia.com/gpu" {
-		t.Errorf("Toleration key = %q", podSpec.Tolerations[0].Key)
-	}
-}
-
-func TestMergeIntoJob_NoResources(t *testing.T) {
-	// A pool with no cpu/memory defaults (zero quantities) stamps no requests,
-	// leaving the pod best-effort / job-defined.
-	spec := runner.PoolSpec{Name: "targeting-only", NodeSelector: map[string]string{"karpenter.sh/nodepool": "ci"}}
-
-	job := &batchv1.Job{
-		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{Name: "step", Image: "alpine"}},
-		}}},
-	}
-	runner.MergeIntoJob(&spec, job)
-
-	reqs := job.Spec.Template.Spec.Containers[0].Resources.Requests
-	if _, ok := reqs[corev1.ResourceCPU]; ok {
-		t.Errorf("expected no cpu request, got %v", reqs[corev1.ResourceCPU])
-	}
-	if _, ok := reqs[corev1.ResourceMemory]; ok {
-		t.Errorf("expected no memory request, got %v", reqs[corev1.ResourceMemory])
-	}
-	if job.Spec.Template.Spec.NodeSelector["karpenter.sh/nodepool"] != "ci" {
-		t.Errorf("nodeSelector not applied: %v", job.Spec.Template.Spec.NodeSelector)
+	if _, err := reg.Resolve("gpu"); err == nil {
+		t.Error("gpu pool should be gone after ReplaceAll")
 	}
 }
 
@@ -213,79 +168,12 @@ func TestTShirtSizes(t *testing.T) {
 			continue
 		}
 
-		if profile.CPU.IsZero() {
+		if profile.CPUMillis == 0 {
 			t.Errorf("size %q has zero CPU", size)
 		}
-		if profile.Memory.IsZero() {
+		if profile.MemoryMB == 0 {
 			t.Errorf("size %q has zero memory", size)
 		}
-	}
-}
-
-func TestMergeIntoJob_CustomResourceName(t *testing.T) {
-	spec := runner.PoolSpec{
-		Name: "tpu",
-		Resources: runner.ResourceProfile{
-			CPU:    resource.MustParse("16"),
-			Memory: resource.MustParse("64Gi"),
-			GPU: &runner.GPURequest{
-				Vendor:       "google",
-				Model:        "tpu-v5",
-				Count:        4,
-				ResourceName: "google.com/tpu",
-			},
-		},
-	}
-
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "tpu-job"},
-		Spec: batchv1.JobSpec{
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{Name: "step", Image: "python:3.12"},
-					},
-				},
-			},
-		},
-	}
-
-	runner.MergeIntoJob(&spec, job)
-
-	container := job.Spec.Template.Spec.Containers[0]
-
-	// Should use custom resource name, not "google.com/gpu".
-	tpuRes := container.Resources.Requests[corev1.ResourceName("google.com/tpu")]
-	if tpuRes.String() != "4" {
-		t.Errorf("TPU request = %s, want 4", tpuRes.String())
-	}
-
-	// Should NOT have "google.com/gpu".
-	gpuRes := container.Resources.Requests[corev1.ResourceName("google.com/gpu")]
-	if !gpuRes.IsZero() {
-		t.Errorf("should not have google.com/gpu resource, got %s", gpuRes.String())
-	}
-}
-
-func TestGPURequest_K8sResourceName(t *testing.T) {
-	tests := []struct {
-		name string
-		gpu  runner.GPURequest
-		want string
-	}{
-		{"nvidia default", runner.GPURequest{Vendor: "nvidia", Model: "t4"}, "nvidia.com/gpu"},
-		{"amd default", runner.GPURequest{Vendor: "amd", Model: "mi300"}, "amd.com/gpu"},
-		{"custom tpu", runner.GPURequest{Vendor: "google", Model: "tpu-v5", ResourceName: "google.com/tpu"}, "google.com/tpu"},
-		{"custom neuron", runner.GPURequest{Vendor: "aws", Model: "inf2", ResourceName: "aws.amazon.com/neuron"}, "aws.amazon.com/neuron"},
-		{"custom gaudi", runner.GPURequest{Vendor: "habana", Model: "gaudi2", ResourceName: "habana.ai/gaudi"}, "habana.ai/gaudi"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.gpu.K8sResourceName(); got != tt.want {
-				t.Errorf("K8sResourceName() = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }
 
@@ -296,5 +184,28 @@ func TestTShirtSizes_Invalid(t *testing.T) {
 	_, ok := runner.ResourcesForSize("mega")
 	if ok {
 		t.Error("ResourcesForSize(mega) should return false")
+	}
+}
+
+func TestParseResources(t *testing.T) {
+	p, err := runner.ParseResources("500m", "2Gi")
+	if err != nil {
+		t.Fatalf("ParseResources error: %v", err)
+	}
+	if p.CPUMillis != 500 || p.MemoryMB != 2048 {
+		t.Errorf("got %+v, want {500 2048}", p)
+	}
+
+	// Blank strings mean "unset" — zero fields, no error.
+	p, err = runner.ParseResources("", "")
+	if err != nil {
+		t.Fatalf("ParseResources blank error: %v", err)
+	}
+	if p.CPUMillis != 0 || p.MemoryMB != 0 {
+		t.Errorf("blank quantities should be zero, got %+v", p)
+	}
+
+	if _, err := runner.ParseResources("nope", ""); err == nil {
+		t.Error("expected error for invalid cpu")
 	}
 }

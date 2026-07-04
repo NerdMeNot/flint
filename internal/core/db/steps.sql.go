@@ -754,19 +754,20 @@ func (q *Queries) LockStep(ctx context.Context, arg LockStepParams) (LockStepRow
 }
 
 const markStepDispatched = `-- name: MarkStepDispatched :exec
-UPDATE steps SET dispatched_at = now(), k8s_job_name = $2 WHERE id = $1
+UPDATE steps SET dispatched_at = now(), dispatch_handle = $2 WHERE id = $1
 `
 
 type MarkStepDispatchedParams struct {
-	ID         string  `json:"id"`
-	K8sJobName *string `json:"k8s_job_name"`
+	ID             string  `json:"id"`
+	DispatchHandle *string `json:"dispatch_handle"`
 }
 
 // Records that a claimed step was successfully handed to an executor. dispatched_at
-// distinguishes "running, has a Job" from "claimed but the worker died before
-// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
+// distinguishes "running, dispatched" from "claimed but the worker died before
+// dispatch" — the latter is recovered by RequeueUndispatchedSteps. dispatch_handle
+// is the executor's opaque correlation id (machine executor: step_assignments.id).
 func (q *Queries) MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error {
-	_, err := q.db.Exec(ctx, markStepDispatched, arg.ID, arg.K8sJobName)
+	_, err := q.db.Exec(ctx, markStepDispatched, arg.ID, arg.DispatchHandle)
 	return err
 }
 
@@ -910,17 +911,17 @@ func (q *Queries) RunStepCosts(ctx context.Context, runID string) ([]RunStepCost
 	return items, nil
 }
 
-const setStepK8sJobName = `-- name: SetStepK8sJobName :exec
-UPDATE steps SET k8s_job_name = $2 WHERE id = $1
+const setStepDispatchHandle = `-- name: SetStepDispatchHandle :exec
+UPDATE steps SET dispatch_handle = $2 WHERE id = $1
 `
 
-type SetStepK8sJobNameParams struct {
-	ID         string  `json:"id"`
-	K8sJobName *string `json:"k8s_job_name"`
+type SetStepDispatchHandleParams struct {
+	ID             string  `json:"id"`
+	DispatchHandle *string `json:"dispatch_handle"`
 }
 
-func (q *Queries) SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error {
-	_, err := q.db.Exec(ctx, setStepK8sJobName, arg.ID, arg.K8sJobName)
+func (q *Queries) SetStepDispatchHandle(ctx context.Context, arg SetStepDispatchHandleParams) error {
+	_, err := q.db.Exec(ctx, setStepDispatchHandle, arg.ID, arg.DispatchHandle)
 	return err
 }
 

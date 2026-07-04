@@ -6,13 +6,14 @@ import (
 	"sort"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
-	"k8s.io/apimachinery/pkg/api/resource"
+	"github.com/NerdMeNot/flint/pkg/units"
 )
 
 // ValidateWithPools runs structural Validate, then checks every job's runner pool
 // and resource request against the catalog of pools in the DB — so an unknown
-// pool, a GPU request on a non-GPU pool, or a request larger than the pool's node
-// fails at compile time with a named fix, instead of as a pod stuck Pending.
+// pool, a GPU request on a non-GPU pool, or a request larger than the pool's
+// machine shape fails at compile time with a named fix, instead of as a step
+// waiting forever for capacity that can never exist.
 //
 // Only explicitly-named pools are checked (a job with no runner uses the configured
 // default pool, resolved at dispatch). The Service calls this before Compile.
@@ -21,11 +22,11 @@ func (p *Pipeline) ValidateWithPools(ctx context.Context, q db.Querier) error {
 		return err
 	}
 
-	rows, err := q.ListRunnerPools(ctx)
+	rows, err := q.ListMachinePools(ctx)
 	if err != nil {
 		return fmt.Errorf("ci: load runner pools: %w", err)
 	}
-	pools := make(map[string]db.ListRunnerPoolsRow, len(rows))
+	pools := make(map[string]db.ListMachinePoolsRow, len(rows))
 	names := make([]string, 0, len(rows))
 	for _, r := range rows {
 		pools[r.Name] = r
@@ -53,24 +54,28 @@ func (p *Pipeline) ValidateWithPools(ctx context.Context, q db.Querier) error {
 }
 
 // validateResourcesFitPool checks a job's resource request against the pool's
-// profile (the pool's node size / GPU capability).
-func validateResourcesFitPool(jobName string, req *Resources, pool db.ListRunnerPoolsRow) error {
+// machine shape. A pool with a blank cpu/memory declares no bound for it.
+func validateResourcesFitPool(jobName string, req *Resources, pool db.ListMachinePoolsRow) error {
 	if req.CPU != "" {
-		jobCPU, err := resource.ParseQuantity(req.CPU)
+		jobCPU, err := units.ParseCPUMillis(req.CPU)
 		if err != nil {
 			return fmt.Errorf("ci: job %q has invalid cpu %q", jobName, req.CPU)
 		}
-		if poolCPU, perr := resource.ParseQuantity(pool.Cpu); perr == nil && jobCPU.Cmp(poolCPU) > 0 {
-			return fmt.Errorf("ci: job %q requests cpu %s but pool %q provides %s", jobName, req.CPU, pool.Name, pool.Cpu)
+		if pool.Cpu != "" {
+			if poolCPU, perr := units.ParseCPUMillis(pool.Cpu); perr == nil && jobCPU > poolCPU {
+				return fmt.Errorf("ci: job %q requests cpu %s but pool %q provides %s", jobName, req.CPU, pool.Name, pool.Cpu)
+			}
 		}
 	}
 	if req.Memory != "" {
-		jobMem, err := resource.ParseQuantity(req.Memory)
+		jobMem, err := units.ParseMemoryMB(req.Memory)
 		if err != nil {
 			return fmt.Errorf("ci: job %q has invalid memory %q", jobName, req.Memory)
 		}
-		if poolMem, perr := resource.ParseQuantity(pool.Memory); perr == nil && jobMem.Cmp(poolMem) > 0 {
-			return fmt.Errorf("ci: job %q requests memory %s but pool %q provides %s", jobName, req.Memory, pool.Name, pool.Memory)
+		if pool.Memory != "" {
+			if poolMem, perr := units.ParseMemoryMB(pool.Memory); perr == nil && jobMem > poolMem {
+				return fmt.Errorf("ci: job %q requests memory %s but pool %q provides %s", jobName, req.Memory, pool.Name, pool.Memory)
+			}
 		}
 	}
 	if req.GPU > 0 {

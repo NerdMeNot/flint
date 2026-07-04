@@ -118,10 +118,9 @@ type StartWorkflowInput struct {
 	//                 with at most one container step)
 	WorkspaceFlow string
 
-	Env                    map[string]string
-	RunURL                 string
-	PipelineImage          string // default container image from pipeline YAML
-	PipelineServiceAccount string // default K8s ServiceAccount from pipeline YAML
+	Env           map[string]string
+	RunURL        string
+	PipelineImage string // default container image from pipeline YAML
 
 	// For child workflows (invoke steps).
 	ParentWorkflowID string
