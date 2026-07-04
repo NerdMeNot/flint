@@ -7,82 +7,262 @@ option go_package = "github.com/NerdMeNot/flint/protogen/agent/v1;agentv1";
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
-// AgentService handles communication between the Flint agent and the server.
-// The agent runs step containers and reports results back to the server.
+// AgentService is the control-plane contract for the per-machine flint-agent
+// daemon. The flow: a machine registers once (bootstrap or pool join token →
+// per-machine bearer token), heartbeats every ~10s (lease keep-alive; drain/
+// shutdown/cancel/GC signals piggyback on the response), long-polls ClaimStep
+// for assigned work, streams logs over ExecuteStep while a step runs, and
+// reports the outcome via ReportStepComplete (unary, so delivery survives a
+// dropped stream).
+//
+// All RPCs except RegisterMachine authenticate with the machine bearer token
+// (authorization: Bearer <token>). Data-plane pulls that carry a per-step task
+// token (secrets, clone tokens) stay on the server's HTTP /internal endpoints.
 service AgentService {
-  // ExecuteStep is a bidirectional stream for the lifetime of a step execution.
-  // Agent sends: log lines (batched), step status updates, heartbeats.
-  // Server sends: cancel signals, configuration updates.
-  rpc ExecuteStep(stream AgentMessage) returns (stream ServerMessage);
+  // RegisterMachine exchanges a one-time bootstrap token (elastic machines,
+  // minted at provider.Create) or a long-lived pool join token (static
+  // machines) for the machine identity and bearer token.
+  rpc RegisterMachine(RegisterMachineRequest) returns (RegisterMachineResponse);
 
-  // ClaimStep is called by the agent to claim a queued step for execution.
-  // Returns the step definition (command, image, env vars, etc).
+  // ClaimStep long-polls for work assigned to this machine (the server parks
+  // the call up to wait_seconds, woken by the scheduler). The agent calls it
+  // once per free execution slot.
   rpc ClaimStep(ClaimStepRequest) returns (ClaimStepResponse);
 
-  // ReportStepComplete is a unary RPC for the final step completion report.
-  // Includes the log digest (line count, SHA256) and tail lines for repair.
-  // This is separate from the stream to ensure delivery even if the stream drops.
-  rpc ReportStepComplete(StepCompleteRequest) returns (StepCompleteResponse);
+  // ExecuteStep is a bidirectional stream for the lifetime of one step:
+  // agent sends log batches / lifecycle updates, server sends cancellation.
+  rpc ExecuteStep(stream ExecuteStepRequest) returns (stream ExecuteStepResponse);
 
-  // Heartbeat keeps the agent registration alive.
-  // The server uses this to detect dead agents and reschedule their steps.
-  rpc Heartbeat(AgentHeartbeatRequest) returns (AgentHeartbeatResponse);
+  // ReportStepComplete is the final, task-token-authenticated completion
+  // report. Unary and retried so the engine hears the outcome even if the
+  // stream died. Carries the log digest for tail repair.
+  rpc ReportStepComplete(ReportStepCompleteRequest) returns (ReportStepCompleteResponse);
+
+  // Heartbeat keeps the machine's lease alive (~10s cadence; the server
+  // expires machines at 3× the interval). The response is the server's
+  // command channel: drain/shutdown, step cancellations, and workspace GC.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // GetStepSecrets resolves a step's secret mapping at execution time. Pull
+  // keeps secret values out of assignment payloads and the database: exposure
+  // is bounded to the execution window, and the server re-checks that the
+  // assignment is live and bound to the calling machine on every call.
+  rpc GetStepSecrets(GetStepSecretsRequest) returns (GetStepSecretsResponse);
+
+  // GetCloneToken mints a short-lived forge token for git operations
+  // (mirror fetches, checkout) scoped to the step's repository.
+  rpc GetCloneToken(GetCloneTokenRequest) returns (GetCloneTokenResponse);
+}
+
+message GetStepSecretsRequest {
+  string assignment_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message GetStepSecretsResponse {
+  // Env var name → secret value, resolved through the step's secret mapping
+  // with environment → project → org scope fallback.
+  map<string, string> secrets = 1;
+}
+
+message GetCloneTokenRequest {
+  string assignment_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message GetCloneTokenResponse {
+  string token = 1;
+  string clone_url = 2;
 }
 
 // ────────────────────────────────────────────────────────────
-// Stream messages (bidirectional)
+// Registration
 // ────────────────────────────────────────────────────────────
 
-// AgentMessage is sent from the agent to the server over the ExecuteStep stream.
-message AgentMessage {
+message RegisterMachineRequest {
+  // One-time bootstrap token (elastic) or pool join token (static).
+  string registration_token = 1 [(buf.validate.field).string.min_len = 1];
+  // Pre-allocated machine id — set for elastic machines (from cloud-init);
+  // empty for static machines joining by pool token.
+  string machine_id = 2;
+  string hostname = 3;
+  string arch = 4;    // "amd64" | "arm64"
+  string os = 5;      // "linux"
+  int64 cpu_millis = 6;
+  int64 memory_mb = 7;
+  int64 disk_gb = 8;
+  string agent_version = 9;
+  map<string, string> labels = 10; // capabilities: docker, gpu:nvidia-t4, …
+}
+
+message RegisterMachineResponse {
+  string machine_id = 1;
+  // Bearer token for all subsequent calls. Shown once; only its hash is
+  // stored server-side.
+  string machine_token = 2;
+  int32 heartbeat_interval_seconds = 3;
+  // Base URL for the HTTP data-plane endpoints (/internal/secrets, …).
+  string server_http_url = 4;
+  string pool_name = 5;
+}
+
+// ────────────────────────────────────────────────────────────
+// ClaimStep — agent pulls assigned work (long-poll)
+// ────────────────────────────────────────────────────────────
+
+message ClaimStepRequest {
+  string machine_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Long-poll budget in seconds; the server caps this (≤30s).
+  int32 wait_seconds = 2;
+}
+
+message ClaimStepResponse {
+  bool assigned = 1; // false = nothing within the wait window, poll again
+  Assignment assignment = 2;
+}
+
+// Assignment is one unit of work bound to this machine.
+message Assignment {
+  string assignment_id = 1;
+  string run_id = 2;
+  string step_name = 3;
+  int32 attempt = 4;
+  StepPayload payload = 5;
+}
+
+// StepPayload carries everything the agent needs to execute a step — the full
+// projection of the engine's dispatch context, persisted at dispatch time so
+// an agent can claim later (or after a control-plane restart) without the
+// server recomputing env or secret merges.
+message StepPayload {
+  string step_id = 1;
+  string workflow_id = 2;
+  string step_name = 3;
+  string exec_type = 4; // "run" | "use" | "steps"
+
+  // The pipeline.Step definition as JSON — image, command, sub-steps,
+  // services, cache/artifact specs, checkout inputs. The agent shares the
+  // pipeline package, so JSON here beats mirroring the whole schema in proto.
+  bytes step_def_json = 5;
+
+  // Per-step HMAC task token: authenticates ReportStepComplete and the HTTP
+  // data-plane pulls (secrets, clone token, logs).
+  string task_token = 6;
+  // Per-run workspace token (HMAC-derived from the run id).
+  string ws_token = 7;
+
+  string run_id = 8;
+  string org_id = 9;
+  string project_id = 10;
+  string repo = 11;
+  string ref = 12;
+  string commit_sha = 13;
+  string trigger_type = 14;
+
+  // Workspace flow for this run: "local" (all steps on one machine share a
+  // directory) | "s3" (cross-machine diff-sync) | "none". Fixed per run.
+  string workspace_flow = 15;
+  string environment = 16;
+  string pipeline_image = 17;
+
+  // Merged non-secret env (org env_vars + step.env + input env).
+  map<string, string> env = 18;
+  // Env var name → secret store name; the agent pulls values at execution
+  // time with the task token (secrets never transit the assignment payload).
+  map<string, string> secret_mapping = 19;
+
+  // Outputs of direct dependencies (base job name → outputs) as JSON, for the
+  // in-container needs.* expression context.
+  bytes needs_outputs_json = 20;
+
+  int64 timeout_seconds = 21;
+  StepResources resources = 22;
+
+  string server_http_url = 23;
+  ObjectStorage storage = 24;
+  string log_durability = 25; // "standard" | "guaranteed"
+  string matrix_key = 26;     // "" for non-matrix steps
+}
+
+// ObjectStorage tells the agent where artifacts/cache/S3-workspace live.
+// An empty bucket disables all three.
+message ObjectStorage {
+  string bucket = 1;
+  string region = 2;
+  string endpoint = 3; // optional S3-compatible endpoint (MinIO, R2)
+}
+
+// StepResources is the resolved resource envelope for the step container.
+message StepResources {
+  int64 cpu_millis = 1;
+  int64 memory_mb = 2;
+  int64 disk_gb = 3;
+  bool privileged = 4; // opt-in for dind/buildkit workloads
+}
+
+// ────────────────────────────────────────────────────────────
+// Stream messages (bidirectional, per step)
+// ────────────────────────────────────────────────────────────
+
+message ExecuteStepRequest {
   oneof payload {
-    LogBatch log_batch = 1;
-    StepStarted step_started = 2;
-    StepProgress step_progress = 3;
-    StreamHeartbeat heartbeat = 4;
+    StreamHello hello = 1; // first frame: binds the stream to an assignment
+    LogBatch log_batch = 2;
+    StepStarted step_started = 3;
+    StepProgress step_progress = 4;
+    StreamHeartbeat heartbeat = 5;
   }
 }
 
-// ServerMessage is sent from the server to the agent over the ExecuteStep stream.
-message ServerMessage {
+message ExecuteStepResponse {
   oneof payload {
     CancelStep cancel = 1;
     AckHeartbeat ack = 2;
+    LogAck log_ack = 3;
   }
+}
+
+// StreamHello identifies which assignment this stream carries.
+message StreamHello {
+  string machine_id = 1;
+  string assignment_id = 2;
+  string task_token = 3;
 }
 
 // ────────────────────────────────────────────────────────────
 // Log streaming
 // ────────────────────────────────────────────────────────────
 
-// LogBatch is a batch of log lines sent from the agent.
-// Lines are batched (every 100ms or 50 lines) to reduce stream overhead.
+// LogBatch is a batch of log lines (every ~100ms or 50 lines). Sequences are
+// monotonic per step so the server can dedupe retransmits after a reconnect.
 message LogBatch {
   string run_id = 1;
   string step_name = 2;
-  repeated LogLine lines = 3;
+  string matrix_key = 3;
+  repeated LogLine lines = 4;
 }
 
-// LogLine is a single line of log output.
 message LogLine {
   google.protobuf.Timestamp timestamp = 1;
-  string stream = 2;        // "stdout" or "stderr"
+  string stream = 2; // "stdout" or "stderr"
   string content = 3;
-  int64 sequence = 4;       // monotonic sequence number within the step
+  int64 sequence = 4; // monotonic within the step
+}
+
+// LogAck acknowledges persisted log sequences; the agent trims its local
+// spool up to acked_sequence and retransmits from there after a reconnect.
+message LogAck {
+  int64 acked_sequence = 1;
 }
 
 // ────────────────────────────────────────────────────────────
 // Step lifecycle
 // ────────────────────────────────────────────────────────────
 
-// StepStarted is sent when the agent begins executing a step.
 message StepStarted {
   string run_id = 1;
   string step_name = 2;
   google.protobuf.Timestamp started_at = 3;
 }
 
-// StepProgress is sent periodically during execution.
 message StepProgress {
   string run_id = 1;
   string step_name = 2;
@@ -90,129 +270,95 @@ message StepProgress {
   int64 elapsed_seconds = 4;
 }
 
-// ────────────────────────────────────────────────────────────
-// Server → Agent control signals
-// ────────────────────────────────────────────────────────────
-
-// CancelStep tells the agent to terminate the running step container.
+// CancelStep tells the agent to terminate the running step (SIGTERM, grace,
+// SIGKILL). Also delivered redundantly via the heartbeat response, so a
+// broken stream delays cancellation by at most one heartbeat interval.
 message CancelStep {
-  string run_id = 1;
-  string step_name = 2;
-  string reason = 3;    // "user_cancelled", "timeout", "superseded"
-}
-
-// StreamHeartbeat is sent by the agent to keep the stream alive.
-message StreamHeartbeat {
-  string agent_id = 1;
-}
-
-// AckHeartbeat is the server's response to a stream heartbeat.
-message AckHeartbeat {}
-
-// ────────────────────────────────────────────────────────────
-// ClaimStep — agent pulls work
-// ────────────────────────────────────────────────────────────
-
-message ClaimStepRequest {
-  string agent_id = 1 [(buf.validate.field).string.min_len = 1];
-  string runner_pool = 2;   // which runner pool this agent belongs to
-  repeated string capabilities = 3; // e.g., ["docker", "gpu", "arm64"]
-}
-
-message ClaimStepResponse {
-  bool assigned = 1;   // false = no work available, poll again
-
-  // Only set if assigned = true:
+  string assignment_id = 1;
   string run_id = 2;
   string step_name = 3;
-  StepDefinition step = 4;
+  string reason = 4; // "user_cancelled", "timeout", "superseded"
 }
 
-// StepDefinition contains everything the agent needs to execute a step.
-message StepDefinition {
-  string image = 1;             // container image to run
-  repeated string command = 2;  // entrypoint + args
-  string working_dir = 3;
-  map<string, string> env = 4;  // environment variables (including secrets)
-  string shell = 5;             // "bash", "sh", "powershell"
-  int64 timeout_seconds = 6;
-  StepResources resources = 7;
-
-  // Pipeline context
-  string org_id = 8;
-  string project_id = 9;
-  string workflow_file = 10;
-  string branch = 11;
-  string commit_sha = 12;
-  string environment = 13;      // target environment name
-  string log_durability = 14;   // "standard" or "guaranteed"
+message StreamHeartbeat {
+  string machine_id = 1;
 }
 
-// StepResources defines resource limits for the step container.
-message StepResources {
-  string cpu_request = 1;       // e.g., "500m"
-  string cpu_limit = 2;         // e.g., "2"
-  string memory_request = 3;    // e.g., "512Mi"
-  string memory_limit = 4;      // e.g., "4Gi"
-  bool gpu = 5;
-}
+message AckHeartbeat {}
 
 // ────────────────────────────────────────────────────────────
 // ReportStepComplete — final completion report (unary)
 // ────────────────────────────────────────────────────────────
 
-message StepCompleteRequest {
-  string run_id = 1 [(buf.validate.field).string.min_len = 1];
-  string step_name = 2 [(buf.validate.field).string.min_len = 1];
-  string agent_id = 3;
+message ReportStepCompleteRequest {
+  string assignment_id = 1 [(buf.validate.field).string.min_len = 1];
+  string machine_id = 2;
+  // Task token from the StepPayload — the engine verifies it and routes the
+  // result through its idempotent CompleteStep chokepoint.
+  string task_token = 3 [(buf.validate.field).string.min_len = 1];
 
   StepResult result = 4;
   LogDigest log_digest = 5;
 }
 
-// StepResult contains the execution outcome.
 message StepResult {
-  string status = 1;            // "succeeded", "failed", "cancelled", "timed_out"
+  string status = 1; // "succeeded", "failed", "cancelled", "timed_out"
   int32 exit_code = 2;
-  string error_message = 3;     // only set on failure
+  string error_message = 3; // only set on failure
   google.protobuf.Timestamp started_at = 4;
   google.protobuf.Timestamp finished_at = 5;
   int64 duration_ms = 6;
+  // Step outputs from $FLINT_OUTPUT / emit().
+  map<string, string> outputs = 7;
 }
 
 // LogDigest provides verification data for log completeness.
-// See docs/design/log-architecture.md for the verification protocol.
 message LogDigest {
-  int64 line_count = 1;         // total lines produced
-  string sha256 = 2;            // hash of all log content
+  int64 line_count = 1;
+  string sha256 = 2;
   repeated LogLine tail_lines = 3; // last ~50 lines for tail repair
 }
 
-message StepCompleteResponse {
+message ReportStepCompleteResponse {
   bool accepted = 1;
-  string next_action = 2;       // "idle", "claim_next", "shutdown"
 }
 
 // ────────────────────────────────────────────────────────────
-// Agent heartbeat (unary, separate from stream)
+// Heartbeat — lease keep-alive + server command channel
 // ────────────────────────────────────────────────────────────
 
-message AgentHeartbeatRequest {
-  string agent_id = 1 [(buf.validate.field).string.min_len = 1];
-  string runner_pool = 2;
-  AgentStatus status = 3;
+message HeartbeatRequest {
+  string machine_id = 1 [(buf.validate.field).string.min_len = 1];
+  AgentStatus status = 2;
+  // Active assignment ids the agent believes it is running. The server fails
+  // 'running' assignments missing from this list past a grace period — the
+  // agent-restart recovery path.
+  repeated string active_assignment_ids = 3;
+  // Run ids whose workspace directories are resident on this machine's disk;
+  // the response returns the terminal subset for GC.
+  repeated string resident_run_ids = 4;
+  // Set when the machine wants to drain itself (spot interruption notice
+  // from IMDS, operator signal on the box).
+  bool draining_requested = 5;
+  string drain_reason = 6;
 }
 
 message AgentStatus {
-  bool busy = 1;                // currently executing a step
-  string current_run_id = 2;
-  string current_step_name = 3;
-  int64 uptime_seconds = 4;
-  double cpu_usage_percent = 5;
-  int64 memory_used_bytes = 6;
+  int32 free_slots = 1;
+  int64 uptime_seconds = 2;
+  double cpu_usage_percent = 3;
+  int64 memory_used_bytes = 4;
+  int64 disk_free_bytes = 5;
+  string agent_version = 6;
 }
 
-message AgentHeartbeatResponse {
-  bool registered = 1;
-  string action = 2;            // "continue", "drain", "shutdown"
+message HeartbeatResponse {
+  // "continue" | "drain" (finish running work, claim nothing new) |
+  // "shutdown" (stop now; the machine is being terminated).
+  string action = 1;
+  int32 heartbeat_interval_seconds = 2;
+  // Cancellations for running assignments (redundant with the stream).
+  repeated CancelStep cancellations = 3;
+  // Terminal runs whose resident workspace dirs the agent should delete.
+  repeated string gc_run_ids = 4;
 }

@@ -5,7 +5,10 @@ deps:
 - buf.build/bufbuild/protovalidate
 lint:
   use:
-  - DEFAULT
+  - STANDARD
+  ignore:
+  # Pre-pivot health proto with legacy enum naming; slated for regeneration.
+  - proto/health/health.proto
 breaking:
   use:
   - FILE
