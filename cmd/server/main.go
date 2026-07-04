@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/NerdMeNot/flint/internal/boot"
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/engine"
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	root.Flags().StringVar(&configPath, "config", "", "path to config file")
-	root.Flags().StringVar(&mode, "mode", "all", "server mode: all | webhook | api")
+	root.Flags().StringVar(&mode, "mode", "all", "server mode: all (api+webhook+worker, the single-binary install) | webhook | api")
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -73,7 +74,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Msg("flint-server starting")
 
 	// Database.
-	pool, err := dbkit.NewPool(ctx, dbkit.Config{
+	dbCfg := dbkit.Config{
 		Host:     cfg.Database.Host,
 		Port:     cfg.Database.PortOrDefault(),
 		Database: cfg.Database.Database,
@@ -82,7 +83,20 @@ func run(cmd *cobra.Command, args []string) error {
 		SSLMode:  cfg.Database.SSLMode,
 		MaxConns: cfg.Database.MaxConns,
 		MinConns: cfg.Database.MinConns,
-	})
+	}
+
+	// Apply pending schema migrations before opening the pool (default on) —
+	// a single-binary install must come up from an empty database with no
+	// separate migrate step. Operators running migrations out-of-band set
+	// database.autoMigrate: false.
+	if cfg.Database.AutoMigrateOrDefault() {
+		if err := dbkit.RunMigrations(dbCfg.DSN(), dbkit.Migrations, "migrations"); err != nil {
+			return fmt.Errorf("running migrations: %w", err)
+		}
+		log.Info().Msg("database migrations applied")
+	}
+
+	pool, err := dbkit.NewPool(ctx, dbCfg)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
@@ -287,6 +301,23 @@ func run(cmd *cobra.Command, args []string) error {
 		log.Warn().Msg("secret store disabled: encryption.masterKey not configured (32-byte hex)")
 	}
 
+	// Log sink — the server-side durable store for step logs. Agents ship log
+	// batches to POST /internal/logs; this sink is where they land. S3 mode is
+	// the production choice (survives server restarts, horizontally scalable);
+	// filesystem mode suits single-node and dev installs.
+	var logs logsink.LogSink
+	if cfg.Storage.Mode == "s3" {
+		s3sink, err := logsink.NewS3Sink(ctx, cfg.Storage.S3.Bucket, cfg.Storage.S3.Region, cfg.Storage.S3.Endpoint)
+		if err != nil {
+			return fmt.Errorf("initializing S3 log sink: %w", err)
+		}
+		logs = s3sink
+		log.Info().Str("bucket", cfg.Storage.S3.Bucket).Msg("log sink: s3")
+	} else {
+		logs = &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path}
+		log.Info().Str("path", cfg.Storage.FS.Path).Msg("log sink: filesystem")
+	}
+
 	deps := flintserver.Deps{
 		Config:         cfg,
 		DB:             pool,
@@ -294,7 +325,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Engine:         eng,
 		Forge:          forgeProvider,
 		Secrets:        secretStore,
-		Logs:           &logsink.FilesystemSink{BaseDir: cfg.Storage.FS.Path},
+		Logs:           logs,
 		LogBroadcast:   flintserver.NewLogStream(),
 		StateBroadcast: flintserver.NewStateStream(),
 		Mode:           mode,
@@ -316,20 +347,43 @@ func run(cmd *cobra.Command, args []string) error {
 		deps.SAMLProvider = samlProvider
 	}
 
-	// Push run-state changes to SSE subscribers on each committed transition
-	// (step completion / cancellation happen in this process via the agent
-	// callback and cancel handler; the SSE handler polls for the rest).
-	flintserver.WireStateObserver(eng, q, deps.StateBroadcast)
-
 	// Mount product surfaces here (composition root), so the platform server
 	// never imports product packages.
+	var onRunTerminal func(ctx context.Context, runID, status string)
 	if cfg.Products.CIEnabled() {
-		deps.Runs = ci.NewService(eng, forgeProvider, q)
+		ciSvc := ci.NewService(eng, forgeProvider, q)
+		deps.Runs = ciSvc
+		// Completion reporting: post success/failure to the forge when a run
+		// reaches a terminal state (the counterpart of the "queued" status).
+		onRunTerminal = ciSvc.ReportRunFinished
 		log.Info().Msg("product enabled: ci")
 	}
+
+	// Push run-state changes to SSE subscribers on each committed transition
+	// (step completion / cancellation happen in this process via the agent
+	// callback and cancel handler; the SSE handler polls for the rest), and
+	// report terminal runs to the forge.
+	flintserver.WireStateObserver(eng, q, deps.StateBroadcast, onRunTerminal)
 	if cfg.Products.WorkflowsEnabled() {
 		deps.APIRoutes = append(deps.APIRoutes, workflows.NewAPI(eng, q).Register)
 		log.Info().Msg("product enabled: workflows")
+	}
+
+	// Single-binary mode: --mode all runs the worker loop (dispatch, timers,
+	// informer, cron) in-process — the whole control plane is Postgres + this
+	// one process. Deployments that want to scale dispatch independently run
+	// flint-server --mode api|webhook plus dedicated flint-worker replicas.
+	if mode == "all" && os.Getenv("FLINT_DISABLE_EMBEDDED_WORKER") == "" {
+		w, werr := boot.StartWorker(ctx, cfg, pool, eng)
+		if werr != nil {
+			return fmt.Errorf("starting embedded worker: %w", werr)
+		}
+		go func() {
+			if err := w.Loop.Run(ctx); err != nil {
+				log.Error().Err(err).Msg("embedded worker loop stopped with error")
+			}
+		}()
+		log.Info().Msg("embedded worker: engine loop running in-process")
 	}
 
 	srv := flintserver.New(deps)

@@ -202,6 +202,11 @@ func (t *Triggers) UnmarshalYAML(node *yaml.Node) error {
 			if err := val.Decode(t.Webhook); err != nil {
 				return err
 			}
+		default:
+			// Unknown trigger keys must error, not vanish — a silently dropped
+			// `pull-request:` (hyphen) or `cron:` means a pipeline that never
+			// fires with no explanation.
+			return fmt.Errorf("unknown trigger %q (valid: push, pull_request, tag, manual, schedule, promotion, webhook)", key)
 		}
 	}
 

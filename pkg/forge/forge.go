@@ -31,8 +31,44 @@ type ForgeProvider interface {
 	// CloneURL returns the HTTPS clone URL for a repo.
 	CloneURL(repo string) string
 
+	// ListPullRequestFiles returns the paths changed by a pull request, for
+	// trigger paths: filters (PR webhook payloads don't carry file lists).
+	// Implementations without support return ErrUnsupportedEvent; callers
+	// treat that as unknown (fail-open — a filter must never wedge CI).
+	ListPullRequestFiles(ctx context.Context, repo string, prNumber int) ([]string, error)
+
 	// Type returns the forge type identifier (e.g., "github", "gitlab", "bitbucket").
 	Type() string
+}
+
+// CheckReporter is the optional rich-status interface: check runs with file
+// annotations instead of plain commit statuses. Callers type-assert and fall
+// back to PostCommitStatus when the forge (or its auth mode) can't provide it
+// — GitHub check runs require App authentication, for example.
+type CheckReporter interface {
+	// CreateCheckRun creates or completes a check run on a commit.
+	CreateCheckRun(ctx context.Context, repo, sha string, check CheckRun) error
+}
+
+// CheckRun is a rich commit check (GitHub Checks API shape).
+type CheckRun struct {
+	Name       string // e.g. "flint/ci.yaml"
+	Status     string // queued | in_progress | completed
+	Conclusion string // success | failure | cancelled (when Status == completed)
+	Title      string
+	Summary    string
+	DetailsURL string
+	// Annotations attach messages to file lines (max 50 per call on GitHub).
+	Annotations []CheckAnnotation
+}
+
+// CheckAnnotation is a file-anchored message on a check run.
+type CheckAnnotation struct {
+	Path      string
+	StartLine int
+	EndLine   int
+	Level     string // notice | warning | failure
+	Message   string
 }
 
 // EventKind classifies the type of forge event.
@@ -61,6 +97,12 @@ type WebhookEvent struct {
 	BaseBranch string
 	HeadBranch string
 	IsDraft    bool
+
+	// ChangedFiles lists the paths touched by the event, for trigger paths:
+	// filters. Populated from the push payload's commit file lists; nil when
+	// the forge doesn't carry them in the webhook (e.g. pull requests — fetch
+	// via ListPullRequestFiles on demand). nil means UNKNOWN, not empty.
+	ChangedFiles []string
 
 	// Raw payload for custom processing.
 	RawPayload []byte

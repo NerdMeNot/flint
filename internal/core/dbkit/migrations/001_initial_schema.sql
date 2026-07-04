@@ -300,7 +300,8 @@ CREATE TABLE public.pipeline_runs (
     environment text,
     error_message text,
     kind text DEFAULT 'ci'::text NOT NULL,
-    cleaned_at timestamptz
+    cleaned_at timestamptz,
+    concurrency_group text
 );
 
 
@@ -1380,6 +1381,13 @@ CREATE INDEX idx_signals_unconsumed ON public.signals USING btree (workflow_id, 
 
 
 --
+-- Name: idx_runs_concurrency_group; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_runs_concurrency_group ON public.pipeline_runs USING btree (project_id, concurrency_group) WHERE (status = 'running' AND concurrency_group IS NOT NULL);
+
+
+--
 -- Name: idx_steps_latest_attempt; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1412,6 +1420,15 @@ CREATE INDEX idx_engine_events_created ON public.engine_events USING btree (crea
 --
 
 CREATE INDEX idx_steps_queued ON public.steps USING btree (status, queued_at) WHERE (status = 'queued'::text);
+
+
+--
+-- Name: idx_steps_claim_order; Type: INDEX; Schema: public; Owner: -
+-- Matches ClaimQueuedSteps' ORDER BY wave, queued_at so a large queued backlog
+-- is claimed via index scan, not a per-tick sort of the whole backlog.
+--
+
+CREATE INDEX idx_steps_claim_order ON public.steps USING btree (wave, queued_at) WHERE (status = 'queued'::text);
 
 
 --

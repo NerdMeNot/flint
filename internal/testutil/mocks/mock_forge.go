@@ -140,6 +140,36 @@ func (_m *ForgeProvider) GetFile(ctx context.Context, repo string, ref string, p
 	return r0, r1
 }
 
+// ListPullRequestFiles provides a mock function with given fields: ctx, repo, prNumber
+func (_m *ForgeProvider) ListPullRequestFiles(ctx context.Context, repo string, prNumber int) ([]string, error) {
+	ret := _m.Called(ctx, repo, prNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPullRequestFiles")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) ([]string, error)); ok {
+		return rf(ctx, repo, prNumber)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) []string); ok {
+		r0 = rf(ctx, repo, prNumber)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, repo, prNumber)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ParseWebhook provides a mock function with given fields: headers, body, secret
 func (_m *ForgeProvider) ParseWebhook(headers http.Header, body []byte, secret string) (*forge.WebhookEvent, error) {
 	ret := _m.Called(headers, body, secret)

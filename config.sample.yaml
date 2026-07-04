@@ -6,6 +6,10 @@
 server:
   port: 8080
   baseUrl: http://localhost:8080
+  # Shared secret protecting the /internal agent endpoints (step completion,
+  # log ingestion, secret fetch). REQUIRED, min 16 chars, must match between
+  # server and worker. Generate with: openssl rand -hex 24
+  internalToken: "change-me-to-a-random-value!!"
 
 database:
   host: localhost
@@ -17,19 +21,18 @@ database:
   maxConns: 10
   minConns: 2
 
-temporal:
-  hostPort: localhost:7233
-  namespace: default
-  taskQueue: flint-pipeline-tasks
-
 worker:
   jobNamespace: flint-jobs
   agentImage: ghcr.io/NerdMeNot/flint-agent:latest
   defaultRunnerPool: standard
-  sweepInterval: 5m   # observer sweep interval (min: 30s, default: 5m)
+  sweepInterval: 5m       # observer sweep interval (min: 30s, default: 5m)
+  runRetentionDays: 90    # delete finished runs after N days (negative = keep forever)
 
-controller:
-  enabled: false
+# Compute rates behind cost-per-run estimates (GET /runs/:id/cost and the run
+# detail UI). Defaults approximate on-demand cloud pricing.
+costs:
+  cpuCoreHour: 0.0416   # USD per vCPU-hour
+  memoryGbHour: 0.0046  # USD per GB-hour
 
 auth:
   adminUsers: []          # emails that always get org_admin (bootstrap)
@@ -48,19 +51,25 @@ auth:
     secret: "change-me-to-a-32-byte-secret!!"
     sessionDuration: 24h
 
+# Object/log storage. filesystem suits single-node installs; s3 is the
+# production choice and also enables per-step artifacts, cache, and the S3
+# workspace mode (the worker injects the bucket into step pods).
 storage:
   mode: filesystem
   filesystem:
     path: /tmp/flint-logs
   # s3:
-  #   bucket: flint-logs
+  #   bucket: flint-artifacts
   #   region: us-east-1
+  #   endpoint: ""   # optional: S3-compatible stores (MinIO, R2) — path-style
 
 # Forge connections (GitHub, GitLab, Bitbucket) are configured per-org
 # via the UI and stored in the database — not in this config file.
 
 encryption:
-  masterKey: ""  # hex-encoded 32-byte key; generate with: openssl rand -hex 32
+  # REQUIRED for the server: forge credentials, SSO config, and secrets are
+  # envelope-encrypted with this key. Generate with: openssl rand -hex 32
+  masterKey: ""  # hex-encoded 32-byte key
   masterKeyVersion: 1
 
 # Products — which top-level sections the unified UI exposes. CI and Workflows

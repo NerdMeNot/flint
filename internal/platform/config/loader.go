@@ -12,7 +12,7 @@ import (
 //
 //	server.port → FLINT_SERVER_PORT
 //	database.host → FLINT_DATABASE_HOST
-//	temporal.hostPort → FLINT_TEMPORAL_HOSTPORT
+//	storage.s3.bucket → FLINT_STORAGE_S3_BUCKET
 func Load(path string) (*Config, error) {
 	v := viper.New()
 

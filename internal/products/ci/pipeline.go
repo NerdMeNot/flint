@@ -10,7 +10,10 @@
 package ci
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"gopkg.in/yaml.v3"
@@ -153,10 +156,27 @@ func (j *Job) ExecType() string {
 	}
 }
 
-// Parse decodes and validates a pipeline from YAML.
+// Parse decodes and validates a pipeline from YAML. Decoding is STRICT: an
+// unknown field (a typo like `timout:` or `dependson:`) is an error, never a
+// silent drop — a misspelled field that vanishes is a pipeline that misbehaves
+// with no explanation.
 func Parse(data []byte) (*Pipeline, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("ci: empty pipeline YAML")
+	}
+	if len(data) > pipeline.MaxYAMLSize {
+		return nil, fmt.Errorf("ci: pipeline YAML exceeds %d bytes", pipeline.MaxYAMLSize)
+	}
+	// Same anchor/alias-bomb defense as pkg/pipeline — webhook-supplied YAML is
+	// untrusted input.
+	if err := pipeline.CheckYAMLComplexity(data); err != nil {
+		return nil, fmt.Errorf("ci: %s", err.Error())
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	var p Pipeline
-	if err := yaml.Unmarshal(data, &p); err != nil {
+	if err := dec.Decode(&p); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("ci: parse: %w", err)
 	}
 	if err := p.Validate(); err != nil {

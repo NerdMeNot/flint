@@ -20,6 +20,7 @@ type Config struct {
 	Bootstrap  BootstrapConfig  `mapstructure:"bootstrap"`
 	Sync       SyncConfig       `mapstructure:"sync"`
 	Storage    StorageConfig    `mapstructure:"storage"`
+	Costs      CostConfig       `mapstructure:"costs"`
 	Forge      ForgeConfig      `mapstructure:"forge"`
 	Encryption EncryptionConfig `mapstructure:"encryption"`
 	Products   ProductsConfig   `mapstructure:"products"`
@@ -129,6 +130,10 @@ type ServerConfig struct {
 	Port          int    `mapstructure:"port"`
 	BaseURL       string `mapstructure:"baseUrl"`
 	InternalToken string `mapstructure:"internalToken"` // shared secret for /internal agent endpoints
+	// WebDist serves a built web UI (static assets + SPA index fallback)
+	// straight from this process — no separate web deployment or reverse
+	// proxy. Empty disables static serving.
+	WebDist string `mapstructure:"webDist"`
 }
 
 func (c *ServerConfig) PortOrDefault() int {
@@ -145,6 +150,9 @@ type WorkerConfig struct {
 	AgentImage        string        `mapstructure:"agentImage"`
 	DefaultRunnerPool string        `mapstructure:"defaultRunnerPool"`
 	SweepInterval     time.Duration `mapstructure:"sweepInterval"`
+	// RunRetentionDays bounds how long finished runs are kept (0 = default 90,
+	// negative = keep forever).
+	RunRetentionDays int `mapstructure:"runRetentionDays"`
 }
 
 // SweepIntervalOrDefault returns the observer sweep interval.
@@ -193,6 +201,15 @@ type DatabaseConfig struct {
 	SSLMode  string `mapstructure:"sslMode"`
 	MaxConns int32  `mapstructure:"maxConns"`
 	MinConns int32  `mapstructure:"minConns"`
+	// AutoMigrate applies pending schema migrations on server startup
+	// (default true — single-binary installs shouldn't need a separate
+	// migration job). Set false when migrations are operated externally.
+	AutoMigrate *bool `mapstructure:"autoMigrate"`
+}
+
+// AutoMigrateOrDefault reports whether startup migrations are enabled (default true).
+func (c *DatabaseConfig) AutoMigrateOrDefault() bool {
+	return c.AutoMigrate == nil || *c.AutoMigrate
 }
 
 func (c *DatabaseConfig) PortOrDefault() int {
@@ -200,14 +217,6 @@ func (c *DatabaseConfig) PortOrDefault() int {
 		return c.Port
 	}
 	return 5432
-}
-
-// Note: TemporalConfig removed — Flint uses its own embedded engine (internal/engine/).
-
-// TLSConfig for mTLS connections (Temporal Cloud, etc.).
-type TLSConfig struct {
-	CertPath string `mapstructure:"certPath"`
-	KeyPath  string `mapstructure:"keyPath"`
 }
 
 // AuthConfig holds authentication provider config — boot-time only.
@@ -254,6 +263,28 @@ type SAMLConfig struct {
 type JWTConfig struct {
 	Secret          string        `mapstructure:"secret"`
 	SessionDuration time.Duration `mapstructure:"sessionDuration"`
+}
+
+// CostConfig sets the compute rates behind cost-per-run estimates. Defaults
+// approximate on-demand general-purpose cloud pricing; set your negotiated
+// rates for accurate numbers.
+type CostConfig struct {
+	CPUCoreHour float64 `mapstructure:"cpuCoreHour"` // USD per vCPU-hour
+	MemoryGBHr  float64 `mapstructure:"memoryGbHour"`
+}
+
+func (c *CostConfig) CPUCoreHourOrDefault() float64 {
+	if c.CPUCoreHour > 0 {
+		return c.CPUCoreHour
+	}
+	return 0.0416 // ~m5 on-demand per-vCPU share
+}
+
+func (c *CostConfig) MemoryGBHourOrDefault() float64 {
+	if c.MemoryGBHr > 0 {
+		return c.MemoryGBHr
+	}
+	return 0.0046 // ~m5 on-demand per-GB share
 }
 
 // StorageConfig configures object storage for logs, artifacts, and cache.

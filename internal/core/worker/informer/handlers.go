@@ -17,10 +17,12 @@ func HandleJobCompleted(ctx context.Context, eng engine.Engine, workflowID, step
 		Msg("informer: job completed, delivering signal")
 
 	// Deliver a step-result signal. The engine's advanceWorkflow will consume it.
-	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]string{
+	// success must be a real bool — the consumer unmarshals into a typed struct
+	// and would silently drop the signal on a type mismatch.
+	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]any{
 		"stepName": stepName,
 		"runID":    runID,
-		"success":  "true",
+		"success":  true,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("step", stepName).Msg("informer: failed to deliver completion signal")
@@ -39,10 +41,10 @@ func HandleJobFailed(ctx context.Context, eng engine.Engine, workflowID, stepNam
 		Str("reason", reason).
 		Msg("informer: job failed, delivering signal")
 
-	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]string{
+	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]any{
 		"stepName": stepName,
 		"runID":    runID,
-		"success":  "false",
+		"success":  false,
 		"reason":   reason,
 	})
 	if err != nil {
@@ -57,10 +59,10 @@ func HandleJobDeleted(ctx context.Context, eng engine.Engine, workflowID, stepNa
 		Str("runID", runID).
 		Msg("informer: job deleted externally")
 
-	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]string{
+	err := eng.DeliverSignal(ctx, workflowID, "step-result", map[string]any{
 		"stepName": stepName,
 		"runID":    runID,
-		"success":  "false",
+		"success":  false,
 		"reason":   "job deleted externally",
 	})
 	if err != nil {

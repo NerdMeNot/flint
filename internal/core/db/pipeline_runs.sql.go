@@ -12,6 +12,66 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activeRunsInConcurrencyGroup = `-- name: ActiveRunsInConcurrencyGroup :many
+SELECT id, workflow_id FROM pipeline_runs
+WHERE project_id = $1 AND concurrency_group = $2
+  AND status = 'running' AND id != $3
+`
+
+type ActiveRunsInConcurrencyGroupParams struct {
+	ProjectID        *string `json:"project_id"`
+	ConcurrencyGroup *string `json:"concurrency_group"`
+	ID               string  `json:"id"`
+}
+
+type ActiveRunsInConcurrencyGroupRow struct {
+	ID         string  `json:"id"`
+	WorkflowID *string `json:"workflow_id"`
+}
+
+// Running runs in the same project+group, excluding the superseding run —
+// the cancel-in-progress candidates. Uses idx_runs_concurrency_group.
+func (q *Queries) ActiveRunsInConcurrencyGroup(ctx context.Context, arg ActiveRunsInConcurrencyGroupParams) ([]ActiveRunsInConcurrencyGroupRow, error) {
+	rows, err := q.db.Query(ctx, activeRunsInConcurrencyGroup, arg.ProjectID, arg.ConcurrencyGroup, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActiveRunsInConcurrencyGroupRow{}
+	for rows.Next() {
+		var i ActiveRunsInConcurrencyGroupRow
+		if err := rows.Scan(&i.ID, &i.WorkflowID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteOldRuns = `-- name: DeleteOldRuns :execrows
+DELETE FROM pipeline_runs WHERE id IN (
+    SELECT id FROM pipeline_runs
+    WHERE status IN ('succeeded', 'failed', 'cancelled')
+      AND finished_at < now() - make_interval(days => $1::int)
+    LIMIT 500
+)
+`
+
+// Runs retention: delete terminal runs older than the retention window, in
+// bounded batches so a long-lived install's first sweep doesn't stall. The
+// workflows/steps/signals/timers rows cascade via FKs; engine_events has no FK
+// (by design) and its own 30-day cleanup.
+func (q *Queries) DeleteOldRuns(ctx context.Context, retentionDays int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOldRuns, retentionDays)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const failRunWithError = `-- name: FailRunWithError :exec
 UPDATE pipeline_runs SET status = 'failed', error_message = $2,
     finished_at = now(), duration_ms = EXTRACT(EPOCH FROM (now() - started_at)) * 1000
@@ -221,6 +281,34 @@ func (q *Queries) GetRunScope(ctx context.Context, id string) (GetRunScopeRow, e
 	return i, err
 }
 
+const getRunStatusInfo = `-- name: GetRunStatusInfo :one
+SELECT pr.repo, pr.commit_sha, pr.workflow_file, pr.status, pr.project_id
+FROM pipeline_runs pr WHERE pr.id = $1
+`
+
+type GetRunStatusInfoRow struct {
+	Repo         *string `json:"repo"`
+	CommitSha    *string `json:"commit_sha"`
+	WorkflowFile *string `json:"workflow_file"`
+	Status       string  `json:"status"`
+	ProjectID    *string `json:"project_id"`
+}
+
+// The fields needed to report a run's outcome to the forge (commit status /
+// check run) and to render status badges.
+func (q *Queries) GetRunStatusInfo(ctx context.Context, id string) (GetRunStatusInfoRow, error) {
+	row := q.db.QueryRow(ctx, getRunStatusInfo, id)
+	var i GetRunStatusInfoRow
+	err := row.Scan(
+		&i.Repo,
+		&i.CommitSha,
+		&i.WorkflowFile,
+		&i.Status,
+		&i.ProjectID,
+	)
+	return i, err
+}
+
 const getRunWorkflowID = `-- name: GetRunWorkflowID :one
 SELECT workflow_id FROM pipeline_runs WHERE id = $1
 `
@@ -345,6 +433,27 @@ func (q *Queries) InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunPa
 		arg.TriggeredBy,
 	)
 	return err
+}
+
+const latestRunStatusForProject = `-- name: LatestRunStatusForProject :one
+SELECT pr.status FROM pipeline_runs pr
+WHERE pr.project_id = $1
+  AND ($2::text = '' OR pr.branch = $2::text)
+ORDER BY pr.created_at DESC LIMIT 1
+`
+
+type LatestRunStatusForProjectParams struct {
+	ProjectID *string `json:"project_id"`
+	Branch    string  `json:"branch"`
+}
+
+// The newest run's status for a project (optionally filtered by branch) — the
+// status badge source.
+func (q *Queries) LatestRunStatusForProject(ctx context.Context, arg LatestRunStatusForProjectParams) (string, error) {
+	row := q.db.QueryRow(ctx, latestRunStatusForProject, arg.ProjectID, arg.Branch)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const listRunsAll = `-- name: ListRunsAll :many
@@ -741,6 +850,22 @@ func (q *Queries) SearchRuns(ctx context.Context, arg SearchRunsParams) ([]Searc
 		return nil, err
 	}
 	return items, nil
+}
+
+const setRunConcurrencyGroup = `-- name: SetRunConcurrencyGroup :exec
+UPDATE pipeline_runs SET concurrency_group = $2 WHERE id = $1
+`
+
+type SetRunConcurrencyGroupParams struct {
+	ID               string  `json:"id"`
+	ConcurrencyGroup *string `json:"concurrency_group"`
+}
+
+// Stamps the resolved concurrency group (expressions already interpolated) on
+// a run so cancel-in-progress can find superseded runs in the same group.
+func (q *Queries) SetRunConcurrencyGroup(ctx context.Context, arg SetRunConcurrencyGroupParams) error {
+	_, err := q.db.Exec(ctx, setRunConcurrencyGroup, arg.ID, arg.ConcurrencyGroup)
+	return err
 }
 
 const setRunStatusByWorkflow = `-- name: SetRunStatusByWorkflow :exec

@@ -103,13 +103,24 @@ func buildStateEvent(ctx context.Context, eng engine.Engine, q db.Querier, workf
 // engine emits only a workflowID — it never imports the server — keeping it
 // product-agnostic. Cross-process transitions (e.g. gate signals advanced by the
 // worker) are caught by the handler's poll fallback instead.
-func WireStateObserver(eng *engine.PgEngine, q db.Querier, bc StateStream) {
+//
+// onTerminal, when non-nil, additionally fires whenever a snapshot shows the
+// run in a terminal state — the hook products use to report run completion to
+// the forge (commit status / check run). Callers must dedupe: multiple
+// transitions can commit after the run is already terminal.
+func WireStateObserver(eng *engine.PgEngine, q db.Querier, bc StateStream, onTerminal func(ctx context.Context, runID, status string)) {
 	if eng == nil || bc == nil {
 		return
 	}
 	eng.SetStateObserver(func(ctx context.Context, workflowID string) {
-		if runID, ev, ok := buildStateEvent(ctx, eng, q, workflowID); ok {
-			bc.Publish(runID, ev)
+		runID, ev, ok := buildStateEvent(ctx, eng, q, workflowID)
+		if !ok {
+			return
+		}
+		bc.Publish(runID, ev)
+		if onTerminal != nil &&
+			(ev.Status == "succeeded" || ev.Status == "failed" || ev.Status == "cancelled") {
+			onTerminal(ctx, runID, ev.Status)
 		}
 	})
 }

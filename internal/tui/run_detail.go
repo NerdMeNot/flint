@@ -44,7 +44,7 @@ func (v *RunDetailView) Update(msg tea.Msg) (View, tea.Cmd) {
 			if v.state != nil && len(v.state.Steps) > 0 {
 				step := v.state.Steps[v.selectedStep]
 				return v, func() tea.Msg {
-					return pushViewMsg{view: NewStepLogsView(step.Name, v.runID)}
+					return pushViewMsg{view: NewStepLogsView(v.client, step.Name, v.runID)}
 				}
 			}
 		case "a":

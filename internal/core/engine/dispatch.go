@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
@@ -27,17 +28,37 @@ type k8sExecutor struct {
 	jobNamespace  string
 	serverURL     string
 	internalToken string
+	s3Bucket      string // object storage for artifacts/cache/S3-workspace ("" = disabled)
+	s3Region      string
+	s3Endpoint    string // optional S3-compatible endpoint (MinIO, R2)
+}
+
+// K8sExecutorConfig configures the Kubernetes Job executor.
+type K8sExecutorConfig struct {
+	AgentImage    string
+	JobNamespace  string
+	ServerURL     string
+	InternalToken string
+	// S3Bucket/S3Region/S3Endpoint enable the agent's artifact, cache, and
+	// S3-workspace paths. When the bucket is empty those features are off and
+	// the agent skips them.
+	S3Bucket   string
+	S3Region   string
+	S3Endpoint string
 }
 
 // NewK8sExecutor builds the Kubernetes Job executor.
-func NewK8sExecutor(k8s kubernetes.Interface, reg *runner.Registry, agentImage, jobNamespace, serverURL, internalToken string) *k8sExecutor {
+func NewK8sExecutor(k8s kubernetes.Interface, reg *runner.Registry, cfg K8sExecutorConfig) *k8sExecutor {
 	return &k8sExecutor{
 		k8s:           k8s,
 		reg:           reg,
-		agentImage:    agentImage,
-		jobNamespace:  jobNamespace,
-		serverURL:     serverURL,
-		internalToken: internalToken,
+		agentImage:    cfg.AgentImage,
+		jobNamespace:  cfg.JobNamespace,
+		serverURL:     cfg.ServerURL,
+		internalToken: cfg.InternalToken,
+		s3Bucket:      cfg.S3Bucket,
+		s3Region:      cfg.S3Region,
+		s3Endpoint:    cfg.S3Endpoint,
 	}
 }
 
@@ -68,7 +89,7 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 	if stepDef.Image == "" {
 		stepDef.Image = step.pipelineImage
 	}
-	if stepDef.Image == "" && stepDef.ExecType() != "steps" {
+	if stepDef.Image == "" {
 		return "", fmt.Errorf("engine: step %q has no container image (set image: on the step or at pipeline level)", step.name)
 	}
 
@@ -86,22 +107,38 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		}
 	}
 
-	// Build the command.
-	command := stepDef.Run.String()
-	wrappedCmd := wrapStepCommand(command)
+	// Build the command. A group ("steps") step runs the flint-agent steps
+	// driver — a static binary the init container copies into the shared
+	// workspace — which executes the sub-steps sequentially inside the user's
+	// image with per-sub-step if:/env/timeouts/outputs. Single "run"/"use"
+	// steps keep the plain shell wrapper.
+	isGroup := stepDef.ExecType() == "steps"
+	var wrappedCmd []string
+	if isGroup {
+		wrappedCmd = []string{stepsDriverPath, "steps"}
+	} else {
+		wrappedCmd = wrapStepCommand(stepDef.Run.String())
+	}
 
-	// Workspace setup depends on the runner pool's workspace mode.
+	// Workspace setup depends on the runner pool's workspace mode AND the
+	// run's declared file flow.
 	// PVC mode: all pods mount the same PVC — no workspace agent needed.
-	// Agent mode (default): emptyDir per pod + gRPC workspace agent for sync.
+	// Agent mode (default): emptyDir per pod + gRPC workspace agent for sync —
+	// but ONLY for runs that actually flow files through workspace sync.
+	// Artifact-flow runs (the ci dialect) and single-container-step runs skip
+	// the per-run pod + Service entirely: one fewer standing pod per run and
+	// one fewer K8s API round-trip per step.
 	usePVC := poolSpec.Workspace.Mode == runner.WorkspaceModePVC
+	needsWorkspaceSync := step.workspaceFlow == "" || step.workspaceFlow == "sync"
 	var wsAddr string
 
-	if usePVC {
+	switch {
+	case usePVC:
 		// Ensure the per-run PVC exists. Idempotent.
 		if err := ensureWorkspacePVC(ctx, e.k8s, step.runID, poolSpec, e.jobNamespace); err != nil {
 			return "", fmt.Errorf("engine: create workspace PVC: %w", err)
 		}
-	} else {
+	case needsWorkspaceSync:
 		// Agent mode: ensure per-run workspace agent pod is running.
 		var wsErr error
 		wsAddr, wsErr = EnsureWorkspace(ctx, e.k8s, step.runID, step.orgID, step.wsToken, e.agentImage, e.jobNamespace)
@@ -132,6 +169,35 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		)
 	}
 
+	// Object storage for artifacts, cache, and the S3 workspace mode. The
+	// agent gates all three on FLINT_S3_BUCKET — with no bucket configured
+	// they are skipped (workspace sync still works via the agent/PVC modes).
+	if e.s3Bucket != "" {
+		agentEnv = append(agentEnv,
+			corev1.EnvVar{Name: "FLINT_S3_BUCKET", Value: e.s3Bucket},
+			corev1.EnvVar{Name: "FLINT_S3_REGION", Value: e.s3Region},
+		)
+		if e.s3Endpoint != "" {
+			// AWS_ENDPOINT_URL_S3 is honored by the SDK's default config
+			// chain, so every S3 client in the agent (artifacts, cache,
+			// workspace) picks it up without bespoke plumbing.
+			agentEnv = append(agentEnv,
+				corev1.EnvVar{Name: "AWS_ENDPOINT_URL_S3", Value: e.s3Endpoint},
+			)
+		}
+	}
+
+	// Per-step timeout for the sidecar's completion wait — mirrors the
+	// engine-side timeout timer so the agent gives up (and reports failure)
+	// at the same deadline the engine would.
+	if stepDef.Timeout != "" {
+		if d, err := time.ParseDuration(stepDef.Timeout); err == nil {
+			agentEnv = append(agentEnv,
+				corev1.EnvVar{Name: "FLINT_STEP_TIMEOUT", Value: d.String()},
+			)
+		}
+	}
+
 	// Inject workspace mode so the agent knows which sync backend to use.
 	switch {
 	case usePVC:
@@ -142,10 +208,8 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		agentEnv = append(agentEnv,
 			corev1.EnvVar{Name: "FLINT_WS_MODE", Value: "s3"},
 		)
-		// S3 bucket/region are injected from the pool config so the agent
-		// can construct the S3FS with the correct per-run prefix.
-		// Note: FLINT_S3_BUCKET/REGION may already be set for cache; the
-		// workspace uses the same bucket with a different key prefix.
+		// Bucket/region for the S3 workspace come from the same storage
+		// config injected above; the workspace uses a per-run key prefix.
 	}
 
 	// Inject workspace agent address when available.
@@ -174,9 +238,45 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		)
 	}
 
-	userEnv := make([]corev1.EnvVar, 0, len(step.env))
+	// Group steps: the init container copies the driver binary into the
+	// workspace, and the driver (running as the step container) reads the
+	// sub-step spec, job outputs, and needs context from its environment.
+	if isGroup {
+		agentEnv = append(agentEnv, corev1.EnvVar{Name: "FLINT_EXEC_TYPE", Value: "steps"})
+	}
+
+	userEnv := make([]corev1.EnvVar, 0, len(step.env)+8)
 	for k, v := range step.env {
 		userEnv = append(userEnv, corev1.EnvVar{Name: k, Value: v})
+	}
+	// $FLINT_OUTPUT is the canonical step-output channel: `echo "k=v" >>
+	// "$FLINT_OUTPUT"`. The shell wrapper's emit() helper appends to the same
+	// file; the sidecar reads it as the step result's outputs.
+	userEnv = append(userEnv, corev1.EnvVar{Name: "FLINT_OUTPUT", Value: "/workspace/.flint-emit"})
+	if isGroup {
+		specJSON, err := json.Marshal(stepDef.Steps)
+		if err != nil {
+			return "", fmt.Errorf("engine: marshal sub-step spec: %w", err)
+		}
+		userEnv = append(userEnv,
+			corev1.EnvVar{Name: "FLINT_STEPS_SPEC", Value: string(specJSON)},
+			// Run/git context for in-pod expression evaluation — mirrors the
+			// engine's git/run namespaces.
+			corev1.EnvVar{Name: "FLINT_RUN_ID", Value: step.runID},
+			corev1.EnvVar{Name: "FLINT_STEP_NAME", Value: step.name},
+			corev1.EnvVar{Name: "FLINT_GIT_REPO", Value: step.repo},
+			corev1.EnvVar{Name: "FLINT_GIT_REF", Value: step.ref},
+			corev1.EnvVar{Name: "FLINT_GIT_SHA", Value: step.commitSHA},
+			corev1.EnvVar{Name: "FLINT_TRIGGER_TYPE", Value: step.triggerType},
+		)
+		if len(stepDef.DeclaredOutputs) > 0 {
+			outJSON, _ := json.Marshal(stepDef.DeclaredOutputs)
+			userEnv = append(userEnv, corev1.EnvVar{Name: "FLINT_JOB_OUTPUTS", Value: string(outJSON)})
+		}
+		if len(step.needsOutputs) > 0 {
+			needsJSON, _ := json.Marshal(step.needsOutputs)
+			userEnv = append(userEnv, corev1.EnvVar{Name: "FLINT_NEEDS_OUTPUTS", Value: string(needsJSON)})
+		}
 	}
 
 	// Labels for informer filtering.
@@ -219,16 +319,24 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 		agentEnv = append(agentEnv, corev1.EnvVar{
 			Name: "FLINT_CACHE_PATHS", Value: string(pathsJSON),
 		})
+		if len(stepDef.Cache.RestoreKeys) > 0 {
+			rkJSON, _ := json.Marshal(stepDef.Cache.RestoreKeys)
+			agentEnv = append(agentEnv, corev1.EnvVar{
+				Name: "FLINT_CACHE_RESTORE_KEYS", Value: string(rkJSON),
+			})
+		}
 	}
 
 	jobName := fmt.Sprintf("flint-%s-%s", step.runID[:8], sanitizeK8sName(step.name))
 	ttl := int32(3600)
 	backoffLimit := int32(0)
-	// The agent runs as a native sidecar (K8s >= 1.28): an init container with
-	// restartPolicy Always starts before the step, runs alongside it, and is
-	// torn down by the kubelet once the step container exits — giving the agent
-	// a real lifecycle while keeping orchestration/credentials out of the step
-	// container.
+	// ONE agent container per pod: a native sidecar (K8s >= 1.28, an init
+	// container with restartPolicy Always) that prepares the workspace
+	// (secrets, sync-in, artifacts, cache, driver install), then watches the
+	// step (logs, sync-out, upload, completion). Its startup probe gates the
+	// step container on the init-done marker, so preparation still strictly
+	// precedes the step — with one fewer container and resource request than
+	// the previous init + sidecar pair.
 	sidecarRestart := corev1.ContainerRestartPolicyAlways
 
 	job := &batchv1.Job{
@@ -245,38 +353,31 @@ func (e *k8sExecutor) Dispatch(ctx context.Context, step claimedStep) (string, e
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					InitContainers: []corev1.Container{
-						// 1. Regular init: pull (checkout, artifacts, cache) → runs to
-						//    completion before the step starts.
-						{
-							Name:    "flint-init",
-							Image:   e.agentImage,
-							Command: []string{"/flint-agent", "init"},
-							Env:     agentEnv,
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "workspace", MountPath: "/workspace"},
-							},
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("128Mi"),
-								},
-							},
-						},
-						// 2. Native sidecar: the agent (logs, sync-out, push, completion)
-						//    runs alongside the step and is reaped when the step exits.
 						{
 							Name:          "flint-agent",
 							Image:         e.agentImage,
-							Command:       []string{"/flint-agent", "watch"},
+							Command:       []string{"/flint-agent", "sidecar"},
 							Env:           agentEnv,
 							RestartPolicy: &sidecarRestart,
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "workspace", MountPath: "/workspace"},
 							},
+							// The step container starts only once workspace
+							// preparation is done (init-done marker). Generous
+							// threshold: cache restores can take minutes.
+							StartupProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									Exec: &corev1.ExecAction{
+										Command: []string{"test", "-f", "/workspace/" + initDoneFile},
+									},
+								},
+								PeriodSeconds:    2,
+								FailureThreshold: 300,
+							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("64Mi"),
+									corev1.ResourceMemory: resource.MustParse("96Mi"),
 								},
 							},
 						},
@@ -407,12 +508,28 @@ type claimedStep struct {
 	repo                   string
 	ref                    string
 	commitSHA              string
+	triggerType            string
+	workspaceFlow          string            // ""/"sync" | "artifacts" | "none" (see StartWorkflowInput)
 	environment            string            // target environment for secret scoping
 	pipelineImage          string            // pipeline-level default image (fallback)
 	pipelineServiceAccount string            // pipeline-level default K8s SA (fallback)
 	env                    map[string]string // merged env vars (org env_vars + step.env + input.Env)
 	secretMapping          map[string]string // env var name → secret store name (from step YAML secrets:)
+	// needsOutputs carries the outputs of this step's direct dependencies
+	// (base job name → outputs) for the in-pod needs.* expression context.
+	needsOutputs map[string]map[string]string
 }
+
+// stepsDriverPath is where the sidecar places the flint-agent binary inside
+// the shared workspace, so group steps can run the steps driver inside the
+// user's image (the binary is static — CGO disabled — so it runs in any linux
+// image of matching architecture).
+const stepsDriverPath = "/workspace/.flint-bin/flint-agent"
+
+// initDoneFile is the marker the sidecar writes when workspace preparation is
+// complete — the step container's startup gate. Must match agent.InitDoneFile
+// (not imported: the engine must not depend on the agent package).
+const initDoneFile = ".flint-init-done"
 
 // sanitizeK8sName converts a step name to a valid K8s DNS subdomain component.
 // K8s names: lowercase, alphanumeric, hyphens only, max 63 chars.

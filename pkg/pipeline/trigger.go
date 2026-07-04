@@ -11,6 +11,11 @@ type TriggerEvent struct {
 	Branch     string // branch name (push events)
 	BaseBranch string // PR target branch (pull_request events)
 	Tag        string // tag name (tag events)
+
+	// ChangedFiles are the paths touched by the event, for paths: filters.
+	// nil means UNKNOWN (filters fail open — a missing file list must never
+	// wedge CI); an empty non-nil slice means "no files changed".
+	ChangedFiles []string
 }
 
 // TriggerMatch represents a trigger that matched an event.
@@ -32,7 +37,7 @@ func MatchTriggers(p *Pipeline, event TriggerEvent) []TriggerMatch {
 	switch event.Kind {
 	case "push":
 		if t := p.Triggers.Push; t != nil {
-			if matchesAny(event.Branch, t.Branches) {
+			if matchesAny(event.Branch, t.Branches) && pathsMatch(t.Paths, event.ChangedFiles) {
 				matches = append(matches, TriggerMatch{
 					TriggerType:  "push",
 					Environments: t.Environments,
@@ -42,7 +47,7 @@ func MatchTriggers(p *Pipeline, event TriggerEvent) []TriggerMatch {
 
 	case "pull_request":
 		if t := p.Triggers.PullRequest; t != nil {
-			if matchesAny(event.BaseBranch, t.Branches) {
+			if matchesAny(event.BaseBranch, t.Branches) && pathsMatch(t.Paths, event.ChangedFiles) {
 				matches = append(matches, TriggerMatch{
 					TriggerType:  "pull_request",
 					Environments: nil, // PRs never have environments
@@ -90,6 +95,24 @@ func CollectEnvironments(matches []TriggerMatch) []string {
 		return []string{""}
 	}
 	return result
+}
+
+// pathsMatch reports whether an event's changed files satisfy a trigger's
+// paths: filter. No filter → always. Unknown file list (nil) → fail open.
+// Otherwise at least one changed file must match at least one pattern.
+func pathsMatch(patterns, changedFiles []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	if changedFiles == nil {
+		return true // unknown — a filter must never wedge CI
+	}
+	for _, f := range changedFiles {
+		if matchesAny(f, patterns) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchesAny returns true if value matches any of the glob patterns.

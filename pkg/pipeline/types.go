@@ -173,6 +173,12 @@ type Step struct {
 	Inputs  []ArtifactInput  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	Outputs []ArtifactOutput `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 
+	// DeclaredOutputs are job-level named VALUE outputs (name → ${{ }}
+	// expression over steps.outputs.*), evaluated in-pod by the steps driver
+	// after the sub-steps finish. Downstream jobs read them as
+	// needs.<job>.outputs.<name>. Distinct from Outputs (artifact files).
+	DeclaredOutputs map[string]string `yaml:"declaredOutputs,omitempty" json:"declaredOutputs,omitempty"`
+
 	// Sidecars
 	Services []Service `yaml:"services,omitempty" json:"services,omitempty"`
 
@@ -277,6 +283,10 @@ type Service struct {
 type CacheSpec struct {
 	Key   string   `yaml:"key" json:"key"`     // cache key (supports expressions, e.g. hashFiles)
 	Paths []string `yaml:"paths" json:"paths"` // paths to cache
+	// RestoreKeys are prefix fallbacks tried in order on an exact-key miss
+	// (the lexicographically newest match wins) — a stale-but-close cache
+	// restore so the build only pays the delta.
+	RestoreKeys []string `yaml:"restoreKeys,omitempty" json:"restoreKeys,omitempty"`
 }
 
 // StepResources is the per-pod compute request a step-group carries. Requests are

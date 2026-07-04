@@ -7,9 +7,13 @@ package db
 import (
 	"context"
 	"net/netip"
+	"time"
 )
 
 type Querier interface {
+	// Running runs in the same project+group, excluding the superseding run —
+	// the cancel-in-progress candidates. Uses idx_runs_concurrency_group.
+	ActiveRunsInConcurrencyGroup(ctx context.Context, arg ActiveRunsInConcurrencyGroupParams) ([]ActiveRunsInConcurrencyGroupRow, error)
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
 	// Atomically claim a due schedule by moving its next_run_at forward. Returns the
 	// number of rows updated (1 = this caller won the claim, 0 = already advanced by
@@ -40,8 +44,9 @@ type Querier interface {
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
-	// Prune transition history older than 30 days so the table stays bounded. Called
-	// from the sweep alongside the other retention cleanups.
+	// Prune transition history older than 30 days so the table stays bounded.
+	// Batched (one batch per sweep) so a long-lived install's backlog can't stall
+	// a sweep tick with one giant DELETE.
 	CleanupOldEngineEvents(ctx context.Context) error
 	CleanupOldLoginAttempts(ctx context.Context) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
@@ -101,6 +106,11 @@ type Querier interface {
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
 	DeleteIdpRoleAssignment(ctx context.Context, arg DeleteIdpRoleAssignmentParams) error
 	DeleteMFAPendingToken(ctx context.Context, token string) error
+	// Runs retention: delete terminal runs older than the retention window, in
+	// bounded batches so a long-lived install's first sweep doesn't stall. The
+	// workflows/steps/signals/timers rows cascade via FKs; engine_events has no FK
+	// (by design) and its own 30-day cleanup.
+	DeleteOldRuns(ctx context.Context, retentionDays int32) (int64, error)
 	DeletePersonalToken(ctx context.Context, id string) error
 	DeleteProtectedEnvironment(ctx context.Context, id string) (int64, error)
 	DeleteRole(ctx context.Context, id string) (int64, error)
@@ -112,6 +122,10 @@ type Querier interface {
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	DeleteScimTokensForOrg(ctx context.Context, orgID string) error
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
+	// Prune unconsumed signals that never matched anything (e.g. an informer
+	// step-result for a workflow that finished first, or an external signal with
+	// no waiting step). Any legitimate consumer has long since timed out at 7 days.
+	DeleteStaleUnconsumedSignals(ctx context.Context) error
 	DeleteTagKey(ctx context.Context, id string) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
@@ -184,6 +198,9 @@ type Querier interface {
 	GetRunScope(ctx context.Context, id string) (GetRunScopeRow, error)
 	// Aggregate run counts for the org-level stats endpoint.
 	GetRunStats(ctx context.Context, orgID string) (GetRunStatsRow, error)
+	// The fields needed to report a run's outcome to the forge (commit status /
+	// check run) and to render status badges.
+	GetRunStatusInfo(ctx context.Context, id string) (GetRunStatusInfoRow, error)
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
 	GetRunnerPool(ctx context.Context, name string) (GetRunnerPoolRow, error)
 	GetScimTokenOrg(ctx context.Context, tokenHash string) (string, error)
@@ -207,8 +224,9 @@ type Querier interface {
 	GetWebhookSecretByName(ctx context.Context, displayName string) (string, error)
 	GetWorkflowDAGWaves(ctx context.Context, id string) ([]byte, error)
 	GetWorkflowInput(ctx context.Context, id string) ([]byte, error)
-	// Batch variant: fetch inputs for all workflows in a claimed step batch in one
-	// round-trip (kills the per-step N+1 in claimAndDispatch).
+	// Batch variant: fetch inputs (and accumulated step outputs, for the
+	// needs.<job>.outputs.* dispatch context) for all workflows in a claimed step
+	// batch in one round-trip (kills the per-step N+1 in claimAndDispatch).
 	GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error)
 	GetWorkflowParent(ctx context.Context, id string) (GetWorkflowParentRow, error)
 	GetWorkflowStatus(ctx context.Context, id string) (GetWorkflowStatusRow, error)
@@ -258,6 +276,9 @@ type Querier interface {
 	InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunParams) error
 	IsEnvVariableSecret(ctx context.Context, id string) (bool, error)
 	IsUserInTeamBySlug(ctx context.Context, arg IsUserInTeamBySlugParams) (bool, error)
+	// The newest run's status for a project (optionally filtered by branch) — the
+	// status badge source.
+	LatestRunStatusForProject(ctx context.Context, arg LatestRunStatusForProjectParams) (string, error)
 	LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error)
 	// ────────────────────────────────────────────────────────────
 	// API key environment scope
@@ -406,6 +427,9 @@ type Querier interface {
 	// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
 	MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error
 	MarkTimerFired(ctx context.Context, id string) error
+	// The soonest unfired timer, used by the adaptive poll to cap its backoff —
+	// a due timer must not wait out a long idle-poll interval.
+	NextTimerDue(ctx context.Context) (time.Time, error)
 	NotifyEngine(ctx context.Context, pgNotify string) error
 	// First-writer-wins: only a 'running' workflow can be paused. Returns rows
 	// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
@@ -415,6 +439,9 @@ type Querier interface {
 	// Per-project run health for an org: recent statuses (newest first, capped at 10)
 	// plus totals — powers the dashboard health bars / "needs attention".
 	ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error)
+	// One-shot queue visibility: how much work is waiting, how long the oldest
+	// queued step has waited, and what's running/gated right now.
+	QueueStats(ctx context.Context) (QueueStatsRow, error)
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
@@ -456,6 +483,8 @@ type Querier interface {
 	RoleExists(ctx context.Context, arg RoleExistsParams) (bool, error)
 	RotateSessionToken(ctx context.Context, arg RotateSessionTokenParams) error
 	RunExists(ctx context.Context, id string) (bool, error)
+	// Per-step timing + compute requests for the run cost breakdown.
+	RunStepCosts(ctx context.Context, runID string) ([]RunStepCostsRow, error)
 	// Runs that reached a terminal state but whose executor resources (workspace
 	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
 	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
@@ -479,6 +508,9 @@ type Querier interface {
 	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
 	// Record the inbound forge webhook id after provisioning (or clear it on removal).
 	SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error
+	// Stamps the resolved concurrency group (expressions already interpolated) on
+	// a run so cancel-in-progress can find superseded runs in the same group.
+	SetRunConcurrencyGroup(ctx context.Context, arg SetRunConcurrencyGroupParams) error
 	// Sets the run row's status from its workflow (used for pause/resume so the run
 	// list and detail reflect the paused state). Does not touch finished_at.
 	SetRunStatusByWorkflow(ctx context.Context, arg SetRunStatusByWorkflowParams) error
@@ -490,6 +522,9 @@ type Querier interface {
 	SetStepSkipped(ctx context.Context, id string) error
 	SetStepStatus(ctx context.Context, arg SetStepStatusParams) error
 	SetStepTaskToken(ctx context.Context, arg SetStepTaskTokenParams) error
+	// Batch variant: stamp every claimed step's task token in ONE round-trip
+	// instead of one UPDATE per step (the claim path's hottest write).
+	SetStepTaskTokens(ctx context.Context, arg SetStepTaskTokensParams) error
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) error
 	SetUserRecoveryCodes(ctx context.Context, arg SetUserRecoveryCodesParams) error
 	SetUserTOTPSecret(ctx context.Context, arg SetUserTOTPSecretParams) error
@@ -537,6 +572,11 @@ type Querier interface {
 	UpsertTimer(ctx context.Context, arg UpsertTimerParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (string, error)
 	VerifyUserTOTP(ctx context.Context, id string) error
+	// Running workflows that have an unconsumed informer step-result signal. The
+	// loop advances these promptly so a crashed agent's step is resolved by the
+	// informer in seconds, not at the step-timeout sweep. Uses the
+	// idx_signals_unconsumed partial index.
+	WorkflowsWithPendingStepSignals(ctx context.Context) ([]string, error)
 }
 
 var _ Querier = (*Queries)(nil)

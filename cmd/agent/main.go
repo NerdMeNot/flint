@@ -8,11 +8,8 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/agent"
 	"github.com/NerdMeNot/flint/internal/core/wsagent"
-	"github.com/NerdMeNot/flint/pkg/artifact"
-	pkgcache "github.com/NerdMeNot/flint/pkg/cache"
 	"github.com/NerdMeNot/flint/pkg/checkout"
 	"github.com/NerdMeNot/flint/pkg/logsink"
-	"github.com/NerdMeNot/flint/pkg/workspace"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -29,20 +26,22 @@ func main() {
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 	}
 
-	root.AddCommand(initCmd(), watchCmd(), workspaceCmd(), checkoutCmd())
+	root.AddCommand(sidecarCmd(), initCmd(), watchCmd(), workspaceCmd(), checkoutCmd(), stepsCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// initCmd sets up the workspace before the step container runs.
-// Runs as a K8s init container. Handles: secrets, workspace sync, artifacts, cache.
-// NOTE: Clone is no longer done here — use `use: checkout` as an explicit step.
-func initCmd() *cobra.Command {
+// sidecarCmd is the single per-step agent container (native sidecar): it
+// prepares the workspace (init phase), writes the init-done marker the step
+// container's startup probe gates on, then watches the step (logs, sync-out,
+// artifact/cache upload, completion). One container instead of the previous
+// init + sidecar pair — one fewer resource request per step pod.
+func sidecarCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init",
-		Short: "Set up workspace (init container)",
+		Use:   "sidecar",
+		Short: "Prepare workspace, then watch the step (single per-step container)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
@@ -55,97 +54,74 @@ func initCmd() *cobra.Command {
 				Str("version", version).
 				Str("step", cfg.StepName).
 				Str("workspace", cfg.Workspace).
-				Msg("flint-agent init")
+				Msg("flint-agent sidecar")
 
-			// Fetch secrets (needed before checkout for git tokens, AWS creds, etc).
-			if err := agent.FetchSecrets(ctx, cfg); err != nil {
-				log.Warn().Err(err).Msg("failed to fetch secrets (continuing)")
+			if err := agent.Init(ctx, cfg); err != nil {
+				// Init failure means the step must not start — report and exit
+				// nonzero so the informer/engine resolve the step.
+				agent.ReportError(cfg, err)
+				return err
+			}
+			if err := agent.MarkInitDone(cfg.Workspace); err != nil {
+				agent.ReportError(cfg, err)
+				return err
 			}
 
-			// Workspace sync: pull previous step's state if available.
-			ws, wsErr := workspace.New(
-				cfg.WorkspaceMode, cfg.WorkspaceAddr, cfg.WorkspaceToken,
-				cfg.S3Bucket, cfg.S3Region, cfg.RunID,
-			)
-			if wsErr != nil {
-				log.Warn().Err(wsErr).Msg("agent: failed to init workspace (skipping sync)")
-			}
-			if ws != nil {
-				defer ws.Close()
-				if _, syncErr := ws.SyncIn(ctx, cfg.Workspace); syncErr != nil {
-					log.Warn().Err(syncErr).Msg("agent: SyncIn failed (continuing)")
-				}
-			}
-
-			// Download artifact inputs from upstream steps.
-			if cfg.S3Bucket != "" && len(cfg.ArtifactInputs) > 0 {
-				store := artifact.NewS3Store(cfg.S3Bucket, cfg.S3Region)
-				for _, input := range cfg.ArtifactInputs {
-					ref := artifact.Ref{
-						OrgID: cfg.OrgID, RunID: cfg.RunID,
-						StepName: input.From, Name: input.Path,
-					}
-					if err := store.Download(ctx, ref, input.Path); err != nil {
-						log.Warn().Err(err).Str("from", input.From).Msg("failed to download artifact (continuing)")
-					}
-				}
-			}
-
-			// Restore cache (always S3-backed for cross-run persistence).
-			// NOTE: Cache key evaluation should happen AFTER checkout — if this
-			// is the first step (before checkout), the key will miss. That's OK;
-			// cache is best-effort.
-			if cfg.S3Bucket != "" && cfg.CacheKey != "" {
-				cacheStore := pkgcache.NewS3(cfg.OrgID, cfg.ProjectID, cfg.S3Bucket, cfg.S3Region)
-				key, keyErr := agent.EvaluateCacheKey(cfg)
-				if keyErr != nil {
-					log.Warn().Err(keyErr).Msg("agent: failed to evaluate cache key (skipping)")
-				} else {
-					if _, err := cacheStore.Restore(ctx, key, cfg.CachePaths); err != nil {
-						log.Warn().Err(err).Msg("failed to restore cache (continuing)")
-					}
-				}
-			}
-
-			return nil
+			return agent.Watch(ctx, cfg, buildLogSink(cfg))
 		},
 	}
 }
 
-// watchCmd monitors the step container, streams logs, and reports completion.
-// Runs as a K8s sidecar alongside the step container.
-func watchCmd() *cobra.Command {
+// initCmd runs only the workspace-preparation phase (debugging aid; production
+// pods use the combined sidecar command).
+func initCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "watch",
-		Short: "Watch step container, stream logs, report completion (sidecar)",
+		Use:   "init",
+		Short: "Set up workspace only (debug; production uses sidecar)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-
 			cfg, err := agent.LoadFromEnv()
 			if err != nil {
 				return err
 			}
+			return agent.Init(context.Background(), cfg)
+		},
+	}
+}
 
-			log.Info().
-				Str("version", version).
-				Str("step", cfg.StepName).
-				Str("runID", cfg.RunID).
-				Msg("flint-agent watch")
+// buildLogSink builds the log sink from env config. The default ("server")
+// ships batched lines to flint-server /internal/logs — the server owns durable
+// storage and fans out to SSE subscribers for live tail. A pod-local
+// filesystem sink would die with the pod, so it is only for tests/debugging
+// via FLINT_LOG_SINK=filesystem.
+func buildLogSink(cfg *agent.Config) logsink.LogSink {
+	switch cfg.LogSinkMode {
+	case "filesystem":
+		fsPath := cfg.FSLogPath
+		if fsPath == "" {
+			fsPath = "/tmp/flint-logs"
+		}
+		return &logsink.FilesystemSink{BaseDir: fsPath}
+	default:
+		return &logsink.HTTPSink{
+			ServerURL:     cfg.ServerURL,
+			TaskToken:     cfg.TaskToken,
+			InternalToken: cfg.InternalToken,
+		}
+	}
+}
 
-			// Build log sink from env config.
-			var sink logsink.LogSink
-			switch cfg.LogSinkMode {
-			case "filesystem":
-				sink = &logsink.FilesystemSink{BaseDir: cfg.FSLogPath}
-			default:
-				sink = &logsink.FilesystemSink{BaseDir: "/tmp/flint-logs"}
-			}
-
-			if err := agent.Watch(ctx, cfg, sink); err != nil {
+// watchCmd runs only the watch phase (debugging aid; production pods use the
+// combined sidecar command).
+func watchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "watch",
+		Short: "Watch step container only (debug; production uses sidecar)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := agent.LoadFromEnv()
+			if err != nil {
 				return err
 			}
-
-			return nil
+			return agent.Watch(context.Background(), cfg, buildLogSink(cfg))
 		},
 	}
 }
@@ -187,6 +163,23 @@ func workspaceCmd() *cobra.Command {
 				Msg("flint-agent workspace")
 
 			return wsagent.ListenAndServe(ctx, addr, token, root)
+		},
+	}
+}
+
+// stepsCmd runs the in-pod steps driver: sequential sub-steps inside the user
+// image for a group ("steps") job. Executed as the step container's main
+// process from the workspace copy installed by the init container.
+func stepsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "steps",
+		Short: "Run a job's sub-steps sequentially (in-pod driver)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := agent.LoadStepsConfig()
+			if err != nil {
+				return err
+			}
+			return agent.RunSteps(context.Background(), cfg)
 		},
 	}
 }

@@ -40,13 +40,20 @@ func containerByName(t *testing.T, cs []corev1.Container, name string) corev1.Co
 func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	ctx := context.Background()
 	k8s := fake.NewSimpleClientset()
-	exec := NewK8sExecutor(k8s, runner.NewRegistry(), "flint-agent:v1", "flint-ns",
-		"http://flint-server:5000", "internal-tok")
+	exec := NewK8sExecutor(k8s, runner.NewRegistry(), K8sExecutorConfig{
+		AgentImage:    "flint-agent:v1",
+		JobNamespace:  "flint-ns",
+		ServerURL:     "http://flint-server:5000",
+		InternalToken: "internal-tok",
+		S3Bucket:      "flint-artifacts",
+		S3Region:      "us-east-1",
+	})
 
 	def, err := json.Marshal(pipeline.Step{
-		Name:  "build",
-		Image: "golang:1.26",
-		Run:   pipeline.Cmd("make build"),
+		Name:    "build",
+		Image:   "golang:1.26",
+		Run:     pipeline.Cmd("make build"),
+		Timeout: "30m",
 	})
 	require.NoError(t, err)
 
@@ -83,11 +90,15 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 
 	spec := job.Spec.Template.Spec
 
-	// Init containers: flint-init (pull) then the flint-agent native sidecar.
-	require.Len(t, spec.InitContainers, 2)
+	// ONE agent container: the native sidecar prepares the workspace and
+	// watches the step; its startup probe (init-done marker) gates the step.
+	require.Len(t, spec.InitContainers, 1)
 	initC := spec.InitContainers[0]
 	assert.Equal(t, "flint-agent:v1", initC.Image)
-	assert.Equal(t, []string{"/flint-agent", "init"}, initC.Command)
+	assert.Equal(t, []string{"/flint-agent", "sidecar"}, initC.Command)
+	require.NotNil(t, initC.StartupProbe, "the step must be gated on workspace preparation")
+	require.NotNil(t, initC.StartupProbe.Exec)
+	assert.Contains(t, initC.StartupProbe.Exec.Command, "/workspace/.flint-init-done")
 
 	// Step container: user image + wrapped command + user env, working dir /workspace.
 	stepC := containerByName(t, spec.Containers, "step")
@@ -97,11 +108,11 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	assert.Equal(t, "bar", envMap(stepC.Env)["FOO"])
 
 	// The agent is a native sidecar: an init container with restartPolicy Always
-	// running `flint-agent watch`, carrying the task/git context.
+	// running `flint-agent sidecar` (init + watch), carrying the task/git context.
 	agentC := containerByName(t, spec.InitContainers, "flint-agent")
 	require.NotNil(t, agentC.RestartPolicy)
 	assert.Equal(t, corev1.ContainerRestartPolicyAlways, *agentC.RestartPolicy)
-	assert.Equal(t, []string{"/flint-agent", "watch"}, agentC.Command)
+	assert.Equal(t, []string{"/flint-agent", "sidecar"}, agentC.Command)
 	ae := envMap(agentC.Env)
 	assert.Equal(t, "task-token", ae["FLINT_TASK_TOKEN"])
 	assert.Equal(t, "http://flint-server:5000", ae["FLINT_SERVER_URL"])
@@ -110,6 +121,12 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	assert.Equal(t, "acme/app", ae["FLINT_GIT_REPO"])
 	assert.Equal(t, "main", ae["FLINT_GIT_REF"])
 	assert.Equal(t, "deadbeef", ae["FLINT_GIT_SHA"])
+
+	// Object storage + timeout wiring: the agent gates artifacts/cache on
+	// FLINT_S3_BUCKET and bounds its completion wait with FLINT_STEP_TIMEOUT.
+	assert.Equal(t, "flint-artifacts", ae["FLINT_S3_BUCKET"])
+	assert.Equal(t, "us-east-1", ae["FLINT_S3_REGION"])
+	assert.Equal(t, "30m0s", ae["FLINT_STEP_TIMEOUT"])
 
 	// Security hardening: every container drops all capabilities and forbids
 	// privilege escalation; the pod carries the RuntimeDefault seccomp profile.
@@ -139,11 +156,67 @@ func TestK8sExecutor_Dispatch_BuildsJob(t *testing.T) {
 	assert.NoError(t, err, "workspace agent pod should be created in agent mode")
 }
 
+// TestK8sExecutor_Dispatch_GroupStep locks the group ("steps") dispatch: the
+// step container runs the flint-agent steps driver from the workspace copy,
+// with the sub-step spec, job outputs, and needs context in its environment.
+func TestK8sExecutor_Dispatch_GroupStep(t *testing.T) {
+	ctx := context.Background()
+	k8s := fake.NewSimpleClientset()
+	exec := NewK8sExecutor(k8s, runner.NewRegistry(), K8sExecutorConfig{
+		AgentImage:   "flint-agent:v1",
+		JobNamespace: "flint-ns",
+		ServerURL:    "http://flint-server:5000",
+	})
+
+	def, err := json.Marshal(pipeline.Step{
+		Name:  "build",
+		Image: "golang:1.26",
+		Steps: []pipeline.Step{
+			{Name: "vet", Run: pipeline.Cmd("go vet ./...")},
+			{Name: "test", Run: pipeline.Cmd("go test ./...")},
+		},
+		DeclaredOutputs: map[string]string{"version": "${{ steps.outputs.version }}"},
+	})
+	require.NoError(t, err)
+
+	handle, err := exec.Dispatch(ctx, claimedStep{
+		name: "build", execType: "steps", taskToken: "tok", stepDef: def,
+		runID: "run-abcdef12", orgID: "org-1", repo: "acme/app", ref: "main",
+		commitSHA: "deadbeef", triggerType: "push",
+		needsOutputs: map[string]map[string]string{
+			"compile": {"artifact": "bin"},
+		},
+	})
+	require.NoError(t, err)
+
+	job, err := k8s.BatchV1().Jobs("flint-ns").Get(ctx, handle, metav1.GetOptions{})
+	require.NoError(t, err)
+	spec := job.Spec.Template.Spec
+
+	stepC := containerByName(t, spec.Containers, "step")
+	assert.Equal(t, []string{"/workspace/.flint-bin/flint-agent", "steps"}, stepC.Command,
+		"group steps must run the in-pod driver, not an empty shell wrapper")
+
+	se := envMap(stepC.Env)
+	assert.Contains(t, se["FLINT_STEPS_SPEC"], "go vet ./...", "sub-step spec must reach the driver")
+	assert.Contains(t, se["FLINT_JOB_OUTPUTS"], "version")
+	assert.Contains(t, se["FLINT_NEEDS_OUTPUTS"], "compile")
+	assert.Equal(t, "/workspace/.flint-emit", se["FLINT_OUTPUT"])
+	assert.Equal(t, "deadbeef", se["FLINT_GIT_SHA"], "git context for in-pod expressions")
+
+	// The init container is told to install the driver binary.
+	initC := spec.InitContainers[0]
+	assert.Equal(t, "steps", envMap(initC.Env)["FLINT_EXEC_TYPE"])
+}
+
 // TestK8sExecutor_Dispatch_MissingImage fails fast when no image can be resolved.
 func TestK8sExecutor_Dispatch_MissingImage(t *testing.T) {
 	ctx := context.Background()
-	exec := NewK8sExecutor(fake.NewSimpleClientset(), runner.NewRegistry(), "flint-agent:v1",
-		"flint-ns", "http://flint-server:5000", "")
+	exec := NewK8sExecutor(fake.NewSimpleClientset(), runner.NewRegistry(), K8sExecutorConfig{
+		AgentImage:   "flint-agent:v1",
+		JobNamespace: "flint-ns",
+		ServerURL:    "http://flint-server:5000",
+	})
 
 	def, _ := json.Marshal(pipeline.Step{Name: "noimg", Run: pipeline.Cmd("echo hi")})
 	_, err := exec.Dispatch(ctx, claimedStep{

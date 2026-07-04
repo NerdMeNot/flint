@@ -25,6 +25,11 @@ WHERE workflow_id = $1 AND step_name = $2
 ORDER BY created_at ASC, id ASC;
 
 -- name: CleanupOldEngineEvents :exec
--- Prune transition history older than 30 days so the table stays bounded. Called
--- from the sweep alongside the other retention cleanups.
-DELETE FROM engine_events WHERE created_at < now() - interval '30 days';
+-- Prune transition history older than 30 days so the table stays bounded.
+-- Batched (one batch per sweep) so a long-lived install's backlog can't stall
+-- a sweep tick with one giant DELETE.
+DELETE FROM engine_events WHERE id IN (
+    SELECT id FROM engine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+);

@@ -146,6 +146,7 @@ func (s *Server) registerAPIRoutes() {
 
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
+	v1.GET("/queue", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleQueueStats)
 	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
 
 	// Org.
@@ -172,6 +173,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.GET("/runs/:id", s.requirePermission(auth.ObjRun, auth.ActRead), s.getRun)
 		v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
 		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
+		v1.GET("/runs/:id/cost", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleRunCost)
 		v1.GET("/runs/:id/events", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunEvents)
 		v1.GET("/runs/:id/steps/:step/logs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetStepLogs)
 		v1.GET("/runs/:id/steps/:step/logs/stream", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleStreamStepLogs)

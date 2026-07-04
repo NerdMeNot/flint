@@ -29,6 +29,9 @@ procs:
     cmd: ["scripts/wait-for", "tmp/.seed-done", "--", "./tmp/bin/air", "-c", ".air.server.toml"]
     env:
       FLINT_DEMO: "1" # drives the "demo environment" banner in the UI
+      # The dedicated worker pane runs the loop (own logs + hot reload);
+      # without this, --mode all would run a second loop in-process.
+      FLINT_DISABLE_EMBEDDED_WORKER: "1"
     stop: SIGINT
 
   worker:

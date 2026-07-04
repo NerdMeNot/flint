@@ -35,6 +35,7 @@ type Run struct {
 type StepState struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"`
+	ExecType string `json:"execType"`
 	Wave     int    `json:"wave"`
 	Attempt  int    `json:"attempt"`
 	ExitCode *int   `json:"exitCode,omitempty"`
@@ -42,9 +43,10 @@ type StepState struct {
 }
 
 // WorkflowState is the full state of a workflow execution.
+// JSON tags match the server's /runs/:id/steps envelope (workflowId, runId).
 type WorkflowState struct {
-	WorkflowID string      `json:"workflowID"`
-	RunID      string      `json:"runID"`
+	WorkflowID string      `json:"workflowId"`
+	RunID      string      `json:"runId"`
 	Status     string      `json:"status"`
 	Steps      []StepState `json:"steps"`
 	StartedAt  *time.Time  `json:"startedAt"`
@@ -76,12 +78,12 @@ type Org struct {
 	Slug string `json:"slug"`
 }
 
-// PendingGate represents a gate step waiting for approval.
+// PendingGate represents a gate step waiting for approval. JSON tags match the
+// server's GET /gates items.
 type PendingGate struct {
-	RunID      string `json:"runID"`
-	WorkflowID string `json:"workflowID"`
-	StepName   string `json:"stepName"`
-	Message    string `json:"message"`
-	Project    string `json:"project"`
-	Branch     string `json:"branch"`
+	RunID    string `json:"runId"`
+	StepName string `json:"stepName"`
+	Message  string `json:"message"`
+	Project  string `json:"projectName"`
+	Branch   string `json:"branch"`
 }

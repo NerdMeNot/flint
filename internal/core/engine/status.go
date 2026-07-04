@@ -64,7 +64,10 @@ const (
 // This is the single, greppable source of truth for the step state machine. The
 // claim path (queued→running|waiting) is bulk SQL and validated here too.
 var allowedStepTransitions = map[string][]string{
-	stepPending:   {stepQueued, stepSkipped, stepCancelled},
+	// pending→failed: a step whose if: expression errors at evaluation time
+	// fails loudly without ever running (silently skipping it would hide a
+	// pipeline-authoring bug).
+	stepPending:   {stepQueued, stepSkipped, stepFailed, stepCancelled},
 	stepRetryWait: {stepQueued, stepCancelled},
 	stepQueued:    {stepRunning, stepWaiting, stepPending, stepSkipped, stepCancelled},
 	stepRunning:   {stepSucceeded, stepFailed, stepCancelled},

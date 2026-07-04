@@ -34,3 +34,8 @@ DO UPDATE SET fires_at = EXCLUDED.fires_at, fired = false;
 
 -- name: CleanupFiredTimers :exec
 DELETE FROM timers WHERE fired = true AND created_at < now() - interval '1 hour';
+
+-- name: NextTimerDue :one
+-- The soonest unfired timer, used by the adaptive poll to cap its backoff —
+-- a due timer must not wait out a long idle-poll interval.
+SELECT min(fires_at)::timestamptz FROM timers WHERE fired = false;

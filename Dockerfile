@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # Flint — multi-stage Dockerfile
 # Build:  docker build --target server -t flint-server .
-# Targets: server, worker, controller, agent
+# Targets: server, worker, agent
 # ─────────────────────────────────────────────────────────────
 
 # ── Build stage ─────────────────────────────────────────────
@@ -21,7 +21,6 @@ ENV CGO_ENABLED=0
 
 RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /bin/flint-server ./cmd/server && \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /bin/flint-worker ./cmd/worker && \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /bin/flint-controller ./cmd/controller && \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /bin/flint-agent ./cmd/agent
 
 # ── Server ──────────────────────────────────────────────────
@@ -36,12 +35,6 @@ FROM gcr.io/distroless/static-debian12:nonroot AS worker
 COPY --from=build /bin/flint-worker /usr/local/bin/flint-worker
 USER nonroot:nonroot
 ENTRYPOINT ["flint-worker"]
-
-# ── Controller ──────────────────────────────────────────────
-FROM gcr.io/distroless/static-debian12:nonroot AS controller
-COPY --from=build /bin/flint-controller /usr/local/bin/flint-controller
-USER nonroot:nonroot
-ENTRYPOINT ["flint-controller"]
 
 # ── Agent ───────────────────────────────────────────────────
 # The agent runs pipeline steps — it needs git, a shell, and

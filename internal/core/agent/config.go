@@ -57,8 +57,9 @@ type Config struct {
 	ArtifactOutputs []ArtifactOutput `json:"artifactOutputs"`
 
 	// Cache
-	CacheKey   string   // unevaluated expression (e.g. "npm-${{ hashFiles('package-lock.json') }}")
-	CachePaths []string // paths to cache (e.g. ["/workspace/node_modules"])
+	CacheKey         string   // unevaluated expression (e.g. "npm-${{ hashFiles('package-lock.json') }}")
+	CachePaths       []string // paths to cache (e.g. ["/workspace/node_modules"])
+	CacheRestoreKeys []string // prefix fallbacks tried on an exact-key miss
 
 	// Workspace configuration.
 	// WorkspaceMode controls how workspace sync works:
@@ -153,6 +154,9 @@ func LoadFromEnv() (*Config, error) {
 	cfg.CacheKey = os.Getenv("FLINT_CACHE_KEY")
 	if raw := os.Getenv("FLINT_CACHE_PATHS"); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &cfg.CachePaths)
+	}
+	if raw := os.Getenv("FLINT_CACHE_RESTORE_KEYS"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg.CacheRestoreKeys)
 	}
 
 	// Parse timeouts with defaults.

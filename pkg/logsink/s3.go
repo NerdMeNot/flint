@@ -4,60 +4,67 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// S3Sink stores logs as JSONL objects in S3.
-// Each step gets a single object: s3://<bucket>/<prefix>/<org>/<run>/<step>.jsonl
+// S3Sink stores logs as JSONL SEGMENT objects in S3:
 //
-// For running steps, the agent appends lines by re-uploading the object (or using
-// multipart upload). For completed steps, the object is immutable.
+//	s3://<bucket>/<prefix><org>/<run>/<step>/<seq>-<uniq>.jsonl
 //
-// Tailing works by polling GetObject with a Range header to read only new bytes
-// since the last read.
+// Each Write is ONE PutObject of just that batch — never a read-modify-write
+// of the whole log (which would be O(n²) bandwidth in log size). Reads list
+// the step's segment objects (lexicographic key order = write order thanks to
+// the zero-padded nanosecond sequence) and concatenate.
 type S3Sink struct {
 	Client *s3.Client
 	Bucket string
 	Prefix string // e.g., "logs/" — includes trailing slash
 }
 
-func (s *S3Sink) key(ref LogRef) string {
-	return s.Prefix + ref.Path() + ".jsonl"
+// NewS3Sink creates an S3Sink using the default AWS credential chain. An
+// optional endpoint overrides the S3 API URL for S3-compatible stores
+// (MinIO, R2, Ceph). Logs are stored under the "logs/" key prefix.
+func NewS3Sink(ctx context.Context, bucket, region, endpoint string) (*S3Sink, error) {
+	if bucket == "" {
+		return nil, fmt.Errorf("logsink/s3: bucket must not be empty")
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, fmt.Errorf("logsink/s3: load AWS config: %w", err)
+	}
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true // S3-compatible stores generally require path-style
+		}
+	})
+	return &S3Sink{Client: client, Bucket: bucket, Prefix: "logs/"}, nil
 }
 
-// Write appends log lines to the S3 object.
-// For simplicity, this reads the existing object, appends, and re-uploads.
-// For high-throughput production use, consider multipart upload or buffered writes.
-func (s *S3Sink) Write(ctx context.Context, ref LogRef, lines []LogLine) error {
-	key := s.key(ref)
+// segmentDir is the key prefix holding a step's log segments.
+func (s *S3Sink) segmentDir(ref LogRef) string {
+	return s.Prefix + ref.Path() + "/"
+}
 
-	// Read existing content (if any).
-	var existing []byte
-	resp, err := s.Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: &s.Bucket,
-		Key:    &key,
-	})
-	if err != nil {
-		// If the object doesn't exist, start fresh.
-		if !isS3NotFound(err) {
-			return fmt.Errorf("logsink/s3: failed to read existing log: %w", err)
-		}
-	} else {
-		existing, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
+// Write uploads this batch as a NEW segment object — one PUT, no read-back.
+func (s *S3Sink) Write(ctx context.Context, ref LogRef, lines []LogLine) error {
+	if len(lines) == 0 {
+		return nil
 	}
 
-	// Append new lines as JSONL.
 	var buf bytes.Buffer
-	buf.Write(existing)
 	enc := json.NewEncoder(&buf)
 	for _, line := range lines {
 		if err := enc.Encode(line); err != nil {
@@ -65,47 +72,73 @@ func (s *S3Sink) Write(ctx context.Context, ref LogRef, lines []LogLine) error {
 		}
 	}
 
-	// Upload.
-	_, err = s.Client.PutObject(ctx, &s3.PutObjectInput{
+	// Zero-padded nanosecond sequence orders segments lexicographically; the
+	// random suffix keeps concurrent writers (server replicas) from colliding.
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
+	key := fmt.Sprintf("%s%020d-%s.jsonl", s.segmentDir(ref), time.Now().UnixNano(), hex.EncodeToString(suffix))
+
+	_, err := s.Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &s.Bucket,
 		Key:         &key,
 		Body:        bytes.NewReader(buf.Bytes()),
 		ContentType: aws.String("application/x-ndjson"),
 	})
 	if err != nil {
-		return fmt.Errorf("logsink/s3: failed to upload log: %w", err)
+		return fmt.Errorf("logsink/s3: failed to upload log segment: %w", err)
 	}
-
 	return nil
 }
 
-// Read retrieves all log lines from the S3 object.
+// Read lists the step's segments in key order and concatenates their lines.
 func (s *S3Sink) Read(ctx context.Context, ref LogRef) ([]LogLine, error) {
-	key := s.key(ref)
-
-	resp, err := s.Client.GetObject(ctx, &s3.GetObjectInput{
+	dir := s.segmentDir(ref)
+	paginator := s3.NewListObjectsV2Paginator(s.Client, &s3.ListObjectsV2Input{
 		Bucket: &s.Bucket,
-		Key:    &key,
+		Prefix: aws.String(dir),
 	})
-	if err != nil {
-		if isS3NotFound(err) {
-			return nil, nil
+
+	var keys []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("logsink/s3: list segments: %w", err)
 		}
-		return nil, fmt.Errorf("logsink/s3: failed to read log: %w", err)
+		for _, obj := range page.Contents {
+			if obj.Key != nil {
+				keys = append(keys, *obj.Key)
+			}
+		}
 	}
-	defer resp.Body.Close()
+	sort.Strings(keys)
 
 	var lines []LogLine
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		var line LogLine
-		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
-			continue
+	for _, key := range keys {
+		resp, err := s.Client.GetObject(ctx, &s3.GetObjectInput{
+			Bucket: &s.Bucket,
+			Key:    &key,
+		})
+		if err != nil {
+			if isS3NotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("logsink/s3: read segment %s: %w", key, err)
 		}
-		lines = append(lines, line)
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			var line LogLine
+			if json.Unmarshal(scanner.Bytes(), &line) == nil {
+				lines = append(lines, line)
+			}
+		}
+		err = scanner.Err()
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("logsink/s3: scan segment %s: %w", key, err)
+		}
 	}
-
-	return lines, scanner.Err()
+	return lines, nil
 }
 
 // Tail is implemented for the LogSink interface but should NOT be used for

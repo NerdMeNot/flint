@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
@@ -106,10 +107,10 @@ func (m *Module) validate() error {
 
 // ModuleResolver resolves a use:/extends: reference to a Module. References are
 // immutable (exact version, publisher alias, or a local path) — there is no
-// lockfile. The registry-backed resolver (GitOps / API) lands with the registry;
-// MapResolver and local-file resolution cover in-repo reuse and tests.
+// lockfile. ForgeResolver (resolver.go) covers built-ins, in-repo ./ paths, and
+// cross-repo org/repo/path@ref; MapResolver covers tests.
 type ModuleResolver interface {
-	Resolve(ref string) (*Module, error)
+	Resolve(ctx context.Context, ref string) (*Module, error)
 }
 
 // MapResolver resolves references from an in-memory map (tests, and the basis for
@@ -117,7 +118,7 @@ type ModuleResolver interface {
 type MapResolver map[string]*Module
 
 // Resolve returns the module registered under ref.
-func (m MapResolver) Resolve(ref string) (*Module, error) {
+func (m MapResolver) Resolve(_ context.Context, ref string) (*Module, error) {
 	mod, ok := m[ref]
 	if !ok {
 		return nil, fmt.Errorf("ci: module %q not found", ref)

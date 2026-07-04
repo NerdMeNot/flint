@@ -14,7 +14,6 @@ package cache
 
 import (
 	"archive/tar"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -22,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NerdMeNot/flint/pkg/wsfs"
 	"github.com/klauspost/compress/zstd"
 	"github.com/rs/zerolog/log"
 )
@@ -31,6 +31,11 @@ type Cache interface {
 	// Restore downloads and extracts a cached archive into the workspace.
 	// Returns (true, nil) on cache hit, (false, nil) on miss.
 	Restore(ctx context.Context, key string, paths []string) (bool, error)
+
+	// RestoreWithFallback tries the exact key, then each restore key as a
+	// PREFIX (newest — lexicographically last — match wins). Returns the key
+	// that hit, or "" on a full miss.
+	RestoreWithFallback(ctx context.Context, key string, restoreKeys []string, paths []string) (string, error)
 
 	// Save compresses the given paths and stores them under the key.
 	Save(ctx context.Context, key string, paths []string) error
@@ -81,14 +86,58 @@ func (c *S3Cache) Restore(ctx context.Context, key string, paths []string) (bool
 	return true, nil
 }
 
+// RestoreWithFallback tries the exact key first, then each restore key as a
+// prefix over the project's cache entries. A prefix hit restores stale-but-
+// close dependencies so the build only pays the delta.
+func (c *S3Cache) RestoreWithFallback(ctx context.Context, key string, restoreKeys []string, paths []string) (string, error) {
+	if hit, err := c.Restore(ctx, key, paths); err != nil || hit {
+		return key, err
+	}
+	if len(restoreKeys) == 0 {
+		return "", nil
+	}
+
+	client, err := c.getClient()
+	if err != nil {
+		return "", err
+	}
+	entries, err := client.ReadDir(ctx, fmt.Sprintf("cache/%s/%s", c.orgID, c.projectID))
+	if err != nil {
+		log.Warn().Err(err).Msg("cache: restore-keys listing failed (treating as miss)")
+		return "", nil
+	}
+
+	for _, prefix := range restoreKeys {
+		best := ""
+		for _, e := range entries {
+			name := strings.TrimSuffix(e.Name, ".tar.zst")
+			if e.IsDir || !strings.HasPrefix(name, prefix) {
+				continue
+			}
+			// Without object mtimes in the listing, the lexicographically
+			// last match is the deterministic tie-break.
+			if name > best {
+				best = name
+			}
+		}
+		if best == "" {
+			continue
+		}
+		hit, err := c.Restore(ctx, best, paths)
+		if err != nil {
+			return "", err
+		}
+		if hit {
+			log.Info().Str("prefix", prefix).Str("key", best).Msg("cache: restore-key fallback hit")
+			return best, nil
+		}
+	}
+	return "", nil
+}
+
 func (c *S3Cache) Save(ctx context.Context, key string, paths []string) error {
 	if key == "" || len(paths) == 0 {
 		return nil
-	}
-
-	var buf bytes.Buffer
-	if err := compress(paths, &buf); err != nil {
-		return fmt.Errorf("cache: compress: %w", err)
 	}
 
 	fsKey := c.cacheKey(key)
@@ -97,19 +146,29 @@ func (c *S3Cache) Save(ctx context.Context, key string, paths []string) error {
 		return err
 	}
 
+	// Content-addressed keys (hashFiles) mean an existing entry is identical —
+	// skip the re-compress + re-upload entirely. This turns the common
+	// warm-cache case from "tar+upload every run" into one HEAD request.
+	if _, err := client.Stat(ctx, fsKey); err == nil {
+		log.Info().Str("key", key).Msg("cache: entry exists, skipping save")
+		return nil
+	}
+
 	w, err := client.Create(ctx, fsKey)
 	if err != nil {
 		return fmt.Errorf("cache: create %s: %w", fsKey, err)
 	}
-	if _, err := buf.WriteTo(w); err != nil {
+	// Stream the archive into the writer — no full in-memory staging buffer
+	// (the sidecar runs with a small memory request).
+	if err := compress(paths, w); err != nil {
 		_ = w.Close()
-		return fmt.Errorf("cache: write %s: %w", fsKey, err)
+		return fmt.Errorf("cache: compress: %w", err)
 	}
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("cache: close %s: %w", fsKey, err)
 	}
 
-	log.Info().Str("key", key).Int("bytes", buf.Len()).Msg("cache: saved")
+	log.Info().Str("key", key).Msg("cache: saved")
 	return nil
 }
 
@@ -125,6 +184,8 @@ func (c *S3Cache) getClient() (s3Client, error) {
 type s3Client interface {
 	Create(ctx context.Context, name string) (io.WriteCloser, error)
 	Open(ctx context.Context, name string) (io.ReadCloser, error)
+	Stat(ctx context.Context, name string) (wsfs.FileInfo, error)
+	ReadDir(ctx context.Context, dir string) ([]wsfs.DirEntry, error)
 }
 
 // ─────────────────────────────────────────────────────────────
