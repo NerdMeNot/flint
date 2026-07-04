@@ -491,7 +491,10 @@ type Querier interface {
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	// Scheduler input: candidate machines for a pool with their committed capacity.
 	// Free = machines.cpu_millis − committed (computed by the caller); no reserved
-	// counters to drift.
+	// counters to drift. active_run_ids drives HARD run affinity, so it includes
+	// runs whose earlier steps already finished here (the workspace directory
+	// outlives the assignment) — 'lost' (machine death; retries start fresh) and
+	// 'cancelled' assignments don't pin a run.
 	MachineFreeCapacity(ctx context.Context, poolID string) ([]MachineFreeCapacityRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
 	// One-time-use guard: succeeds (1 row) the first time an assertion ID is seen,

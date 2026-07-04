@@ -85,11 +85,14 @@ WHERE machine_id = $1 AND status IN ('assigned', 'running');
 -- name: MachineFreeCapacity :many
 -- Scheduler input: candidate machines for a pool with their committed capacity.
 -- Free = machines.cpu_millis − committed (computed by the caller); no reserved
--- counters to drift.
+-- counters to drift. active_run_ids drives HARD run affinity, so it includes
+-- runs whose earlier steps already finished here (the workspace directory
+-- outlives the assignment) — 'lost' (machine death; retries start fresh) and
+-- 'cancelled' assignments don't pin a run.
 SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at,
        COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
        COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
-       COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running')), '{}')::uuid[] AS active_run_ids
+       COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
 FROM machines m
 LEFT JOIN step_assignments a ON a.machine_id = m.id
 WHERE m.pool_id = $1 AND m.status IN ('idle', 'busy')

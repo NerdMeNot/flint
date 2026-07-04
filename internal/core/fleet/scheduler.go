@@ -122,23 +122,36 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 	return bound, nil
 }
 
-// pickMachine chooses the machine for one assignment: warmth (same run ⇒ same
-// machine — its workspace and caches are already there), then best-fit
-// (smallest sufficient free CPU).
+// pickMachine chooses the machine for one assignment. Run affinity is a
+// GUARANTEE, not a preference: a run's workspace is a local directory on the
+// machine that started it, so every later step of that run must land there.
+// If the holder currently lacks capacity the assignment stays pending until
+// it frees up (workspace correctness beats intra-run parallelism); if the
+// holder died, its assignments already failed through the machine-lost path
+// and the retry starts fresh. Runs with no holder yet get best-fit (smallest
+// sufficient free CPU, so large future requests keep a machine to land on).
 func pickMachine(candidates []*candidate, a db.ClaimPendingAssignmentsRow) *candidate {
+	var holder *candidate
+	for _, c := range candidates {
+		if slices.Contains(c.runIDs, a.RunID) {
+			holder = c
+			break
+		}
+	}
+	if holder != nil {
+		if holder.freeCPU >= a.CpuMillis && holder.freeMem >= a.MemoryMb {
+			return holder
+		}
+		return nil // wait for the run's machine — never split a run's workspace
+	}
+
 	var best *candidate
-	bestWarm := false
 	for _, c := range candidates {
 		if c.freeCPU < a.CpuMillis || c.freeMem < a.MemoryMb {
 			continue
 		}
-		warm := slices.Contains(c.runIDs, a.RunID)
-		switch {
-		case best == nil,
-			warm && !bestWarm,
-			warm == bestWarm && c.freeCPU < best.freeCPU:
+		if best == nil || c.freeCPU < best.freeCPU {
 			best = c
-			bestWarm = warm
 		}
 	}
 	return best
