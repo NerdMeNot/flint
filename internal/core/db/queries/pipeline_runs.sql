@@ -172,3 +172,41 @@ WHERE pr.org_id = sqlc.arg('org_id')
   AND (pr.trigger_ref ILIKE sqlc.arg('pattern') OR pr.commit_sha ILIKE sqlc.arg('pattern'))
 ORDER BY pr.started_at DESC
 LIMIT 10;
+
+-- name: SetRunConcurrencyGroup :exec
+-- Stamps the resolved concurrency group (expressions already interpolated) on
+-- a run so cancel-in-progress can find superseded runs in the same group.
+UPDATE pipeline_runs SET concurrency_group = $2 WHERE id = $1;
+
+-- name: ActiveRunsInConcurrencyGroup :many
+-- Running runs in the same project+group, excluding the superseding run —
+-- the cancel-in-progress candidates. Uses idx_runs_concurrency_group.
+SELECT id, workflow_id FROM pipeline_runs
+WHERE project_id = $1 AND concurrency_group = $2
+  AND status = 'running' AND id != $3;
+
+-- name: DeleteOldRuns :execrows
+-- Runs retention: delete terminal runs older than the retention window, in
+-- bounded batches so a long-lived install's first sweep doesn't stall. The
+-- workflows/steps/signals/timers rows cascade via FKs; engine_events has no FK
+-- (by design) and its own 30-day cleanup.
+DELETE FROM pipeline_runs WHERE id IN (
+    SELECT id FROM pipeline_runs
+    WHERE status IN ('succeeded', 'failed', 'cancelled')
+      AND finished_at < now() - make_interval(days => sqlc.arg(retention_days)::int)
+    LIMIT 500
+);
+
+-- name: GetRunStatusInfo :one
+-- The fields needed to report a run's outcome to the forge (commit status /
+-- check run) and to render status badges.
+SELECT pr.repo, pr.commit_sha, pr.workflow_file, pr.status, pr.project_id
+FROM pipeline_runs pr WHERE pr.id = $1;
+
+-- name: LatestRunStatusForProject :one
+-- The newest run's status for a project (optionally filtered by branch) — the
+-- status badge source.
+SELECT pr.status FROM pipeline_runs pr
+WHERE pr.project_id = $1
+  AND (sqlc.arg(branch)::text = '' OR pr.branch = sqlc.arg(branch)::text)
+ORDER BY pr.created_at DESC LIMIT 1;

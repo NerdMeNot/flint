@@ -12,11 +12,16 @@ import (
 )
 
 const cleanupOldEngineEvents = `-- name: CleanupOldEngineEvents :exec
-DELETE FROM engine_events WHERE created_at < now() - interval '30 days'
+DELETE FROM engine_events WHERE id IN (
+    SELECT id FROM engine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+)
 `
 
-// Prune transition history older than 30 days so the table stays bounded. Called
-// from the sweep alongside the other retention cleanups.
+// Prune transition history older than 30 days so the table stays bounded.
+// Batched (one batch per sweep) so a long-lived install's backlog can't stall
+// a sweep tick with one giant DELETE.
 func (q *Queries) CleanupOldEngineEvents(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, cleanupOldEngineEvents)
 	return err

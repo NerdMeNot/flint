@@ -58,9 +58,10 @@ SELECT input FROM workflows WHERE id = $1;
 SELECT step_outputs FROM workflows WHERE id = $1;
 
 -- name: GetWorkflowInputs :many
--- Batch variant: fetch inputs for all workflows in a claimed step batch in one
--- round-trip (kills the per-step N+1 in claimAndDispatch).
-SELECT id, input FROM workflows WHERE id = ANY(sqlc.arg(workflow_ids)::uuid[]);
+-- Batch variant: fetch inputs (and accumulated step outputs, for the
+-- needs.<job>.outputs.* dispatch context) for all workflows in a claimed step
+-- batch in one round-trip (kills the per-step N+1 in claimAndDispatch).
+SELECT id, input, step_outputs FROM workflows WHERE id = ANY(sqlc.arg(workflow_ids)::uuid[]);
 
 -- name: SweepStaleWorkflows :exec
 UPDATE workflows SET status = 'failed', finished_at = now()

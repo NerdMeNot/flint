@@ -38,6 +38,12 @@ func NewBitbucketWithToken(token string) (*BitbucketAdapter, error) {
 
 func (b *BitbucketAdapter) Type() string { return "bitbucket" }
 
+// ListPullRequestFiles is not implemented for Bitbucket yet — callers treat
+// ErrUnsupportedEvent as "changed files unknown" and fail open.
+func (b *BitbucketAdapter) ListPullRequestFiles(ctx context.Context, repo string, prNumber int) ([]string, error) {
+	return nil, fmt.Errorf("%w: bitbucket changed-files listing", ErrUnsupportedEvent)
+}
+
 // ParseWebhook parses and verifies a Bitbucket webhook.
 // Bitbucket Cloud supports HMAC-SHA256 signatures via X-Hub-Signature header.
 func (b *BitbucketAdapter) ParseWebhook(headers http.Header, body []byte, secret string) (*WebhookEvent, error) {

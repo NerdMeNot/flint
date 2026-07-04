@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -25,6 +26,10 @@ type Loop struct {
 	config     LoopConfig
 	wake       chan struct{}
 	outboxWake chan struct{}
+	// notifyHealthy tracks whether the LISTEN connection is live. When it is,
+	// NOTIFY wakeups are the fast path and polling backs off to the idle
+	// interval; when it drops, polling falls back to the tight interval.
+	notifyHealthy atomic.Bool
 }
 
 // NewLoop creates a worker loop. executors maps step exec types to the executor
@@ -45,6 +50,7 @@ func NewLoop(engine *PgEngine, executors ExecutorRegistry, cfg LoopConfig) *Loop
 func (l *Loop) Run(ctx context.Context) error {
 	log.Info().
 		Dur("pollInterval", l.config.pollInterval()).
+		Dur("idlePollInterval", l.config.idlePollInterval()).
 		Dur("sweepInterval", l.config.sweepInterval()).
 		Msg("engine: worker loop started")
 
@@ -55,9 +61,12 @@ func (l *Loop) Run(ctx context.Context) error {
 	// can never stall step claiming/dispatch on the tick loop.
 	go l.runOutbox(ctx)
 
-	ticker := time.NewTicker(l.config.pollInterval())
+	// Adaptive polling: while LISTEN/NOTIFY is healthy, notifications carry the
+	// work signal and the poll is only a safety net (timers still need it) —
+	// back off to the idle interval. Without a healthy listener, poll tight.
+	timer := time.NewTimer(l.config.pollInterval())
 	sweepTicker := time.NewTicker(l.config.sweepInterval())
-	defer ticker.Stop()
+	defer timer.Stop()
 	defer sweepTicker.Stop()
 
 	for {
@@ -67,12 +76,38 @@ func (l *Loop) Run(ctx context.Context) error {
 			return nil
 		case <-l.wake:
 			l.tick(ctx)
-		case <-ticker.C:
+		case <-timer.C:
 			l.tick(ctx)
 		case <-sweepTicker.C:
 			l.sweep(ctx)
 		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(l.currentPollInterval())
 	}
+}
+
+// currentPollInterval returns the poll cadence for the current NOTIFY health.
+// Timers cap the backoff: a due timer must not wait for a 30s poll, so when
+// one fires sooner than the idle interval the wait shrinks to it.
+func (l *Loop) currentPollInterval() time.Duration {
+	if !l.notifyHealthy.Load() {
+		return l.config.pollInterval()
+	}
+	idle := l.config.idlePollInterval()
+	if due, err := db.New(l.pool).NextTimerDue(context.Background()); err == nil && !due.IsZero() {
+		if wait := time.Until(due); wait < idle {
+			if wait < l.config.pollInterval() {
+				return l.config.pollInterval()
+			}
+			return wait
+		}
+	}
+	return idle
 }
 
 // tick is one iteration of the main loop.
@@ -87,6 +122,13 @@ func (l *Loop) tick(ctx context.Context) {
 	l.processRejections(ctx)
 	l.processSignalWaits(ctx)
 
+	// Phase 2.5: Advance workflows with pending informer step-result signals.
+	// This is the crash-recovery path: when an agent dies without reporting,
+	// the K8s informer delivers a step-result signal within seconds — without
+	// this phase nothing would consume it until the step's timeout sweep
+	// (hours later), because tick otherwise only advances via completions.
+	l.processStepResultSignals(ctx)
+
 	// Phase 3: Claim and dispatch queued steps.
 	l.claimAndDispatch(ctx)
 
@@ -95,20 +137,31 @@ func (l *Loop) tick(ctx context.Context) {
 }
 
 // runOutbox delivers webhook outbox events on its own goroutine, decoupled from
-// the tick loop. It runs on the poll interval and also wakes on a NOTIFY (a
-// finished/cancelled run enqueues webhook events and signals the engine channel),
-// so delivery stays prompt without coupling webhook latency to step dispatch.
+// the tick loop. NOTIFY wakes it promptly (a finished/cancelled run enqueues
+// webhook events and signals the engine channel); polling is only the fallback,
+// so it follows the same adaptive cadence as the main loop.
 func (l *Loop) runOutbox(ctx context.Context) {
-	ticker := time.NewTicker(l.config.pollInterval())
-	defer ticker.Stop()
+	timer := time.NewTimer(l.config.pollInterval())
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-l.outboxWake:
 			processOutbox(ctx, l.pool)
-		case <-ticker.C:
+		case <-timer.C:
 			processOutbox(ctx, l.pool)
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		if l.notifyHealthy.Load() {
+			timer.Reset(l.config.idlePollInterval())
+		} else {
+			timer.Reset(l.config.pollInterval())
 		}
 	}
 }
@@ -157,33 +210,37 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 	// (steps from the same run share an input) instead of one query per step.
 	inputs := l.loadWorkflowInputs(ctx, q, claimedSteps)
 
-	for _, c := range claimedSteps {
-		token := EncodeTaskToken(TaskToken{
+	// Mint every task token up front and stamp them in ONE round-trip.
+	tokens := make([]string, len(claimedSteps))
+	ids := make([]string, len(claimedSteps))
+	for i, c := range claimedSteps {
+		ids[i] = c.ID
+		tokens[i] = EncodeTaskToken(TaskToken{
 			WorkflowID: c.WorkflowID,
 			StepName:   c.Name,
 			Attempt:    int(c.Attempt),
 		}, l.config.SigningKey)
+	}
+	if err := q.SetStepTaskTokens(ctx, db.SetStepTaskTokensParams{Ids: ids, Tokens: tokens}); err != nil {
+		log.Error().Err(err).Msg("engine: failed to set task tokens for claimed batch")
+	}
 
-		// Update task token on the step.
-		if err := q.SetStepTaskToken(ctx, db.SetStepTaskTokenParams{
-			ID:        c.ID,
-			TaskToken: &token,
-		}); err != nil {
-			log.Error().Err(err).Str("step", c.Name).Msg("engine: failed to set task token")
-		}
+	for i, c := range claimedSteps {
+		token := tokens[i]
 
-		// Record the claim transition (queued → running, or → waiting for gates/waits)
-		// for the run timeline. The claim itself happened in bulk SQL (ClaimQueuedSteps).
-		claimEvent := "claimed"
+		// Record the claim transition for parked steps (gates/waits) here; for
+		// running steps the "claimed" event is emitted AFTER the org
+		// concurrency check in dispatchClaimedStep — a throttled step is
+		// re-queued and re-claimed every tick, and emitting here would spam an
+		// unbounded stream of claimed events into the run timeline.
 		if c.Status == stepWaiting {
-			claimEvent = "parked"
+			emitStepEvent(ctx, q, stepTransition{
+				workflowID: c.WorkflowID, stepName: c.Name, attempt: int(c.Attempt),
+				from: stepQueued, to: c.Status, eventType: "parked",
+			})
 		}
-		emitStepEvent(ctx, q, stepTransition{
-			workflowID: c.WorkflowID, stepName: c.Name, attempt: int(c.Attempt),
-			from: stepQueued, to: c.Status, eventType: claimEvent,
-		})
 
-		input, ok := inputs[c.WorkflowID]
+		meta, ok := inputs[c.WorkflowID]
 		if !ok {
 			log.Error().Str("step", c.Name).Msg("engine: missing workflow input for claimed step")
 			continue
@@ -210,14 +267,21 @@ func (l *Loop) claimAndDispatchSimple(ctx context.Context) {
 
 		// Dispatch run/use/steps steps. Gates/waits are parked (status 'waiting').
 		if c.Status == stepRunning && len(l.executors) > 0 {
-			l.dispatchClaimedStep(ctx, q, c, token, input)
+			l.dispatchClaimedStep(ctx, q, c, token, meta)
 		}
 	}
 }
 
-// loadWorkflowInputs fetches and decodes the workflow input for every distinct
-// workflow in the claimed batch in a single query.
-func (l *Loop) loadWorkflowInputs(ctx context.Context, q *db.Queries, steps []db.ClaimQueuedStepsRow) map[string]StartWorkflowInput {
+// workflowMeta bundles the per-workflow data a dispatch needs: the start
+// input plus the accumulated step outputs (for needs.<job>.outputs.*).
+type workflowMeta struct {
+	input       StartWorkflowInput
+	stepOutputs map[string]StepResult
+}
+
+// loadWorkflowInputs fetches and decodes the workflow input + step outputs for
+// every distinct workflow in the claimed batch in a single query.
+func (l *Loop) loadWorkflowInputs(ctx context.Context, q *db.Queries, steps []db.ClaimQueuedStepsRow) map[string]workflowMeta {
 	seen := make(map[string]bool, len(steps))
 	ids := make([]string, 0, len(steps))
 	for _, c := range steps {
@@ -226,17 +290,19 @@ func (l *Loop) loadWorkflowInputs(ctx context.Context, q *db.Queries, steps []db
 			ids = append(ids, c.WorkflowID)
 		}
 	}
-	out := make(map[string]StartWorkflowInput, len(ids))
+	out := make(map[string]workflowMeta, len(ids))
 	rows, err := q.GetWorkflowInputs(ctx, ids)
 	if err != nil {
 		log.Error().Err(err).Msg("engine: batch fetch workflow inputs failed")
 		return out
 	}
 	for _, r := range rows {
-		var in StartWorkflowInput
-		if json.Unmarshal(r.Input, &in) == nil {
-			out[r.ID] = in
+		var meta workflowMeta
+		if json.Unmarshal(r.Input, &meta.input) != nil {
+			continue
 		}
+		_ = json.Unmarshal(r.StepOutputs, &meta.stepOutputs)
+		out[r.ID] = meta
 	}
 	return out
 }
@@ -245,7 +311,8 @@ func (l *Loop) loadWorkflowInputs(ctx context.Context, q *db.Queries, steps []db
 // and hands a claimed running step to its executor. On a transient dispatch error
 // the step is routed through the retry policy (not failed outright); on success
 // it records dispatched_at so the undispatched-step sweep won't reclaim it.
-func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.ClaimQueuedStepsRow, token string, input StartWorkflowInput) {
+func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.ClaimQueuedStepsRow, token string, meta workflowMeta) {
+	input := meta.input
 	// Enforce per-org concurrency limit: if the org is at capacity, push this one
 	// back to 'queued' to be picked up when a slot opens.
 	if input.OrgID != "" && l.checkConcurrencyLimit(ctx, q, input.OrgID, c.ID) {
@@ -255,26 +322,45 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 		return
 	}
 
+	// Past the throttle — record the claim for the run timeline (exactly once
+	// per real dispatch attempt, not per throttled re-queue).
+	emitStepEvent(ctx, q, stepTransition{
+		workflowID: c.WorkflowID, stepName: c.Name, attempt: int(c.Attempt),
+		from: stepQueued, to: stepRunning, eventType: "claimed",
+	})
+
 	// Resolve env vars: org env_variables → step.env → input.Env
 	merged := l.resolveStepEnv(ctx, q, input, c.StepDef)
 
-	// Extract secret mapping from step_def.
+	// Extract secret mapping + dependency edges from step_def.
 	var stepDef struct {
-		Secrets map[string]string `json:"secrets"`
+		Secrets   map[string]string `json:"secrets"`
+		DependsOn []string          `json:"dependsOn"`
 	}
 	_ = json.Unmarshal(c.StepDef, &stepDef)
 
+	// needs.<job>.outputs.* for the in-pod driver: the outputs of this step's
+	// direct dependencies, keyed by base job name (matrix suffix stripped).
+	needsOutputs := map[string]map[string]string{}
+	for _, dep := range stepDef.DependsOn {
+		if r, ok := meta.stepOutputs[dep]; ok && len(r.Outputs) > 0 {
+			needsOutputs[baseStepName(dep)] = r.Outputs
+		}
+	}
+
 	step := claimedStep{
 		id: c.ID, workflowID: c.WorkflowID, name: c.Name,
-		execType: c.ExecType, taskToken: token, stepDef: c.StepDef,
+		execType: c.ExecType, attempt: int(c.Attempt), taskToken: token, stepDef: c.StepDef,
 		wsToken: DeriveWorkspaceToken(input.RunID, l.config.SigningKey),
 		runID:   input.RunID, orgID: input.OrgID, projectID: input.ProjectID,
 		repo: input.Repo, ref: input.Ref, commitSHA: input.CommitSHA,
-		environment:            input.Environment,
-		pipelineImage:          input.PipelineImage,
-		pipelineServiceAccount: input.PipelineServiceAccount,
-		env:                    merged,
-		secretMapping:          stepDef.Secrets,
+		triggerType:   input.TriggerType,
+		workspaceFlow: input.WorkspaceFlow,
+		environment:   input.Environment,
+		pipelineImage: input.PipelineImage,
+		env:           merged,
+		secretMapping: stepDef.Secrets,
+		needsOutputs:  needsOutputs,
 	}
 	handle, err := dispatchStep(ctx, l.executors, step)
 	if errors.Is(err, errNoExecutor) {
@@ -295,13 +381,13 @@ func (l *Loop) dispatchClaimedStep(ctx context.Context, q *db.Queries, c db.Clai
 
 	observe.StepsDispatched.Add(ctx, 1)
 	// Record dispatch: stamps dispatched_at (so the undispatched sweep ignores this
-	// step) and the executor handle (e.g. k8s Job name) for correlation. handle is
-	// empty for in-process executors (http/sim) — store NULL.
+	// step) and the executor handle (machine executor: assignment id) for
+	// correlation. handle is empty for in-process executors (http/sim) — store NULL.
 	var handlePtr *string
 	if handle != "" {
 		handlePtr = &handle
 	}
-	if err := q.MarkStepDispatched(ctx, db.MarkStepDispatchedParams{ID: c.ID, K8sJobName: handlePtr}); err != nil {
+	if err := q.MarkStepDispatched(ctx, db.MarkStepDispatchedParams{ID: c.ID, DispatchHandle: handlePtr}); err != nil {
 		log.Warn().Err(err).Str("step", c.Name).Msg("engine: failed to record step dispatch")
 	}
 	dispatchMeta := map[string]any{}
@@ -591,6 +677,38 @@ func (l *Loop) resolveNextWaitStep(ctx context.Context) (done bool) {
 	return false
 }
 
+// processStepResultSignals advances every running workflow that has an
+// unconsumed informer step-result signal. advanceWorkflow consumes the signal
+// (marking the crashed step terminal) and queues whatever became eligible —
+// all in one transaction per workflow.
+func (l *Loop) processStepResultSignals(ctx context.Context) {
+	q := db.New(l.pool)
+	wfIDs, err := q.WorkflowsWithPendingStepSignals(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("engine: list workflows with pending step signals failed")
+		return
+	}
+	for _, wfID := range wfIDs {
+		tx, txErr := l.pool.Begin(ctx)
+		if txErr != nil {
+			log.Warn().Err(txErr).Msg("engine: begin tx for step-result signal advance")
+			continue
+		}
+		qtx := db.New(l.pool).WithTx(tx)
+		if err := advanceWorkflow(ctx, qtx, wfID, 0); err != nil {
+			log.Warn().Err(err).Str("workflow", wfID).Msg("engine: step-result signal advance failed")
+			tx.Rollback(ctx)
+			continue
+		}
+		if err := tx.Commit(ctx); err != nil {
+			tx.Rollback(ctx)
+			continue
+		}
+		_ = q.NotifyEngine(ctx, wfID)
+		l.engine.notifyState(ctx, wfID)
+	}
+}
+
 // sweep detects and recovers from stale state.
 func (l *Loop) sweep(ctx context.Context) {
 	log.Debug().Msg("engine: sweep started")
@@ -658,8 +776,21 @@ func (l *Loop) sweep(ctx context.Context) {
 	if err := q.DeleteConsumedSignals(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup consumed signals failed")
 	}
+	if err := q.DeleteStaleUnconsumedSignals(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: cleanup stale unconsumed signals failed")
+	}
 	if err := q.CleanupOldEngineEvents(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup old engine events failed")
+	}
+	// Runs retention: terminal runs past the window are deleted (workflows/
+	// steps cascade). Batched — one batch per sweep keeps the delete bounded;
+	// a backlog drains across sweeps.
+	if days := l.config.runRetentionDays(); days > 0 {
+		if n, err := q.DeleteOldRuns(ctx, int32(days)); err != nil {
+			log.Warn().Err(err).Msg("engine: runs retention failed")
+		} else if n > 0 {
+			log.Info().Int64("count", n).Int("retentionDays", days).Msg("engine: runs retention pruned old runs")
+		}
 	}
 
 	// 5. Tear down resources for terminal runs not yet cleaned. Same exactly-once
@@ -800,9 +931,14 @@ func (l *Loop) listenNotify(ctx context.Context) {
 			continue
 		}
 
+		// Listener live — polling may back off to the idle cadence.
+		l.notifyHealthy.Store(true)
+
 		for {
 			_, err := conn.Conn().WaitForNotification(ctx)
 			if err != nil {
+				// Listener down — fall back to tight polling until reconnected.
+				l.notifyHealthy.Store(false)
 				conn.Release()
 				if ctx.Err() != nil {
 					return

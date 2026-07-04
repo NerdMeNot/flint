@@ -55,6 +55,18 @@ func (q *Queries) DeleteConsumedSignals(ctx context.Context) error {
 	return err
 }
 
+const deleteStaleUnconsumedSignals = `-- name: DeleteStaleUnconsumedSignals :exec
+DELETE FROM signals WHERE consumed = false AND created_at < now() - interval '7 days'
+`
+
+// Prune unconsumed signals that never matched anything (e.g. an informer
+// step-result for a workflow that finished first, or an external signal with
+// no waiting step). Any legitimate consumer has long since timed out at 7 days.
+func (q *Queries) DeleteStaleUnconsumedSignals(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteStaleUnconsumedSignals)
+	return err
+}
+
 const insertSignal = `-- name: InsertSignal :exec
 INSERT INTO signals (workflow_id, signal_name, payload) VALUES ($1, $2, $3)
 `
@@ -77,4 +89,36 @@ SELECT pg_notify('flint_engine', $1)
 func (q *Queries) NotifyEngine(ctx context.Context, pgNotify string) error {
 	_, err := q.db.Exec(ctx, notifyEngine, pgNotify)
 	return err
+}
+
+const workflowsWithPendingStepSignals = `-- name: WorkflowsWithPendingStepSignals :many
+SELECT DISTINCT s.workflow_id
+FROM signals s
+JOIN workflows w ON w.id = s.workflow_id
+WHERE s.consumed = false AND s.signal_name = 'step-result' AND w.status = 'running'
+LIMIT 100
+`
+
+// Running workflows that have an unconsumed informer step-result signal. The
+// loop advances these promptly so a crashed agent's step is resolved by the
+// informer in seconds, not at the step-timeout sweep. Uses the
+// idx_signals_unconsumed partial index.
+func (q *Queries) WorkflowsWithPendingStepSignals(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, workflowsWithPendingStepSignals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var workflow_id string
+		if err := rows.Scan(&workflow_id); err != nil {
+			return nil, err
+		}
+		items = append(items, workflow_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -65,6 +65,16 @@ type CasbinRule struct {
 	V5    string `json:"v5"`
 }
 
+type ComputeProvider struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	ProviderType   string    `json:"provider_type"`
+	Config         []byte    `json:"config"`
+	CredentialsEnc []byte    `json:"credentials_enc"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type DeviceCode struct {
 	DeviceCode    string     `json:"device_code"`
 	UserCode      string     `json:"user_code"`
@@ -122,6 +132,20 @@ type Environment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type FleetDecision struct {
+	ID              string     `json:"id"`
+	PoolID          *string    `json:"pool_id"`
+	MachineID       *string    `json:"machine_id"`
+	DecisionType    string     `json:"decision_type"`
+	Inputs          []byte     `json:"inputs"`
+	Chosen          []byte     `json:"chosen"`
+	Alternatives    []byte     `json:"alternatives"`
+	Outcome         *string    `json:"outcome"`
+	OutcomeMetadata []byte     `json:"outcome_metadata"`
+	OutcomeAt       *time.Time `json:"outcome_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
 type FlintOutbox struct {
 	ID             string     `json:"id"`
 	EventType      string     `json:"event_type"`
@@ -155,6 +179,83 @@ type LoginAttempt struct {
 	IpAddress *string   `json:"ip_address"`
 	Success   bool      `json:"success"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Machine struct {
+	ID                       string         `json:"id"`
+	PoolID                   string         `json:"pool_id"`
+	Status                   string         `json:"status"`
+	Provider                 string         `json:"provider"`
+	ProviderRef              *string        `json:"provider_ref"`
+	InstanceType             *string        `json:"instance_type"`
+	Region                   *string        `json:"region"`
+	Zone                     *string        `json:"zone"`
+	CapacityType             *string        `json:"capacity_type"`
+	PricePerHourUsd          pgtype.Numeric `json:"price_per_hour_usd"`
+	AcceptedOffer            []byte         `json:"accepted_offer"`
+	CpuMillis                int64          `json:"cpu_millis"`
+	MemoryMb                 int64          `json:"memory_mb"`
+	DiskGb                   int64          `json:"disk_gb"`
+	Arch                     string         `json:"arch"`
+	Os                       string         `json:"os"`
+	Labels                   []byte         `json:"labels"`
+	Hostname                 *string        `json:"hostname"`
+	AgentVersion             *string        `json:"agent_version"`
+	BootstrapTokenHash       *string        `json:"bootstrap_token_hash"`
+	AgentTokenHash           *string        `json:"agent_token_hash"`
+	BootDeadlineAt           *time.Time     `json:"boot_deadline_at"`
+	HeartbeatIntervalSeconds int32          `json:"heartbeat_interval_seconds"`
+	LastHeartbeatAt          *time.Time     `json:"last_heartbeat_at"`
+	HeartbeatExpiresAt       *time.Time     `json:"heartbeat_expires_at"`
+	StepsCompleted           int32          `json:"steps_completed"`
+	IdleSince                *time.Time     `json:"idle_since"`
+	DrainReason              *string        `json:"drain_reason"`
+	RequestedAt              time.Time      `json:"requested_at"`
+	ProvisionedAt            *time.Time     `json:"provisioned_at"`
+	RegisteredAt             *time.Time     `json:"registered_at"`
+	TerminatedAt             *time.Time     `json:"terminated_at"`
+	UpdatedAt                time.Time      `json:"updated_at"`
+}
+
+type MachineEvent struct {
+	ID         string    `json:"id"`
+	MachineID  string    `json:"machine_id"`
+	EventType  string    `json:"event_type"`
+	FromStatus *string   `json:"from_status"`
+	ToStatus   *string   `json:"to_status"`
+	Actor      string    `json:"actor"`
+	Reason     *string   `json:"reason"`
+	Metadata   []byte    `json:"metadata"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type MachinePool struct {
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    *string        `json:"description"`
+	Provider       string         `json:"provider"`
+	IsDefault      bool           `json:"is_default"`
+	Arch           string         `json:"arch"`
+	Cpu            string         `json:"cpu"`
+	Memory         string         `json:"memory"`
+	Disk           *string        `json:"disk"`
+	GpuVendor      *string        `json:"gpu_vendor"`
+	GpuModel       *string        `json:"gpu_model"`
+	GpuCount       pgtype.Int4    `json:"gpu_count"`
+	InstanceTypes  []string       `json:"instance_types"`
+	Regions        []string       `json:"regions"`
+	CapacityType   string         `json:"capacity_type"`
+	Objective      string         `json:"objective"`
+	MinWarm        int32          `json:"min_warm"`
+	MaxMachines    int32          `json:"max_machines"`
+	IdleTtlSeconds int32          `json:"idle_ttl_seconds"`
+	Overrides      []byte         `json:"overrides"`
+	HourlyCost     pgtype.Numeric `json:"hourly_cost"`
+	DefaultTimeout *string        `json:"default_timeout"`
+	JoinTokenHash  *string        `json:"join_token_hash"`
+	Ready          bool           `json:"ready"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 type MfaPendingToken struct {
@@ -200,27 +301,28 @@ type PipelineModule struct {
 }
 
 type PipelineRun struct {
-	ID            string      `json:"id"`
-	ProjectID     *string     `json:"project_id"`
-	OrgID         string      `json:"org_id"`
-	WorkflowFile  *string     `json:"workflow_file"`
-	TriggerType   string      `json:"trigger_type"`
-	TriggerRef    *string     `json:"trigger_ref"`
-	CommitSha     *string     `json:"commit_sha"`
-	CommitMessage *string     `json:"commit_message"`
-	TriggeredBy   *string     `json:"triggered_by"`
-	Status        string      `json:"status"`
-	StartedAt     time.Time   `json:"started_at"`
-	FinishedAt    *time.Time  `json:"finished_at"`
-	DurationMs    pgtype.Int4 `json:"duration_ms"`
-	CreatedAt     time.Time   `json:"created_at"`
-	WorkflowID    *string     `json:"workflow_id"`
-	Branch        *string     `json:"branch"`
-	Repo          *string     `json:"repo"`
-	Environment   *string     `json:"environment"`
-	ErrorMessage  *string     `json:"error_message"`
-	Kind          string      `json:"kind"`
-	CleanedAt     *time.Time  `json:"cleaned_at"`
+	ID               string      `json:"id"`
+	ProjectID        *string     `json:"project_id"`
+	OrgID            string      `json:"org_id"`
+	WorkflowFile     *string     `json:"workflow_file"`
+	TriggerType      string      `json:"trigger_type"`
+	TriggerRef       *string     `json:"trigger_ref"`
+	CommitSha        *string     `json:"commit_sha"`
+	CommitMessage    *string     `json:"commit_message"`
+	TriggeredBy      *string     `json:"triggered_by"`
+	Status           string      `json:"status"`
+	StartedAt        time.Time   `json:"started_at"`
+	FinishedAt       *time.Time  `json:"finished_at"`
+	DurationMs       pgtype.Int4 `json:"duration_ms"`
+	CreatedAt        time.Time   `json:"created_at"`
+	WorkflowID       *string     `json:"workflow_id"`
+	Branch           *string     `json:"branch"`
+	Repo             *string     `json:"repo"`
+	Environment      *string     `json:"environment"`
+	ErrorMessage     *string     `json:"error_message"`
+	Kind             string      `json:"kind"`
+	CleanedAt        *time.Time  `json:"cleaned_at"`
+	ConcurrencyGroup *string     `json:"concurrency_group"`
 }
 
 type Project struct {
@@ -293,32 +395,6 @@ type RolePermission struct {
 type RoleWorkspaceScope struct {
 	RoleID      string `json:"role_id"`
 	WorkspaceID string `json:"workspace_id"`
-}
-
-type RunnerPool struct {
-	ID                    string      `json:"id"`
-	Name                  string      `json:"name"`
-	Description           *string     `json:"description"`
-	Cpu                   string      `json:"cpu"`
-	Memory                string      `json:"memory"`
-	GpuVendor             *string     `json:"gpu_vendor"`
-	GpuModel              *string     `json:"gpu_model"`
-	GpuCount              pgtype.Int4 `json:"gpu_count"`
-	Arch                  string      `json:"arch"`
-	NodeSelector          []byte      `json:"node_selector"`
-	Tolerations           []byte      `json:"tolerations"`
-	DefaultTimeout        *string     `json:"default_timeout"`
-	IsDefault             bool        `json:"is_default"`
-	ServiceAccountName    *string     `json:"service_account_name"`
-	WorkspaceMode         string      `json:"workspace_mode"`
-	WorkspaceStorageClass *string     `json:"workspace_storage_class"`
-	WorkspaceSize         string      `json:"workspace_size"`
-	RunAsNonRoot          bool        `json:"run_as_non_root"`
-	Mode                  string      `json:"mode"`
-	ManagedSpec           []byte      `json:"managed_spec"`
-	Ready                 bool        `json:"ready"`
-	CreatedAt             time.Time   `json:"created_at"`
-	UpdatedAt             time.Time   `json:"updated_at"`
 }
 
 type SamlUsedAssertion struct {
@@ -401,7 +477,7 @@ type Step struct {
 	MaxAttempts          int32      `json:"max_attempts"`
 	StepDef              []byte     `json:"step_def"`
 	Result               []byte     `json:"result"`
-	K8sJobName           *string    `json:"k8s_job_name"`
+	DispatchHandle       *string    `json:"dispatch_handle"`
 	TaskToken            *string    `json:"task_token"`
 	OnFailure            string     `json:"on_failure"`
 	TimeoutSeconds       int32      `json:"timeout_seconds"`
@@ -413,6 +489,29 @@ type Step struct {
 	FinishedAt           *time.Time `json:"finished_at"`
 	DeadlineAt           *time.Time `json:"deadline_at"`
 	DispatchedAt         *time.Time `json:"dispatched_at"`
+}
+
+type StepAssignment struct {
+	ID              string     `json:"id"`
+	StepID          string     `json:"step_id"`
+	WorkflowID      string     `json:"workflow_id"`
+	RunID           string     `json:"run_id"`
+	StepName        string     `json:"step_name"`
+	Attempt         int32      `json:"attempt"`
+	PoolID          string     `json:"pool_id"`
+	MachineID       *string    `json:"machine_id"`
+	Status          string     `json:"status"`
+	CpuMillis       int64      `json:"cpu_millis"`
+	MemoryMb        int64      `json:"memory_mb"`
+	DiskGb          int64      `json:"disk_gb"`
+	Payload         []byte     `json:"payload"`
+	CancelRequested bool       `json:"cancel_requested"`
+	Error           *string    `json:"error"`
+	CreatedAt       time.Time  `json:"created_at"`
+	AssignedAt      *time.Time `json:"assigned_at"`
+	ClaimDeadlineAt *time.Time `json:"claim_deadline_at"`
+	StartedAt       *time.Time `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at"`
 }
 
 type TagKey struct {

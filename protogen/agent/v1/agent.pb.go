@@ -23,34 +23,27 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AgentMessage is sent from the agent to the server over the ExecuteStep stream.
-type AgentMessage struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Payload:
-	//
-	//	*AgentMessage_LogBatch
-	//	*AgentMessage_StepStarted
-	//	*AgentMessage_StepProgress
-	//	*AgentMessage_Heartbeat
-	Payload       isAgentMessage_Payload `protobuf_oneof:"payload"`
+type GetStepSecretsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AssignmentId  string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AgentMessage) Reset() {
-	*x = AgentMessage{}
+func (x *GetStepSecretsRequest) Reset() {
+	*x = GetStepSecretsRequest{}
 	mi := &file_agent_v1_agent_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AgentMessage) String() string {
+func (x *GetStepSecretsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AgentMessage) ProtoMessage() {}
+func (*GetStepSecretsRequest) ProtoMessage() {}
 
-func (x *AgentMessage) ProtoReflect() protoreflect.Message {
+func (x *GetStepSecretsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_agent_v1_agent_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -62,109 +55,1089 @@ func (x *AgentMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AgentMessage.ProtoReflect.Descriptor instead.
-func (*AgentMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetStepSecretsRequest.ProtoReflect.Descriptor instead.
+func (*GetStepSecretsRequest) Descriptor() ([]byte, []int) {
 	return file_agent_v1_agent_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AgentMessage) GetPayload() isAgentMessage_Payload {
+func (x *GetStepSecretsRequest) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+type GetStepSecretsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Env var name → secret value, resolved through the step's secret mapping
+	// with environment → project → org scope fallback.
+	Secrets       map[string]string `protobuf:"bytes,1,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStepSecretsResponse) Reset() {
+	*x = GetStepSecretsResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStepSecretsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStepSecretsResponse) ProtoMessage() {}
+
+func (x *GetStepSecretsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStepSecretsResponse.ProtoReflect.Descriptor instead.
+func (*GetStepSecretsResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *GetStepSecretsResponse) GetSecrets() map[string]string {
+	if x != nil {
+		return x.Secrets
+	}
+	return nil
+}
+
+type GetCloneTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AssignmentId  string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCloneTokenRequest) Reset() {
+	*x = GetCloneTokenRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCloneTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCloneTokenRequest) ProtoMessage() {}
+
+func (x *GetCloneTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCloneTokenRequest.ProtoReflect.Descriptor instead.
+func (*GetCloneTokenRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetCloneTokenRequest) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+type GetCloneTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	CloneUrl      string                 `protobuf:"bytes,2,opt,name=clone_url,json=cloneUrl,proto3" json:"clone_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCloneTokenResponse) Reset() {
+	*x = GetCloneTokenResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCloneTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCloneTokenResponse) ProtoMessage() {}
+
+func (x *GetCloneTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCloneTokenResponse.ProtoReflect.Descriptor instead.
+func (*GetCloneTokenResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetCloneTokenResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *GetCloneTokenResponse) GetCloneUrl() string {
+	if x != nil {
+		return x.CloneUrl
+	}
+	return ""
+}
+
+type RegisterMachineRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// One-time bootstrap token (elastic) or pool join token (static).
+	RegistrationToken string `protobuf:"bytes,1,opt,name=registration_token,json=registrationToken,proto3" json:"registration_token,omitempty"`
+	// Pre-allocated machine id — set for elastic machines (from cloud-init);
+	// empty for static machines joining by pool token.
+	MachineId     string            `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	Hostname      string            `protobuf:"bytes,3,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Arch          string            `protobuf:"bytes,4,opt,name=arch,proto3" json:"arch,omitempty"` // "amd64" | "arm64"
+	Os            string            `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`     // "linux"
+	CpuMillis     int64             `protobuf:"varint,6,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryMb      int64             `protobuf:"varint,7,opt,name=memory_mb,json=memoryMb,proto3" json:"memory_mb,omitempty"`
+	DiskGb        int64             `protobuf:"varint,8,opt,name=disk_gb,json=diskGb,proto3" json:"disk_gb,omitempty"`
+	AgentVersion  string            `protobuf:"bytes,9,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	Labels        map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // capabilities: docker, gpu:nvidia-t4, …
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterMachineRequest) Reset() {
+	*x = RegisterMachineRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterMachineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterMachineRequest) ProtoMessage() {}
+
+func (x *RegisterMachineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterMachineRequest.ProtoReflect.Descriptor instead.
+func (*RegisterMachineRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RegisterMachineRequest) GetRegistrationToken() string {
+	if x != nil {
+		return x.RegistrationToken
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetCpuMillis() int64 {
+	if x != nil {
+		return x.CpuMillis
+	}
+	return 0
+}
+
+func (x *RegisterMachineRequest) GetMemoryMb() int64 {
+	if x != nil {
+		return x.MemoryMb
+	}
+	return 0
+}
+
+func (x *RegisterMachineRequest) GetDiskGb() int64 {
+	if x != nil {
+		return x.DiskGb
+	}
+	return 0
+}
+
+func (x *RegisterMachineRequest) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
+}
+
+func (x *RegisterMachineRequest) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+type RegisterMachineResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	MachineId string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// Bearer token for all subsequent calls. Shown once; only its hash is
+	// stored server-side.
+	MachineToken             string `protobuf:"bytes,2,opt,name=machine_token,json=machineToken,proto3" json:"machine_token,omitempty"`
+	HeartbeatIntervalSeconds int32  `protobuf:"varint,3,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
+	// Base URL for the HTTP data-plane endpoints (/internal/secrets, …).
+	ServerHttpUrl string `protobuf:"bytes,4,opt,name=server_http_url,json=serverHttpUrl,proto3" json:"server_http_url,omitempty"`
+	PoolName      string `protobuf:"bytes,5,opt,name=pool_name,json=poolName,proto3" json:"pool_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterMachineResponse) Reset() {
+	*x = RegisterMachineResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterMachineResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterMachineResponse) ProtoMessage() {}
+
+func (x *RegisterMachineResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterMachineResponse.ProtoReflect.Descriptor instead.
+func (*RegisterMachineResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RegisterMachineResponse) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
+}
+
+func (x *RegisterMachineResponse) GetMachineToken() string {
+	if x != nil {
+		return x.MachineToken
+	}
+	return ""
+}
+
+func (x *RegisterMachineResponse) GetHeartbeatIntervalSeconds() int32 {
+	if x != nil {
+		return x.HeartbeatIntervalSeconds
+	}
+	return 0
+}
+
+func (x *RegisterMachineResponse) GetServerHttpUrl() string {
+	if x != nil {
+		return x.ServerHttpUrl
+	}
+	return ""
+}
+
+func (x *RegisterMachineResponse) GetPoolName() string {
+	if x != nil {
+		return x.PoolName
+	}
+	return ""
+}
+
+type ClaimStepRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	MachineId string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// Long-poll budget in seconds; the server caps this (≤30s).
+	WaitSeconds   int32 `protobuf:"varint,2,opt,name=wait_seconds,json=waitSeconds,proto3" json:"wait_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimStepRequest) Reset() {
+	*x = ClaimStepRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimStepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimStepRequest) ProtoMessage() {}
+
+func (x *ClaimStepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimStepRequest.ProtoReflect.Descriptor instead.
+func (*ClaimStepRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClaimStepRequest) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
+}
+
+func (x *ClaimStepRequest) GetWaitSeconds() int32 {
+	if x != nil {
+		return x.WaitSeconds
+	}
+	return 0
+}
+
+type ClaimStepResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Assigned      bool                   `protobuf:"varint,1,opt,name=assigned,proto3" json:"assigned,omitempty"` // false = nothing within the wait window, poll again
+	Assignment    *Assignment            `protobuf:"bytes,2,opt,name=assignment,proto3" json:"assignment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimStepResponse) Reset() {
+	*x = ClaimStepResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimStepResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimStepResponse) ProtoMessage() {}
+
+func (x *ClaimStepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimStepResponse.ProtoReflect.Descriptor instead.
+func (*ClaimStepResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ClaimStepResponse) GetAssigned() bool {
+	if x != nil {
+		return x.Assigned
+	}
+	return false
+}
+
+func (x *ClaimStepResponse) GetAssignment() *Assignment {
+	if x != nil {
+		return x.Assignment
+	}
+	return nil
+}
+
+// Assignment is one unit of work bound to this machine.
+type Assignment struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AssignmentId  string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepName      string                 `protobuf:"bytes,3,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	Attempt       int32                  `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Payload       *StepPayload           `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Assignment) Reset() {
+	*x = Assignment{}
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Assignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Assignment) ProtoMessage() {}
+
+func (x *Assignment) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Assignment.ProtoReflect.Descriptor instead.
+func (*Assignment) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Assignment) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *Assignment) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *Assignment) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
+func (x *Assignment) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *Assignment) GetPayload() *StepPayload {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
-func (x *AgentMessage) GetLogBatch() *LogBatch {
+// StepPayload carries everything the agent needs to execute a step — the full
+// projection of the engine's dispatch context, persisted at dispatch time so
+// an agent can claim later (or after a control-plane restart) without the
+// server recomputing env or secret merges.
+type StepPayload struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	StepId     string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
+	WorkflowId string                 `protobuf:"bytes,2,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
+	StepName   string                 `protobuf:"bytes,3,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	ExecType   string                 `protobuf:"bytes,4,opt,name=exec_type,json=execType,proto3" json:"exec_type,omitempty"` // "run" | "use" | "steps"
+	// The pipeline.Step definition as JSON — image, command, sub-steps,
+	// services, cache/artifact specs, checkout inputs. The agent shares the
+	// pipeline package, so JSON here beats mirroring the whole schema in proto.
+	StepDefJson []byte `protobuf:"bytes,5,opt,name=step_def_json,json=stepDefJson,proto3" json:"step_def_json,omitempty"`
+	// Per-step HMAC task token: authenticates ReportStepComplete and the HTTP
+	// data-plane pulls (secrets, clone token, logs).
+	TaskToken string `protobuf:"bytes,6,opt,name=task_token,json=taskToken,proto3" json:"task_token,omitempty"`
+	// Per-run workspace token (HMAC-derived from the run id).
+	WsToken     string `protobuf:"bytes,7,opt,name=ws_token,json=wsToken,proto3" json:"ws_token,omitempty"`
+	RunId       string `protobuf:"bytes,8,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	OrgId       string `protobuf:"bytes,9,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	ProjectId   string `protobuf:"bytes,10,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Repo        string `protobuf:"bytes,11,opt,name=repo,proto3" json:"repo,omitempty"`
+	Ref         string `protobuf:"bytes,12,opt,name=ref,proto3" json:"ref,omitempty"`
+	CommitSha   string `protobuf:"bytes,13,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	TriggerType string `protobuf:"bytes,14,opt,name=trigger_type,json=triggerType,proto3" json:"trigger_type,omitempty"`
+	// Workspace flow for this run: "local" (all steps on one machine share a
+	// directory) | "s3" (cross-machine diff-sync) | "none". Fixed per run.
+	WorkspaceFlow string `protobuf:"bytes,15,opt,name=workspace_flow,json=workspaceFlow,proto3" json:"workspace_flow,omitempty"`
+	Environment   string `protobuf:"bytes,16,opt,name=environment,proto3" json:"environment,omitempty"`
+	PipelineImage string `protobuf:"bytes,17,opt,name=pipeline_image,json=pipelineImage,proto3" json:"pipeline_image,omitempty"`
+	// Merged non-secret env (org env_vars + step.env + input env).
+	Env map[string]string `protobuf:"bytes,18,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Env var name → secret store name; the agent pulls values at execution
+	// time with the task token (secrets never transit the assignment payload).
+	SecretMapping map[string]string `protobuf:"bytes,19,rep,name=secret_mapping,json=secretMapping,proto3" json:"secret_mapping,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Outputs of direct dependencies (base job name → outputs) as JSON, for the
+	// in-container needs.* expression context.
+	NeedsOutputsJson []byte         `protobuf:"bytes,20,opt,name=needs_outputs_json,json=needsOutputsJson,proto3" json:"needs_outputs_json,omitempty"`
+	TimeoutSeconds   int64          `protobuf:"varint,21,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	Resources        *StepResources `protobuf:"bytes,22,opt,name=resources,proto3" json:"resources,omitempty"`
+	ServerHttpUrl    string         `protobuf:"bytes,23,opt,name=server_http_url,json=serverHttpUrl,proto3" json:"server_http_url,omitempty"`
+	Storage          *ObjectStorage `protobuf:"bytes,24,opt,name=storage,proto3" json:"storage,omitempty"`
+	LogDurability    string         `protobuf:"bytes,25,opt,name=log_durability,json=logDurability,proto3" json:"log_durability,omitempty"` // "standard" | "guaranteed"
+	MatrixKey        string         `protobuf:"bytes,26,opt,name=matrix_key,json=matrixKey,proto3" json:"matrix_key,omitempty"`             // "" for non-matrix steps
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *StepPayload) Reset() {
+	*x = StepPayload{}
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepPayload) ProtoMessage() {}
+
+func (x *StepPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	if x != nil {
-		if x, ok := x.Payload.(*AgentMessage_LogBatch); ok {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepPayload.ProtoReflect.Descriptor instead.
+func (*StepPayload) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *StepPayload) GetStepId() string {
+	if x != nil {
+		return x.StepId
+	}
+	return ""
+}
+
+func (x *StepPayload) GetWorkflowId() string {
+	if x != nil {
+		return x.WorkflowId
+	}
+	return ""
+}
+
+func (x *StepPayload) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
+func (x *StepPayload) GetExecType() string {
+	if x != nil {
+		return x.ExecType
+	}
+	return ""
+}
+
+func (x *StepPayload) GetStepDefJson() []byte {
+	if x != nil {
+		return x.StepDefJson
+	}
+	return nil
+}
+
+func (x *StepPayload) GetTaskToken() string {
+	if x != nil {
+		return x.TaskToken
+	}
+	return ""
+}
+
+func (x *StepPayload) GetWsToken() string {
+	if x != nil {
+		return x.WsToken
+	}
+	return ""
+}
+
+func (x *StepPayload) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *StepPayload) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *StepPayload) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
+}
+
+func (x *StepPayload) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *StepPayload) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *StepPayload) GetCommitSha() string {
+	if x != nil {
+		return x.CommitSha
+	}
+	return ""
+}
+
+func (x *StepPayload) GetTriggerType() string {
+	if x != nil {
+		return x.TriggerType
+	}
+	return ""
+}
+
+func (x *StepPayload) GetWorkspaceFlow() string {
+	if x != nil {
+		return x.WorkspaceFlow
+	}
+	return ""
+}
+
+func (x *StepPayload) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *StepPayload) GetPipelineImage() string {
+	if x != nil {
+		return x.PipelineImage
+	}
+	return ""
+}
+
+func (x *StepPayload) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *StepPayload) GetSecretMapping() map[string]string {
+	if x != nil {
+		return x.SecretMapping
+	}
+	return nil
+}
+
+func (x *StepPayload) GetNeedsOutputsJson() []byte {
+	if x != nil {
+		return x.NeedsOutputsJson
+	}
+	return nil
+}
+
+func (x *StepPayload) GetTimeoutSeconds() int64 {
+	if x != nil {
+		return x.TimeoutSeconds
+	}
+	return 0
+}
+
+func (x *StepPayload) GetResources() *StepResources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+func (x *StepPayload) GetServerHttpUrl() string {
+	if x != nil {
+		return x.ServerHttpUrl
+	}
+	return ""
+}
+
+func (x *StepPayload) GetStorage() *ObjectStorage {
+	if x != nil {
+		return x.Storage
+	}
+	return nil
+}
+
+func (x *StepPayload) GetLogDurability() string {
+	if x != nil {
+		return x.LogDurability
+	}
+	return ""
+}
+
+func (x *StepPayload) GetMatrixKey() string {
+	if x != nil {
+		return x.MatrixKey
+	}
+	return ""
+}
+
+// ObjectStorage tells the agent where artifacts/cache/S3-workspace live.
+// An empty bucket disables all three.
+type ObjectStorage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Bucket        string                 `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	Region        string                 `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"` // optional S3-compatible endpoint (MinIO, R2)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ObjectStorage) Reset() {
+	*x = ObjectStorage{}
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ObjectStorage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ObjectStorage) ProtoMessage() {}
+
+func (x *ObjectStorage) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ObjectStorage.ProtoReflect.Descriptor instead.
+func (*ObjectStorage) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ObjectStorage) GetBucket() string {
+	if x != nil {
+		return x.Bucket
+	}
+	return ""
+}
+
+func (x *ObjectStorage) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *ObjectStorage) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+// StepResources is the resolved resource envelope for the step container.
+type StepResources struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CpuMillis     int64                  `protobuf:"varint,1,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryMb      int64                  `protobuf:"varint,2,opt,name=memory_mb,json=memoryMb,proto3" json:"memory_mb,omitempty"`
+	DiskGb        int64                  `protobuf:"varint,3,opt,name=disk_gb,json=diskGb,proto3" json:"disk_gb,omitempty"`
+	Privileged    bool                   `protobuf:"varint,4,opt,name=privileged,proto3" json:"privileged,omitempty"` // opt-in for dind/buildkit workloads
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StepResources) Reset() {
+	*x = StepResources{}
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepResources) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepResources) ProtoMessage() {}
+
+func (x *StepResources) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepResources.ProtoReflect.Descriptor instead.
+func (*StepResources) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *StepResources) GetCpuMillis() int64 {
+	if x != nil {
+		return x.CpuMillis
+	}
+	return 0
+}
+
+func (x *StepResources) GetMemoryMb() int64 {
+	if x != nil {
+		return x.MemoryMb
+	}
+	return 0
+}
+
+func (x *StepResources) GetDiskGb() int64 {
+	if x != nil {
+		return x.DiskGb
+	}
+	return 0
+}
+
+func (x *StepResources) GetPrivileged() bool {
+	if x != nil {
+		return x.Privileged
+	}
+	return false
+}
+
+type ExecuteStepRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*ExecuteStepRequest_Hello
+	//	*ExecuteStepRequest_LogBatch
+	//	*ExecuteStepRequest_StepStarted
+	//	*ExecuteStepRequest_StepProgress
+	//	*ExecuteStepRequest_Heartbeat
+	Payload       isExecuteStepRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecuteStepRequest) Reset() {
+	*x = ExecuteStepRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteStepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteStepRequest) ProtoMessage() {}
+
+func (x *ExecuteStepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteStepRequest.ProtoReflect.Descriptor instead.
+func (*ExecuteStepRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ExecuteStepRequest) GetPayload() isExecuteStepRequest_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *ExecuteStepRequest) GetHello() *StreamHello {
+	if x != nil {
+		if x, ok := x.Payload.(*ExecuteStepRequest_Hello); ok {
+			return x.Hello
+		}
+	}
+	return nil
+}
+
+func (x *ExecuteStepRequest) GetLogBatch() *LogBatch {
+	if x != nil {
+		if x, ok := x.Payload.(*ExecuteStepRequest_LogBatch); ok {
 			return x.LogBatch
 		}
 	}
 	return nil
 }
 
-func (x *AgentMessage) GetStepStarted() *StepStarted {
+func (x *ExecuteStepRequest) GetStepStarted() *StepStarted {
 	if x != nil {
-		if x, ok := x.Payload.(*AgentMessage_StepStarted); ok {
+		if x, ok := x.Payload.(*ExecuteStepRequest_StepStarted); ok {
 			return x.StepStarted
 		}
 	}
 	return nil
 }
 
-func (x *AgentMessage) GetStepProgress() *StepProgress {
+func (x *ExecuteStepRequest) GetStepProgress() *StepProgress {
 	if x != nil {
-		if x, ok := x.Payload.(*AgentMessage_StepProgress); ok {
+		if x, ok := x.Payload.(*ExecuteStepRequest_StepProgress); ok {
 			return x.StepProgress
 		}
 	}
 	return nil
 }
 
-func (x *AgentMessage) GetHeartbeat() *StreamHeartbeat {
+func (x *ExecuteStepRequest) GetHeartbeat() *StreamHeartbeat {
 	if x != nil {
-		if x, ok := x.Payload.(*AgentMessage_Heartbeat); ok {
+		if x, ok := x.Payload.(*ExecuteStepRequest_Heartbeat); ok {
 			return x.Heartbeat
 		}
 	}
 	return nil
 }
 
-type isAgentMessage_Payload interface {
-	isAgentMessage_Payload()
+type isExecuteStepRequest_Payload interface {
+	isExecuteStepRequest_Payload()
 }
 
-type AgentMessage_LogBatch struct {
-	LogBatch *LogBatch `protobuf:"bytes,1,opt,name=log_batch,json=logBatch,proto3,oneof"`
+type ExecuteStepRequest_Hello struct {
+	Hello *StreamHello `protobuf:"bytes,1,opt,name=hello,proto3,oneof"` // first frame: binds the stream to an assignment
 }
 
-type AgentMessage_StepStarted struct {
-	StepStarted *StepStarted `protobuf:"bytes,2,opt,name=step_started,json=stepStarted,proto3,oneof"`
+type ExecuteStepRequest_LogBatch struct {
+	LogBatch *LogBatch `protobuf:"bytes,2,opt,name=log_batch,json=logBatch,proto3,oneof"`
 }
 
-type AgentMessage_StepProgress struct {
-	StepProgress *StepProgress `protobuf:"bytes,3,opt,name=step_progress,json=stepProgress,proto3,oneof"`
+type ExecuteStepRequest_StepStarted struct {
+	StepStarted *StepStarted `protobuf:"bytes,3,opt,name=step_started,json=stepStarted,proto3,oneof"`
 }
 
-type AgentMessage_Heartbeat struct {
-	Heartbeat *StreamHeartbeat `protobuf:"bytes,4,opt,name=heartbeat,proto3,oneof"`
+type ExecuteStepRequest_StepProgress struct {
+	StepProgress *StepProgress `protobuf:"bytes,4,opt,name=step_progress,json=stepProgress,proto3,oneof"`
 }
 
-func (*AgentMessage_LogBatch) isAgentMessage_Payload() {}
+type ExecuteStepRequest_Heartbeat struct {
+	Heartbeat *StreamHeartbeat `protobuf:"bytes,5,opt,name=heartbeat,proto3,oneof"`
+}
 
-func (*AgentMessage_StepStarted) isAgentMessage_Payload() {}
+func (*ExecuteStepRequest_Hello) isExecuteStepRequest_Payload() {}
 
-func (*AgentMessage_StepProgress) isAgentMessage_Payload() {}
+func (*ExecuteStepRequest_LogBatch) isExecuteStepRequest_Payload() {}
 
-func (*AgentMessage_Heartbeat) isAgentMessage_Payload() {}
+func (*ExecuteStepRequest_StepStarted) isExecuteStepRequest_Payload() {}
 
-// ServerMessage is sent from the server to the agent over the ExecuteStep stream.
-type ServerMessage struct {
+func (*ExecuteStepRequest_StepProgress) isExecuteStepRequest_Payload() {}
+
+func (*ExecuteStepRequest_Heartbeat) isExecuteStepRequest_Payload() {}
+
+type ExecuteStepResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Payload:
 	//
-	//	*ServerMessage_Cancel
-	//	*ServerMessage_Ack
-	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
+	//	*ExecuteStepResponse_Cancel
+	//	*ExecuteStepResponse_Ack
+	//	*ExecuteStepResponse_LogAck
+	Payload       isExecuteStepResponse_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ServerMessage) Reset() {
-	*x = ServerMessage{}
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+func (x *ExecuteStepResponse) Reset() {
+	*x = ExecuteStepResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServerMessage) String() string {
+func (x *ExecuteStepResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServerMessage) ProtoMessage() {}
+func (*ExecuteStepResponse) ProtoMessage() {}
 
-func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+func (x *ExecuteStepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,66 +1148,143 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
-func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+// Deprecated: Use ExecuteStepResponse.ProtoReflect.Descriptor instead.
+func (*ExecuteStepResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *ServerMessage) GetPayload() isServerMessage_Payload {
+func (x *ExecuteStepResponse) GetPayload() isExecuteStepResponse_Payload {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
-func (x *ServerMessage) GetCancel() *CancelStep {
+func (x *ExecuteStepResponse) GetCancel() *CancelStep {
 	if x != nil {
-		if x, ok := x.Payload.(*ServerMessage_Cancel); ok {
+		if x, ok := x.Payload.(*ExecuteStepResponse_Cancel); ok {
 			return x.Cancel
 		}
 	}
 	return nil
 }
 
-func (x *ServerMessage) GetAck() *AckHeartbeat {
+func (x *ExecuteStepResponse) GetAck() *AckHeartbeat {
 	if x != nil {
-		if x, ok := x.Payload.(*ServerMessage_Ack); ok {
+		if x, ok := x.Payload.(*ExecuteStepResponse_Ack); ok {
 			return x.Ack
 		}
 	}
 	return nil
 }
 
-type isServerMessage_Payload interface {
-	isServerMessage_Payload()
+func (x *ExecuteStepResponse) GetLogAck() *LogAck {
+	if x != nil {
+		if x, ok := x.Payload.(*ExecuteStepResponse_LogAck); ok {
+			return x.LogAck
+		}
+	}
+	return nil
 }
 
-type ServerMessage_Cancel struct {
+type isExecuteStepResponse_Payload interface {
+	isExecuteStepResponse_Payload()
+}
+
+type ExecuteStepResponse_Cancel struct {
 	Cancel *CancelStep `protobuf:"bytes,1,opt,name=cancel,proto3,oneof"`
 }
 
-type ServerMessage_Ack struct {
+type ExecuteStepResponse_Ack struct {
 	Ack *AckHeartbeat `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
 }
 
-func (*ServerMessage_Cancel) isServerMessage_Payload() {}
+type ExecuteStepResponse_LogAck struct {
+	LogAck *LogAck `protobuf:"bytes,3,opt,name=log_ack,json=logAck,proto3,oneof"`
+}
 
-func (*ServerMessage_Ack) isServerMessage_Payload() {}
+func (*ExecuteStepResponse_Cancel) isExecuteStepResponse_Payload() {}
 
-// LogBatch is a batch of log lines sent from the agent.
-// Lines are batched (every 100ms or 50 lines) to reduce stream overhead.
+func (*ExecuteStepResponse_Ack) isExecuteStepResponse_Payload() {}
+
+func (*ExecuteStepResponse_LogAck) isExecuteStepResponse_Payload() {}
+
+// StreamHello identifies which assignment this stream carries.
+type StreamHello struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MachineId     string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	AssignmentId  string                 `protobuf:"bytes,2,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	TaskToken     string                 `protobuf:"bytes,3,opt,name=task_token,json=taskToken,proto3" json:"task_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamHello) Reset() {
+	*x = StreamHello{}
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamHello) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamHello) ProtoMessage() {}
+
+func (x *StreamHello) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamHello.ProtoReflect.Descriptor instead.
+func (*StreamHello) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *StreamHello) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
+}
+
+func (x *StreamHello) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *StreamHello) GetTaskToken() string {
+	if x != nil {
+		return x.TaskToken
+	}
+	return ""
+}
+
+// LogBatch is a batch of log lines (every ~100ms or 50 lines). Sequences are
+// monotonic per step so the server can dedupe retransmits after a reconnect.
 type LogBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	StepName      string                 `protobuf:"bytes,2,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	Lines         []*LogLine             `protobuf:"bytes,3,rep,name=lines,proto3" json:"lines,omitempty"`
+	MatrixKey     string                 `protobuf:"bytes,3,opt,name=matrix_key,json=matrixKey,proto3" json:"matrix_key,omitempty"`
+	Lines         []*LogLine             `protobuf:"bytes,4,rep,name=lines,proto3" json:"lines,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LogBatch) Reset() {
 	*x = LogBatch{}
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +1296,7 @@ func (x *LogBatch) String() string {
 func (*LogBatch) ProtoMessage() {}
 
 func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +1309,7 @@ func (x *LogBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
 func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LogBatch) GetRunId() string {
@@ -276,6 +1326,13 @@ func (x *LogBatch) GetStepName() string {
 	return ""
 }
 
+func (x *LogBatch) GetMatrixKey() string {
+	if x != nil {
+		return x.MatrixKey
+	}
+	return ""
+}
+
 func (x *LogBatch) GetLines() []*LogLine {
 	if x != nil {
 		return x.Lines
@@ -283,20 +1340,19 @@ func (x *LogBatch) GetLines() []*LogLine {
 	return nil
 }
 
-// LogLine is a single line of log output.
 type LogLine struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Stream        string                 `protobuf:"bytes,2,opt,name=stream,proto3" json:"stream,omitempty"` // "stdout" or "stderr"
 	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
-	Sequence      int64                  `protobuf:"varint,4,opt,name=sequence,proto3" json:"sequence,omitempty"` // monotonic sequence number within the step
+	Sequence      int64                  `protobuf:"varint,4,opt,name=sequence,proto3" json:"sequence,omitempty"` // monotonic within the step
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +1364,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,7 +1377,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *LogLine) GetTimestamp() *timestamppb.Timestamp {
@@ -352,7 +1408,52 @@ func (x *LogLine) GetSequence() int64 {
 	return 0
 }
 
-// StepStarted is sent when the agent begins executing a step.
+// LogAck acknowledges persisted log sequences; the agent trims its local
+// spool up to acked_sequence and retransmits from there after a reconnect.
+type LogAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AckedSequence int64                  `protobuf:"varint,1,opt,name=acked_sequence,json=ackedSequence,proto3" json:"acked_sequence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogAck) Reset() {
+	*x = LogAck{}
+	mi := &file_agent_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogAck) ProtoMessage() {}
+
+func (x *LogAck) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogAck.ProtoReflect.Descriptor instead.
+func (*LogAck) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *LogAck) GetAckedSequence() int64 {
+	if x != nil {
+		return x.AckedSequence
+	}
+	return 0
+}
+
 type StepStarted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -364,7 +1465,7 @@ type StepStarted struct {
 
 func (x *StepStarted) Reset() {
 	*x = StepStarted{}
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -376,7 +1477,7 @@ func (x *StepStarted) String() string {
 func (*StepStarted) ProtoMessage() {}
 
 func (x *StepStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -389,7 +1490,7 @@ func (x *StepStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepStarted.ProtoReflect.Descriptor instead.
 func (*StepStarted) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StepStarted) GetRunId() string {
@@ -413,7 +1514,6 @@ func (x *StepStarted) GetStartedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// StepProgress is sent periodically during execution.
 type StepProgress struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -426,7 +1526,7 @@ type StepProgress struct {
 
 func (x *StepProgress) Reset() {
 	*x = StepProgress{}
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -438,7 +1538,7 @@ func (x *StepProgress) String() string {
 func (*StepProgress) ProtoMessage() {}
 
 func (x *StepProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +1551,7 @@ func (x *StepProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepProgress.ProtoReflect.Descriptor instead.
 func (*StepProgress) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StepProgress) GetRunId() string {
@@ -482,19 +1582,22 @@ func (x *StepProgress) GetElapsedSeconds() int64 {
 	return 0
 }
 
-// CancelStep tells the agent to terminate the running step container.
+// CancelStep tells the agent to terminate the running step (SIGTERM, grace,
+// SIGKILL). Also delivered redundantly via the heartbeat response, so a
+// broken stream delays cancellation by at most one heartbeat interval.
 type CancelStep struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	StepName      string                 `protobuf:"bytes,2,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"` // "user_cancelled", "timeout", "superseded"
+	AssignmentId  string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	StepName      string                 `protobuf:"bytes,3,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"` // "user_cancelled", "timeout", "superseded"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CancelStep) Reset() {
 	*x = CancelStep{}
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -506,7 +1609,7 @@ func (x *CancelStep) String() string {
 func (*CancelStep) ProtoMessage() {}
 
 func (x *CancelStep) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -519,7 +1622,14 @@ func (x *CancelStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelStep.ProtoReflect.Descriptor instead.
 func (*CancelStep) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CancelStep) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
 }
 
 func (x *CancelStep) GetRunId() string {
@@ -543,17 +1653,16 @@ func (x *CancelStep) GetReason() string {
 	return ""
 }
 
-// StreamHeartbeat is sent by the agent to keep the stream alive.
 type StreamHeartbeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	MachineId     string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamHeartbeat) Reset() {
 	*x = StreamHeartbeat{}
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +1674,7 @@ func (x *StreamHeartbeat) String() string {
 func (*StreamHeartbeat) ProtoMessage() {}
 
 func (x *StreamHeartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,17 +1687,16 @@ func (x *StreamHeartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamHeartbeat.ProtoReflect.Descriptor instead.
 func (*StreamHeartbeat) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *StreamHeartbeat) GetAgentId() string {
+func (x *StreamHeartbeat) GetMachineId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MachineId
 	}
 	return ""
 }
 
-// AckHeartbeat is the server's response to a stream heartbeat.
 type AckHeartbeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -597,7 +1705,7 @@ type AckHeartbeat struct {
 
 func (x *AckHeartbeat) Reset() {
 	*x = AckHeartbeat{}
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +1717,7 @@ func (x *AckHeartbeat) String() string {
 func (*AckHeartbeat) ProtoMessage() {}
 
 func (x *AckHeartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,33 +1730,37 @@ func (x *AckHeartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckHeartbeat.ProtoReflect.Descriptor instead.
 func (*AckHeartbeat) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
-type ClaimStepRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	RunnerPool    string                 `protobuf:"bytes,2,opt,name=runner_pool,json=runnerPool,proto3" json:"runner_pool,omitempty"` // which runner pool this agent belongs to
-	Capabilities  []string               `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`               // e.g., ["docker", "gpu", "arm64"]
+type ReportStepCompleteRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	AssignmentId string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	MachineId    string                 `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// Task token from the StepPayload — the engine verifies it and routes the
+	// result through its idempotent CompleteStep chokepoint.
+	TaskToken     string      `protobuf:"bytes,3,opt,name=task_token,json=taskToken,proto3" json:"task_token,omitempty"`
+	Result        *StepResult `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
+	LogDigest     *LogDigest  `protobuf:"bytes,5,opt,name=log_digest,json=logDigest,proto3" json:"log_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ClaimStepRequest) Reset() {
-	*x = ClaimStepRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+func (x *ReportStepCompleteRequest) Reset() {
+	*x = ReportStepCompleteRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ClaimStepRequest) String() string {
+func (x *ReportStepCompleteRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ClaimStepRequest) ProtoMessage() {}
+func (*ReportStepCompleteRequest) ProtoMessage() {}
 
-func (x *ClaimStepRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+func (x *ReportStepCompleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,420 +1771,63 @@ func (x *ClaimStepRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ClaimStepRequest.ProtoReflect.Descriptor instead.
-func (*ClaimStepRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+// Deprecated: Use ReportStepCompleteRequest.ProtoReflect.Descriptor instead.
+func (*ReportStepCompleteRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *ClaimStepRequest) GetAgentId() string {
+func (x *ReportStepCompleteRequest) GetAssignmentId() string {
 	if x != nil {
-		return x.AgentId
+		return x.AssignmentId
 	}
 	return ""
 }
 
-func (x *ClaimStepRequest) GetRunnerPool() string {
+func (x *ReportStepCompleteRequest) GetMachineId() string {
 	if x != nil {
-		return x.RunnerPool
+		return x.MachineId
 	}
 	return ""
 }
 
-func (x *ClaimStepRequest) GetCapabilities() []string {
+func (x *ReportStepCompleteRequest) GetTaskToken() string {
 	if x != nil {
-		return x.Capabilities
-	}
-	return nil
-}
-
-type ClaimStepResponse struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Assigned bool                   `protobuf:"varint,1,opt,name=assigned,proto3" json:"assigned,omitempty"` // false = no work available, poll again
-	// Only set if assigned = true:
-	RunId         string          `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	StepName      string          `protobuf:"bytes,3,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	Step          *StepDefinition `protobuf:"bytes,4,opt,name=step,proto3" json:"step,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ClaimStepResponse) Reset() {
-	*x = ClaimStepResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ClaimStepResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ClaimStepResponse) ProtoMessage() {}
-
-func (x *ClaimStepResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ClaimStepResponse.ProtoReflect.Descriptor instead.
-func (*ClaimStepResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ClaimStepResponse) GetAssigned() bool {
-	if x != nil {
-		return x.Assigned
-	}
-	return false
-}
-
-func (x *ClaimStepResponse) GetRunId() string {
-	if x != nil {
-		return x.RunId
+		return x.TaskToken
 	}
 	return ""
 }
 
-func (x *ClaimStepResponse) GetStepName() string {
-	if x != nil {
-		return x.StepName
-	}
-	return ""
-}
-
-func (x *ClaimStepResponse) GetStep() *StepDefinition {
-	if x != nil {
-		return x.Step
-	}
-	return nil
-}
-
-// StepDefinition contains everything the agent needs to execute a step.
-type StepDefinition struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Image          string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`     // container image to run
-	Command        []string               `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"` // entrypoint + args
-	WorkingDir     string                 `protobuf:"bytes,3,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
-	Env            map[string]string      `protobuf:"bytes,4,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // environment variables (including secrets)
-	Shell          string                 `protobuf:"bytes,5,opt,name=shell,proto3" json:"shell,omitempty"`                                                                       // "bash", "sh", "powershell"
-	TimeoutSeconds int64                  `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	Resources      *StepResources         `protobuf:"bytes,7,opt,name=resources,proto3" json:"resources,omitempty"`
-	// Pipeline context
-	OrgId         string `protobuf:"bytes,8,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	ProjectId     string `protobuf:"bytes,9,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	WorkflowFile  string `protobuf:"bytes,10,opt,name=workflow_file,json=workflowFile,proto3" json:"workflow_file,omitempty"`
-	Branch        string `protobuf:"bytes,11,opt,name=branch,proto3" json:"branch,omitempty"`
-	CommitSha     string `protobuf:"bytes,12,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
-	Environment   string `protobuf:"bytes,13,opt,name=environment,proto3" json:"environment,omitempty"`                          // target environment name
-	LogDurability string `protobuf:"bytes,14,opt,name=log_durability,json=logDurability,proto3" json:"log_durability,omitempty"` // "standard" or "guaranteed"
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StepDefinition) Reset() {
-	*x = StepDefinition{}
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StepDefinition) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StepDefinition) ProtoMessage() {}
-
-func (x *StepDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StepDefinition.ProtoReflect.Descriptor instead.
-func (*StepDefinition) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *StepDefinition) GetImage() string {
-	if x != nil {
-		return x.Image
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetCommand() []string {
-	if x != nil {
-		return x.Command
-	}
-	return nil
-}
-
-func (x *StepDefinition) GetWorkingDir() string {
-	if x != nil {
-		return x.WorkingDir
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetEnv() map[string]string {
-	if x != nil {
-		return x.Env
-	}
-	return nil
-}
-
-func (x *StepDefinition) GetShell() string {
-	if x != nil {
-		return x.Shell
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetTimeoutSeconds() int64 {
-	if x != nil {
-		return x.TimeoutSeconds
-	}
-	return 0
-}
-
-func (x *StepDefinition) GetResources() *StepResources {
-	if x != nil {
-		return x.Resources
-	}
-	return nil
-}
-
-func (x *StepDefinition) GetOrgId() string {
-	if x != nil {
-		return x.OrgId
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetProjectId() string {
-	if x != nil {
-		return x.ProjectId
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetWorkflowFile() string {
-	if x != nil {
-		return x.WorkflowFile
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetBranch() string {
-	if x != nil {
-		return x.Branch
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetCommitSha() string {
-	if x != nil {
-		return x.CommitSha
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetEnvironment() string {
-	if x != nil {
-		return x.Environment
-	}
-	return ""
-}
-
-func (x *StepDefinition) GetLogDurability() string {
-	if x != nil {
-		return x.LogDurability
-	}
-	return ""
-}
-
-// StepResources defines resource limits for the step container.
-type StepResources struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CpuRequest    string                 `protobuf:"bytes,1,opt,name=cpu_request,json=cpuRequest,proto3" json:"cpu_request,omitempty"`          // e.g., "500m"
-	CpuLimit      string                 `protobuf:"bytes,2,opt,name=cpu_limit,json=cpuLimit,proto3" json:"cpu_limit,omitempty"`                // e.g., "2"
-	MemoryRequest string                 `protobuf:"bytes,3,opt,name=memory_request,json=memoryRequest,proto3" json:"memory_request,omitempty"` // e.g., "512Mi"
-	MemoryLimit   string                 `protobuf:"bytes,4,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`       // e.g., "4Gi"
-	Gpu           bool                   `protobuf:"varint,5,opt,name=gpu,proto3" json:"gpu,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StepResources) Reset() {
-	*x = StepResources{}
-	mi := &file_agent_v1_agent_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StepResources) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StepResources) ProtoMessage() {}
-
-func (x *StepResources) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StepResources.ProtoReflect.Descriptor instead.
-func (*StepResources) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *StepResources) GetCpuRequest() string {
-	if x != nil {
-		return x.CpuRequest
-	}
-	return ""
-}
-
-func (x *StepResources) GetCpuLimit() string {
-	if x != nil {
-		return x.CpuLimit
-	}
-	return ""
-}
-
-func (x *StepResources) GetMemoryRequest() string {
-	if x != nil {
-		return x.MemoryRequest
-	}
-	return ""
-}
-
-func (x *StepResources) GetMemoryLimit() string {
-	if x != nil {
-		return x.MemoryLimit
-	}
-	return ""
-}
-
-func (x *StepResources) GetGpu() bool {
-	if x != nil {
-		return x.Gpu
-	}
-	return false
-}
-
-type StepCompleteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	StepName      string                 `protobuf:"bytes,2,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Result        *StepResult            `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
-	LogDigest     *LogDigest             `protobuf:"bytes,5,opt,name=log_digest,json=logDigest,proto3" json:"log_digest,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StepCompleteRequest) Reset() {
-	*x = StepCompleteRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StepCompleteRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StepCompleteRequest) ProtoMessage() {}
-
-func (x *StepCompleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StepCompleteRequest.ProtoReflect.Descriptor instead.
-func (*StepCompleteRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *StepCompleteRequest) GetRunId() string {
-	if x != nil {
-		return x.RunId
-	}
-	return ""
-}
-
-func (x *StepCompleteRequest) GetStepName() string {
-	if x != nil {
-		return x.StepName
-	}
-	return ""
-}
-
-func (x *StepCompleteRequest) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
-}
-
-func (x *StepCompleteRequest) GetResult() *StepResult {
+func (x *ReportStepCompleteRequest) GetResult() *StepResult {
 	if x != nil {
 		return x.Result
 	}
 	return nil
 }
 
-func (x *StepCompleteRequest) GetLogDigest() *LogDigest {
+func (x *ReportStepCompleteRequest) GetLogDigest() *LogDigest {
 	if x != nil {
 		return x.LogDigest
 	}
 	return nil
 }
 
-// StepResult contains the execution outcome.
 type StepResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"` // "succeeded", "failed", "cancelled", "timed_out"
-	ExitCode      int32                  `protobuf:"varint,2,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // only set on failure
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	FinishedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
-	DurationMs    int64                  `protobuf:"varint,6,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Status       string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"` // "succeeded", "failed", "cancelled", "timed_out"
+	ExitCode     int32                  `protobuf:"varint,2,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	ErrorMessage string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // only set on failure
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	DurationMs   int64                  `protobuf:"varint,6,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	// Step outputs from $FLINT_OUTPUT / emit().
+	Outputs       map[string]string `protobuf:"bytes,7,rep,name=outputs,proto3" json:"outputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StepResult) Reset() {
 	*x = StepResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1084,7 +1839,7 @@ func (x *StepResult) String() string {
 func (*StepResult) ProtoMessage() {}
 
 func (x *StepResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1097,7 +1852,7 @@ func (x *StepResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepResult.ProtoReflect.Descriptor instead.
 func (*StepResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *StepResult) GetStatus() string {
@@ -1142,20 +1897,26 @@ func (x *StepResult) GetDurationMs() int64 {
 	return 0
 }
 
+func (x *StepResult) GetOutputs() map[string]string {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
 // LogDigest provides verification data for log completeness.
-// See docs/design/log-architecture.md for the verification protocol.
 type LogDigest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LineCount     int64                  `protobuf:"varint,1,opt,name=line_count,json=lineCount,proto3" json:"line_count,omitempty"` // total lines produced
-	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`                         // hash of all log content
-	TailLines     []*LogLine             `protobuf:"bytes,3,rep,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`  // last ~50 lines for tail repair
+	LineCount     int64                  `protobuf:"varint,1,opt,name=line_count,json=lineCount,proto3" json:"line_count,omitempty"`
+	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	TailLines     []*LogLine             `protobuf:"bytes,3,rep,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"` // last ~50 lines for tail repair
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LogDigest) Reset() {
 	*x = LogDigest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1928,7 @@ func (x *LogDigest) String() string {
 func (*LogDigest) ProtoMessage() {}
 
 func (x *LogDigest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1941,7 @@ func (x *LogDigest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogDigest.ProtoReflect.Descriptor instead.
 func (*LogDigest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *LogDigest) GetLineCount() int64 {
@@ -1204,29 +1965,28 @@ func (x *LogDigest) GetTailLines() []*LogLine {
 	return nil
 }
 
-type StepCompleteResponse struct {
+type ReportStepCompleteResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	NextAction    string                 `protobuf:"bytes,2,opt,name=next_action,json=nextAction,proto3" json:"next_action,omitempty"` // "idle", "claim_next", "shutdown"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StepCompleteResponse) Reset() {
-	*x = StepCompleteResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[16]
+func (x *ReportStepCompleteResponse) Reset() {
+	*x = ReportStepCompleteResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StepCompleteResponse) String() string {
+func (x *ReportStepCompleteResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StepCompleteResponse) ProtoMessage() {}
+func (*ReportStepCompleteResponse) ProtoMessage() {}
 
-func (x *StepCompleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[16]
+func (x *ReportStepCompleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1237,49 +1997,52 @@ func (x *StepCompleteResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StepCompleteResponse.ProtoReflect.Descriptor instead.
-func (*StepCompleteResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+// Deprecated: Use ReportStepCompleteResponse.ProtoReflect.Descriptor instead.
+func (*ReportStepCompleteResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
-func (x *StepCompleteResponse) GetAccepted() bool {
+func (x *ReportStepCompleteResponse) GetAccepted() bool {
 	if x != nil {
 		return x.Accepted
 	}
 	return false
 }
 
-func (x *StepCompleteResponse) GetNextAction() string {
-	if x != nil {
-		return x.NextAction
-	}
-	return ""
+type HeartbeatRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	MachineId string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	Status    *AgentStatus           `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	// Active assignment ids the agent believes it is running. The server fails
+	// 'running' assignments missing from this list past a grace period — the
+	// agent-restart recovery path.
+	ActiveAssignmentIds []string `protobuf:"bytes,3,rep,name=active_assignment_ids,json=activeAssignmentIds,proto3" json:"active_assignment_ids,omitempty"`
+	// Run ids whose workspace directories are resident on this machine's disk;
+	// the response returns the terminal subset for GC.
+	ResidentRunIds []string `protobuf:"bytes,4,rep,name=resident_run_ids,json=residentRunIds,proto3" json:"resident_run_ids,omitempty"`
+	// Set when the machine wants to drain itself (spot interruption notice
+	// from IMDS, operator signal on the box).
+	DrainingRequested bool   `protobuf:"varint,5,opt,name=draining_requested,json=drainingRequested,proto3" json:"draining_requested,omitempty"`
+	DrainReason       string `protobuf:"bytes,6,opt,name=drain_reason,json=drainReason,proto3" json:"drain_reason,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
-type AgentHeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	RunnerPool    string                 `protobuf:"bytes,2,opt,name=runner_pool,json=runnerPool,proto3" json:"runner_pool,omitempty"`
-	Status        *AgentStatus           `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AgentHeartbeatRequest) Reset() {
-	*x = AgentHeartbeatRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[17]
+func (x *HeartbeatRequest) Reset() {
+	*x = HeartbeatRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AgentHeartbeatRequest) String() string {
+func (x *HeartbeatRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AgentHeartbeatRequest) ProtoMessage() {}
+func (*HeartbeatRequest) ProtoMessage() {}
 
-func (x *AgentHeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[17]
+func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1290,47 +2053,68 @@ func (x *AgentHeartbeatRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AgentHeartbeatRequest.ProtoReflect.Descriptor instead.
-func (*AgentHeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+// Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
+func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
-func (x *AgentHeartbeatRequest) GetAgentId() string {
+func (x *HeartbeatRequest) GetMachineId() string {
 	if x != nil {
-		return x.AgentId
+		return x.MachineId
 	}
 	return ""
 }
 
-func (x *AgentHeartbeatRequest) GetRunnerPool() string {
-	if x != nil {
-		return x.RunnerPool
-	}
-	return ""
-}
-
-func (x *AgentHeartbeatRequest) GetStatus() *AgentStatus {
+func (x *HeartbeatRequest) GetStatus() *AgentStatus {
 	if x != nil {
 		return x.Status
 	}
 	return nil
 }
 
+func (x *HeartbeatRequest) GetActiveAssignmentIds() []string {
+	if x != nil {
+		return x.ActiveAssignmentIds
+	}
+	return nil
+}
+
+func (x *HeartbeatRequest) GetResidentRunIds() []string {
+	if x != nil {
+		return x.ResidentRunIds
+	}
+	return nil
+}
+
+func (x *HeartbeatRequest) GetDrainingRequested() bool {
+	if x != nil {
+		return x.DrainingRequested
+	}
+	return false
+}
+
+func (x *HeartbeatRequest) GetDrainReason() string {
+	if x != nil {
+		return x.DrainReason
+	}
+	return ""
+}
+
 type AgentStatus struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Busy            bool                   `protobuf:"varint,1,opt,name=busy,proto3" json:"busy,omitempty"` // currently executing a step
-	CurrentRunId    string                 `protobuf:"bytes,2,opt,name=current_run_id,json=currentRunId,proto3" json:"current_run_id,omitempty"`
-	CurrentStepName string                 `protobuf:"bytes,3,opt,name=current_step_name,json=currentStepName,proto3" json:"current_step_name,omitempty"`
-	UptimeSeconds   int64                  `protobuf:"varint,4,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	CpuUsagePercent float64                `protobuf:"fixed64,5,opt,name=cpu_usage_percent,json=cpuUsagePercent,proto3" json:"cpu_usage_percent,omitempty"`
-	MemoryUsedBytes int64                  `protobuf:"varint,6,opt,name=memory_used_bytes,json=memoryUsedBytes,proto3" json:"memory_used_bytes,omitempty"`
+	FreeSlots       int32                  `protobuf:"varint,1,opt,name=free_slots,json=freeSlots,proto3" json:"free_slots,omitempty"`
+	UptimeSeconds   int64                  `protobuf:"varint,2,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	CpuUsagePercent float64                `protobuf:"fixed64,3,opt,name=cpu_usage_percent,json=cpuUsagePercent,proto3" json:"cpu_usage_percent,omitempty"`
+	MemoryUsedBytes int64                  `protobuf:"varint,4,opt,name=memory_used_bytes,json=memoryUsedBytes,proto3" json:"memory_used_bytes,omitempty"`
+	DiskFreeBytes   int64                  `protobuf:"varint,5,opt,name=disk_free_bytes,json=diskFreeBytes,proto3" json:"disk_free_bytes,omitempty"`
+	AgentVersion    string                 `protobuf:"bytes,6,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AgentStatus) Reset() {
 	*x = AgentStatus{}
-	mi := &file_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1342,7 +2126,7 @@ func (x *AgentStatus) String() string {
 func (*AgentStatus) ProtoMessage() {}
 
 func (x *AgentStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1355,28 +2139,14 @@ func (x *AgentStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentStatus.ProtoReflect.Descriptor instead.
 func (*AgentStatus) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
-func (x *AgentStatus) GetBusy() bool {
+func (x *AgentStatus) GetFreeSlots() int32 {
 	if x != nil {
-		return x.Busy
+		return x.FreeSlots
 	}
-	return false
-}
-
-func (x *AgentStatus) GetCurrentRunId() string {
-	if x != nil {
-		return x.CurrentRunId
-	}
-	return ""
-}
-
-func (x *AgentStatus) GetCurrentStepName() string {
-	if x != nil {
-		return x.CurrentStepName
-	}
-	return ""
+	return 0
 }
 
 func (x *AgentStatus) GetUptimeSeconds() int64 {
@@ -1400,29 +2170,49 @@ func (x *AgentStatus) GetMemoryUsedBytes() int64 {
 	return 0
 }
 
-type AgentHeartbeatResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Registered    bool                   `protobuf:"varint,1,opt,name=registered,proto3" json:"registered,omitempty"`
-	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"` // "continue", "drain", "shutdown"
+func (x *AgentStatus) GetDiskFreeBytes() int64 {
+	if x != nil {
+		return x.DiskFreeBytes
+	}
+	return 0
+}
+
+func (x *AgentStatus) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
+}
+
+type HeartbeatResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "continue" | "drain" (finish running work, claim nothing new) |
+	// "shutdown" (stop now; the machine is being terminated).
+	Action                   string `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`
+	HeartbeatIntervalSeconds int32  `protobuf:"varint,2,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
+	// Cancellations for running assignments (redundant with the stream).
+	Cancellations []*CancelStep `protobuf:"bytes,3,rep,name=cancellations,proto3" json:"cancellations,omitempty"`
+	// Terminal runs whose resident workspace dirs the agent should delete.
+	GcRunIds      []string `protobuf:"bytes,4,rep,name=gc_run_ids,json=gcRunIds,proto3" json:"gc_run_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AgentHeartbeatResponse) Reset() {
-	*x = AgentHeartbeatResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[19]
+func (x *HeartbeatResponse) Reset() {
+	*x = HeartbeatResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AgentHeartbeatResponse) String() string {
+func (x *HeartbeatResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AgentHeartbeatResponse) ProtoMessage() {}
+func (*HeartbeatResponse) ProtoMessage() {}
 
-func (x *AgentHeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[19]
+func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1433,49 +2223,178 @@ func (x *AgentHeartbeatResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AgentHeartbeatResponse.ProtoReflect.Descriptor instead.
-func (*AgentHeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+// Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
+func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
-func (x *AgentHeartbeatResponse) GetRegistered() bool {
-	if x != nil {
-		return x.Registered
-	}
-	return false
-}
-
-func (x *AgentHeartbeatResponse) GetAction() string {
+func (x *HeartbeatResponse) GetAction() string {
 	if x != nil {
 		return x.Action
 	}
 	return ""
 }
 
+func (x *HeartbeatResponse) GetHeartbeatIntervalSeconds() int32 {
+	if x != nil {
+		return x.HeartbeatIntervalSeconds
+	}
+	return 0
+}
+
+func (x *HeartbeatResponse) GetCancellations() []*CancelStep {
+	if x != nil {
+		return x.Cancellations
+	}
+	return nil
+}
+
+func (x *HeartbeatResponse) GetGcRunIds() []string {
+	if x != nil {
+		return x.GcRunIds
+	}
+	return nil
+}
+
 var File_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x14agent/v1/agent.proto\x12\bagent.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x82\x02\n" +
-	"\fAgentMessage\x121\n" +
-	"\tlog_batch\x18\x01 \x01(\v2\x12.agent.v1.LogBatchH\x00R\blogBatch\x12:\n" +
-	"\fstep_started\x18\x02 \x01(\v2\x15.agent.v1.StepStartedH\x00R\vstepStarted\x12=\n" +
-	"\rstep_progress\x18\x03 \x01(\v2\x16.agent.v1.StepProgressH\x00R\fstepProgress\x129\n" +
-	"\theartbeat\x18\x04 \x01(\v2\x19.agent.v1.StreamHeartbeatH\x00R\theartbeatB\t\n" +
-	"\apayload\"v\n" +
-	"\rServerMessage\x12.\n" +
+	"\x14agent/v1/agent.proto\x12\bagent.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"E\n" +
+	"\x15GetStepSecretsRequest\x12,\n" +
+	"\rassignment_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fassignmentId\"\x9d\x01\n" +
+	"\x16GetStepSecretsResponse\x12G\n" +
+	"\asecrets\x18\x01 \x03(\v2-.agent.v1.GetStepSecretsResponse.SecretsEntryR\asecrets\x1a:\n" +
+	"\fSecretsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
+	"\x14GetCloneTokenRequest\x12,\n" +
+	"\rassignment_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fassignmentId\"J\n" +
+	"\x15GetCloneTokenResponse\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1b\n" +
+	"\tclone_url\x18\x02 \x01(\tR\bcloneUrl\"\xaa\x03\n" +
+	"\x16RegisterMachineRequest\x126\n" +
+	"\x12registration_token\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x11registrationToken\x12\x1d\n" +
+	"\n" +
+	"machine_id\x18\x02 \x01(\tR\tmachineId\x12\x1a\n" +
+	"\bhostname\x18\x03 \x01(\tR\bhostname\x12\x12\n" +
+	"\x04arch\x18\x04 \x01(\tR\x04arch\x12\x0e\n" +
+	"\x02os\x18\x05 \x01(\tR\x02os\x12\x1d\n" +
+	"\n" +
+	"cpu_millis\x18\x06 \x01(\x03R\tcpuMillis\x12\x1b\n" +
+	"\tmemory_mb\x18\a \x01(\x03R\bmemoryMb\x12\x17\n" +
+	"\adisk_gb\x18\b \x01(\x03R\x06diskGb\x12#\n" +
+	"\ragent_version\x18\t \x01(\tR\fagentVersion\x12D\n" +
+	"\x06labels\x18\n" +
+	" \x03(\v2,.agent.v1.RegisterMachineRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe0\x01\n" +
+	"\x17RegisterMachineResponse\x12\x1d\n" +
+	"\n" +
+	"machine_id\x18\x01 \x01(\tR\tmachineId\x12#\n" +
+	"\rmachine_token\x18\x02 \x01(\tR\fmachineToken\x12<\n" +
+	"\x1aheartbeat_interval_seconds\x18\x03 \x01(\x05R\x18heartbeatIntervalSeconds\x12&\n" +
+	"\x0fserver_http_url\x18\x04 \x01(\tR\rserverHttpUrl\x12\x1b\n" +
+	"\tpool_name\x18\x05 \x01(\tR\bpoolName\"]\n" +
+	"\x10ClaimStepRequest\x12&\n" +
+	"\n" +
+	"machine_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tmachineId\x12!\n" +
+	"\fwait_seconds\x18\x02 \x01(\x05R\vwaitSeconds\"e\n" +
+	"\x11ClaimStepResponse\x12\x1a\n" +
+	"\bassigned\x18\x01 \x01(\bR\bassigned\x124\n" +
+	"\n" +
+	"assignment\x18\x02 \x01(\v2\x14.agent.v1.AssignmentR\n" +
+	"assignment\"\xb0\x01\n" +
+	"\n" +
+	"Assignment\x12#\n" +
+	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
+	"\tstep_name\x18\x03 \x01(\tR\bstepName\x12\x18\n" +
+	"\aattempt\x18\x04 \x01(\x05R\aattempt\x12/\n" +
+	"\apayload\x18\x05 \x01(\v2\x15.agent.v1.StepPayloadR\apayload\"\xb0\b\n" +
+	"\vStepPayload\x12\x17\n" +
+	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x1f\n" +
+	"\vworkflow_id\x18\x02 \x01(\tR\n" +
+	"workflowId\x12\x1b\n" +
+	"\tstep_name\x18\x03 \x01(\tR\bstepName\x12\x1b\n" +
+	"\texec_type\x18\x04 \x01(\tR\bexecType\x12\"\n" +
+	"\rstep_def_json\x18\x05 \x01(\fR\vstepDefJson\x12\x1d\n" +
+	"\n" +
+	"task_token\x18\x06 \x01(\tR\ttaskToken\x12\x19\n" +
+	"\bws_token\x18\a \x01(\tR\awsToken\x12\x15\n" +
+	"\x06run_id\x18\b \x01(\tR\x05runId\x12\x15\n" +
+	"\x06org_id\x18\t \x01(\tR\x05orgId\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\n" +
+	" \x01(\tR\tprojectId\x12\x12\n" +
+	"\x04repo\x18\v \x01(\tR\x04repo\x12\x10\n" +
+	"\x03ref\x18\f \x01(\tR\x03ref\x12\x1d\n" +
+	"\n" +
+	"commit_sha\x18\r \x01(\tR\tcommitSha\x12!\n" +
+	"\ftrigger_type\x18\x0e \x01(\tR\vtriggerType\x12%\n" +
+	"\x0eworkspace_flow\x18\x0f \x01(\tR\rworkspaceFlow\x12 \n" +
+	"\venvironment\x18\x10 \x01(\tR\venvironment\x12%\n" +
+	"\x0epipeline_image\x18\x11 \x01(\tR\rpipelineImage\x120\n" +
+	"\x03env\x18\x12 \x03(\v2\x1e.agent.v1.StepPayload.EnvEntryR\x03env\x12O\n" +
+	"\x0esecret_mapping\x18\x13 \x03(\v2(.agent.v1.StepPayload.SecretMappingEntryR\rsecretMapping\x12,\n" +
+	"\x12needs_outputs_json\x18\x14 \x01(\fR\x10needsOutputsJson\x12'\n" +
+	"\x0ftimeout_seconds\x18\x15 \x01(\x03R\x0etimeoutSeconds\x125\n" +
+	"\tresources\x18\x16 \x01(\v2\x17.agent.v1.StepResourcesR\tresources\x12&\n" +
+	"\x0fserver_http_url\x18\x17 \x01(\tR\rserverHttpUrl\x121\n" +
+	"\astorage\x18\x18 \x01(\v2\x17.agent.v1.ObjectStorageR\astorage\x12%\n" +
+	"\x0elog_durability\x18\x19 \x01(\tR\rlogDurability\x12\x1d\n" +
+	"\n" +
+	"matrix_key\x18\x1a \x01(\tR\tmatrixKey\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a@\n" +
+	"\x12SecretMappingEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"[\n" +
+	"\rObjectStorage\x12\x16\n" +
+	"\x06bucket\x18\x01 \x01(\tR\x06bucket\x12\x16\n" +
+	"\x06region\x18\x02 \x01(\tR\x06region\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\"\x84\x01\n" +
+	"\rStepResources\x12\x1d\n" +
+	"\n" +
+	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12\x1b\n" +
+	"\tmemory_mb\x18\x02 \x01(\x03R\bmemoryMb\x12\x17\n" +
+	"\adisk_gb\x18\x03 \x01(\x03R\x06diskGb\x12\x1e\n" +
+	"\n" +
+	"privileged\x18\x04 \x01(\bR\n" +
+	"privileged\"\xb7\x02\n" +
+	"\x12ExecuteStepRequest\x12-\n" +
+	"\x05hello\x18\x01 \x01(\v2\x15.agent.v1.StreamHelloH\x00R\x05hello\x121\n" +
+	"\tlog_batch\x18\x02 \x01(\v2\x12.agent.v1.LogBatchH\x00R\blogBatch\x12:\n" +
+	"\fstep_started\x18\x03 \x01(\v2\x15.agent.v1.StepStartedH\x00R\vstepStarted\x12=\n" +
+	"\rstep_progress\x18\x04 \x01(\v2\x16.agent.v1.StepProgressH\x00R\fstepProgress\x129\n" +
+	"\theartbeat\x18\x05 \x01(\v2\x19.agent.v1.StreamHeartbeatH\x00R\theartbeatB\t\n" +
+	"\apayload\"\xa9\x01\n" +
+	"\x13ExecuteStepResponse\x12.\n" +
 	"\x06cancel\x18\x01 \x01(\v2\x14.agent.v1.CancelStepH\x00R\x06cancel\x12*\n" +
-	"\x03ack\x18\x02 \x01(\v2\x16.agent.v1.AckHeartbeatH\x00R\x03ackB\t\n" +
-	"\apayload\"g\n" +
+	"\x03ack\x18\x02 \x01(\v2\x16.agent.v1.AckHeartbeatH\x00R\x03ack\x12+\n" +
+	"\alog_ack\x18\x03 \x01(\v2\x10.agent.v1.LogAckH\x00R\x06logAckB\t\n" +
+	"\apayload\"p\n" +
+	"\vStreamHello\x12\x1d\n" +
+	"\n" +
+	"machine_id\x18\x01 \x01(\tR\tmachineId\x12#\n" +
+	"\rassignment_id\x18\x02 \x01(\tR\fassignmentId\x12\x1d\n" +
+	"\n" +
+	"task_token\x18\x03 \x01(\tR\ttaskToken\"\x86\x01\n" +
 	"\bLogBatch\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
-	"\tstep_name\x18\x02 \x01(\tR\bstepName\x12'\n" +
-	"\x05lines\x18\x03 \x03(\v2\x11.agent.v1.LogLineR\x05lines\"\x91\x01\n" +
+	"\tstep_name\x18\x02 \x01(\tR\bstepName\x12\x1d\n" +
+	"\n" +
+	"matrix_key\x18\x03 \x01(\tR\tmatrixKey\x12'\n" +
+	"\x05lines\x18\x04 \x03(\v2\x11.agent.v1.LogLineR\x05lines\"\x91\x01\n" +
 	"\aLogLine\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x16\n" +
 	"\x06stream\x18\x02 \x01(\tR\x06stream\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12\x1a\n" +
-	"\bsequence\x18\x04 \x01(\x03R\bsequence\"|\n" +
+	"\bsequence\x18\x04 \x01(\x03R\bsequence\"/\n" +
+	"\x06LogAck\x12%\n" +
+	"\x0eacked_sequence\x18\x01 \x01(\x03R\rackedSequence\"|\n" +
 	"\vStepStarted\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tstep_name\x18\x02 \x01(\tR\bstepName\x129\n" +
@@ -1485,61 +2404,26 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tstep_name\x18\x02 \x01(\tR\bstepName\x12'\n" +
 	"\x10log_lines_so_far\x18\x03 \x01(\x03R\rlogLinesSoFar\x12'\n" +
-	"\x0felapsed_seconds\x18\x04 \x01(\x03R\x0eelapsedSeconds\"X\n" +
+	"\x0felapsed_seconds\x18\x04 \x01(\x03R\x0eelapsedSeconds\"}\n" +
 	"\n" +
-	"CancelStep\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
-	"\tstep_name\x18\x02 \x01(\tR\bstepName\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\",\n" +
-	"\x0fStreamHeartbeat\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\x0e\n" +
-	"\fAckHeartbeat\"{\n" +
-	"\x10ClaimStepRequest\x12\"\n" +
-	"\bagent_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aagentId\x12\x1f\n" +
-	"\vrunner_pool\x18\x02 \x01(\tR\n" +
-	"runnerPool\x12\"\n" +
-	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\"\x91\x01\n" +
-	"\x11ClaimStepResponse\x12\x1a\n" +
-	"\bassigned\x18\x01 \x01(\bR\bassigned\x12\x15\n" +
+	"CancelStep\x12#\n" +
+	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
-	"\tstep_name\x18\x03 \x01(\tR\bstepName\x12,\n" +
-	"\x04step\x18\x04 \x01(\v2\x18.agent.v1.StepDefinitionR\x04step\"\x9f\x04\n" +
-	"\x0eStepDefinition\x12\x14\n" +
-	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
-	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
-	"\vworking_dir\x18\x03 \x01(\tR\n" +
-	"workingDir\x123\n" +
-	"\x03env\x18\x04 \x03(\v2!.agent.v1.StepDefinition.EnvEntryR\x03env\x12\x14\n" +
-	"\x05shell\x18\x05 \x01(\tR\x05shell\x12'\n" +
-	"\x0ftimeout_seconds\x18\x06 \x01(\x03R\x0etimeoutSeconds\x125\n" +
-	"\tresources\x18\a \x01(\v2\x17.agent.v1.StepResourcesR\tresources\x12\x15\n" +
-	"\x06org_id\x18\b \x01(\tR\x05orgId\x12\x1d\n" +
+	"\tstep_name\x18\x03 \x01(\tR\bstepName\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"0\n" +
+	"\x0fStreamHeartbeat\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\t \x01(\tR\tprojectId\x12#\n" +
-	"\rworkflow_file\x18\n" +
-	" \x01(\tR\fworkflowFile\x12\x16\n" +
-	"\x06branch\x18\v \x01(\tR\x06branch\x12\x1d\n" +
+	"machine_id\x18\x01 \x01(\tR\tmachineId\"\x0e\n" +
+	"\fAckHeartbeat\"\xf2\x01\n" +
+	"\x19ReportStepCompleteRequest\x12,\n" +
+	"\rassignment_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fassignmentId\x12\x1d\n" +
 	"\n" +
-	"commit_sha\x18\f \x01(\tR\tcommitSha\x12 \n" +
-	"\venvironment\x18\r \x01(\tR\venvironment\x12%\n" +
-	"\x0elog_durability\x18\x0e \x01(\tR\rlogDurability\x1a6\n" +
-	"\bEnvEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa9\x01\n" +
-	"\rStepResources\x12\x1f\n" +
-	"\vcpu_request\x18\x01 \x01(\tR\n" +
-	"cpuRequest\x12\x1b\n" +
-	"\tcpu_limit\x18\x02 \x01(\tR\bcpuLimit\x12%\n" +
-	"\x0ememory_request\x18\x03 \x01(\tR\rmemoryRequest\x12!\n" +
-	"\fmemory_limit\x18\x04 \x01(\tR\vmemoryLimit\x12\x10\n" +
-	"\x03gpu\x18\x05 \x01(\bR\x03gpu\"\xd8\x01\n" +
-	"\x13StepCompleteRequest\x12\x1e\n" +
-	"\x06run_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x05runId\x12$\n" +
-	"\tstep_name\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bstepName\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12,\n" +
+	"machine_id\x18\x02 \x01(\tR\tmachineId\x12&\n" +
+	"\n" +
+	"task_token\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ttaskToken\x12,\n" +
 	"\x06result\x18\x04 \x01(\v2\x14.agent.v1.StepResultR\x06result\x122\n" +
 	"\n" +
-	"log_digest\x18\x05 \x01(\v2\x13.agent.v1.LogDigestR\tlogDigest\"\xff\x01\n" +
+	"log_digest\x18\x05 \x01(\v2\x13.agent.v1.LogDigestR\tlogDigest\"\xf8\x02\n" +
 	"\n" +
 	"StepResult\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x1b\n" +
@@ -1550,39 +2434,49 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\vfinished_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1f\n" +
 	"\vduration_ms\x18\x06 \x01(\x03R\n" +
-	"durationMs\"t\n" +
+	"durationMs\x12;\n" +
+	"\aoutputs\x18\a \x03(\v2!.agent.v1.StepResult.OutputsEntryR\aoutputs\x1a:\n" +
+	"\fOutputsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"t\n" +
 	"\tLogDigest\x12\x1d\n" +
 	"\n" +
 	"line_count\x18\x01 \x01(\x03R\tlineCount\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x120\n" +
 	"\n" +
-	"tail_lines\x18\x03 \x03(\v2\x11.agent.v1.LogLineR\ttailLines\"S\n" +
-	"\x14StepCompleteResponse\x12\x1a\n" +
-	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x1f\n" +
-	"\vnext_action\x18\x02 \x01(\tR\n" +
-	"nextAction\"\x8b\x01\n" +
-	"\x15AgentHeartbeatRequest\x12\"\n" +
-	"\bagent_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aagentId\x12\x1f\n" +
-	"\vrunner_pool\x18\x02 \x01(\tR\n" +
-	"runnerPool\x12-\n" +
-	"\x06status\x18\x03 \x01(\v2\x15.agent.v1.AgentStatusR\x06status\"\xf2\x01\n" +
-	"\vAgentStatus\x12\x12\n" +
-	"\x04busy\x18\x01 \x01(\bR\x04busy\x12$\n" +
-	"\x0ecurrent_run_id\x18\x02 \x01(\tR\fcurrentRunId\x12*\n" +
-	"\x11current_step_name\x18\x03 \x01(\tR\x0fcurrentStepName\x12%\n" +
-	"\x0euptime_seconds\x18\x04 \x01(\x03R\ruptimeSeconds\x12*\n" +
-	"\x11cpu_usage_percent\x18\x05 \x01(\x01R\x0fcpuUsagePercent\x12*\n" +
-	"\x11memory_used_bytes\x18\x06 \x01(\x03R\x0fmemoryUsedBytes\"P\n" +
-	"\x16AgentHeartbeatResponse\x12\x1e\n" +
+	"tail_lines\x18\x03 \x03(\v2\x11.agent.v1.LogLineR\ttailLines\"8\n" +
+	"\x1aReportStepCompleteResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\"\x99\x02\n" +
+	"\x10HeartbeatRequest\x12&\n" +
 	"\n" +
-	"registered\x18\x01 \x01(\bR\n" +
-	"registered\x12\x16\n" +
-	"\x06action\x18\x02 \x01(\tR\x06action2\xbd\x02\n" +
-	"\fAgentService\x12B\n" +
-	"\vExecuteStep\x12\x16.agent.v1.AgentMessage\x1a\x17.agent.v1.ServerMessage(\x010\x01\x12D\n" +
-	"\tClaimStep\x12\x1a.agent.v1.ClaimStepRequest\x1a\x1b.agent.v1.ClaimStepResponse\x12S\n" +
-	"\x12ReportStepComplete\x12\x1d.agent.v1.StepCompleteRequest\x1a\x1e.agent.v1.StepCompleteResponse\x12N\n" +
-	"\tHeartbeat\x12\x1f.agent.v1.AgentHeartbeatRequest\x1a .agent.v1.AgentHeartbeatResponseB6Z4github.com/NerdMeNot/flint/protogen/agent/v1;agentv1b\x06proto3"
+	"machine_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tmachineId\x12-\n" +
+	"\x06status\x18\x02 \x01(\v2\x15.agent.v1.AgentStatusR\x06status\x122\n" +
+	"\x15active_assignment_ids\x18\x03 \x03(\tR\x13activeAssignmentIds\x12(\n" +
+	"\x10resident_run_ids\x18\x04 \x03(\tR\x0eresidentRunIds\x12-\n" +
+	"\x12draining_requested\x18\x05 \x01(\bR\x11drainingRequested\x12!\n" +
+	"\fdrain_reason\x18\x06 \x01(\tR\vdrainReason\"\xf8\x01\n" +
+	"\vAgentStatus\x12\x1d\n" +
+	"\n" +
+	"free_slots\x18\x01 \x01(\x05R\tfreeSlots\x12%\n" +
+	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12*\n" +
+	"\x11cpu_usage_percent\x18\x03 \x01(\x01R\x0fcpuUsagePercent\x12*\n" +
+	"\x11memory_used_bytes\x18\x04 \x01(\x03R\x0fmemoryUsedBytes\x12&\n" +
+	"\x0fdisk_free_bytes\x18\x05 \x01(\x03R\rdiskFreeBytes\x12#\n" +
+	"\ragent_version\x18\x06 \x01(\tR\fagentVersion\"\xc3\x01\n" +
+	"\x11HeartbeatResponse\x12\x16\n" +
+	"\x06action\x18\x01 \x01(\tR\x06action\x12<\n" +
+	"\x1aheartbeat_interval_seconds\x18\x02 \x01(\x05R\x18heartbeatIntervalSeconds\x12:\n" +
+	"\rcancellations\x18\x03 \x03(\v2\x14.agent.v1.CancelStepR\rcancellations\x12\x1c\n" +
+	"\n" +
+	"gc_run_ids\x18\x04 \x03(\tR\bgcRunIds2\xca\x04\n" +
+	"\fAgentService\x12V\n" +
+	"\x0fRegisterMachine\x12 .agent.v1.RegisterMachineRequest\x1a!.agent.v1.RegisterMachineResponse\x12D\n" +
+	"\tClaimStep\x12\x1a.agent.v1.ClaimStepRequest\x1a\x1b.agent.v1.ClaimStepResponse\x12N\n" +
+	"\vExecuteStep\x12\x1c.agent.v1.ExecuteStepRequest\x1a\x1d.agent.v1.ExecuteStepResponse(\x010\x01\x12_\n" +
+	"\x12ReportStepComplete\x12#.agent.v1.ReportStepCompleteRequest\x1a$.agent.v1.ReportStepCompleteResponse\x12D\n" +
+	"\tHeartbeat\x12\x1a.agent.v1.HeartbeatRequest\x1a\x1b.agent.v1.HeartbeatResponse\x12S\n" +
+	"\x0eGetStepSecrets\x12\x1f.agent.v1.GetStepSecretsRequest\x1a .agent.v1.GetStepSecretsResponse\x12P\n" +
+	"\rGetCloneToken\x12\x1e.agent.v1.GetCloneTokenRequest\x1a\x1f.agent.v1.GetCloneTokenResponseB6Z4github.com/NerdMeNot/flint/protogen/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -1596,63 +2490,92 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_agent_v1_agent_proto_rawDescData
 }
 
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_agent_v1_agent_proto_goTypes = []any{
-	(*AgentMessage)(nil),           // 0: agent.v1.AgentMessage
-	(*ServerMessage)(nil),          // 1: agent.v1.ServerMessage
-	(*LogBatch)(nil),               // 2: agent.v1.LogBatch
-	(*LogLine)(nil),                // 3: agent.v1.LogLine
-	(*StepStarted)(nil),            // 4: agent.v1.StepStarted
-	(*StepProgress)(nil),           // 5: agent.v1.StepProgress
-	(*CancelStep)(nil),             // 6: agent.v1.CancelStep
-	(*StreamHeartbeat)(nil),        // 7: agent.v1.StreamHeartbeat
-	(*AckHeartbeat)(nil),           // 8: agent.v1.AckHeartbeat
-	(*ClaimStepRequest)(nil),       // 9: agent.v1.ClaimStepRequest
-	(*ClaimStepResponse)(nil),      // 10: agent.v1.ClaimStepResponse
-	(*StepDefinition)(nil),         // 11: agent.v1.StepDefinition
-	(*StepResources)(nil),          // 12: agent.v1.StepResources
-	(*StepCompleteRequest)(nil),    // 13: agent.v1.StepCompleteRequest
-	(*StepResult)(nil),             // 14: agent.v1.StepResult
-	(*LogDigest)(nil),              // 15: agent.v1.LogDigest
-	(*StepCompleteResponse)(nil),   // 16: agent.v1.StepCompleteResponse
-	(*AgentHeartbeatRequest)(nil),  // 17: agent.v1.AgentHeartbeatRequest
-	(*AgentStatus)(nil),            // 18: agent.v1.AgentStatus
-	(*AgentHeartbeatResponse)(nil), // 19: agent.v1.AgentHeartbeatResponse
-	nil,                            // 20: agent.v1.StepDefinition.EnvEntry
-	(*timestamppb.Timestamp)(nil),  // 21: google.protobuf.Timestamp
+	(*GetStepSecretsRequest)(nil),      // 0: agent.v1.GetStepSecretsRequest
+	(*GetStepSecretsResponse)(nil),     // 1: agent.v1.GetStepSecretsResponse
+	(*GetCloneTokenRequest)(nil),       // 2: agent.v1.GetCloneTokenRequest
+	(*GetCloneTokenResponse)(nil),      // 3: agent.v1.GetCloneTokenResponse
+	(*RegisterMachineRequest)(nil),     // 4: agent.v1.RegisterMachineRequest
+	(*RegisterMachineResponse)(nil),    // 5: agent.v1.RegisterMachineResponse
+	(*ClaimStepRequest)(nil),           // 6: agent.v1.ClaimStepRequest
+	(*ClaimStepResponse)(nil),          // 7: agent.v1.ClaimStepResponse
+	(*Assignment)(nil),                 // 8: agent.v1.Assignment
+	(*StepPayload)(nil),                // 9: agent.v1.StepPayload
+	(*ObjectStorage)(nil),              // 10: agent.v1.ObjectStorage
+	(*StepResources)(nil),              // 11: agent.v1.StepResources
+	(*ExecuteStepRequest)(nil),         // 12: agent.v1.ExecuteStepRequest
+	(*ExecuteStepResponse)(nil),        // 13: agent.v1.ExecuteStepResponse
+	(*StreamHello)(nil),                // 14: agent.v1.StreamHello
+	(*LogBatch)(nil),                   // 15: agent.v1.LogBatch
+	(*LogLine)(nil),                    // 16: agent.v1.LogLine
+	(*LogAck)(nil),                     // 17: agent.v1.LogAck
+	(*StepStarted)(nil),                // 18: agent.v1.StepStarted
+	(*StepProgress)(nil),               // 19: agent.v1.StepProgress
+	(*CancelStep)(nil),                 // 20: agent.v1.CancelStep
+	(*StreamHeartbeat)(nil),            // 21: agent.v1.StreamHeartbeat
+	(*AckHeartbeat)(nil),               // 22: agent.v1.AckHeartbeat
+	(*ReportStepCompleteRequest)(nil),  // 23: agent.v1.ReportStepCompleteRequest
+	(*StepResult)(nil),                 // 24: agent.v1.StepResult
+	(*LogDigest)(nil),                  // 25: agent.v1.LogDigest
+	(*ReportStepCompleteResponse)(nil), // 26: agent.v1.ReportStepCompleteResponse
+	(*HeartbeatRequest)(nil),           // 27: agent.v1.HeartbeatRequest
+	(*AgentStatus)(nil),                // 28: agent.v1.AgentStatus
+	(*HeartbeatResponse)(nil),          // 29: agent.v1.HeartbeatResponse
+	nil,                                // 30: agent.v1.GetStepSecretsResponse.SecretsEntry
+	nil,                                // 31: agent.v1.RegisterMachineRequest.LabelsEntry
+	nil,                                // 32: agent.v1.StepPayload.EnvEntry
+	nil,                                // 33: agent.v1.StepPayload.SecretMappingEntry
+	nil,                                // 34: agent.v1.StepResult.OutputsEntry
+	(*timestamppb.Timestamp)(nil),      // 35: google.protobuf.Timestamp
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
-	2,  // 0: agent.v1.AgentMessage.log_batch:type_name -> agent.v1.LogBatch
-	4,  // 1: agent.v1.AgentMessage.step_started:type_name -> agent.v1.StepStarted
-	5,  // 2: agent.v1.AgentMessage.step_progress:type_name -> agent.v1.StepProgress
-	7,  // 3: agent.v1.AgentMessage.heartbeat:type_name -> agent.v1.StreamHeartbeat
-	6,  // 4: agent.v1.ServerMessage.cancel:type_name -> agent.v1.CancelStep
-	8,  // 5: agent.v1.ServerMessage.ack:type_name -> agent.v1.AckHeartbeat
-	3,  // 6: agent.v1.LogBatch.lines:type_name -> agent.v1.LogLine
-	21, // 7: agent.v1.LogLine.timestamp:type_name -> google.protobuf.Timestamp
-	21, // 8: agent.v1.StepStarted.started_at:type_name -> google.protobuf.Timestamp
-	11, // 9: agent.v1.ClaimStepResponse.step:type_name -> agent.v1.StepDefinition
-	20, // 10: agent.v1.StepDefinition.env:type_name -> agent.v1.StepDefinition.EnvEntry
-	12, // 11: agent.v1.StepDefinition.resources:type_name -> agent.v1.StepResources
-	14, // 12: agent.v1.StepCompleteRequest.result:type_name -> agent.v1.StepResult
-	15, // 13: agent.v1.StepCompleteRequest.log_digest:type_name -> agent.v1.LogDigest
-	21, // 14: agent.v1.StepResult.started_at:type_name -> google.protobuf.Timestamp
-	21, // 15: agent.v1.StepResult.finished_at:type_name -> google.protobuf.Timestamp
-	3,  // 16: agent.v1.LogDigest.tail_lines:type_name -> agent.v1.LogLine
-	18, // 17: agent.v1.AgentHeartbeatRequest.status:type_name -> agent.v1.AgentStatus
-	0,  // 18: agent.v1.AgentService.ExecuteStep:input_type -> agent.v1.AgentMessage
-	9,  // 19: agent.v1.AgentService.ClaimStep:input_type -> agent.v1.ClaimStepRequest
-	13, // 20: agent.v1.AgentService.ReportStepComplete:input_type -> agent.v1.StepCompleteRequest
-	17, // 21: agent.v1.AgentService.Heartbeat:input_type -> agent.v1.AgentHeartbeatRequest
-	1,  // 22: agent.v1.AgentService.ExecuteStep:output_type -> agent.v1.ServerMessage
-	10, // 23: agent.v1.AgentService.ClaimStep:output_type -> agent.v1.ClaimStepResponse
-	16, // 24: agent.v1.AgentService.ReportStepComplete:output_type -> agent.v1.StepCompleteResponse
-	19, // 25: agent.v1.AgentService.Heartbeat:output_type -> agent.v1.AgentHeartbeatResponse
-	22, // [22:26] is the sub-list for method output_type
-	18, // [18:22] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	30, // 0: agent.v1.GetStepSecretsResponse.secrets:type_name -> agent.v1.GetStepSecretsResponse.SecretsEntry
+	31, // 1: agent.v1.RegisterMachineRequest.labels:type_name -> agent.v1.RegisterMachineRequest.LabelsEntry
+	8,  // 2: agent.v1.ClaimStepResponse.assignment:type_name -> agent.v1.Assignment
+	9,  // 3: agent.v1.Assignment.payload:type_name -> agent.v1.StepPayload
+	32, // 4: agent.v1.StepPayload.env:type_name -> agent.v1.StepPayload.EnvEntry
+	33, // 5: agent.v1.StepPayload.secret_mapping:type_name -> agent.v1.StepPayload.SecretMappingEntry
+	11, // 6: agent.v1.StepPayload.resources:type_name -> agent.v1.StepResources
+	10, // 7: agent.v1.StepPayload.storage:type_name -> agent.v1.ObjectStorage
+	14, // 8: agent.v1.ExecuteStepRequest.hello:type_name -> agent.v1.StreamHello
+	15, // 9: agent.v1.ExecuteStepRequest.log_batch:type_name -> agent.v1.LogBatch
+	18, // 10: agent.v1.ExecuteStepRequest.step_started:type_name -> agent.v1.StepStarted
+	19, // 11: agent.v1.ExecuteStepRequest.step_progress:type_name -> agent.v1.StepProgress
+	21, // 12: agent.v1.ExecuteStepRequest.heartbeat:type_name -> agent.v1.StreamHeartbeat
+	20, // 13: agent.v1.ExecuteStepResponse.cancel:type_name -> agent.v1.CancelStep
+	22, // 14: agent.v1.ExecuteStepResponse.ack:type_name -> agent.v1.AckHeartbeat
+	17, // 15: agent.v1.ExecuteStepResponse.log_ack:type_name -> agent.v1.LogAck
+	16, // 16: agent.v1.LogBatch.lines:type_name -> agent.v1.LogLine
+	35, // 17: agent.v1.LogLine.timestamp:type_name -> google.protobuf.Timestamp
+	35, // 18: agent.v1.StepStarted.started_at:type_name -> google.protobuf.Timestamp
+	24, // 19: agent.v1.ReportStepCompleteRequest.result:type_name -> agent.v1.StepResult
+	25, // 20: agent.v1.ReportStepCompleteRequest.log_digest:type_name -> agent.v1.LogDigest
+	35, // 21: agent.v1.StepResult.started_at:type_name -> google.protobuf.Timestamp
+	35, // 22: agent.v1.StepResult.finished_at:type_name -> google.protobuf.Timestamp
+	34, // 23: agent.v1.StepResult.outputs:type_name -> agent.v1.StepResult.OutputsEntry
+	16, // 24: agent.v1.LogDigest.tail_lines:type_name -> agent.v1.LogLine
+	28, // 25: agent.v1.HeartbeatRequest.status:type_name -> agent.v1.AgentStatus
+	20, // 26: agent.v1.HeartbeatResponse.cancellations:type_name -> agent.v1.CancelStep
+	4,  // 27: agent.v1.AgentService.RegisterMachine:input_type -> agent.v1.RegisterMachineRequest
+	6,  // 28: agent.v1.AgentService.ClaimStep:input_type -> agent.v1.ClaimStepRequest
+	12, // 29: agent.v1.AgentService.ExecuteStep:input_type -> agent.v1.ExecuteStepRequest
+	23, // 30: agent.v1.AgentService.ReportStepComplete:input_type -> agent.v1.ReportStepCompleteRequest
+	27, // 31: agent.v1.AgentService.Heartbeat:input_type -> agent.v1.HeartbeatRequest
+	0,  // 32: agent.v1.AgentService.GetStepSecrets:input_type -> agent.v1.GetStepSecretsRequest
+	2,  // 33: agent.v1.AgentService.GetCloneToken:input_type -> agent.v1.GetCloneTokenRequest
+	5,  // 34: agent.v1.AgentService.RegisterMachine:output_type -> agent.v1.RegisterMachineResponse
+	7,  // 35: agent.v1.AgentService.ClaimStep:output_type -> agent.v1.ClaimStepResponse
+	13, // 36: agent.v1.AgentService.ExecuteStep:output_type -> agent.v1.ExecuteStepResponse
+	26, // 37: agent.v1.AgentService.ReportStepComplete:output_type -> agent.v1.ReportStepCompleteResponse
+	29, // 38: agent.v1.AgentService.Heartbeat:output_type -> agent.v1.HeartbeatResponse
+	1,  // 39: agent.v1.AgentService.GetStepSecrets:output_type -> agent.v1.GetStepSecretsResponse
+	3,  // 40: agent.v1.AgentService.GetCloneToken:output_type -> agent.v1.GetCloneTokenResponse
+	34, // [34:41] is the sub-list for method output_type
+	27, // [27:34] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -1660,15 +2583,17 @@ func file_agent_v1_agent_proto_init() {
 	if File_agent_v1_agent_proto != nil {
 		return
 	}
-	file_agent_v1_agent_proto_msgTypes[0].OneofWrappers = []any{
-		(*AgentMessage_LogBatch)(nil),
-		(*AgentMessage_StepStarted)(nil),
-		(*AgentMessage_StepProgress)(nil),
-		(*AgentMessage_Heartbeat)(nil),
+	file_agent_v1_agent_proto_msgTypes[12].OneofWrappers = []any{
+		(*ExecuteStepRequest_Hello)(nil),
+		(*ExecuteStepRequest_LogBatch)(nil),
+		(*ExecuteStepRequest_StepStarted)(nil),
+		(*ExecuteStepRequest_StepProgress)(nil),
+		(*ExecuteStepRequest_Heartbeat)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[1].OneofWrappers = []any{
-		(*ServerMessage_Cancel)(nil),
-		(*ServerMessage_Ack)(nil),
+	file_agent_v1_agent_proto_msgTypes[13].OneofWrappers = []any{
+		(*ExecuteStepResponse_Cancel)(nil),
+		(*ExecuteStepResponse_Ack)(nil),
+		(*ExecuteStepResponse_LogAck)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1676,7 +2601,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

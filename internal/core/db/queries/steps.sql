@@ -35,9 +35,10 @@ WHERE id = $1;
 
 -- name: MarkStepDispatched :exec
 -- Records that a claimed step was successfully handed to an executor. dispatched_at
--- distinguishes "running, has a Job" from "claimed but the worker died before
--- dispatch" — the latter is recovered by RequeueUndispatchedSteps.
-UPDATE steps SET dispatched_at = now(), k8s_job_name = $2 WHERE id = $1;
+-- distinguishes "running, dispatched" from "claimed but the worker died before
+-- dispatch" — the latter is recovered by RequeueUndispatchedSteps. dispatch_handle
+-- is the executor's opaque correlation id (machine executor: step_assignments.id).
+UPDATE steps SET dispatched_at = now(), dispatch_handle = $2 WHERE id = $1;
 
 -- name: RequeueUndispatchedSteps :execrows
 -- Recovers steps that were claimed (status='running') but never dispatched — e.g.
@@ -105,8 +106,15 @@ RETURNING id, workflow_id, name, exec_type, attempt, step_def, status;
 -- name: SetStepTaskToken :exec
 UPDATE steps SET task_token = $2 WHERE id = $1;
 
--- name: SetStepK8sJobName :exec
-UPDATE steps SET k8s_job_name = $2 WHERE id = $1;
+-- name: SetStepTaskTokens :exec
+-- Batch variant: stamp every claimed step's task token in ONE round-trip
+-- instead of one UPDATE per step (the claim path's hottest write).
+UPDATE steps SET task_token = t.token
+FROM (SELECT unnest(sqlc.arg(ids)::uuid[]) AS id, unnest(sqlc.arg(tokens)::text[]) AS token) t
+WHERE steps.id = t.id;
+
+-- name: SetStepDispatchHandle :exec
+UPDATE steps SET dispatch_handle = $2 WHERE id = $1;
 
 -- name: CreateRetryStep :exec
 -- The retry attempt is parked in 'retry_wait', NOT 'pending'. A 'pending' row
@@ -268,3 +276,23 @@ JOIN projects p ON pr.project_id = p.id
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE s.exec_type = 'gate' AND s.status = sqlc.arg('status')
 ORDER BY s.created_at ASC LIMIT 50;
+
+-- name: QueueStats :one
+-- One-shot queue visibility: how much work is waiting, how long the oldest
+-- queued step has waited, and what's running/gated right now.
+SELECT
+    count(*) FILTER (WHERE status = 'queued')  AS queued,
+    count(*) FILTER (WHERE status = 'running') AS running,
+    count(*) FILTER (WHERE status = 'waiting') AS waiting_gates,
+    coalesce(EXTRACT(EPOCH FROM (now() - min(queued_at) FILTER (WHERE status = 'queued')))::bigint, 0) AS oldest_queued_secs
+FROM steps
+WHERE status IN ('queued', 'running', 'waiting');
+
+-- name: RunStepCosts :many
+-- Per-step timing + compute requests for the run cost breakdown.
+SELECT DISTINCT ON (s.name) s.name, s.exec_type, s.started_at, s.finished_at,
+    s.step_def->'resources' AS resources
+FROM steps s
+JOIN workflows w ON w.id = s.workflow_id
+WHERE w.run_id = $1
+ORDER BY s.name, s.attempt DESC;

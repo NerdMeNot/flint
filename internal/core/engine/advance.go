@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
@@ -90,10 +91,20 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 				continue
 			}
 
-			// Evaluate if-condition.
+			// Evaluate if-condition. An evaluation ERROR fails the step loudly
+			// — the worst failure mode is an expression that lints clean and
+			// then silently skips the step at runtime. Deciding "don't run"
+			// must be reserved for expressions that evaluated to false.
 			if step.ifCondition != "" {
-				exprCtx := buildEngineExprContext(input, stepOutputs)
-				shouldRun, _ := pipeline.EvalCondition(step.ifCondition, exprCtx)
+				exprCtx := buildEngineExprContext(input, stepOutputs, step.dependsOn)
+				shouldRun, evalErr := pipeline.EvalCondition(step.ifCondition, exprCtx)
+				if evalErr != nil {
+					reason := fmt.Sprintf("if condition %q failed to evaluate: %v", step.ifCondition, evalErr)
+					result := StepResult{StepName: stepName, Success: false, Error: reason}
+					stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepFailed,
+						withReason(reason), withResult(result))
+					continue
+				}
 				if !shouldRun {
 					stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
 						withReason("if condition evaluated false"))
@@ -314,7 +325,12 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 			Success  bool   `json:"success"`
 			Reason   string `json:"reason"`
 		}
-		if json.Unmarshal(payloadJSON, &signal) != nil {
+		if err := json.Unmarshal(payloadJSON, &signal); err != nil {
+			// Never drop silently — a malformed signal here means a crashed
+			// step would stay running until the timeout sweep.
+			log.Warn().Err(err).Str("workflow", workflowID).
+				Str("payload", string(payloadJSON)).
+				Msg("engine: unparseable step-result signal dropped")
 			continue
 		}
 
@@ -423,7 +439,7 @@ func allWavesComplete(waves [][]string, stepByName map[string]stepRow) bool {
 // expression context
 // ─────────────────────────────────────────────────────────────
 
-func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult) pipeline.ExprContext {
+func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult, dependsOn []string) pipeline.ExprContext {
 	ctx := pipeline.ExprContext{
 		// git/run/inputs come from the generic Inputs bag (populated by
 		// normalizeInputs for CI runs), not from typed fields — the engine is
@@ -438,18 +454,50 @@ func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]Ste
 
 	steps := make(map[string]any, len(stepOutputs))
 	for name, result := range stepOutputs {
-		stepCtx := map[string]any{"status": "success"}
-		if !result.Success {
-			stepCtx["status"] = "failure"
-		}
-		for k, v := range result.Outputs {
-			stepCtx[k] = v
-		}
-		steps[name] = stepCtx
+		steps[name] = stepResultCtx(result)
 	}
 	ctx["steps"] = steps
 
+	// needs.<job> — scoped to THIS step's direct dependencies (the spec's
+	// "direct-only output scope"): needs.build.outputs.version and
+	// needs.build.result. Matrix-expanded dependency names (build::1.26) are
+	// exposed under their base job name.
+	needs := make(map[string]any, len(dependsOn))
+	for _, dep := range dependsOn {
+		if result, ok := stepOutputs[dep]; ok {
+			needs[baseStepName(dep)] = stepResultCtx(result)
+		}
+	}
+	ctx["needs"] = needs
+
 	return ctx
+}
+
+// stepResultCtx renders a step result as its expression namespace:
+// {result: "success"|"failure", outputs: {...}, plus flattened output keys
+// for the legacy steps.<name>.<key> form}.
+func stepResultCtx(result StepResult) map[string]any {
+	status := "success"
+	if !result.Success {
+		status = "failure"
+	}
+	outputs := map[string]any{}
+	stepCtx := map[string]any{"status": status, "result": status, "outputs": outputs}
+	for k, v := range result.Outputs {
+		outputs[k] = v
+		if _, reserved := stepCtx[k]; !reserved {
+			stepCtx[k] = v
+		}
+	}
+	return stepCtx
+}
+
+// baseStepName strips a matrix-variant suffix: "build::1.26" → "build".
+func baseStepName(name string) string {
+	if i := strings.Index(name, "::"); i >= 0 {
+		return name[:i]
+	}
+	return name
 }
 
 // exprNamespace returns the named namespace (e.g. "git", "run") from the generic
@@ -464,4 +512,16 @@ func exprNamespace(inputs map[string]any, key string) map[string]any {
 		}
 	}
 	return map[string]any{}
+}
+
+// ValidationExprContext returns the EXACT expression-context shape the engine
+// provides to if: conditions at runtime, with zero values, for compile-time
+// expression checking by product validators and the CLI. It is built by the
+// same code path as the runtime context (normalizeInputs +
+// buildEngineExprContext), so validation and runtime can never drift apart —
+// an expression that type-checks here evaluates at runtime, and vice versa.
+func ValidationExprContext() pipeline.ExprContext {
+	in := StartWorkflowInput{Kind: "ci", Env: map[string]string{}}
+	in.normalizeInputs()
+	return buildEngineExprContext(in, nil, nil)
 }

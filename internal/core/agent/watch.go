@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/NerdMeNot/flint/pkg/artifact"
@@ -118,7 +119,7 @@ func Watch(ctx context.Context, cfg *Config, sink logsink.LogSink) error {
 			key, keyErr := EvaluateCacheKey(cfg)
 			if keyErr != nil {
 				log.Warn().Err(keyErr).Msg("agent: failed to evaluate cache key (skipping save)")
-			} else if err := cacheStore.Save(ctx, key, cfg.CachePaths); err != nil {
+			} else if err := cacheStore.Save(ctx, cfg.Workspace, key, cfg.CachePaths); err != nil {
 				log.Warn().Err(err).Msg("agent: failed to save cache")
 			}
 		}
@@ -199,7 +200,9 @@ func streamLogsRealTime(ctx context.Context, sink logsink.LogSink, ref logsink.L
 func waitForCompletion(ctx context.Context, workspace string) (int, error) {
 	exitFile := fmt.Sprintf("%s/.flint-exit", workspace)
 
-	ticker := time.NewTicker(500 * time.Millisecond)
+	// A stat every 100ms is ~free and shaves ~400ms average off every step's
+	// completion latency vs the old 500ms tick.
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -222,9 +225,16 @@ func waitForCompletion(ctx context.Context, workspace string) (int, error) {
 }
 
 // cleanupAgentFiles removes internal agent files from the workspace so they
-// don't leak into the next step when using a shared volume (PVC mode).
+// don't leak into the next step (shared PVC) or into workspace sync-out —
+// including the steps-driver binary and any per-sub-step output files.
 func cleanupAgentFiles(workspace string) {
-	for _, name := range []string{".flint-emit", ".flint-exit", ".flint-step.log"} {
+	for _, name := range []string{".flint-emit", ".flint-exit", ".flint-step.log", InitDoneFile} {
 		_ = os.Remove(fmt.Sprintf("%s/%s", workspace, name))
+	}
+	_ = os.RemoveAll(fmt.Sprintf("%s/.flint-bin", workspace))
+	if matches, err := filepath.Glob(fmt.Sprintf("%s/.flint-output-*", workspace)); err == nil {
+		for _, m := range matches {
+			_ = os.Remove(m)
+		}
 	}
 }

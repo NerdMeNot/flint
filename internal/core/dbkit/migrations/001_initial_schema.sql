@@ -300,7 +300,8 @@ CREATE TABLE public.pipeline_runs (
     environment text,
     error_message text,
     kind text DEFAULT 'ci'::text NOT NULL,
-    cleaned_at timestamptz
+    cleaned_at timestamptz,
+    concurrency_group text
 );
 
 
@@ -468,40 +469,191 @@ CREATE TABLE public.roles (
 
 
 --
--- Name: runner_pools; Type: TABLE; Schema: public; Owner: -
+-- Name: machine_pools; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.runner_pools (
+CREATE TABLE public.machine_pools (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     name text NOT NULL,
     description text,
-    cpu text NOT NULL,
-    memory text NOT NULL,
-    gpu_vendor text,
-    gpu_model text,
-    gpu_count integer,
-    arch text DEFAULT 'amd64'::text NOT NULL,
-    node_selector jsonb,
-    tolerations jsonb,
-    default_timeout text,
+    -- compute_providers.name; 'static' pools have no elastic capacity — machines
+    -- join via the pool join token instead of provider.Create.
+    provider text DEFAULT 'static'::text NOT NULL,
     -- exactly one pool is the default — used when a pipeline sets no runner:. The
     -- default can't be deleted until another pool is promoted (enforced in the API).
     is_default boolean DEFAULT false NOT NULL,
-    -- pod-level settings that PoolSpec carries and the worker registry needs to
-    -- reconstruct a pool from the DB (API/DB is canonical — no CRD/controller).
-    service_account_name text,
-    workspace_mode text DEFAULT 'agent'::text NOT NULL,
-    workspace_storage_class text,
-    workspace_size text DEFAULT '10Gi'::text NOT NULL,
-    run_as_non_root boolean DEFAULT false NOT NULL,
-    -- reference (selectors target existing nodes) | managed (Flint renders a
-    -- Karpenter NodePool — see managed_spec). managed_spec holds the capacity
-    -- envelope / scale-to-zero intent for managed pools (null for reference).
-    mode text DEFAULT 'reference'::text NOT NULL,
-    managed_spec jsonb,
+    arch text DEFAULT 'amd64'::text NOT NULL,
+    -- default machine shape (units strings: "4", "8Gi", "100Gi"); elastic pools use
+    -- these as the Quote requirements floor, static pools as validation bounds.
+    cpu text NOT NULL,
+    memory text NOT NULL,
+    disk text,
+    gpu_vendor text,
+    gpu_model text,
+    gpu_count integer,
+    -- optional provider allow-lists narrowing what Quote may offer
+    instance_types text[],
+    regions text[],
+    capacity_type text DEFAULT 'on_demand'::text NOT NULL,
+    -- how the fleet manager ranks quotes when provisioning for this pool
+    objective text DEFAULT 'balanced'::text NOT NULL,
+    min_warm integer DEFAULT 0 NOT NULL,
+    max_machines integer DEFAULT 10 NOT NULL,
+    idle_ttl_seconds integer DEFAULT 900 NOT NULL,
+    -- per-branch/event policy overrides: [{match:{branch|event}, set:{minWarm,...}}]
+    overrides jsonb,
+    -- optional operator-declared amortized cost for static machines with no offer
+    -- price; feeds the same economics pipeline as elastic accepted-offer prices.
+    hourly_cost numeric(12,6),
+    default_timeout text,
+    -- static pools only: sha256 of the long-lived agent join token
+    join_token_hash text,
     ready boolean DEFAULT true NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
-    updated_at timestamptz DEFAULT now() NOT NULL
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT machine_pools_capacity_check CHECK ((capacity_type = ANY (ARRAY['spot'::text, 'on_demand'::text, 'any'::text]))),
+    CONSTRAINT machine_pools_objective_check CHECK ((objective = ANY (ARRAY['cost'::text, 'latency'::text, 'balanced'::text])))
+);
+
+
+--
+-- Name: compute_providers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.compute_providers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    provider_type text NOT NULL,
+    config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    -- envelope-encrypted credentials (forge_connections precedent); NULL = ambient
+    -- credentials (instance role / env / shared config chain).
+    credentials_enc bytea,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT compute_providers_type_check CHECK ((provider_type = ANY (ARRAY['static'::text, 'aws'::text])))
+);
+
+
+--
+-- Name: machines; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.machines (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pool_id uuid NOT NULL,
+    status text DEFAULT 'requested'::text NOT NULL,
+    provider text NOT NULL,
+    -- provider instance id (i-0abc…); NULL until Create returns, and for static machines
+    provider_ref text,
+    instance_type text,
+    region text,
+    zone text,
+    capacity_type text,
+    -- from the accepted offer; static machines fall back to pool hourly_cost / costs config
+    price_per_hour_usd numeric(12,6),
+    accepted_offer jsonb,
+    cpu_millis bigint DEFAULT 0 NOT NULL,
+    memory_mb bigint DEFAULT 0 NOT NULL,
+    disk_gb bigint DEFAULT 0 NOT NULL,
+    arch text DEFAULT 'amd64'::text NOT NULL,
+    os text DEFAULT 'linux'::text NOT NULL,
+    labels jsonb,
+    hostname text,
+    agent_version text,
+    -- sha256 of the one-time registration token; cleared when consumed
+    bootstrap_token_hash text,
+    -- sha256 of the per-machine bearer token minted at registration
+    agent_token_hash text,
+    -- lease columns swept with FOR UPDATE SKIP LOCKED (the timers *pattern*; a timer
+    -- row updated on every heartbeat would be pure churn)
+    boot_deadline_at timestamptz,
+    heartbeat_interval_seconds integer DEFAULT 10 NOT NULL,
+    last_heartbeat_at timestamptz,
+    heartbeat_expires_at timestamptz,
+    steps_completed integer DEFAULT 0 NOT NULL,
+    idle_since timestamptz,
+    drain_reason text,
+    requested_at timestamptz DEFAULT now() NOT NULL,
+    provisioned_at timestamptz,
+    registered_at timestamptz,
+    terminated_at timestamptz,
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT machines_status_check CHECK ((status = ANY (ARRAY['requested'::text, 'provisioning'::text, 'idle'::text, 'busy'::text, 'draining'::text, 'terminating'::text, 'terminated'::text, 'failed'::text, 'lost'::text])))
+);
+
+
+--
+-- Name: machine_events; Type: TABLE; Schema: public; Owner: -
+-- Append-only machine transition log. Deliberately NO foreign key (engine_events
+-- precedent: FK acquires row locks on the parent under concurrent transitions).
+--
+
+CREATE TABLE public.machine_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    machine_id uuid NOT NULL,
+    event_type text NOT NULL,
+    from_status text,
+    to_status text,
+    actor text DEFAULT 'fleet'::text NOT NULL,
+    reason text,
+    metadata jsonb,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: step_assignments; Type: TABLE; Schema: public; Owner: -
+-- One row per dispatched container step: the machine executor inserts 'pending',
+-- the fleet scheduler binds a machine, the agent claims and reports. The payload
+-- is the full dispatch projection persisted at dispatch time so an agent can
+-- claim later / from another process without recomputing env or secret merges.
+--
+
+CREATE TABLE public.step_assignments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    step_id uuid NOT NULL,
+    workflow_id uuid NOT NULL,
+    run_id uuid NOT NULL,
+    step_name text NOT NULL,
+    attempt integer NOT NULL,
+    pool_id uuid NOT NULL,
+    machine_id uuid,
+    status text DEFAULT 'pending'::text NOT NULL,
+    cpu_millis bigint NOT NULL,
+    memory_mb bigint NOT NULL,
+    disk_gb bigint DEFAULT 0 NOT NULL,
+    payload jsonb NOT NULL,
+    cancel_requested boolean DEFAULT false NOT NULL,
+    error text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    assigned_at timestamptz,
+    claim_deadline_at timestamptz,
+    started_at timestamptz,
+    finished_at timestamptz,
+    CONSTRAINT step_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'assigned'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text, 'lost'::text])))
+);
+
+
+--
+-- Name: fleet_decisions; Type: TABLE; Schema: public; Owner: -
+-- The economics decision ledger: every provision/terminate/drain/reconcile decision
+-- with the inputs it saw, the offer it chose, the alternatives it rejected, and the
+-- outcome backfilled once known. Per-assignment binds are not ledgered (too hot).
+--
+
+CREATE TABLE public.fleet_decisions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pool_id uuid,
+    machine_id uuid,
+    decision_type text NOT NULL,
+    inputs jsonb NOT NULL,
+    chosen jsonb,
+    alternatives jsonb,
+    outcome text,
+    outcome_metadata jsonb,
+    outcome_at timestamptz,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT fleet_decisions_type_check CHECK ((decision_type = ANY (ARRAY['provision'::text, 'terminate'::text, 'drain'::text, 'reconcile_zombie'::text, 'no_capacity'::text])))
 );
 
 
@@ -572,7 +724,8 @@ CREATE TABLE public.steps (
     max_attempts integer DEFAULT 1 NOT NULL,
     step_def jsonb NOT NULL,
     result jsonb,
-    k8s_job_name text,
+    -- opaque executor correlation handle (machine executor: step_assignments.id)
+    dispatch_handle text,
     task_token text,
     on_failure text DEFAULT 'fail'::text NOT NULL,
     timeout_seconds integer DEFAULT 7200 NOT NULL,
@@ -1030,19 +1183,77 @@ ALTER TABLE ONLY public.roles
 
 
 --
--- Name: runner_pools runner_pools_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: machine_pools machine_pools_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.runner_pools
-    ADD CONSTRAINT runner_pools_name_key UNIQUE (name);
+ALTER TABLE ONLY public.machine_pools
+    ADD CONSTRAINT machine_pools_name_key UNIQUE (name);
 
 
 --
--- Name: runner_pools runner_pools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: machine_pools machine_pools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.runner_pools
-    ADD CONSTRAINT runner_pools_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.machine_pools
+    ADD CONSTRAINT machine_pools_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: compute_providers compute_providers_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.compute_providers
+    ADD CONSTRAINT compute_providers_name_key UNIQUE (name);
+
+
+--
+-- Name: compute_providers compute_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.compute_providers
+    ADD CONSTRAINT compute_providers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: machines machines_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.machines
+    ADD CONSTRAINT machines_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: machines machines_pool_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Pools are cold rows (CRUD only), so the FK lock risk that keeps FKs off
+-- engine_events/machine_events does not apply here.
+--
+
+ALTER TABLE ONLY public.machines
+    ADD CONSTRAINT machines_pool_id_fkey FOREIGN KEY (pool_id) REFERENCES public.machine_pools(id);
+
+
+--
+-- Name: machine_events machine_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.machine_events
+    ADD CONSTRAINT machine_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: step_assignments step_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.step_assignments
+    ADD CONSTRAINT step_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fleet_decisions fleet_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fleet_decisions
+    ADD CONSTRAINT fleet_decisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -1380,6 +1591,13 @@ CREATE INDEX idx_signals_unconsumed ON public.signals USING btree (workflow_id, 
 
 
 --
+-- Name: idx_runs_concurrency_group; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_runs_concurrency_group ON public.pipeline_runs USING btree (project_id, concurrency_group) WHERE (status = 'running' AND concurrency_group IS NOT NULL);
+
+
+--
 -- Name: idx_steps_latest_attempt; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1415,6 +1633,15 @@ CREATE INDEX idx_steps_queued ON public.steps USING btree (status, queued_at) WH
 
 
 --
+-- Name: idx_steps_claim_order; Type: INDEX; Schema: public; Owner: -
+-- Matches ClaimQueuedSteps' ORDER BY wave, queued_at so a large queued backlog
+-- is claimed via index scan, not a per-tick sort of the whole backlog.
+--
+
+CREATE INDEX idx_steps_claim_order ON public.steps USING btree (wave, queued_at) WHERE (status = 'queued'::text);
+
+
+--
 -- Name: idx_steps_running; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1440,6 +1667,84 @@ CREATE INDEX idx_steps_waiting ON public.steps USING btree (status) WHERE (statu
 --
 
 CREATE INDEX idx_steps_workflow_wave ON public.steps USING btree (workflow_id, wave, status);
+
+
+--
+-- Name: idx_machines_pool_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_machines_pool_active ON public.machines USING btree (pool_id, status) WHERE (status = ANY (ARRAY['requested'::text, 'provisioning'::text, 'idle'::text, 'busy'::text, 'draining'::text]));
+
+
+--
+-- Name: idx_machines_hb_expiry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_machines_hb_expiry ON public.machines USING btree (heartbeat_expires_at) WHERE (status = ANY (ARRAY['idle'::text, 'busy'::text, 'draining'::text]));
+
+
+--
+-- Name: idx_machines_boot_deadline; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_machines_boot_deadline ON public.machines USING btree (boot_deadline_at) WHERE (status = ANY (ARRAY['requested'::text, 'provisioning'::text]));
+
+
+--
+-- Name: idx_machines_provider_ref; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_machines_provider_ref ON public.machines USING btree (provider, provider_ref) WHERE (provider_ref IS NOT NULL);
+
+
+--
+-- Name: idx_machine_events_machine; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_machine_events_machine ON public.machine_events USING btree (machine_id, created_at);
+
+
+--
+-- Name: idx_assignments_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_assignments_pending ON public.step_assignments USING btree (pool_id, created_at) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: idx_assignments_machine_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_assignments_machine_active ON public.step_assignments USING btree (machine_id) WHERE (status = ANY (ARRAY['assigned'::text, 'running'::text]));
+
+
+--
+-- Name: idx_assignments_run; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_assignments_run ON public.step_assignments USING btree (run_id) WHERE (status = ANY (ARRAY['pending'::text, 'assigned'::text, 'running'::text]));
+
+
+--
+-- Name: idx_assignments_step_active; Type: INDEX; Schema: public; Owner: -
+-- At most one live assignment per step attempt.
+--
+
+CREATE UNIQUE INDEX idx_assignments_step_active ON public.step_assignments USING btree (step_id) WHERE (status = ANY (ARRAY['pending'::text, 'assigned'::text, 'running'::text]));
+
+
+--
+-- Name: idx_fleet_decisions_pool; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fleet_decisions_pool ON public.fleet_decisions USING btree (pool_id, created_at DESC);
+
+
+--
+-- Name: idx_fleet_decisions_machine; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fleet_decisions_machine ON public.fleet_decisions USING btree (machine_id) WHERE (machine_id IS NOT NULL);
 
 
 --

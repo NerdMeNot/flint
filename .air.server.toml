@@ -1,16 +1,16 @@
 # air — live reload for the Flint server in the local sim stack (task dev-sim).
 #
 # Runs the REAL server against the seeded local Postgres (no --mock). On any .go
-# change air rebuilds ./cmd/server and restarts it; the web dev server re-fetches
+# change air rebuilds ./cmd/flint and restarts it; the web dev server re-fetches
 # once the API is back. FLINT_DEMO is set by mprocs to drive the demo banner.
 # Invoked via `go run <pkg>@<version>` (pinned, no global install).
 root = "."
 tmp_dir = "tmp/server"
 
 [build]
-  cmd = "go build -o ./tmp/server/flint-server ./cmd/server"
-  bin = "./tmp/server/flint-server"
-  args_bin = ["--config", "config.local.yaml", "--mode", "all"]
+  cmd = "go build -o ./tmp/server/flint ./cmd/flint"
+  bin = "./tmp/server/flint"
+  args_bin = ["server", "--config", "config.local.yaml", "--mode", "all"]
   include_ext = ["go"]
   exclude_dir = ["web", "tmp", "bin", "vendor", "node_modules", "_reference", "docs", ".git", "helm", "testdata"]
   exclude_regex = ["_test\\.go"]

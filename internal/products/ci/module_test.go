@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,7 +56,7 @@ jobs:
 `))
 	require.NoError(t, err)
 
-	out, err := ResolveModules(p, resolver)
+	out, err := ResolveModules(context.Background(), p, resolver)
 	require.NoError(t, err)
 
 	build := out.Jobs["build"]
@@ -94,7 +95,7 @@ jobs:
 `))
 	require.NoError(t, err)
 
-	out, err := ResolveModules(p, resolver)
+	out, err := ResolveModules(context.Background(), p, resolver)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"apt-get update && apt-get install -y jq curl", "jq --version"}, stepRuns(out.Jobs["tools"]))
 }
@@ -120,7 +121,7 @@ jobs:
 `))
 	require.NoError(t, err)
 
-	_, err = ResolveModules(p, resolver)
+	_, err = ResolveModules(context.Background(), p, resolver)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires family")
 }
@@ -151,7 +152,7 @@ triggers: { push: { branches: [main] } }
 `))
 	require.NoError(t, err)
 
-	out, err := ResolveModules(p, resolver)
+	out, err := ResolveModules(context.Background(), p, resolver)
 	require.NoError(t, err)
 	assert.Equal(t, "", out.Extends)
 	assert.Equal(t, []string{"go build -o bin/orders ./cmd/orders"}, stepRuns(out.Jobs["build"]))
@@ -179,7 +180,7 @@ steps:
 triggers: { push: { branches: [main] } }
 jobs: { j: { image: alpine, steps: [{ use: needs-input, with: { mode: a } }] } }
 `))
-	_, err := ResolveModules(p, resolver)
+	_, err := ResolveModules(context.Background(), p, resolver)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "required input")
 
@@ -188,7 +189,7 @@ jobs: { j: { image: alpine, steps: [{ use: needs-input, with: { mode: a } }] } }
 triggers: { push: { branches: [main] } }
 jobs: { j: { image: alpine, steps: [{ use: needs-input, with: { mode: z, must: x } }] } }
 `))
-	_, err = ResolveModules(p2, resolver)
+	_, err = ResolveModules(context.Background(), p2, resolver)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not in options")
 }
@@ -205,7 +206,7 @@ run: { image: ghcr.io/acme/slack:1 }
 triggers: { push: { branches: [main] } }
 jobs: { j: { image: alpine, steps: [{ use: slack }] } }
 `))
-	_, err := ResolveModules(p, resolver)
+	_, err := ResolveModules(context.Background(), p, resolver)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action modules not yet supported")
 }
@@ -216,7 +217,7 @@ triggers: { push: { branches: [main] } }
 jobs: { build: { image: alpine, steps: [{ run: make }] } }
 `))
 	require.NoError(t, err)
-	out, err := ResolveModules(p, MapResolver{})
+	out, err := ResolveModules(context.Background(), p, MapResolver{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"make"}, stepRuns(out.Jobs["build"]))
 }

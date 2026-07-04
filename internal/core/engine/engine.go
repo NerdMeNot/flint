@@ -104,13 +104,23 @@ type StartWorkflowInput struct {
 	TriggerType string
 	TriggeredBy string
 
-	RunnerPool             string
-	JobNamespace           string
-	Environment            string // target environment (empty = no env filtering)
-	Env                    map[string]string
-	RunURL                 string
-	PipelineImage          string // default container image from pipeline YAML
-	PipelineServiceAccount string // default K8s ServiceAccount from pipeline YAML
+	RunnerPool   string
+	JobNamespace string
+	Environment  string // target environment (empty = no env filtering)
+
+	// WorkspaceFlow declares how files move between this run's container
+	// steps, so the executor can skip per-run workspace infrastructure that
+	// would go unused:
+	//   ""          — workspace sync (legacy flat-steps: per-run gRPC pod)
+	//   "artifacts" — explicit artifacts via object storage (the ci dialect:
+	//                 jobs are self-contained pods; no workspace pod needed)
+	//   "none"      — no cross-step file flow (set automatically for runs
+	//                 with at most one container step)
+	WorkspaceFlow string
+
+	Env           map[string]string
+	RunURL        string
+	PipelineImage string // default container image from pipeline YAML
 
 	// For child workflows (invoke steps).
 	ParentWorkflowID string
@@ -205,8 +215,15 @@ type StepState struct {
 
 // LoopConfig configures the worker main loop.
 type LoopConfig struct {
-	// PollInterval is the fallback polling interval. Default: 2s.
+	// PollInterval is the fallback polling interval used while LISTEN/NOTIFY
+	// is NOT connected (degraded mode). Default: 2s.
 	PollInterval time.Duration
+
+	// IdlePollInterval is the polling interval while LISTEN/NOTIFY IS healthy —
+	// notifications provide the fast path, so polling is only a safety net.
+	// Backing off here cuts idle DB load ~90% and plays well with auto-pausing
+	// Postgres. Default: 30s.
+	IdlePollInterval time.Duration
 
 	// SweepInterval is how often the sweep runs. Default: 5m. Min: 30s.
 	SweepInterval time.Duration
@@ -223,6 +240,11 @@ type LoopConfig struct {
 	// key the server uses to verify them, and MUST NOT be a pod-exposed value
 	// (the internal token is injected into pods, so it cannot be used here).
 	SigningKey []byte
+
+	// RunRetentionDays bounds how long terminal runs (and their cascaded
+	// workflows/steps) are kept. 0 uses the default (90); negative disables
+	// retention (keep forever).
+	RunRetentionDays int
 }
 
 func (c *LoopConfig) pollInterval() time.Duration {
@@ -230,6 +252,20 @@ func (c *LoopConfig) pollInterval() time.Duration {
 		return c.PollInterval
 	}
 	return 2 * time.Second
+}
+
+func (c *LoopConfig) idlePollInterval() time.Duration {
+	if c.IdlePollInterval > 0 {
+		return c.IdlePollInterval
+	}
+	return 30 * time.Second
+}
+
+func (c *LoopConfig) runRetentionDays() int {
+	if c.RunRetentionDays != 0 {
+		return c.RunRetentionDays
+	}
+	return 90
 }
 
 func (c *LoopConfig) sweepInterval() time.Duration {

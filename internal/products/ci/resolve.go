@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -17,22 +18,22 @@ var inputExpr = regexp.MustCompile(`\$\{\{\s*inputs\.(\w+)\s*\}\}`)
 // the requires: environment-contract check. The result has no use:/extends: left
 // and is ready for Validate + Compile. A pipeline with no module references is
 // returned unchanged.
-func ResolveModules(p *Pipeline, r ModuleResolver) (*Pipeline, error) {
+func ResolveModules(ctx context.Context, p *Pipeline, r ModuleResolver) (*Pipeline, error) {
 	if p.Extends != "" {
-		if err := expandExtends(p, r); err != nil {
+		if err := expandExtends(ctx, p, r); err != nil {
 			return nil, err
 		}
 	}
 	for name := range p.Jobs {
 		job := p.Jobs[name]
 		if job.Use != "" {
-			expanded, err := expandJobModule(name, job, r)
+			expanded, err := expandJobModule(ctx, name, job, r)
 			if err != nil {
 				return nil, err
 			}
 			job = expanded
 		}
-		steps, err := expandStepModules(name, job, r)
+		steps, err := expandStepModules(ctx, name, job, r)
 		if err != nil {
 			return nil, err
 		}
@@ -44,8 +45,8 @@ func ResolveModules(p *Pipeline, r ModuleResolver) (*Pipeline, error) {
 
 // expandExtends merges a pipeline module's jobs into the consumer (consumer jobs
 // override by name; consumer keeps its own triggers/env/concurrency).
-func expandExtends(p *Pipeline, r ModuleResolver) error {
-	mod, err := r.Resolve(p.Extends)
+func expandExtends(ctx context.Context, p *Pipeline, r ModuleResolver) error {
+	mod, err := r.Resolve(ctx, p.Extends)
 	if err != nil {
 		return err
 	}
@@ -71,8 +72,8 @@ func expandExtends(p *Pipeline, r ModuleResolver) error {
 
 // expandJobModule replaces a job's body with a job module's, keeping the
 // consumer's graph fields (needs/environments/if) and filling the steps-hole.
-func expandJobModule(name string, job Job, r ModuleResolver) (Job, error) {
-	mod, err := r.Resolve(job.Use)
+func expandJobModule(ctx context.Context, name string, job Job, r ModuleResolver) (Job, error) {
+	mod, err := r.Resolve(ctx, job.Use)
 	if err != nil {
 		return job, err
 	}
@@ -103,14 +104,14 @@ func expandJobModule(name string, job Job, r ModuleResolver) (Job, error) {
 }
 
 // expandStepModules inlines step-level use: references (kind steps or action).
-func expandStepModules(jobName string, job Job, r ModuleResolver) ([]Step, error) {
+func expandStepModules(ctx context.Context, jobName string, job Job, r ModuleResolver) ([]Step, error) {
 	var out []Step
 	for _, s := range job.Steps {
 		if s.Use == "" {
 			out = append(out, s)
 			continue
 		}
-		mod, err := r.Resolve(s.Use)
+		mod, err := r.Resolve(ctx, s.Use)
 		if err != nil {
 			return nil, err
 		}

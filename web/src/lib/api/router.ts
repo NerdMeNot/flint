@@ -246,6 +246,27 @@ const runs = {
       return backendGet<{ logs: Record<string, string> }>(`/runs/${input.runId}/logs`)
     }),
 
+  // Cost-per-run: requested compute × wall-clock, per step, with $ estimate.
+  cost: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      return backendGet<{
+        steps: Array<{
+          name: string
+          durationSecs: number
+          cpuCores: number
+          memoryGb: number
+          coreSecs: number
+          gbSecs: number
+          estimatedUsd: number
+        }>
+        totalCoreSecs: number
+        totalGbSecs: number
+        estimatedUsd: number
+        rates: { cpuCoreHourUsd: number; memoryGbHrUsd: number }
+      }>(`/runs/${input.runId}/cost`)
+    }),
+
   trigger: os
     .input(z.object({ projectId: z.string(), branch: z.optional(z.string()) }))
     .handler(async ({ input }) => {

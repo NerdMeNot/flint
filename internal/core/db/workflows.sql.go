@@ -78,16 +78,18 @@ func (q *Queries) GetWorkflowInput(ctx context.Context, id string) ([]byte, erro
 }
 
 const getWorkflowInputs = `-- name: GetWorkflowInputs :many
-SELECT id, input FROM workflows WHERE id = ANY($1::uuid[])
+SELECT id, input, step_outputs FROM workflows WHERE id = ANY($1::uuid[])
 `
 
 type GetWorkflowInputsRow struct {
-	ID    string `json:"id"`
-	Input []byte `json:"input"`
+	ID          string `json:"id"`
+	Input       []byte `json:"input"`
+	StepOutputs []byte `json:"step_outputs"`
 }
 
-// Batch variant: fetch inputs for all workflows in a claimed step batch in one
-// round-trip (kills the per-step N+1 in claimAndDispatch).
+// Batch variant: fetch inputs (and accumulated step outputs, for the
+// needs.<job>.outputs.* dispatch context) for all workflows in a claimed step
+// batch in one round-trip (kills the per-step N+1 in claimAndDispatch).
 func (q *Queries) GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error) {
 	rows, err := q.db.Query(ctx, getWorkflowInputs, workflowIds)
 	if err != nil {
@@ -97,7 +99,7 @@ func (q *Queries) GetWorkflowInputs(ctx context.Context, workflowIds []string) (
 	items := []GetWorkflowInputsRow{}
 	for rows.Next() {
 		var i GetWorkflowInputsRow
-		if err := rows.Scan(&i.ID, &i.Input); err != nil {
+		if err := rows.Scan(&i.ID, &i.Input, &i.StepOutputs); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

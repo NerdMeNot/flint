@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/NerdMeNot/flint/pkg/pipeline"
@@ -32,13 +33,24 @@ func Compile(p *Pipeline, env string) ([][]pipeline.Step, error) {
 		}
 	}
 
-	// 3. Build one group-step per surviving job.
+	// 3. Build one group-step per surviving job. Module references must have
+	// been resolved before Compile — an unresolved use:/inject: here would
+	// compile to an empty (silently succeeding) sub-step.
 	groups := make([]pipeline.Step, 0, len(surviving))
 	for _, name := range sortedExpandedNames(expanded) {
 		if !surviving[name] {
 			continue
 		}
-		groups = append(groups, p.compileJob(name, expanded[name], surviving))
+		job := expanded[name]
+		if job.Use != "" {
+			return nil, fmt.Errorf("ci: job %q has an unresolved module reference %q (module resolution must run before compile)", name, job.Use)
+		}
+		for i, s := range job.Steps {
+			if s.Use != "" || s.Inject != "" {
+				return nil, fmt.Errorf("ci: job %q step %d has an unresolved module reference (module resolution must run before compile)", name, i)
+			}
+		}
+		groups = append(groups, p.compileJob(name, job, expanded, surviving))
 	}
 
 	// 4. Order into waves via the shared DAG resolver.
@@ -49,7 +61,7 @@ func Compile(p *Pipeline, env string) ([][]pipeline.Step, error) {
 	return waves, nil
 }
 
-func (p *Pipeline) compileJob(name string, job Job, surviving map[string]bool) pipeline.Step {
+func (p *Pipeline) compileJob(name string, job Job, expanded map[string]Job, surviving map[string]bool) pipeline.Step {
 	// Drop needs to jobs that were filtered out (skipped need = satisfied).
 	var deps []string
 	for _, d := range job.Needs {
@@ -82,8 +94,24 @@ func (p *Pipeline) compileJob(name string, job Job, surviving map[string]bool) p
 	if job.ExecType() == "steps" {
 		step.Steps = compileSteps(job.Steps)
 	}
-	// NOTE: job.Resources / file+external secrets are carried in the CI schema but
-	// not yet mapped to the engine IR — wired in the executor/secrets PRs.
+
+	// Artifacts: the producer declares `artifacts: [paths]` → uploaded after
+	// the job succeeds; every job that `needs` it gets those paths downloaded
+	// before it starts (the spec's "artifacts flow along needs edges").
+	for _, path := range job.Artifacts {
+		step.Outputs = append(step.Outputs, pipeline.ArtifactOutput{Path: path})
+	}
+	for _, dep := range deps {
+		for _, path := range expanded[dep].Artifacts {
+			step.Inputs = append(step.Inputs, pipeline.ArtifactInput{From: dep, Path: path})
+		}
+	}
+
+	// Job outputs (values): evaluated in-pod after the sub-steps run, then
+	// read downstream as needs.<job>.outputs.<name>.
+	if len(job.Outputs) > 0 {
+		step.DeclaredOutputs = job.Outputs
+	}
 	return step
 }
 
@@ -153,10 +181,21 @@ func jobRunsInEnv(job Job, env string) bool {
 
 const matrixSep = "::"
 
+// matrixExpr matches the whole-template form: ${{ matrix.X }} — used to splice
+// matrix values into plain strings (image, run, env, workingDir, cache key).
 var matrixExpr = regexp.MustCompile(`\$\{\{\s*matrix\.(\w+)\s*\}\}`)
 
+// matrixTokenExpr matches a matrix.X reference anywhere — including inside a
+// larger expression like ${{ matrix.go == "1.26" }} — used to splice quoted
+// values into if: expressions.
+var matrixTokenExpr = regexp.MustCompile(`\bmatrix\.(\w+)\b`)
+
 // expandMatrix replaces each matrix job with one concrete job per combination,
-// named "<job>::<v1>-<v2>". Non-matrix jobs pass through unchanged.
+// named "<job>::<v1>-<v2>". Non-matrix jobs pass through unchanged. Every
+// field an author can reference matrix values from is interpolated: image,
+// if:, env values, cache key, and per-step run/if/env/workingDir. Partial
+// interpolation (some fields but not others) is the "decorative field" bug
+// class — keep this list exhaustive.
 func expandMatrix(jobs map[string]Job) map[string]Job {
 	out := make(map[string]Job, len(jobs))
 	for name, job := range jobs {
@@ -168,6 +207,13 @@ func expandMatrix(jobs map[string]Job) map[string]Job {
 			variant := job
 			variant.Matrix = nil
 			variant.Image = interpolateMatrix(variant.Image, combo)
+			variant.If = interpolateMatrixExpr(variant.If, combo)
+			variant.Env = interpolateEnv(variant.Env, combo)
+			if variant.Cache != nil {
+				c := *variant.Cache
+				c.Key = interpolateMatrix(c.Key, combo)
+				variant.Cache = &c
+			}
 			variant.Steps = interpolateSteps(variant.Steps, combo)
 			out[name+matrixSep+comboSuffix(combo)] = variant
 		}
@@ -179,6 +225,9 @@ func interpolateSteps(steps []Step, combo map[string]string) []Step {
 	out := make([]Step, len(steps))
 	for i, s := range steps {
 		s.Run = interpolateRun(s.Run, combo)
+		s.If = interpolateMatrixExpr(s.If, combo)
+		s.Env = interpolateEnv(s.Env, combo)
+		s.WorkingDir = interpolateMatrix(s.WorkingDir, combo)
 		out[i] = s
 	}
 	return out
@@ -192,6 +241,17 @@ func interpolateRun(rc pipeline.RunCommand, combo map[string]string) pipeline.Ru
 	return pipeline.RunCommand{Commands: cmds}
 }
 
+func interpolateEnv(env map[string]string, combo map[string]string) map[string]string {
+	if len(env) == 0 {
+		return env
+	}
+	out := make(map[string]string, len(env))
+	for k, val := range env {
+		out[k] = interpolateMatrix(val, combo)
+	}
+	return out
+}
+
 func interpolateMatrix(s string, combo map[string]string) string {
 	if s == "" {
 		return s
@@ -200,6 +260,24 @@ func interpolateMatrix(s string, combo map[string]string) string {
 		key := matrixExpr.FindStringSubmatch(m)[1]
 		if v, ok := combo[key]; ok {
 			return v
+		}
+		return m
+	})
+}
+
+// interpolateMatrixExpr splices matrix values into an if: expression by
+// replacing matrix.X tokens with quoted string literals, so
+// ${{ matrix.go == "1.26" }} becomes ${{ "1.26" == "1.26" }} for the variant.
+// The engine's runtime context has no matrix namespace — after expansion no
+// matrix token may survive.
+func interpolateMatrixExpr(s string, combo map[string]string) string {
+	if s == "" {
+		return s
+	}
+	return matrixTokenExpr.ReplaceAllStringFunc(s, func(m string) string {
+		key := matrixTokenExpr.FindStringSubmatch(m)[1]
+		if v, ok := combo[key]; ok {
+			return strconv.Quote(v)
 		}
 		return m
 	})

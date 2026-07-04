@@ -26,6 +26,12 @@ func NewGitLab(token string, opts ...gitlab.ClientOptionFunc) (*GitLabAdapter, e
 
 func (g *GitLabAdapter) Type() string { return "gitlab" }
 
+// ListPullRequestFiles is not implemented for GitLab yet — callers treat
+// ErrUnsupportedEvent as "changed files unknown" and fail open.
+func (g *GitLabAdapter) ListPullRequestFiles(ctx context.Context, repo string, prNumber int) ([]string, error) {
+	return nil, fmt.Errorf("%w: gitlab changed-files listing", ErrUnsupportedEvent)
+}
+
 // ParseWebhook verifies the GitLab webhook token and parses the event.
 func (g *GitLabAdapter) ParseWebhook(headers http.Header, body []byte, secret string) (*WebhookEvent, error) {
 	token := headers.Get("X-Gitlab-Token")

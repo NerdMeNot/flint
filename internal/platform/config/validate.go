@@ -29,8 +29,8 @@ func (e *ValidationError) hasErrors() bool {
 func Validate(cfg *Config, component string) error {
 	v := &ValidationError{}
 
-	// Database is required for server, worker, controller.
-	if component == "server" || component == "worker" || component == "controller" {
+	// Database is required for server and dispatch.
+	if component == "server" || component == "dispatch" {
 		if cfg.Database.Host == "" {
 			v.add("database.host is required")
 		}
@@ -44,18 +44,18 @@ func Validate(cfg *Config, component string) error {
 
 	// Engine uses Postgres directly — no separate Temporal validation needed.
 
-	// JWT secret signs both web sessions and the engine's task tokens. The worker
-	// mints task tokens and the server verifies them, so BOTH need it and it must
-	// be the same value across components.
-	if component == "server" || component == "worker" {
+	// JWT secret signs both web sessions and the engine's task tokens. The
+	// dispatch loop mints task tokens and the server verifies them, so BOTH need
+	// it and it must be the same value across components.
+	if component == "server" || component == "dispatch" {
 		if cfg.Auth.JWT.Secret == "" {
 			v.add("auth.jwt.secret is required")
 		} else if len(cfg.Auth.JWT.Secret) < 32 {
 			v.add("auth.jwt.secret must be at least 32 characters")
 		}
 
-		// Internal token guards the /internal agent endpoints and is injected into
-		// step pods by the worker. Required (and matching) on server and worker so
+		// Internal token guards the /internal agent endpoints and is handed to
+		// agents at dispatch. Required (and matching) on server and worker so
 		// the endpoints can never be left unauthenticated in prod.
 		if cfg.Server.InternalToken == "" {
 			v.add("server.internalToken is required (protects internal agent endpoints)")
@@ -80,16 +80,9 @@ func Validate(cfg *Config, component string) error {
 		}
 	}
 
-	// Worker-specific.
-	if component == "worker" {
-		if cfg.Worker.AgentImage == "" {
-			v.add("worker.agentImage is required")
-		}
-	}
-
-	// Worker sweep interval.
-	if component == "worker" && cfg.Worker.SweepInterval > 0 && cfg.Worker.SweepInterval < 30*time.Second {
-		v.add(fmt.Sprintf("worker.sweepInterval minimum is 30s, got %s", cfg.Worker.SweepInterval))
+	// Dispatch sweep interval.
+	if component == "dispatch" && cfg.Engine.SweepInterval > 0 && cfg.Engine.SweepInterval < 30*time.Second {
+		v.add(fmt.Sprintf("engine.sweepInterval minimum is 30s, got %s", cfg.Engine.SweepInterval))
 	}
 
 	// Storage validation.

@@ -138,6 +138,14 @@ func Parse(data []byte) (*Pipeline, error) {
 	return &p, nil
 }
 
+// CheckYAMLComplexity guards against alias-expansion (billion-laughs) bombs by
+// walking the node tree and bounding total node count and nesting depth. It is
+// exported so other pipeline dialects (internal/products/ci) apply the same
+// defense before decoding.
+func CheckYAMLComplexity(data []byte) error {
+	return checkYAMLComplexity(data)
+}
+
 // checkYAMLComplexity decodes the document into a node tree (which preserves,
 // rather than expands, anchors/aliases) and walks it while following aliases,
 // counting visited nodes. An alias bomb makes the count explode, so we abort at

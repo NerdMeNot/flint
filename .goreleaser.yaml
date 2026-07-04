@@ -1,0 +1,54 @@
+# Flint release pipeline: two binaries from one tree.
+#   flint       — control plane + CLI/TUI (linux + darwin)
+#   flint-agent — machine daemon (linux only; what machines actually run)
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: flint
+    main: ./cmd/flint
+    binary: flint
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/NerdMeNot/flint/internal/version.Version={{.Version}}
+      - -X github.com/NerdMeNot/flint/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/NerdMeNot/flint/internal/version.Date={{.Date}}
+
+  - id: flint-agent
+    main: ./cmd/flint-agent
+    binary: flint-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/NerdMeNot/flint/internal/version.Version={{.Version}}
+      - -X github.com/NerdMeNot/flint/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/NerdMeNot/flint/internal/version.Date={{.Date}}
+
+archives:
+  - id: flint
+    ids: [flint]
+    name_template: "flint_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: flint-agent
+    ids: [flint-agent]
+    name_template: "flint-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+# Raw agent binaries alongside the archives: cloud-init bootstrap curls
+# flint-agent-linux-<arch> directly (see pkg/compute/awsec2 user data).
+release:
+  extra_files: []
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

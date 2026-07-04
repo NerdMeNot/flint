@@ -20,6 +20,11 @@ func NewStubForge() *StubForge { return &StubForge{} }
 
 func (StubForge) Type() string { return "github" } // matches the seeded forge connection
 
+// ListPullRequestFiles reports no files (demo runs never filter by paths).
+func (StubForge) ListPullRequestFiles(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+
 // Two stub pipeline payloads for two different consumers (a real forge would
 // serve one file; these internal callers parse it with different parsers):
 //

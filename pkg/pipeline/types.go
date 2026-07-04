@@ -173,6 +173,12 @@ type Step struct {
 	Inputs  []ArtifactInput  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	Outputs []ArtifactOutput `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 
+	// DeclaredOutputs are job-level named VALUE outputs (name → ${{ }}
+	// expression over steps.outputs.*), evaluated in-pod by the steps driver
+	// after the sub-steps finish. Downstream jobs read them as
+	// needs.<job>.outputs.<name>. Distinct from Outputs (artifact files).
+	DeclaredOutputs map[string]string `yaml:"declaredOutputs,omitempty" json:"declaredOutputs,omitempty"`
+
 	// Sidecars
 	Services []Service `yaml:"services,omitempty" json:"services,omitempty"`
 
@@ -257,13 +263,15 @@ type RetrySpec struct {
 
 // ArtifactInput declares an artifact to download before step execution.
 type ArtifactInput struct {
-	From string `yaml:"from" json:"from"` // source step name
-	Path string `yaml:"path" json:"path"` // local path to extract to
+	From string `yaml:"from" json:"from"`                     // source step name
+	Name string `yaml:"name,omitempty" json:"name,omitempty"` // artifact name (defaults to path)
+	Path string `yaml:"path" json:"path"`                     // local path to extract to
 }
 
 // ArtifactOutput declares an artifact to upload after step execution.
 type ArtifactOutput struct {
-	Path string `yaml:"path" json:"path"` // local path to upload
+	Name string `yaml:"name,omitempty" json:"name,omitempty"` // artifact name (defaults to path)
+	Path string `yaml:"path" json:"path"`                     // local path to upload
 }
 
 // Service defines a sidecar container that runs alongside a step.
@@ -277,6 +285,10 @@ type Service struct {
 type CacheSpec struct {
 	Key   string   `yaml:"key" json:"key"`     // cache key (supports expressions, e.g. hashFiles)
 	Paths []string `yaml:"paths" json:"paths"` // paths to cache
+	// RestoreKeys are prefix fallbacks tried in order on an exact-key miss
+	// (the lexicographically newest match wins) — a stale-but-close cache
+	// restore so the build only pays the delta.
+	RestoreKeys []string `yaml:"restoreKeys,omitempty" json:"restoreKeys,omitempty"`
 }
 
 // StepResources is the per-pod compute request a step-group carries. Requests are

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
@@ -16,6 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/cloudwego/hertz/pkg/route"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog/log"
 )
 
 // Server wraps the Hertz HTTP server with Flint's routes and middleware.
@@ -149,6 +152,13 @@ func (s *Server) registerRoutes() {
 	s.hertz.GET("/health/ready", s.handleReady)
 	s.hertz.GET("/metrics", s.handleMetrics)
 
+	// Pipeline JSON Schema — public, for editor integration:
+	//   # yaml-language-server: $schema=https://<flint>/schemas/pipeline.json
+	s.hertz.GET("/schemas/pipeline.json", s.handlePipelineSchema)
+
+	// Status badges — public (they live in READMEs).
+	s.hertz.GET("/badges/:project", s.handleStatusBadge)
+
 	// Auth routes — no JWT required (used to obtain JWT).
 	s.registerAuthRoutes()
 
@@ -175,6 +185,34 @@ func (s *Server) registerRoutes() {
 	if s.deps.Demo {
 		s.registerMockIdPRoutes()
 	}
+
+	// Static web UI (optional): serve a built SPA from this process so a
+	// single-binary install needs no separate web deployment. API/auth/webhook
+	// paths take precedence; everything else falls back to index.html.
+	if dist := s.deps.Config.Server.WebDist; dist != "" {
+		s.registerStaticWeb(dist)
+	}
+}
+
+// registerStaticWeb mounts the built web UI: real files are served as-is,
+// unknown GET paths (client-side routes) fall back to index.html.
+func (s *Server) registerStaticWeb(dist string) {
+	s.hertz.Static("/", dist)
+	index := filepath.Join(dist, "index.html")
+	s.hertz.NoRoute(func(ctx context.Context, c *app.RequestContext) {
+		if string(c.Method()) != "GET" {
+			c.AbortWithStatus(consts.StatusNotFound)
+			return
+		}
+		p := string(c.Path())
+		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/auth/") ||
+			strings.HasPrefix(p, "/internal/") || strings.HasPrefix(p, "/webhooks/") {
+			c.AbortWithStatus(consts.StatusNotFound)
+			return
+		}
+		c.File(index)
+	})
+	log.Info().Str("dist", dist).Msg("static web UI enabled")
 }
 
 // registerMockIdPRoutes mounts the self-contained mock OIDC identity provider at

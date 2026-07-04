@@ -12,66 +12,29 @@ import (
 // Config is the top-level configuration composing all subsystem configs.
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
-	Worker     WorkerConfig     `mapstructure:"worker"`
-	Agent      AgentConfig      `mapstructure:"agent"`
-	Controller ControllerConfig `mapstructure:"controller"`
+	Engine     EngineConfig     `mapstructure:"engine"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	Auth       AuthConfig       `mapstructure:"auth"`
 	Bootstrap  BootstrapConfig  `mapstructure:"bootstrap"`
 	Sync       SyncConfig       `mapstructure:"sync"`
 	Storage    StorageConfig    `mapstructure:"storage"`
+	Costs      CostConfig       `mapstructure:"costs"`
 	Forge      ForgeConfig      `mapstructure:"forge"`
 	Encryption EncryptionConfig `mapstructure:"encryption"`
 	Products   ProductsConfig   `mapstructure:"products"`
-	// Provisioning holds the cluster-level inputs a Karpenter EC2NodeClass needs
-	// (account-level infra Flint can't invent). Required only for managed runner
-	// pools (the autoscaling add-on); set once by the platform team.
-	Provisioning ProvisioningConfig `mapstructure:"provisioning"`
+	// Providers optionally bootstraps compute providers from the config file:
+	// each entry is upserted by name into the DB at startup, so IaC/first-boot
+	// installs stay one-file. The DB (managed via the API) is the source of
+	// truth; credentials never live in this file — use the provider's ambient
+	// chain (instance role / env) or set them via the API.
+	Providers []ProviderBootstrap `mapstructure:"providers"`
 }
 
-// ProvisioningConfig is the account-level node-provisioning profile for managed
-// runner pools. Maps to runner.ProvisioningProfile (core doesn't import config).
-//
-// Selectors are "key=value" strings (not maps) because Karpenter discovery tags
-// like "karpenter.sh/discovery" contain dots, which Viper would otherwise split
-// into nested map keys. SelectorMap parses them.
-type ProvisioningConfig struct {
-	Role                  string   `mapstructure:"role"`                  // node instance IAM role / instance profile
-	SubnetSelector        []string `mapstructure:"subnetSelector"`        // EC2NodeClass subnet tag selector ("key=value")
-	SecurityGroupSelector []string `mapstructure:"securityGroupSelector"` // EC2NodeClass SG tag selector ("key=value")
-	AMIFamily             string   `mapstructure:"amiFamily"`             // default AMI family (e.g. AL2023)
-}
-
-// SubnetTags / SecurityGroupTags parse the "key=value" selector strings into maps.
-func (p ProvisioningConfig) SubnetTags() map[string]string { return parseKV(p.SubnetSelector) }
-func (p ProvisioningConfig) SecurityGroupTags() map[string]string {
-	return parseKV(p.SecurityGroupSelector)
-}
-
-// Configured reports whether enough is set to render a managed pool's Karpenter
-// NodeClass. The UI gates the managed-pool option on this — no profile means
-// managed pools can't be rendered, so the option is disabled.
-func (p ProvisioningConfig) Configured() bool {
-	return p.Role != "" && len(p.SubnetTags()) > 0 && len(p.SecurityGroupTags()) > 0
-}
-
-func parseKV(pairs []string) map[string]string {
-	out := make(map[string]string, len(pairs))
-	for _, p := range pairs {
-		if i := indexByte(p, '='); i > 0 {
-			out[p[:i]] = p[i+1:]
-		}
-	}
-	return out
-}
-
-func indexByte(s string, b byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == b {
-			return i
-		}
-	}
-	return -1
+// ProviderBootstrap is one config-file compute provider entry.
+type ProviderBootstrap struct {
+	Name   string         `mapstructure:"name"`
+	Type   string         `mapstructure:"type"` // static | aws
+	Config map[string]any `mapstructure:",remain"`
 }
 
 // ProductsConfig toggles the family's products for a deployment. The unified UI
@@ -124,11 +87,17 @@ func (b *BootstrapConfig) EmailOrDefault() string {
 	return "admin@flint.local"
 }
 
-// ServerConfig configures the flint-server HTTP API.
+// ServerConfig configures the flint server HTTP API + agent gRPC endpoint.
 type ServerConfig struct {
-	Port          int    `mapstructure:"port"`
+	Port int `mapstructure:"port"`
+	// GRPCPort is the AgentService listener (flint-agent control channel).
+	GRPCPort      int    `mapstructure:"grpcPort"`
 	BaseURL       string `mapstructure:"baseUrl"`
 	InternalToken string `mapstructure:"internalToken"` // shared secret for /internal agent endpoints
+	// WebDist serves a built web UI (static assets + SPA index fallback)
+	// straight from this process — no separate web deployment or reverse
+	// proxy. Empty disables static serving.
+	WebDist string `mapstructure:"webDist"`
 }
 
 func (c *ServerConfig) PortOrDefault() int {
@@ -138,18 +107,27 @@ func (c *ServerConfig) PortOrDefault() int {
 	return 8080
 }
 
-// WorkerConfig configures the flint-worker.
-type WorkerConfig struct {
-	Replicas          int           `mapstructure:"replicas"`
-	JobNamespace      string        `mapstructure:"jobNamespace"`
-	AgentImage        string        `mapstructure:"agentImage"`
-	DefaultRunnerPool string        `mapstructure:"defaultRunnerPool"`
-	SweepInterval     time.Duration `mapstructure:"sweepInterval"`
+func (c *ServerConfig) GRPCPortOrDefault() int {
+	if c.GRPCPort > 0 {
+		return c.GRPCPort
+	}
+	return 9443
+}
+
+// EngineConfig configures the dispatch loop (embedded in --mode all, or the
+// dedicated --mode dispatch scale-out process).
+type EngineConfig struct {
+	// DefaultPool is the machine pool jobs use when they set no runner:.
+	DefaultPool   string        `mapstructure:"defaultPool"`
+	SweepInterval time.Duration `mapstructure:"sweepInterval"`
+	// RunRetentionDays bounds how long finished runs are kept (0 = default 90,
+	// negative = keep forever).
+	RunRetentionDays int `mapstructure:"runRetentionDays"`
 }
 
 // SweepIntervalOrDefault returns the observer sweep interval.
 // Default: 5m. Minimum: 30s.
-func (c *WorkerConfig) SweepIntervalOrDefault() time.Duration {
+func (c *EngineConfig) SweepIntervalOrDefault() time.Duration {
 	if c.SweepInterval >= 30*time.Second {
 		return c.SweepInterval
 	}
@@ -159,28 +137,11 @@ func (c *WorkerConfig) SweepIntervalOrDefault() time.Duration {
 	return 5 * time.Minute
 }
 
-func (c *WorkerConfig) JobNamespaceOrDefault() string {
-	if c.JobNamespace != "" {
-		return c.JobNamespace
-	}
-	return "flint-jobs"
-}
-
-func (c *WorkerConfig) DefaultRunnerPoolOrDefault() string {
-	if c.DefaultRunnerPool != "" {
-		return c.DefaultRunnerPool
+func (c *EngineConfig) DefaultPoolOrDefault() string {
+	if c.DefaultPool != "" {
+		return c.DefaultPool
 	}
 	return "standard"
-}
-
-// AgentConfig configures the flint-agent.
-type AgentConfig struct {
-	Image string `mapstructure:"image"`
-}
-
-// ControllerConfig configures the flint-controller.
-type ControllerConfig struct {
-	Enabled bool `mapstructure:"enabled"`
 }
 
 // DatabaseConfig configures PostgreSQL.
@@ -193,6 +154,15 @@ type DatabaseConfig struct {
 	SSLMode  string `mapstructure:"sslMode"`
 	MaxConns int32  `mapstructure:"maxConns"`
 	MinConns int32  `mapstructure:"minConns"`
+	// AutoMigrate applies pending schema migrations on server startup
+	// (default true — single-binary installs shouldn't need a separate
+	// migration job). Set false when migrations are operated externally.
+	AutoMigrate *bool `mapstructure:"autoMigrate"`
+}
+
+// AutoMigrateOrDefault reports whether startup migrations are enabled (default true).
+func (c *DatabaseConfig) AutoMigrateOrDefault() bool {
+	return c.AutoMigrate == nil || *c.AutoMigrate
 }
 
 func (c *DatabaseConfig) PortOrDefault() int {
@@ -200,14 +170,6 @@ func (c *DatabaseConfig) PortOrDefault() int {
 		return c.Port
 	}
 	return 5432
-}
-
-// Note: TemporalConfig removed — Flint uses its own embedded engine (internal/engine/).
-
-// TLSConfig for mTLS connections (Temporal Cloud, etc.).
-type TLSConfig struct {
-	CertPath string `mapstructure:"certPath"`
-	KeyPath  string `mapstructure:"keyPath"`
 }
 
 // AuthConfig holds authentication provider config — boot-time only.
@@ -254,6 +216,28 @@ type SAMLConfig struct {
 type JWTConfig struct {
 	Secret          string        `mapstructure:"secret"`
 	SessionDuration time.Duration `mapstructure:"sessionDuration"`
+}
+
+// CostConfig sets the compute rates behind cost-per-run estimates. Defaults
+// approximate on-demand general-purpose cloud pricing; set your negotiated
+// rates for accurate numbers.
+type CostConfig struct {
+	CPUCoreHour float64 `mapstructure:"cpuCoreHour"` // USD per vCPU-hour
+	MemoryGBHr  float64 `mapstructure:"memoryGbHour"`
+}
+
+func (c *CostConfig) CPUCoreHourOrDefault() float64 {
+	if c.CPUCoreHour > 0 {
+		return c.CPUCoreHour
+	}
+	return 0.0416 // ~m5 on-demand per-vCPU share
+}
+
+func (c *CostConfig) MemoryGBHourOrDefault() float64 {
+	if c.MemoryGBHr > 0 {
+		return c.MemoryGBHr
+	}
+	return 0.0046 // ~m5 on-demand per-GB share
 }
 
 // StorageConfig configures object storage for logs, artifacts, and cache.

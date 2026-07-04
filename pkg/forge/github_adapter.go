@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/v69/github"
 )
@@ -77,12 +78,13 @@ func (g *GitHubAdapter) ParseWebhook(headers http.Header, body []byte, secret st
 	switch e := payload.(type) {
 	case *github.PushEvent:
 		event := &WebhookEvent{
-			Kind:       EventPush,
-			Repo:       e.GetRepo().GetFullName(),
-			CommitSHA:  e.GetAfter(),
-			Message:    e.GetHeadCommit().GetMessage(),
-			Sender:     e.GetSender().GetLogin(),
-			RawPayload: body,
+			Kind:         EventPush,
+			Repo:         e.GetRepo().GetFullName(),
+			CommitSHA:    e.GetAfter(),
+			Message:      e.GetHeadCommit().GetMessage(),
+			Sender:       e.GetSender().GetLogin(),
+			ChangedFiles: pushChangedFiles(e),
+			RawPayload:   body,
 		}
 		ref := e.GetRef()
 		if strings.HasPrefix(ref, "refs/tags/") {
@@ -111,6 +113,111 @@ func (g *GitHubAdapter) ParseWebhook(headers http.Header, body []byte, secret st
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedEvent, eventType)
 	}
+}
+
+// pushChangedFiles collects the distinct file paths touched across a push's
+// commits (added + modified + removed) for trigger paths: filtering.
+func pushChangedFiles(e *github.PushEvent) []string {
+	seen := map[string]bool{}
+	var files []string
+	add := func(paths []string) {
+		for _, p := range paths {
+			if !seen[p] {
+				seen[p] = true
+				files = append(files, p)
+			}
+		}
+	}
+	for _, c := range e.Commits {
+		add(c.Added)
+		add(c.Modified)
+		add(c.Removed)
+	}
+	return files
+}
+
+// ListPullRequestFiles fetches the paths changed by a pull request.
+func (g *GitHubAdapter) ListPullRequestFiles(ctx context.Context, repo string, prNumber int) ([]string, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		page, resp, err := g.client.PullRequests.ListFiles(ctx, owner, name, prNumber, opts)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrTransient, err)
+		}
+		for _, f := range page {
+			files = append(files, f.GetFilename())
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return files, nil
+}
+
+// CreateCheckRun posts a rich check run with annotations. Requires GitHub App
+// authentication — PATs cannot create check runs; callers fall back to
+// PostCommitStatus on ErrUnsupportedEvent.
+func (g *GitHubAdapter) CreateCheckRun(ctx context.Context, repo, sha string, check CheckRun) error {
+	if g.appAuth == nil {
+		return fmt.Errorf("%w: check runs require GitHub App authentication", ErrUnsupportedEvent)
+	}
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+
+	opts := github.CreateCheckRunOptions{
+		Name:    check.Name,
+		HeadSHA: sha,
+		Status:  github.Ptr(check.Status),
+	}
+	if check.DetailsURL != "" {
+		opts.DetailsURL = github.Ptr(check.DetailsURL)
+	}
+	if check.Status == "completed" {
+		opts.Conclusion = github.Ptr(check.Conclusion)
+		now := github.Timestamp{Time: time.Now()}
+		opts.CompletedAt = &now
+	}
+	if check.Title != "" || check.Summary != "" || len(check.Annotations) > 0 {
+		out := &github.CheckRunOutput{
+			Title:   github.Ptr(check.Title),
+			Summary: github.Ptr(check.Summary),
+		}
+		// GitHub caps annotations at 50 per request.
+		anns := check.Annotations
+		if len(anns) > 50 {
+			anns = anns[:50]
+		}
+		for _, a := range anns {
+			start, end := a.StartLine, a.EndLine
+			if start <= 0 {
+				start = 1
+			}
+			if end < start {
+				end = start
+			}
+			out.Annotations = append(out.Annotations, &github.CheckRunAnnotation{
+				Path:            github.Ptr(a.Path),
+				StartLine:       github.Ptr(start),
+				EndLine:         github.Ptr(end),
+				AnnotationLevel: github.Ptr(a.Level),
+				Message:         github.Ptr(a.Message),
+			})
+		}
+		opts.Output = out
+	}
+
+	if _, _, err := g.client.Checks.CreateCheckRun(ctx, owner, name, opts); err != nil {
+		return fmt.Errorf("%w: %v", ErrTransient, err)
+	}
+	return nil
 }
 
 func (g *GitHubAdapter) PostCommitStatus(ctx context.Context, repo, sha string, status CommitStatus) error {

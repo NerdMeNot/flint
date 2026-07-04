@@ -1,0 +1,281 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://flint.dev/schemas/flint-pipeline.schema.json",
+  "title": "Flint CI Pipeline",
+  "description": "A Flint pipeline: a DAG of jobs. Each job is one pod (its own image, disk, runner); steps inside a job run sequentially and share the pod.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "string",
+      "description": "Default container image for every job that doesn't set its own."
+    },
+    "runner": {
+      "type": "string",
+      "description": "Default runner pool for every job that doesn't set its own."
+    },
+    "serviceAccount": {
+      "type": "string",
+      "description": "Default Kubernetes ServiceAccount for job pods (pod identity)."
+    },
+    "env": {
+      "$ref": "#/definitions/envMap",
+      "description": "Pipeline-wide environment variables, merged into every job (narrower scope wins)."
+    },
+    "secrets": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/secret" },
+      "description": "Pipeline-wide secret bindings, merged into every job."
+    },
+    "environments": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Restricts which environments this pipeline can target."
+    },
+    "concurrency": { "$ref": "#/definitions/concurrency" },
+    "extends": {
+      "type": "string",
+      "description": "Pipeline module to inherit jobs from (org/repo/path@ref or ./local/path.yaml)."
+    },
+    "with": {
+      "type": "object",
+      "description": "Inputs for the extends: module."
+    },
+    "triggers": { "$ref": "#/definitions/triggers" },
+    "jobs": {
+      "type": "object",
+      "description": "The pipeline DAG, keyed by job name.",
+      "additionalProperties": { "$ref": "#/definitions/job" }
+    }
+  },
+  "required": ["triggers"],
+  "definitions": {
+    "envMap": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": { "type": "string" }
+    },
+    "triggers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "push": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branches": { "type": "array", "items": { "type": "string" }, "description": "Branch globs (main, feature/*, release/**)." },
+            "paths": { "type": "array", "items": { "type": "string" }, "description": "Run only when a changed file matches one of these globs (src/**, go.mod)." },
+            "environments": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "pull_request": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branches": { "type": "array", "items": { "type": "string" }, "description": "Target-branch globs." },
+            "paths": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "tag": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["patterns"],
+          "properties": {
+            "patterns": { "type": "array", "items": { "type": "string" }, "description": "Tag globs (v*, release-*)." },
+            "environments": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "manual": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "environments": { "type": "array", "items": { "type": "string" } },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "enum": ["string", "boolean", "choice"] },
+                  "description": { "type": "string" },
+                  "required": { "type": "boolean" },
+                  "default": { "type": "string" },
+                  "options": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "schedule": {
+          "type": "object",
+          "description": "NOT YET SUPPORTED for CI pipelines — validation rejects it.",
+          "properties": {
+            "cron": { "type": "string" },
+            "environments": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "promotion": { "description": "NOT YET SUPPORTED — validation rejects it." },
+        "webhook": { "description": "NOT YET SUPPORTED — validation rejects it." }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group"],
+      "properties": {
+        "group": {
+          "type": "string",
+          "description": "Concurrency group key; supports expressions, e.g. ci-${{ git.branch }}."
+        },
+        "cancelInProgress": {
+          "type": "boolean",
+          "description": "Cancel running runs in the same group when a new one starts. Must be true (queue-mode is not yet supported)."
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": { "type": "string", "description": "Container image for this job's pod (falls back to the top-level image)." },
+        "disk": { "type": "string", "description": "Scratch disk size for the pod (e.g. 20Gi)." },
+        "runner": { "type": "string", "description": "Runner pool name." },
+        "serviceAccount": { "type": "string" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "needs": { "type": "array", "items": { "type": "string" }, "description": "Jobs that must finish before this one starts." },
+        "environments": { "type": "array", "items": { "type": "string" } },
+        "if": { "type": "string", "description": "Condition, e.g. ${{ git.branch == \"main\" }}. Contexts: git, run, env, inputs, steps, needs (+ matrix in matrix jobs)." },
+        "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "gate": { "$ref": "#/definitions/gate" },
+        "env": { "$ref": "#/definitions/envMap" },
+        "secrets": { "type": "array", "items": { "$ref": "#/definitions/secret" } },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Named value outputs (name → expression over steps.outputs.*). Downstream jobs read needs.<job>.outputs.<name>."
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths uploaded after the job succeeds; downloaded automatically into jobs that `needs` this one."
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "image"],
+            "properties": {
+              "name": { "type": "string" },
+              "image": { "type": "string" },
+              "env": { "$ref": "#/definitions/envMap" }
+            }
+          },
+          "description": "Sidecar containers (databases, caches) that run alongside the job."
+        },
+        "cache": { "$ref": "#/definitions/cache" },
+        "matrix": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } },
+          "description": "Fan the job out over combinations; reference values as ${{ matrix.<dim> }}."
+        },
+        "failFast": { "type": "boolean", "description": "NOT YET SUPPORTED — validation rejects it." },
+        "maxParallel": { "type": "integer", "description": "NOT YET SUPPORTED — validation rejects it." },
+        "timeout": { "type": "string", "description": "Go duration (30s, 5m, 1h)." },
+        "concurrency": { "description": "NOT YET SUPPORTED at job level — use pipeline-level concurrency." },
+        "use": { "type": "string", "description": "Job module reference (body comes from the module)." },
+        "with": { "type": "object", "description": "Inputs for the use: module." }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "run": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Shell command(s). Exactly one of run | use | inject per step."
+        },
+        "use": { "type": "string", "description": "Step module: a built-in (checkout), ./local/path.yaml, or org/repo/path@ref." },
+        "with": { "type": "object", "description": "Inputs for the use: module." },
+        "inject": { "type": "string", "description": "Steps-hole: ${{ inputs.<name> }} (module authoring)." },
+        "env": { "$ref": "#/definitions/envMap" },
+        "secrets": { "type": "array", "items": { "$ref": "#/definitions/secret" } },
+        "shell": { "enum": ["sh", "bash", "python"] },
+        "workingDir": { "type": "string" },
+        "timeout": { "type": "string", "description": "Go duration (30s, 5m, 1h)." },
+        "continueOnError": { "type": "boolean" },
+        "retry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attempts"],
+          "properties": {
+            "attempts": { "type": "integer", "minimum": 1 },
+            "delay": { "type": "string" }
+          }
+        },
+        "if": { "type": "string", "description": "Condition; sees steps.outputs.* of earlier steps in this job." }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvers"],
+      "properties": {
+        "approvers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "role:slug, team:slug, or user@email.com"
+        },
+        "minApprovals": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Built-in store key. Exactly one source (name | from)." },
+        "from": { "type": "string", "description": "NOT YET SUPPORTED — external providers (vault:, aws-sm:, …) are rejected." },
+        "env": { "type": "string", "description": "Target env var name. Exactly one target (env | file)." },
+        "file": { "type": "string", "description": "NOT YET SUPPORTED — file targets are rejected." },
+        "mode": { "type": "string" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": { "type": "string" },
+        "memory": { "type": "string" },
+        "gpu": { "type": "integer" },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "paths"],
+      "properties": {
+        "key": { "type": "string", "description": "Cache key; supports ${{ hashFiles('...') }}." },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "restoreKeys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Prefix fallbacks tried in order on an exact-key miss (newest match wins)."
+        }
+      }
+    }
+  }
+}

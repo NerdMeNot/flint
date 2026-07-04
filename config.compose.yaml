@@ -1,0 +1,43 @@
+# Flint configuration for the docker-compose stack (docker-compose.yml).
+# DEV-ONLY CREDENTIALS — do not reuse any value here in production.
+# For production config, start from config.sample.yaml.
+
+server:
+  port: 8080
+  baseUrl: http://localhost:8080
+  internalToken: "compose-dev-internal-token-not-for-prod"
+
+database:
+  host: postgres
+  port: 5432
+  database: flint
+  user: flint
+  password: flint
+  sslMode: disable
+
+engine:
+  defaultPool: standard
+
+auth:
+  adminUsers: []
+  defaultRole: viewer
+  jwt:
+    secret: "compose-dev-jwt-secret-0123456789abcdef"
+    sessionDuration: 24h
+
+storage:
+  mode: filesystem
+  filesystem:
+    path: /tmp/flint-logs
+
+encryption:
+  # Fixed dev key (32 bytes hex) so the compose stack works out of the box.
+  # Generate your own for anything real: openssl rand -hex 32
+  masterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  masterKeyVersion: 1
+
+products:
+  ci:
+    enabled: true
+  workflows:
+    enabled: true

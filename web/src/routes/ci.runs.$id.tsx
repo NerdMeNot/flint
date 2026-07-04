@@ -478,6 +478,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
             Ended {formatDateTime(run.finishedAtTs)}
           </span>
         )}
+        <RunCostChip runId={run.id} live={isLive} />
 
         <div className="flex items-center gap-2 ml-auto">
           {run.status === 'running' && (
@@ -542,6 +543,27 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
 }
 
 // ---------------------------------------------------------------------------
+// Run cost — requested compute × wall-clock with a $ estimate. Flint schedules
+// the pods, so it knows exactly what each step asked for and for how long.
+function RunCostChip({ runId, live }: { runId: string; live: boolean }) {
+  const { data } = useQuery({
+    ...orpc.runs.cost.queryOptions({ input: { runId } }),
+    refetchInterval: live ? 10_000 : false,
+  })
+  if (!data || data.totalCoreSecs <= 0) return null
+  const usd = data.estimatedUsd
+  const money = usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`
+  return (
+    <span
+      className="flex items-center gap-1.5"
+      title={`${data.totalCoreSecs.toFixed(0)} core-seconds · ${data.totalGbSecs.toFixed(0)} GB-seconds (requested compute × duration, at $${data.rates.cpuCoreHourUsd}/core-hr)`}
+    >
+      <span className="font-mono">≈ {money}</span>
+      <span className="opacity-50">{data.totalCoreSecs.toFixed(0)} core-s</span>
+    </span>
+  )
+}
+
 // Run progress — segmented bar + live step/elapsed/ETA context while running
 // ---------------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 )
 
 const cancelAllWorkflowTimers = `-- name: CancelAllWorkflowTimers :exec
@@ -106,6 +107,19 @@ UPDATE timers SET fired = true WHERE id = $1
 func (q *Queries) MarkTimerFired(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markTimerFired, id)
 	return err
+}
+
+const nextTimerDue = `-- name: NextTimerDue :one
+SELECT min(fires_at)::timestamptz FROM timers WHERE fired = false
+`
+
+// The soonest unfired timer, used by the adaptive poll to cap its backoff —
+// a due timer must not wait out a long idle-poll interval.
+func (q *Queries) NextTimerDue(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, nextTimerDue)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const upsertTimer = `-- name: UpsertTimer :exec

@@ -7,30 +7,50 @@ package db
 import (
 	"context"
 	"net/netip"
+	"time"
 )
 
 type Querier interface {
+	// Running runs in the same project+group, excluding the superseding run —
+	// the cancel-in-progress candidates. Uses idx_runs_concurrency_group.
+	ActiveRunsInConcurrencyGroup(ctx context.Context, arg ActiveRunsInConcurrencyGroupParams) ([]ActiveRunsInConcurrencyGroupRow, error)
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
 	// Atomically claim a due schedule by moving its next_run_at forward. Returns the
 	// number of rows updated (1 = this caller won the claim, 0 = already advanced by
 	// another worker), which makes firing multi-worker safe.
 	AdvanceWorkflowScheduleIfDue(ctx context.Context, arg AdvanceWorkflowScheduleIfDueParams) (int64, error)
 	ArchiveProject(ctx context.Context, id string) error
+	// Scheduler → machine binding. claim_deadline_at bounds how long the agent has to
+	// pick it up before the sweep unbinds it.
+	BindAssignment(ctx context.Context, arg BindAssignmentParams) error
 	CancelAllWorkflowTimers(ctx context.Context, workflowID string) error
 	CancelChildWorkflows(ctx context.Context, parentID *string) error
 	// Cancels every non-terminal step of a workflow and returns each affected step's
 	// name, attempt, and prior status so the caller can record a per-step 'cancelled'
 	// history event. The CTE captures old_status before the UPDATE overwrites it.
 	CancelPendingSteps(ctx context.Context, workflowID string) ([]CancelPendingStepsRow, error)
+	// CleanupRun / engine cancellation: kill work that has not reached an agent yet.
+	CancelRunAssignments(ctx context.Context, runID string) (int64, error)
 	CancelTimer(ctx context.Context, arg CancelTimerParams) error
 	CancelWorkflow(ctx context.Context, id string) error
 	CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error)
+	// Agent ClaimStep: atomically take the oldest assigned work for this machine.
+	ClaimAssignmentForAgent(ctx context.Context, machineID *string) (ClaimAssignmentForAgentRow, error)
 	// Atomic claim: return the tokens and delete the row in one statement, only if
 	// completed. This is the TOCTOU fix — no read-then-mutate window.
 	ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (ClaimCompletedDeviceCodeRow, error)
+	// Sweep: machines that never registered before their boot deadline.
+	ClaimExpiredBootDeadlines(ctx context.Context) ([]ClaimExpiredBootDeadlinesRow, error)
+	// Sweep: machines whose heartbeat lease lapsed → lost.
+	ClaimExpiredHeartbeats(ctx context.Context) ([]ClaimExpiredHeartbeatsRow, error)
+	// Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
+	// min_warm before draining.
+	ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMachinesPastTTLRow, error)
 	// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
 	// can detect events stranded by a worker crash mid-delivery.
 	ClaimOutboxBatch(ctx context.Context, limit int32) ([]ClaimOutboxBatchRow, error)
+	// Fleet scheduler input: oldest-first pending work for one pool.
+	ClaimPendingAssignments(ctx context.Context, arg ClaimPendingAssignmentsParams) ([]ClaimPendingAssignmentsRow, error)
 	// Claims queued steps whose workflow is 'running' (a single predicate that also
 	// enforces pause: a paused workflow's steps are simply not claimable). FOR UPDATE
 	// OF steps locks only the step rows — never the workflow row — so claiming cannot
@@ -40,19 +60,26 @@ type Querier interface {
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
-	// Prune transition history older than 30 days so the table stays bounded. Called
-	// from the sweep alongside the other retention cleanups.
+	// Prune transition history older than 30 days so the table stays bounded.
+	// Batched (one batch per sweep) so a long-lived install's backlog can't stall
+	// a sweep tick with one giant DELETE.
 	CleanupOldEngineEvents(ctx context.Context) error
 	CleanupOldLoginAttempts(ctx context.Context) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
 	ClearUserTOTP(ctx context.Context, id string) error
 	CompleteDeviceCode(ctx context.Context, arg CompleteDeviceCodeParams) error
+	// provisioning → idle: consume the bootstrap token, mint the agent token, record
+	// the agent's self-reported identity/capacity. The status transition itself goes
+	// through the fleet transition chokepoint in the same tx.
+	CompleteMachineRegistration(ctx context.Context, arg CompleteMachineRegistrationParams) error
 	CompleteParentInvokeStep(ctx context.Context, arg CompleteParentInvokeStepParams) error
 	ConsumeSignal(ctx context.Context, id string) error
 	ConsumeStepResultSignals(ctx context.Context, workflowID string) ([][]byte, error)
 	CountActiveProjects(ctx context.Context) (int64, error)
-	CountDefaultRunnerPools(ctx context.Context) (int64, error)
+	CountDefaultMachinePools(ctx context.Context) (int64, error)
 	CountPendingGates(ctx context.Context) (int64, error)
+	// Fleet provisioner input: live machine counts per status for one pool.
+	CountPoolMachinesByStatus(ctx context.Context, poolID string) ([]CountPoolMachinesByStatusRow, error)
 	CountRecentFailuresByEmail(ctx context.Context, email string) (int64, error)
 	CountRecentFailuresByIP(ctx context.Context, ipAddress netip.Addr) (int64, error)
 	CountRoleAssignments(ctx context.Context, subject string) (int64, error)
@@ -86,6 +113,7 @@ type Querier interface {
 	DeleteAPIKeyWorkspaceScopes(ctx context.Context, apiKeyID string) error
 	DeleteAllSSOGroupRoleMappings(ctx context.Context, orgID string) error
 	DeleteAuthProviderConfig(ctx context.Context, providerType string) (int64, error)
+	DeleteComputeProvider(ctx context.Context, id string) error
 	// Prune consumed signals so the table doesn't grow unbounded. Keeps a 7-day
 	// window for debugging/audit. Called from the sweep.
 	DeleteConsumedSignals(ctx context.Context) error
@@ -101,6 +129,12 @@ type Querier interface {
 	DeleteForgeConnectionByID(ctx context.Context, id string) error
 	DeleteIdpRoleAssignment(ctx context.Context, arg DeleteIdpRoleAssignmentParams) error
 	DeleteMFAPendingToken(ctx context.Context, token string) error
+	DeleteMachinePool(ctx context.Context, name string) error
+	// Runs retention: delete terminal runs older than the retention window, in
+	// bounded batches so a long-lived install's first sweep doesn't stall. The
+	// workflows/steps/signals/timers rows cascade via FKs; engine_events has no FK
+	// (by design) and its own 30-day cleanup.
+	DeleteOldRuns(ctx context.Context, retentionDays int32) (int64, error)
 	DeletePersonalToken(ctx context.Context, id string) error
 	DeleteProtectedEnvironment(ctx context.Context, id string) (int64, error)
 	DeleteRole(ctx context.Context, id string) (int64, error)
@@ -108,10 +142,13 @@ type Querier interface {
 	DeleteRoleEnvironmentScopes(ctx context.Context, roleID string) error
 	DeleteRolePermissions(ctx context.Context, roleID string) error
 	DeleteRoleWorkspaceScopes(ctx context.Context, roleID string) error
-	DeleteRunnerPool(ctx context.Context, name string) error
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	DeleteScimTokensForOrg(ctx context.Context, orgID string) error
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error)
+	// Prune unconsumed signals that never matched anything (e.g. an informer
+	// step-result for a workflow that finished first, or an external signal with
+	// no waiting step). Any legitimate consumer has long since timed out at 7 days.
+	DeleteStaleUnconsumedSignals(ctx context.Context) error
 	DeleteTagKey(ctx context.Context, id string) (int64, error)
 	DeleteTeam(ctx context.Context, id string) (int64, error)
 	DeleteWebhook(ctx context.Context, arg DeleteWebhookParams) error
@@ -121,7 +158,13 @@ type Querier interface {
 	// none. Called at startup. Projects only land here when no workspace was
 	// declared and none could be inferred — it's a triage bucket, not a home.
 	EnsureDefaultWorkspace(ctx context.Context, orgID string) error
+	// Fails one assignment (agent-reported death or restart reconcile), returning
+	// the identifiers the caller needs to emit the step-result signal.
+	FailAssignment(ctx context.Context, arg FailAssignmentParams) (FailAssignmentRow, error)
 	FailGateByTimeout(ctx context.Context, arg FailGateByTimeoutParams) error
+	// Machine lost: every live assignment on it fails; the caller emits a step-result
+	// signal per row so the engine's existing retry path takes over.
+	FailMachineAssignments(ctx context.Context, arg FailMachineAssignmentsParams) ([]FailMachineAssignmentsRow, error)
 	// Defense-in-depth backstop: a gate/wait step still 'waiting' although its timeout
 	// timer already fired (handler regression or crash) is forced to failed so the
 	// workflow can run onFailure steps / finish instead of wedging forever. With atomic
@@ -136,11 +179,14 @@ type Querier interface {
 	FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error
 	FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error)
 	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
+	FinishAssignment(ctx context.Context, arg FinishAssignmentParams) error
 	FinishRun(ctx context.Context, arg FinishRunParams) error
 	FinishWorkflow(ctx context.Context, arg FinishWorkflowParams) error
 	GetActiveWebhooksForEvent(ctx context.Context, arg GetActiveWebhooksForEventParams) ([]GetActiveWebhooksForEventRow, error)
+	GetAssignment(ctx context.Context, id string) (StepAssignment, error)
 	GetAuthProviderConfig(ctx context.Context, providerType string) (AuthProviderConfig, error)
 	GetCloneCredentials(ctx context.Context, repoPath string) (GetCloneCredentialsRow, error)
+	GetComputeProvider(ctx context.Context, name string) (ComputeProvider, error)
 	GetDashboardActivity(ctx context.Context, limit int32) ([]GetDashboardActivityRow, error)
 	GetDashboardSummary(ctx context.Context) ([]GetDashboardSummaryRow, error)
 	GetDeviceCode(ctx context.Context, deviceCode string) (GetDeviceCodeRow, error)
@@ -153,12 +199,24 @@ type Querier interface {
 	GetExistingWorkflow(ctx context.Context, runID string) (string, error)
 	GetGlobalVariableValue(ctx context.Context, variableID string) (string, error)
 	GetMFAPendingToken(ctx context.Context, token string) (GetMFAPendingTokenRow, error)
+	GetMachine(ctx context.Context, id string) (Machine, error)
+	// Auth interceptor lookup for all post-registration agent calls.
+	GetMachineByAgentTokenHash(ctx context.Context, agentTokenHash *string) (Machine, error)
+	// Elastic registration: single-use — the caller clears the hash in the same tx.
+	// 'requested' is included because provider.Create returns before the
+	// requested → provisioning transition commits, and a very fast instance could
+	// register in that window.
+	GetMachineByBootstrapTokenHash(ctx context.Context, bootstrapTokenHash *string) (Machine, error)
+	GetMachinePool(ctx context.Context, name string) (GetMachinePoolRow, error)
+	GetMachinePoolByID(ctx context.Context, id string) (GetMachinePoolByIDRow, error)
 	GetModuleByName(ctx context.Context, name string) (GetModuleByNameRow, error)
 	GetOrCreateDefaultOrg(ctx context.Context) (string, error)
 	GetOrCreateTeamBySlug(ctx context.Context, arg GetOrCreateTeamBySlugParams) (string, error)
 	GetOrg(ctx context.Context) (GetOrgRow, error)
 	GetOrgConcurrencyLimit(ctx context.Context, id string) (int32, error)
 	GetOriginalRunParams(ctx context.Context, id string) (GetOriginalRunParamsRow, error)
+	// Registration path for static-pool agents presenting a join token.
+	GetPoolByJoinTokenHash(ctx context.Context, joinTokenHash *string) (GetPoolByJoinTokenHashRow, error)
 	GetProject(ctx context.Context, id string) (GetProjectRow, error)
 	// Single project with workspace slug. The most recent run is fetched separately
 	// (ListRunsByProject with limit 1) to keep nullability clean.
@@ -184,8 +242,10 @@ type Querier interface {
 	GetRunScope(ctx context.Context, id string) (GetRunScopeRow, error)
 	// Aggregate run counts for the org-level stats endpoint.
 	GetRunStats(ctx context.Context, orgID string) (GetRunStatsRow, error)
+	// The fields needed to report a run's outcome to the forge (commit status /
+	// check run) and to render status badges.
+	GetRunStatusInfo(ctx context.Context, id string) (GetRunStatusInfoRow, error)
 	GetRunWorkflowID(ctx context.Context, id string) (*string, error)
-	GetRunnerPool(ctx context.Context, name string) (GetRunnerPoolRow, error)
 	GetScimTokenOrg(ctx context.Context, tokenHash string) (string, error)
 	GetSecret(ctx context.Context, arg GetSecretParams) ([]byte, error)
 	GetSecretByEnvironment(ctx context.Context, arg GetSecretByEnvironmentParams) (GetSecretByEnvironmentRow, error)
@@ -207,8 +267,9 @@ type Querier interface {
 	GetWebhookSecretByName(ctx context.Context, displayName string) (string, error)
 	GetWorkflowDAGWaves(ctx context.Context, id string) ([]byte, error)
 	GetWorkflowInput(ctx context.Context, id string) ([]byte, error)
-	// Batch variant: fetch inputs for all workflows in a claimed step batch in one
-	// round-trip (kills the per-step N+1 in claimAndDispatch).
+	// Batch variant: fetch inputs (and accumulated step outputs, for the
+	// needs.<job>.outputs.* dispatch context) for all workflows in a claimed step
+	// batch in one round-trip (kills the per-step N+1 in claimAndDispatch).
 	GetWorkflowInputs(ctx context.Context, workflowIds []string) ([]GetWorkflowInputsRow, error)
 	GetWorkflowParent(ctx context.Context, id string) (GetWorkflowParentRow, error)
 	GetWorkflowStatus(ctx context.Context, id string) (GetWorkflowStatusRow, error)
@@ -218,6 +279,7 @@ type Querier interface {
 	GetWorkspaceByID(ctx context.Context, id string) (GetWorkspaceByIDRow, error)
 	GetWorkspaceBySlug(ctx context.Context, arg GetWorkspaceBySlugParams) (GetWorkspaceBySlugRow, error)
 	GlobalVariableValueExists(ctx context.Context, variableID string) (bool, error)
+	IncrementMachineStepsCompleted(ctx context.Context, id string) error
 	InsertAPIKeyEnvironmentScope(ctx context.Context, arg InsertAPIKeyEnvironmentScopeParams) error
 	InsertAPIKeyWorkspaceScope(ctx context.Context, arg InsertAPIKeyWorkspaceScopeParams) error
 	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
@@ -228,12 +290,20 @@ type Querier interface {
 	// state change it records (see internal/core/engine/transition.go). Append-only:
 	// rows are never updated.
 	InsertEngineEvent(ctx context.Context, arg InsertEngineEventParams) error
+	// Written in the same tx as the action it records (e.g. the machines insert for a
+	// provision decision) so ledger and state can never disagree.
+	InsertFleetDecision(ctx context.Context, arg InsertFleetDecisionParams) (string, error)
 	InsertForgeConnection(ctx context.Context, arg InsertForgeConnectionParams) (string, error)
 	// IdP-derived assignment from a group→role mapping. Never downgrades an existing
 	// (manual) 'internal' row.
 	InsertIdpRoleAssignment(ctx context.Context, arg InsertIdpRoleAssignmentParams) error
 	// MFA pending tokens (DB-backed; replaces the in-memory map).
 	InsertMFAPendingToken(ctx context.Context, arg InsertMFAPendingTokenParams) error
+	// Elastic path: the fleet provisioner pre-allocates the row in 'requested' with a
+	// minted bootstrap token before calling provider.Create (Create is idempotent per
+	// machine id, so a crash between insert and Create is safe to retry).
+	InsertMachine(ctx context.Context, arg InsertMachineParams) (string, error)
+	InsertMachineEvent(ctx context.Context, arg InsertMachineEventParams) error
 	InsertManualRun(ctx context.Context, arg InsertManualRunParams) error
 	InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error
 	InsertPipelineRun(ctx context.Context, arg InsertPipelineRunParams) error
@@ -252,12 +322,23 @@ type Querier interface {
 	// context (steps.<name>.<output>).
 	InsertSeededStep(ctx context.Context, arg InsertSeededStepParams) error
 	InsertSignal(ctx context.Context, arg InsertSignalParams) error
+	// Static path: RegisterMachine with a pool join token creates the machine directly
+	// in 'idle' with the agent's self-reported capacity.
+	InsertStaticMachine(ctx context.Context, arg InsertStaticMachineParams) (string, error)
 	InsertStep(ctx context.Context, arg InsertStepParams) error
+	// Machine executor dispatch: a 'pending' assignment IS the pending-capacity queue —
+	// dispatch never blocks on capacity; the fleet loop owns boot-new decisions.
+	InsertStepAssignment(ctx context.Context, arg InsertStepAssignmentParams) (string, error)
 	InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) (string, error)
 	// A non-CI workflow run: no project, no pipeline file. kind marks it 'workflow'.
 	InsertWorkflowRun(ctx context.Context, arg InsertWorkflowRunParams) error
 	IsEnvVariableSecret(ctx context.Context, id string) (bool, error)
 	IsUserInTeamBySlug(ctx context.Context, arg IsUserInTeamBySlugParams) (bool, error)
+	// Debounce input: no_capacity is recorded at most once per pool per window.
+	LastNoCapacityDecision(ctx context.Context, poolID *string) (time.Time, error)
+	// The newest run's status for a project (optionally filtered by branch) — the
+	// status badge source.
+	LatestRunStatusForProject(ctx context.Context, arg LatestRunStatusForProjectParams) (string, error)
 	LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error)
 	// ────────────────────────────────────────────────────────────
 	// API key environment scope
@@ -270,6 +351,7 @@ type Querier interface {
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
 	// API keys with role slug + creator email for the settings list.
 	ListAPIKeysDetailed(ctx context.Context, arg ListAPIKeysDetailedParams) ([]ListAPIKeysDetailedRow, error)
+	ListActiveAssignmentsForMachine(ctx context.Context, machineID *string) ([]ListActiveAssignmentsForMachineRow, error)
 	// ────────────────────────────────────────────────────────────
 	// Role assignments
 	// ────────────────────────────────────────────────────────────
@@ -280,6 +362,8 @@ type Querier interface {
 	ListArchivedProjects(ctx context.Context) ([]ListArchivedProjectsRow, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
+	ListCancelRequestedForMachine(ctx context.Context, machineID *string) ([]ListCancelRequestedForMachineRow, error)
+	ListComputeProviders(ctx context.Context) ([]ComputeProvider, error)
 	ListDueWorkflowSchedules(ctx context.Context) ([]ListDueWorkflowSchedulesRow, error)
 	// Transition history for a single step across all attempts.
 	ListEngineEventsByStep(ctx context.Context, arg ListEngineEventsByStepParams) ([]EngineEvent, error)
@@ -289,6 +373,7 @@ type Querier interface {
 	ListEnvVariableValues(ctx context.Context, orgID string) ([]ListEnvVariableValuesRow, error)
 	ListEnvVariables(ctx context.Context, arg ListEnvVariablesParams) ([]ListEnvVariablesRow, error)
 	ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error)
+	ListFleetDecisions(ctx context.Context, arg ListFleetDecisionsParams) ([]FleetDecision, error)
 	ListForgeConnectionNames(ctx context.Context) ([]ListForgeConnectionNamesRow, error)
 	ListForgeConnections(ctx context.Context, arg ListForgeConnectionsParams) ([]ListForgeConnectionsRow, error)
 	// Gate steps enriched with run/project/workspace context, filtered by step status
@@ -296,10 +381,18 @@ type Querier interface {
 	// rejected→failed). Powers GET /api/v1/gates.
 	ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error)
 	ListIdpRoleAssignmentRoleIDs(ctx context.Context, subject string) ([]string, error)
+	ListMachineEvents(ctx context.Context, arg ListMachineEventsParams) ([]MachineEvent, error)
+	ListMachinePoolNames(ctx context.Context) ([]string, error)
+	// Full rows — used by the fleet pool registry loader, compile-time validation, and
+	// the pool catalog. Returns everything needed to reconstruct a PoolSpec.
+	ListMachinePools(ctx context.Context) ([]ListMachinePoolsRow, error)
+	ListMachinePoolsPaged(ctx context.Context, arg ListMachinePoolsPagedParams) ([]ListMachinePoolsPagedRow, error)
+	ListMachinesPaged(ctx context.Context, arg ListMachinesPagedParams) ([]Machine, error)
 	ListModules(ctx context.Context) ([]ListModulesRow, error)
 	ListOrgSecrets(ctx context.Context, orgID string) ([]ListOrgSecretsRow, error)
 	ListPendingGates(ctx context.Context) ([]ListPendingGatesRow, error)
 	ListPersonalTokensByUser(ctx context.Context, userID string) ([]ListPersonalTokensByUserRow, error)
+	ListPoolMachines(ctx context.Context, poolID string) ([]Machine, error)
 	ListProjectSecrets(ctx context.Context, projectID *string) ([]ListProjectSecretsRow, error)
 	ListProjectWebhooks(ctx context.Context, projectID string) ([]Webhook, error)
 	ListProjects(ctx context.Context) ([]ListProjectsRow, error)
@@ -310,6 +403,8 @@ type Querier interface {
 	// keeps it a single indexed pass for the latest run per project.
 	ListProjectsWithLastRun(ctx context.Context, arg ListProjectsWithLastRunParams) ([]ListProjectsWithLastRunRow, error)
 	ListProtectedEnvironments(ctx context.Context, orgID string) ([]ListProtectedEnvironmentsRow, error)
+	// Reconciliation input: this provider's machines in every non-final state.
+	ListProviderMachines(ctx context.Context, provider string) ([]ListProviderMachinesRow, error)
 	// Recent SSO sign-in attempts (success + failure) for the sign-in diagnostics log.
 	ListRecentSignIns(ctx context.Context, arg ListRecentSignInsParams) ([]ListRecentSignInsRow, error)
 	ListRoleAssignmentsByRole(ctx context.Context, roleID string) ([]ListRoleAssignmentsByRoleRow, error)
@@ -328,11 +423,8 @@ type Querier interface {
 	// ────────────────────────────────────────────────────────────
 	ListRoleWorkspaceSlugs(ctx context.Context, roleID string) ([]string, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRolesRow, error)
-	ListRunnerPoolNames(ctx context.Context) ([]string, error)
-	// Full rows — used by the worker registry loader, compile-time validation, and the
-	// pool catalog. Returns everything needed to reconstruct a PoolSpec.
-	ListRunnerPools(ctx context.Context) ([]ListRunnerPoolsRow, error)
-	ListRunnerPoolsPaged(ctx context.Context, arg ListRunnerPoolsPagedParams) ([]ListRunnerPoolsPagedRow, error)
+	// Run placement panel: which machine executed each step, and when.
+	ListRunAssignments(ctx context.Context, runID string) ([]ListRunAssignmentsRow, error)
 	ListRunsAll(ctx context.Context, limit int32) ([]ListRunsAllRow, error)
 	ListRunsByProject(ctx context.Context, arg ListRunsByProjectParams) ([]ListRunsByProjectRow, error)
 	// Global CI run list with optional project/status filters, joined to the project
@@ -397,24 +489,37 @@ type Querier interface {
 	LockOrgConcurrency(ctx context.Context, orgID string) error
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
+	// Scheduler input: candidate machines for a pool with their committed capacity.
+	// Free = machines.cpu_millis − committed (computed by the caller); no reserved
+	// counters to drift.
+	MachineFreeCapacity(ctx context.Context, poolID string) ([]MachineFreeCapacityRow, error)
 	MarkRunCleaned(ctx context.Context, id string) error
 	// One-time-use guard: succeeds (1 row) the first time an assertion ID is seen,
 	// and returns 0 rows on replay. Bounded by the assertion's own validity window.
 	MarkSAMLAssertionUsed(ctx context.Context, arg MarkSAMLAssertionUsedParams) (int64, error)
 	// Records that a claimed step was successfully handed to an executor. dispatched_at
-	// distinguishes "running, has a Job" from "claimed but the worker died before
-	// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
+	// distinguishes "running, dispatched" from "claimed but the worker died before
+	// dispatch" — the latter is recovered by RequeueUndispatchedSteps. dispatch_handle
+	// is the executor's opaque correlation id (machine executor: step_assignments.id).
 	MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error
 	MarkTimerFired(ctx context.Context, id string) error
+	// The soonest unfired timer, used by the adaptive poll to cap its backoff —
+	// a due timer must not wait out a long idle-poll interval.
+	NextTimerDue(ctx context.Context) (time.Time, error)
 	NotifyEngine(ctx context.Context, pgNotify string) error
 	// First-writer-wins: only a 'running' workflow can be paused. Returns rows
 	// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
 	// skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
 	PauseWorkflow(ctx context.Context, id string) (int64, error)
+	// Fleet provisioner input: unbound demand per pool.
+	PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error)
 	ProjectHealthByID(ctx context.Context, projectID *string) (ProjectHealthByIDRow, error)
 	// Per-project run health for an org: recent statuses (newest first, capped at 10)
 	// plus totals — powers the dashboard health bars / "needs attention".
 	ProjectHealthByOrg(ctx context.Context, orgID string) ([]ProjectHealthByOrgRow, error)
+	// One-shot queue visibility: how much work is waiting, how long the oldest
+	// queued step has waited, and what's running/gated right now.
+	QueueStats(ctx context.Context) (QueueStatsRow, error)
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
@@ -427,8 +532,13 @@ type Querier interface {
 	// resolve/fail) back to 'pending' for redelivery. attempts was already incremented
 	// at claim, so a poison event still terminates at 'failed' after max_attempts.
 	RecoverStaleOutboxEvents(ctx context.Context) (int64, error)
+	// Sweep: assigned but never claimed before the deadline → back to pending. The
+	// machine gets a strike (tracked by the fleet loop, not here).
+	ReleaseUnclaimedAssignments(ctx context.Context) ([]ReleaseUnclaimedAssignmentsRow, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)
 	RemoveUserFromAllTeams(ctx context.Context, userID string) (int64, error)
+	// Running work: flag for delivery via the ExecuteStep stream or next heartbeat.
+	RequestAssignmentCancel(ctx context.Context, runID string) (int64, error)
 	// Promotes the parked retry attempt (retry_wait) to queued once its backoff timer
 	// fires. This is the ONLY path out of retry_wait.
 	RequeueRetryStep(ctx context.Context, arg RequeueRetryStepParams) error
@@ -441,6 +551,9 @@ type Querier interface {
 	// For environment-scoped vars: returns the value matching the env slug.
 	// Excludes is_secret=true (those go through the agent secrets flow).
 	ResolveEnvVars(ctx context.Context, arg ResolveEnvVarsParams) ([]ResolveEnvVarsRow, error)
+	// Backfills the outcome once known (boot_ok + boot seconds at registration,
+	// boot_timeout from the sweep, terminated from scale-down/reconcile).
+	ResolveFleetDecisionByMachine(ctx context.Context, arg ResolveFleetDecisionByMachineParams) error
 	ResolveOutboxEvent(ctx context.Context, id string) error
 	RestoreProject(ctx context.Context, id string) error
 	// Inverse of PauseWorkflow. The caller advances the workflow after resuming so
@@ -456,6 +569,8 @@ type Querier interface {
 	RoleExists(ctx context.Context, arg RoleExistsParams) (bool, error)
 	RotateSessionToken(ctx context.Context, arg RotateSessionTokenParams) error
 	RunExists(ctx context.Context, id string) (bool, error)
+	// Per-step timing + compute requests for the run cost breakdown.
+	RunStepCosts(ctx context.Context, runID string) ([]RunStepCostsRow, error)
 	// Runs that reached a terminal state but whose executor resources (workspace
 	// pod, leftover Jobs) haven't been torn down yet. The loop claims these and
 	// calls each executor's CleanupRun, then marks them cleaned — exactly-once.
@@ -471,18 +586,26 @@ type Querier interface {
 	SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]SearchUsersRow, error)
 	// Promotes one pool to default and demotes all others atomically.
-	SetDefaultRunnerPool(ctx context.Context, name string) error
+	SetDefaultMachinePool(ctx context.Context, name string) error
 	SetDeviceCodeOAuthState(ctx context.Context, arg SetDeviceCodeOAuthStateParams) error
 	SetDeviceCodeSAMLRequestID(ctx context.Context, arg SetDeviceCodeSAMLRequestIDParams) error
+	// Records the provider instance id without touching status — used when the
+	// agent registered before the provisioning transition could commit.
+	SetMachineProviderRef(ctx context.Context, arg SetMachineProviderRefParams) error
 	SetOrgRequireProjectWorkspace(ctx context.Context, arg SetOrgRequireProjectWorkspaceParams) error
 	SetOrgRequireSSO(ctx context.Context, arg SetOrgRequireSSOParams) error
 	SetOrgStrictGroups(ctx context.Context, arg SetOrgStrictGroupsParams) error
+	// Static pools: stores the sha256 of a newly minted (or rotated) agent join token.
+	SetPoolJoinTokenHash(ctx context.Context, arg SetPoolJoinTokenHashParams) error
 	// Record the inbound forge webhook id after provisioning (or clear it on removal).
 	SetProjectWebhookID(ctx context.Context, arg SetProjectWebhookIDParams) error
+	// Stamps the resolved concurrency group (expressions already interpolated) on
+	// a run so cancel-in-progress can find superseded runs in the same group.
+	SetRunConcurrencyGroup(ctx context.Context, arg SetRunConcurrencyGroupParams) error
 	// Sets the run row's status from its workflow (used for pause/resume so the run
 	// list and detail reflect the paused state). Does not touch finished_at.
 	SetRunStatusByWorkflow(ctx context.Context, arg SetRunStatusByWorkflowParams) error
-	SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error
+	SetStepDispatchHandle(ctx context.Context, arg SetStepDispatchHandleParams) error
 	// Clears execution timestamps so a re-queued step (throttled, undispatched, or
 	// first queue) starts with a clean slate. Critical: a stale deadline_at left over
 	// from an earlier claim would let the sweep time the step out prematurely.
@@ -490,16 +613,29 @@ type Querier interface {
 	SetStepSkipped(ctx context.Context, id string) error
 	SetStepStatus(ctx context.Context, arg SetStepStatusParams) error
 	SetStepTaskToken(ctx context.Context, arg SetStepTaskTokenParams) error
+	// Batch variant: stamp every claimed step's task token in ONE round-trip
+	// instead of one UPDATE per step (the claim path's hottest write).
+	SetStepTaskTokens(ctx context.Context, arg SetStepTaskTokensParams) error
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) error
 	SetUserRecoveryCodes(ctx context.Context, arg SetUserRecoveryCodesParams) error
 	SetUserTOTPSecret(ctx context.Context, arg SetUserTOTPSecretParams) error
+	// Agent-restart recovery: 'running' assignments the machine's heartbeat no
+	// longer claims, past a grace period since they started.
+	StaleRunningAssignmentsForMachine(ctx context.Context, arg StaleRunningAssignmentsForMachineParams) ([]StaleRunningAssignmentsForMachineRow, error)
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
 	SweepStaleWorkflows(ctx context.Context) error
+	// Heartbeat GC input: of the run ids resident on a machine's disk, which have
+	// reached a terminal state (their workspace dirs are safe to delete).
+	TerminalRunIDs(ctx context.Context, runIds []string) ([]string, error)
 	TouchAPIKey(ctx context.Context, id string) error
 	TouchDeviceCodePoll(ctx context.Context, deviceCode string) error
+	TouchMachineHeartbeat(ctx context.Context, arg TouchMachineHeartbeatParams) error
 	TouchPersonalToken(ctx context.Context, id string) error
 	TouchScimToken(ctx context.Context, tokenHash string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
+	// Used only by the fleet transition chokepoint after validating the edge; callers
+	// never update status directly.
+	UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) error
 	// UI-managed project labels (the registry curates the vocabulary; this stores
 	// the chosen key:value and free tags on the project).
 	UpdateProjectTags(ctx context.Context, arg UpdateProjectTagsParams) error
@@ -521,7 +657,11 @@ type Querier interface {
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UpdateWorkflowPipeline(ctx context.Context, arg UpdateWorkflowPipelineParams) error
 	UpsertAuthProviderConfig(ctx context.Context, arg UpsertAuthProviderConfigParams) (string, error)
+	// Also the config-file bootstrap path: a providers: block in config upserts by
+	// name at startup so IaC/first-boot installs stay one-file; DB is source of truth.
+	UpsertComputeProvider(ctx context.Context, arg UpsertComputeProviderParams) (string, error)
 	UpsertEnvVariableValue(ctx context.Context, arg UpsertEnvVariableValueParams) error
+	UpsertMachinePool(ctx context.Context, arg UpsertMachinePoolParams) error
 	// Workspace placement (the CRD is authoritative): if spec.workspace is declared
 	// use that workspace (created on the fly if it doesn't exist); otherwise the
 	// project lands in the org's default "Unsorted" workspace. workspace_inferred is
@@ -529,7 +669,6 @@ type Querier interface {
 	// tags are intentionally NOT written here — they're UI-managed (see
 	// UpdateProjectTags), so a reconcile never clobbers them.
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (string, error)
-	UpsertRunnerPool(ctx context.Context, arg UpsertRunnerPoolParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
 	// Stores an encrypted secret value. `value` is kept empty; the ciphertext lives
 	// in `value_enc`.
@@ -537,6 +676,11 @@ type Querier interface {
 	UpsertTimer(ctx context.Context, arg UpsertTimerParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (string, error)
 	VerifyUserTOTP(ctx context.Context, id string) error
+	// Running workflows that have an unconsumed informer step-result signal. The
+	// loop advances these promptly so a crashed agent's step is resolved by the
+	// informer in seconds, not at the step-timeout sweep. Uses the
+	// idx_signals_unconsumed partial index.
+	WorkflowsWithPendingStepSignals(ctx context.Context) ([]string, error)
 }
 
 var _ Querier = (*Queries)(nil)

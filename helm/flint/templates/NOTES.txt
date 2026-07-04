@@ -1,0 +1,24 @@
+Flint is deploying.
+
+Topology: single-binary control plane (API + webhooks + embedded dispatch in one Deployment)
+Database: {{ if .Values.postgresql.internal }}internal evaluation Postgres (NOT for production){{ else }}{{ include "flint.dbHost" . }}{{ end }}
+
+1. Reach the UI/API:
+{{- if .Values.ingress.enabled }}
+     https://{{ .Values.ingress.host }}
+{{- else }}
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "flint.fullname" . }} 8080:8080
+     open http://localhost:8080
+{{- end }}
+
+2. First login: the bootstrap admin credentials are printed in the server log
+   on first start:
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "flint.fullname" . }} | grep -i admin
+
+3. Connect your forge (GitHub App / PAT) under Settings → Connections, create a
+   project, and push a .flint/ci.yaml. Editor autocomplete:
+     # yaml-language-server: $schema={{ .Values.server.baseUrl | default "http://localhost:8080" }}/schemas/pipeline.json
+
+4. CI steps run on machines, not in this cluster. Create a pool under
+   Settings → Runners, mint a join token, and start flint-agent on your
+   machines (or configure a cloud provider for on-demand capacity).

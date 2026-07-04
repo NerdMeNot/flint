@@ -3,32 +3,52 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
-	"k8s.io/apimachinery/pkg/api/resource"
+	"github.com/NerdMeNot/flint/pkg/units"
 )
 
-// SpecFromRow converts a runner_pools DB row into a PoolSpec. This is the bridge
-// that makes the DB the source of truth — the worker loads pools from here into
-// the in-memory registry (no CRD/controller).
-func SpecFromRow(r db.ListRunnerPoolsRow) PoolSpec {
+// SpecFromRow converts a machine_pools DB row into a PoolSpec. This is the
+// bridge that makes the DB the source of truth — pools are loaded from here
+// into the in-memory registry (DB/API is canonical; no CRDs, no controllers).
+func SpecFromRow(r db.ListMachinePoolsRow) PoolSpec {
 	spec := PoolSpec{
-		Name:               r.Name,
-		RunAsNonRoot:       r.RunAsNonRoot,
-		ServiceAccountName: derefStr(r.ServiceAccountName),
+		ID:          r.ID,
+		Name:        r.Name,
+		Description: derefStr(r.Description),
+		Provider:    r.Provider,
+		Arch:        r.Arch,
 		Resources: ResourceProfile{
-			// Optional — a blank cpu/memory means the pool stamps no request for it
-			// (the job sizes itself). Left as the zero Quantity, which MergeIntoJob skips.
-			CPU:    optQty(r.Cpu),
-			Memory: optQty(r.Memory),
+			// Optional — blank cpu/memory means the pool stamps no default and the
+			// job sizes itself. Zero fields are treated as "unset" downstream.
+			CPUMillis: optCPUMillis(r.Cpu),
+			MemoryMB:  optMemoryMB(r.Memory),
 		},
-		Workspace: WorkspaceConfig{
-			Mode:         WorkspaceMode(orStr(r.WorkspaceMode, string(WorkspaceModeAgent))),
-			StorageClass: derefStr(r.WorkspaceStorageClass),
-			Size:         orStr(r.WorkspaceSize, "10Gi"),
+		DiskGB:         optDiskGB(derefStr(r.Disk)),
+		InstanceTypes:  r.InstanceTypes,
+		Regions:        r.Regions,
+		DefaultTimeout: derefStr(r.DefaultTimeout),
+		IsDefault:      r.IsDefault,
+		Policy: Policy{
+			CapacityType: r.CapacityType,
+			Objective:    r.Objective,
+			MinWarm:      int(r.MinWarm),
+			MaxMachines:  int(r.MaxMachines),
+			IdleTTL:      time.Duration(r.IdleTtlSeconds) * time.Second,
 		},
 	}
-	spec.Description = derefStr(r.Description)
+
+	if len(r.Overrides) > 0 {
+		// Invalid overrides JSON degrades to "no overrides" rather than failing the
+		// whole registry load; the API validates on write, so this only guards
+		// hand-edited rows.
+		_ = json.Unmarshal(r.Overrides, &spec.Policy.Overrides)
+	}
+
+	if f, err := r.HourlyCost.Float64Value(); err == nil && f.Valid {
+		spec.HourlyCostUSD = f.Float64
+	}
 
 	if r.GpuVendor != nil && *r.GpuVendor != "" {
 		spec.Resources.GPU = &GPURequest{
@@ -41,23 +61,13 @@ func SpecFromRow(r db.ListRunnerPoolsRow) PoolSpec {
 		}
 	}
 
-	// Arch is a descriptor (catalog, validation, and — for managed pools — the
-	// rendered Karpenter NodePool requirement); it is NOT auto-pinned into the pod
-	// nodeSelector. A reference pool only constrains arch if the author explicitly
-	// added kubernetes.io/arch to its node selector.
-	if len(r.NodeSelector) > 0 {
-		_ = json.Unmarshal(r.NodeSelector, &spec.NodeSelector)
-	}
-	if len(r.Tolerations) > 0 {
-		_ = json.Unmarshal(r.Tolerations, &spec.Tolerations)
-	}
 	return spec
 }
 
 // LoadAll loads every ready pool from the DB into the registry, replacing its
-// contents. Called by the worker at boot and on change.
+// contents. Called at boot and on refresh.
 func LoadAll(ctx context.Context, q db.Querier, reg *Registry) error {
-	rows, err := q.ListRunnerPools(ctx)
+	rows, err := q.ListMachinePools(ctx)
 	if err != nil {
 		return err
 	}
@@ -74,17 +84,39 @@ func LoadAll(ctx context.Context, q db.Querier, reg *Registry) error {
 	return nil
 }
 
-// optQty parses a resource quantity, returning the zero Quantity (treated as
-// "unset" by MergeIntoJob) when the string is blank or invalid.
-func optQty(s string) resource.Quantity {
+// optCPUMillis parses a CPU quantity, returning 0 (treated as "unset") when the
+// string is blank or invalid.
+func optCPUMillis(s string) int64 {
 	if s == "" {
-		return resource.Quantity{}
+		return 0
 	}
-	q, err := resource.ParseQuantity(s)
+	m, err := units.ParseCPUMillis(s)
 	if err != nil {
-		return resource.Quantity{}
+		return 0
 	}
-	return q
+	return m
+}
+
+func optMemoryMB(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	mb, err := units.ParseMemoryMB(s)
+	if err != nil {
+		return 0
+	}
+	return mb
+}
+
+func optDiskGB(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	gb, err := units.ParseDiskGB(s)
+	if err != nil {
+		return 0
+	}
+	return gb
 }
 
 func derefStr(s *string) string {
@@ -92,11 +124,4 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
-}
-
-func orStr(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }

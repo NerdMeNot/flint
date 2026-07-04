@@ -58,6 +58,21 @@ func (e *PgEngine) StartWorkflowWithWaves(ctx context.Context, input StartWorkfl
 	return e.startWorkflow(ctx, input, waves, nil)
 }
 
+// countContainerSteps counts the steps that run as pods (run/use/steps) —
+// gates, waits, and http steps never touch the workspace.
+func countContainerSteps(waves [][]pipeline.Step) int {
+	n := 0
+	for _, wave := range waves {
+		for _, s := range wave {
+			switch s.ExecType() {
+			case "run", "use", "steps":
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // StartWorkflowSeeded starts a workflow whose steps named in seed are pre-completed
 // as 'succeeded' with their carried-over results (and their outputs folded into the
 // workflow's step_outputs), so only the remaining steps execute. This is the engine
@@ -92,6 +107,13 @@ func (e *PgEngine) startWorkflow(ctx context.Context, input StartWorkflowInput, 
 	}
 
 	input.normalizeInputs()
+
+	// A run with at most one container step has no cross-step file flow — the
+	// executor can skip the per-run workspace pod/Service entirely.
+	if input.WorkspaceFlow == "" && countContainerSteps(waves) <= 1 {
+		input.WorkspaceFlow = "none"
+	}
+
 	var parentID, parentStep *string
 	if input.ParentWorkflowID != "" {
 		parentID = &input.ParentWorkflowID

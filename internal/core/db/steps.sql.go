@@ -754,20 +754,52 @@ func (q *Queries) LockStep(ctx context.Context, arg LockStepParams) (LockStepRow
 }
 
 const markStepDispatched = `-- name: MarkStepDispatched :exec
-UPDATE steps SET dispatched_at = now(), k8s_job_name = $2 WHERE id = $1
+UPDATE steps SET dispatched_at = now(), dispatch_handle = $2 WHERE id = $1
 `
 
 type MarkStepDispatchedParams struct {
-	ID         string  `json:"id"`
-	K8sJobName *string `json:"k8s_job_name"`
+	ID             string  `json:"id"`
+	DispatchHandle *string `json:"dispatch_handle"`
 }
 
 // Records that a claimed step was successfully handed to an executor. dispatched_at
-// distinguishes "running, has a Job" from "claimed but the worker died before
-// dispatch" — the latter is recovered by RequeueUndispatchedSteps.
+// distinguishes "running, dispatched" from "claimed but the worker died before
+// dispatch" — the latter is recovered by RequeueUndispatchedSteps. dispatch_handle
+// is the executor's opaque correlation id (machine executor: step_assignments.id).
 func (q *Queries) MarkStepDispatched(ctx context.Context, arg MarkStepDispatchedParams) error {
-	_, err := q.db.Exec(ctx, markStepDispatched, arg.ID, arg.K8sJobName)
+	_, err := q.db.Exec(ctx, markStepDispatched, arg.ID, arg.DispatchHandle)
 	return err
+}
+
+const queueStats = `-- name: QueueStats :one
+SELECT
+    count(*) FILTER (WHERE status = 'queued')  AS queued,
+    count(*) FILTER (WHERE status = 'running') AS running,
+    count(*) FILTER (WHERE status = 'waiting') AS waiting_gates,
+    coalesce(EXTRACT(EPOCH FROM (now() - min(queued_at) FILTER (WHERE status = 'queued')))::bigint, 0) AS oldest_queued_secs
+FROM steps
+WHERE status IN ('queued', 'running', 'waiting')
+`
+
+type QueueStatsRow struct {
+	Queued           int64       `json:"queued"`
+	Running          int64       `json:"running"`
+	WaitingGates     int64       `json:"waiting_gates"`
+	OldestQueuedSecs interface{} `json:"oldest_queued_secs"`
+}
+
+// One-shot queue visibility: how much work is waiting, how long the oldest
+// queued step has waited, and what's running/gated right now.
+func (q *Queries) QueueStats(ctx context.Context) (QueueStatsRow, error) {
+	row := q.db.QueryRow(ctx, queueStats)
+	var i QueueStatsRow
+	err := row.Scan(
+		&i.Queued,
+		&i.Running,
+		&i.WaitingGates,
+		&i.OldestQueuedSecs,
+	)
+	return i, err
 }
 
 const recentlyFailedWorkflowIDs = `-- name: RecentlyFailedWorkflowIDs :many
@@ -835,17 +867,61 @@ func (q *Queries) RequeueUndispatchedSteps(ctx context.Context, graceSecs float6
 	return result.RowsAffected(), nil
 }
 
-const setStepK8sJobName = `-- name: SetStepK8sJobName :exec
-UPDATE steps SET k8s_job_name = $2 WHERE id = $1
+const runStepCosts = `-- name: RunStepCosts :many
+SELECT DISTINCT ON (s.name) s.name, s.exec_type, s.started_at, s.finished_at,
+    s.step_def->'resources' AS resources
+FROM steps s
+JOIN workflows w ON w.id = s.workflow_id
+WHERE w.run_id = $1
+ORDER BY s.name, s.attempt DESC
 `
 
-type SetStepK8sJobNameParams struct {
-	ID         string  `json:"id"`
-	K8sJobName *string `json:"k8s_job_name"`
+type RunStepCostsRow struct {
+	Name       string      `json:"name"`
+	ExecType   string      `json:"exec_type"`
+	StartedAt  *time.Time  `json:"started_at"`
+	FinishedAt *time.Time  `json:"finished_at"`
+	Resources  interface{} `json:"resources"`
 }
 
-func (q *Queries) SetStepK8sJobName(ctx context.Context, arg SetStepK8sJobNameParams) error {
-	_, err := q.db.Exec(ctx, setStepK8sJobName, arg.ID, arg.K8sJobName)
+// Per-step timing + compute requests for the run cost breakdown.
+func (q *Queries) RunStepCosts(ctx context.Context, runID string) ([]RunStepCostsRow, error) {
+	rows, err := q.db.Query(ctx, runStepCosts, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunStepCostsRow{}
+	for rows.Next() {
+		var i RunStepCostsRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.ExecType,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Resources,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setStepDispatchHandle = `-- name: SetStepDispatchHandle :exec
+UPDATE steps SET dispatch_handle = $2 WHERE id = $1
+`
+
+type SetStepDispatchHandleParams struct {
+	ID             string  `json:"id"`
+	DispatchHandle *string `json:"dispatch_handle"`
+}
+
+func (q *Queries) SetStepDispatchHandle(ctx context.Context, arg SetStepDispatchHandleParams) error {
+	_, err := q.db.Exec(ctx, setStepDispatchHandle, arg.ID, arg.DispatchHandle)
 	return err
 }
 
@@ -897,6 +973,24 @@ type SetStepTaskTokenParams struct {
 
 func (q *Queries) SetStepTaskToken(ctx context.Context, arg SetStepTaskTokenParams) error {
 	_, err := q.db.Exec(ctx, setStepTaskToken, arg.ID, arg.TaskToken)
+	return err
+}
+
+const setStepTaskTokens = `-- name: SetStepTaskTokens :exec
+UPDATE steps SET task_token = t.token
+FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS token) t
+WHERE steps.id = t.id
+`
+
+type SetStepTaskTokensParams struct {
+	Ids    []string `json:"ids"`
+	Tokens []string `json:"tokens"`
+}
+
+// Batch variant: stamp every claimed step's task token in ONE round-trip
+// instead of one UPDATE per step (the claim path's hottest write).
+func (q *Queries) SetStepTaskTokens(ctx context.Context, arg SetStepTaskTokensParams) error {
+	_, err := q.db.Exec(ctx, setStepTaskTokens, arg.Ids, arg.Tokens)
 	return err
 }
 

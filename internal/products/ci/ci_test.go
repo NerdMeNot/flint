@@ -248,7 +248,7 @@ func TestValidate_GateJobNeedsNoImage(t *testing.T) {
 triggers: { push: { branches: [main] } }
 jobs:
   approve:
-    gate: { approvers: [role:rm], minApprovals: 2 }
+    gate: { approvers: [role:rm, role:lead], minApprovals: 2 }
 `))
 	require.NoError(t, err)
 }
