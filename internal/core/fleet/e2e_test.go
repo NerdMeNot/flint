@@ -47,9 +47,11 @@ func TestEndToEnd_PipelineOnRealAgent(t *testing.T) {
 	t.Cleanup(func() { eng.Close() })
 	fl := fleet.New(pool, eng)
 
-	// Pool + join token.
+	// Pool + join token. Modest shape defaults: steps are stamped with them
+	// and must fit whatever host runs this test (CI runners have 4 cores —
+	// an 8-vCPU default would leave every assignment pending forever).
 	require.NoError(t, q.UpsertMachinePool(ctx, db.UpsertMachinePoolParams{
-		Name: "standard", Provider: "static", Arch: "amd64", Cpu: "8", Memory: "16Gi",
+		Name: "standard", Provider: "static", Arch: "amd64", Cpu: "1", Memory: "1Gi",
 		CapacityType: "on_demand", Objective: "balanced", MaxMachines: 10, IdleTtlSeconds: 900,
 	}))
 	joinToken, hash, err := fleet.MintToken()
