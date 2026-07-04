@@ -27,11 +27,15 @@ func TestPoolInsightQueries(t *testing.T) {
 	t.Cleanup(pool.Close)
 	q := db.New(pool)
 
+	// Unique pool per run: CI reuses one database across `go test` and
+	// `go test -race`, so a fixed pool name would accumulate machines and
+	// double every aggregate.
+	poolName := "insights-" + uuid.NewString()[:8]
 	require.NoError(t, q.UpsertMachinePool(ctx, db.UpsertMachinePoolParams{
-		Name: "insights", Provider: "static", Arch: "amd64", Cpu: "4", Memory: "8Gi",
+		Name: poolName, Provider: "static", Arch: "amd64", Cpu: "4", Memory: "8Gi",
 		CapacityType: "on_demand", Objective: "balanced", MaxMachines: 10, IdleTtlSeconds: 900,
 	}))
-	poolRow, err := q.GetMachinePool(ctx, "insights")
+	poolRow, err := q.GetMachinePool(ctx, poolName)
 	require.NoError(t, err)
 
 	// Machine A: warm for 2h in-window at $0.50/hr, booted in 60s.
