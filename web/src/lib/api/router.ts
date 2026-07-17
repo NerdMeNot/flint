@@ -45,6 +45,8 @@ import {
   type WorkflowRun,
   type WorkflowRunDetail,
   type SavedView,
+  type StepLogLine,
+  type RunAnnotation,
 } from './types'
 import {
   backendGet,
@@ -93,6 +95,52 @@ const meta = {
     const m = await backendGet<{ mode: 'demo' | 'live' }>('/meta')
     return { mode: m.mode, isDemo: m.mode === 'demo' }
   }),
+}
+
+// Cached backend mode, used to gate mock fallbacks so they never surface fake
+// data against a live deployment. Sticky after the first successful check.
+let cachedMode: 'demo' | 'live' | null = null
+async function isDemoMode(): Promise<boolean> {
+  if (cachedMode === null) {
+    try {
+      cachedMode = (await backendGet<{ mode: 'demo' | 'live' }>('/meta')).mode
+    } catch {
+      return false
+    }
+  }
+  return cachedMode === 'demo'
+}
+
+// Representative annotations for demo mode — what a test-summary step and a
+// coverage step would publish. The tone follows the run's actual outcome so
+// the demo page reads coherently (no "tests failed" panel on a green run).
+async function demoAnnotations(runId: string): Promise<RunAnnotation[]> {
+  let failing = false
+  try {
+    failing = (await backendGet<{ status?: string }>(`/runs/${runId}`)).status === 'failed'
+  } catch {
+    /* run lookup failed → default to the passing variant */
+  }
+  const now = new Date().toISOString()
+  const annotations: RunAnnotation[] = [
+    {
+      id: `${runId}-tests`,
+      style: failing ? 'error' : 'success',
+      context: 'test-summary',
+      body: failing
+        ? '**3 tests failed** across 2 suites\n\n| Suite | Failed | Total |\n| --- | --- | --- |\n| `engine` | 2 | 412 |\n| `fleet` | 1 | 188 |\n\nFirst failure: `TestAdvanceRetriesLostAgent` — `expected requeue, got terminal failure`'
+        : '**All 600 tests passed** across 14 suites in 2m 41s\n\nSlowest: `TestSchedulerBinPacksWarmMachines` (8.2s)',
+      createdAt: now,
+    },
+    {
+      id: `${runId}-coverage`,
+      style: 'info',
+      context: 'coverage',
+      body: 'Coverage: **81.4%** (+0.3% vs main) · [full report](#)',
+      createdAt: now,
+    },
+  ]
+  return annotations
 }
 
 const capabilities = {
@@ -234,15 +282,27 @@ const runs = {
   stepLogs: os
     .input(z.object({ runId: z.string(), stepName: z.string() }))
     .handler(async ({ input }) => {
-      return (async () => {
-          // The server returns structured lines ({timestamp,stream,content});
-          // the log view wants a single string, so join the content here.
-          const res = await backendGet<{ lines: Array<{ content?: string }> }>(
-            `/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`,
-          )
-          const lines = Array.isArray(res.lines) ? res.lines.map((l) => l.content ?? '').join('\n') : ''
-          return { lines }
-        })()
+      // Structured lines pass through as-is: the log view needs timestamps
+      // (group durations, timestamp gutter) and the stream tag (stderr tint).
+      const res = await backendGet<{ lines: StepLogLine[] | null; complete?: boolean }>(
+        `/runs/${input.runId}/steps/${encodeURIComponent(input.stepName)}/logs`,
+      )
+      return { lines: Array.isArray(res.lines) ? res.lines : [], complete: res.complete ?? true }
+    }),
+
+  // Annotations — markdown panels steps publish onto the run page. Mock-first:
+  // the backend endpoint doesn't exist yet, so demo deployments fall back to
+  // representative samples (live deployments fall back to none) until it's
+  // reconciled (GET /runs/:id/annotations + an agent `annotate` emit).
+  annotations: os
+    .input(z.object({ runId: z.string() }))
+    .handler(async ({ input }) => {
+      try {
+        const res = await backendGet<{ annotations: RunAnnotation[] }>(`/runs/${input.runId}/annotations`)
+        return { annotations: res.annotations ?? [] }
+      } catch {
+        return { annotations: (await isDemoMode()) ? await demoAnnotations(input.runId) : [] }
+      }
     }),
 
   // All started steps' logs, for the contiguous "All output" view.

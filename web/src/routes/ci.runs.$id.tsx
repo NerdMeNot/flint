@@ -44,11 +44,18 @@ import { orpc } from '#/lib/orpc'
 import { client } from '#/lib/orpc'
 import { useAction } from '#/hooks/use-action'
 import { useRunStream } from '#/hooks/use-run-stream'
+import { useStepLogStream } from '#/hooks/use-step-log-stream'
 import { PipelineProgress } from '#/components/PipelineProgress'
 import { RunGantt, PanelHeader } from '#/components/pipeline/run-gantt'
 import { StepSpine, fmtDur } from '#/components/pipeline/step-spine'
 import { GatePanel } from '#/components/pipeline/gate-panel'
+import { LogView } from '#/components/pipeline/log-view'
+import { StepTimelinePanel } from '#/components/pipeline/step-timeline-panel'
+import { RunAnnotations } from '#/components/pipeline/run-annotations'
 import { BackLink } from '#/components/BackLink'
+import { EVENT_LABELS, EVENT_TONE } from '#/lib/run-events'
+import { stripAnsi } from '#/lib/ansi'
+import type { StepLogLine } from '#/lib/api/types'
 
 const DagView = lazy(() =>
   import('#/components/pipeline/dag-view').then((m) => ({ default: m.DagView }))
@@ -168,11 +175,19 @@ function RunDetailPage() {
     : null
   // Logs are only fetched for non-gate steps; gates have their own panel.
   const isGateStep = step?.execType === 'gate'
+  // A running step's logs stream in over SSE; if the stream is down we fall
+  // back to a 3s poll so output still advances. Finished steps fetch once.
+  const stepRunning = step?.status === 'running'
+  const logStreamConnected = useStepLogStream(
+    id,
+    selectedStep !== null && !isGateStep && stepRunning ? selectedStep : null,
+  )
   const { data: logsData } = useQuery({
     ...orpc.runs.stepLogs.queryOptions({
       input: { runId: id, stepName: selectedStep ?? '' },
     }),
     enabled: selectedStep !== null && !isGateStep,
+    refetchInterval: stepRunning && !logStreamConnected ? 3000 : false,
   })
 
   // Auto-focus the step that matters on first load: the failing step (failed
@@ -224,6 +239,10 @@ function RunDetailPage() {
         <FailureBanner step={failedStep} onViewLogs={() => drillToStep(failedStep.name)} />
       )}
 
+      {/* Annotations — markdown panels published by steps (test summaries,
+          coverage). High-signal output first, before any logs are opened. */}
+      <RunAnnotations runId={id} live={isLive} />
+
       {/* Progress — segmented bar + live step/elapsed/ETA context while running */}
       <div className="mb-4 lg:mb-5">
         <RunProgress steps={steps} isLive={isLive} elapsedSecs={elapsedSecs} medianSecs={medianSecs} />
@@ -263,7 +282,8 @@ function RunDetailPage() {
                   steps={steps}
                   runId={id}
                   runStatus={run.status}
-                  logs={logsData?.lines ?? null}
+                  entries={logsData?.lines ?? null}
+                  live={isLive}
                   maximized={logsMaximized}
                   onToggleMaximize={() => setLogsMaximized((v) => !v)}
                   onSelectStep={setSelectedStep}
@@ -322,48 +342,6 @@ function ViewTabs({ view, onChange }: { view: RunView; onChange: (v: RunView) =>
 // ---------------------------------------------------------------------------
 // Timeline — the durable transition history (engine_events) for this run.
 // ---------------------------------------------------------------------------
-
-const EVENT_LABELS: Record<string, string> = {
-  queued: 'Queued',
-  claimed: 'Started',
-  parked: 'Waiting',
-  dispatched: 'Dispatched',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  skipped: 'Skipped',
-  cancelled: 'Cancelled',
-  timed_out: 'Timed out',
-  retry_scheduled: 'Retry scheduled',
-  retry_requeued: 'Retry re-queued',
-  gate_approved: 'Gate approved',
-  gate_rejected: 'Gate rejected',
-  wait_signaled: 'Signal received',
-  dispatch_failed: 'Dispatch failed',
-  manual_resolve: 'Manually resolved',
-  invoke_completed: 'Child workflow completed',
-  seeded: 'Carried over',
-  paused: 'Run paused',
-  resumed: 'Run resumed',
-  workflow_finished: 'Run finished',
-  workflow_cancelled: 'Run cancelled',
-}
-
-const EVENT_TONE: Record<string, string> = {
-  succeeded: 'text-emerald-500',
-  gate_approved: 'text-emerald-500',
-  wait_signaled: 'text-emerald-500',
-  workflow_finished: 'text-emerald-500',
-  failed: 'text-destructive',
-  timed_out: 'text-destructive',
-  dispatch_failed: 'text-destructive',
-  gate_rejected: 'text-destructive',
-  cancelled: 'text-muted-foreground',
-  skipped: 'text-muted-foreground',
-  workflow_cancelled: 'text-muted-foreground',
-  manual_resolve: 'text-amber-500',
-  paused: 'text-amber-500',
-  seeded: 'text-muted-foreground',
-}
 
 function RunTimeline({ runId }: { runId: string }) {
   const { data, isLoading } = useQuery(orpc.runs.events.queryOptions({ input: { runId } }))
@@ -792,21 +770,6 @@ function ViewToggle({ label, icon, active, onClick }: {
 // All-output panel — one contiguous, collapsible-by-step log stream
 // ---------------------------------------------------------------------------
 
-function highlight(line: string, q: string): React.ReactNode {
-  if (!q) return line
-  const low = line.toLowerCase()
-  const out: React.ReactNode[] = []
-  let i = 0
-  while (i < line.length) {
-    const j = low.indexOf(q, i)
-    if (j < 0) { out.push(line.slice(i)); break }
-    if (j > i) out.push(line.slice(i, j))
-    out.push(<mark key={j} className="bg-yellow-500/40 text-inherit rounded-[2px]">{line.slice(j, j + q.length)}</mark>)
-    i = j + q.length
-  }
-  return out
-}
-
 function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; toolbar?: React.ReactNode }) {
   const { data } = useQuery(orpc.runs.logs.queryOptions({ input: { runId } }))
   const logsMap = data?.logs ?? {}
@@ -840,7 +803,7 @@ function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; 
     URL.revokeObjectURL(url)
   }
 
-  const visible = started.filter((s) => !q || (logsMap[s.name] ?? '').toLowerCase().includes(q))
+  const visible = started.filter((s) => !q || stripAnsi(logsMap[s.name] ?? '').toLowerCase().includes(q))
 
   return (
     <div className="island-shell !p-0 overflow-hidden flex flex-col">
@@ -899,7 +862,7 @@ function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; 
           visible.map((s) => {
             const text = logsMap[s.name] ?? ''
             const lines = text ? text.split('\n') : []
-            const matches = q ? lines.filter((l) => l.toLowerCase().includes(q)).length : 0
+            const matches = q ? lines.filter((l) => stripAnsi(l).toLowerCase().includes(q)).length : 0
             const open = isOpen(s)
             return (
               <div key={s.name} className="border-b border-[#21262d] last:border-0">
@@ -920,16 +883,7 @@ function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; 
                 </button>
                 {open && (
                   <div className="px-3 sm:px-4 py-2 font-mono text-[13px] leading-[1.65]">
-                    {lines.length > 0 ? (
-                      lines.map((line, i) => (
-                        <div key={i} className="flex gap-4 hover:bg-[#161b22] -mx-2 px-2 py-px rounded">
-                          <span className="text-[#484f58] select-none shrink-0 w-7 text-right">{i + 1}</span>
-                          <span className={colorizeLine(line)}>{highlight(line, q)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <span className="text-[#484f58] italic">No output.</span>
-                    )}
+                    <LogView entries={lines.map((line) => ({ content: line }))} search={q} />
                   </div>
                 )}
               </div>
@@ -1020,18 +974,27 @@ function StepActions({ runId, runStatus, step }: { runId: string; runStatus: str
 }
 
 function LogPanel({
-  step, steps, runId, runStatus, logs, maximized, onToggleMaximize, onSelectStep, onBackToOverview,
+  step, steps, runId, runStatus, entries, live, maximized, onToggleMaximize, onSelectStep, onBackToOverview,
 }: {
   step: any
   steps: any[]
   runId: string
   runStatus: string
-  logs: string | null
+  entries: StepLogLine[] | null
+  live: boolean
   maximized: boolean
   onToggleMaximize: () => void
   onSelectStep: (name: string) => void
   onBackToOverview: () => void
 }) {
+  // Output is the default tab; Timeline shows the step's dispatch lifecycle
+  // (queued → assigned machine → started → finished). Switching steps snaps
+  // back to Output so ←/→ browsing always lands on logs.
+  const [tab, setTab] = useState<'output' | 'timeline'>('output')
+  useEffect(() => {
+    setTab('output')
+  }, [step.name])
+
   const idx = steps.findIndex((s) => s.name === step.name)
   const prev = idx > 0 ? steps[idx - 1] : null
   const next = idx < steps.length - 1 ? steps[idx + 1] : null
@@ -1168,9 +1131,19 @@ function LogPanel({
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border-b border-border shrink-0 bg-muted/20">
-        <Terminal size={12} className="text-primary" />
-        <span className="text-xs font-semibold text-foreground">Output</span>
+      <div className="flex items-center gap-1 px-3 sm:px-4 py-1.5 border-b border-border shrink-0 bg-muted/20">
+        <PanelTab
+          icon={<Terminal size={12} />}
+          label="Output"
+          active={tab === 'output'}
+          onClick={() => setTab('output')}
+        />
+        <PanelTab
+          icon={<History size={12} />}
+          label="Timeline"
+          active={tab === 'timeline'}
+          onClick={() => setTab('timeline')}
+        />
         <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground/60">
           {(prev || next) && (
             <span className="hidden sm:inline">
@@ -1187,27 +1160,45 @@ function LogPanel({
         </span>
       </div>
 
-      <div className={logBodyClass}>
-        {logs ? (
-          logs.split('\n').map((line, i) => (
-            <div key={i} className="flex gap-4 hover:bg-[#161b22] -mx-2 px-2 py-px rounded">
-              <span className="text-[#484f58] select-none shrink-0 w-7 text-right">
-                {i + 1}
-              </span>
-              <span className={colorizeLine(line)}>{line}</span>
-            </div>
-          ))
-        ) : (
-          <span className="text-[#484f58] italic">
-            {step.status === 'pending'
-              ? 'Step has not started yet.'
-              : step.status === 'running'
-                ? 'Waiting for output…'
-                : 'No logs available.'}
-          </span>
-        )}
-      </div>
+      {tab === 'output' ? (
+        <div className={logBodyClass}>
+          <LogView
+            entries={entries ?? []}
+            emptyText={
+              step.status === 'pending'
+                ? 'Step has not started yet.'
+                : step.status === 'running'
+                  ? 'Waiting for output…'
+                  : 'No logs available.'
+            }
+          />
+        </div>
+      ) : (
+        <div className={maximized ? 'flex-1 overflow-auto' : 'min-h-[400px] sm:min-h-[500px] max-h-[75vh] overflow-auto'}>
+          <StepTimelinePanel runId={runId} stepName={step.name} live={live} />
+        </div>
+      )}
     </div>
+  )
+}
+
+function PanelTab({ icon, label, active, onClick }: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+        active ? 'text-foreground bg-accent' : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 
@@ -1270,18 +1261,6 @@ function TriggerIcon({ type }: { type: string }) {
 // ---------------------------------------------------------------------------
 // Shared bits
 // ---------------------------------------------------------------------------
-
-function colorizeLine(line: string): string {
-  if (line.includes('PASS') || line.includes('complete') || line.includes('saved'))
-    return 'text-[#7ee787]'
-  if (line.includes('Error') || line.includes('FAIL'))
-    return 'text-[#ff7b72]'
-  if (line.includes('Warning') || line.includes('deprecated'))
-    return 'text-[#d29922]'
-  if (line.startsWith('['))
-    return 'text-[#c9d1d9]'
-  return 'text-[#8b949e]'
-}
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { icon: React.ReactNode; label: string; className: string }> = {

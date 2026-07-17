@@ -644,6 +644,26 @@ export const SavedViewSchema = z.object({
 })
 export type SavedView = z.infer<typeof SavedViewSchema>
 
+// A single log line as stored by the log sink. Timestamps power the log
+// view's timestamp gutter and per-group durations.
+export const StepLogLineSchema = z.object({
+  timestamp: z.optional(z.string()),
+  stream: z.optional(z.string()),
+  content: z.string(),
+})
+export type StepLogLine = z.infer<typeof StepLogLineSchema>
+
+// A run annotation — a markdown panel a step publishes onto the run page
+// (test summaries, coverage deltas, links). Same-context publishes upsert.
+export const RunAnnotationSchema = z.object({
+  id: z.string(),
+  style: z.enum(['info', 'success', 'warning', 'error']),
+  context: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+})
+export type RunAnnotation = z.infer<typeof RunAnnotationSchema>
+
 // ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------

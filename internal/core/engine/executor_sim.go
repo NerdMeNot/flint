@@ -62,15 +62,31 @@ func (e *simExecutor) run(step claimedStep, attempt int) {
 
 	dur := simDuration(step.env["SIM_DURATION"])
 	ref := logsink.LogRef{OrgID: step.orgID, RunID: step.runID, StepName: step.name}
-	e.write(ctx, ref, "stdout", "[sim] "+step.name+" started (attempt "+strconv.Itoa(attempt)+")")
 
-	time.Sleep(dur)
+	// Synthetic output shaped like real agent output: grouped sections
+	// (`~~~` muted, `--- ` collapsed, `+++ ` expanded — the log view's group
+	// markers) with ANSI color, spread across the simulated duration so log
+	// streaming and per-group durations are exercised end to end.
+	quarter := dur / 4
+	e.write(ctx, ref, "stdout", "~~~ Preparing machine")
+	e.write(ctx, ref, "stdout", "[sim] "+step.name+" claimed (attempt "+strconv.Itoa(attempt)+")")
+	e.write(ctx, ref, "stdout", "[sim] image ghcr.io/flint/sim:latest \x1b[32mready\x1b[0m")
+	time.Sleep(quarter)
+
+	e.write(ctx, ref, "stdout", "--- Restoring cache")
+	e.write(ctx, ref, "stdout", "cache key \x1b[90msim-"+step.name+"\x1b[0m")
+	e.write(ctx, ref, "stdout", "\x1b[36mrestored 128 MiB in 0.4s\x1b[0m")
+	time.Sleep(quarter)
+
+	e.write(ctx, ref, "stdout", "+++ Running "+step.name)
+	e.write(ctx, ref, "stdout", "\x1b[90m$ flint sim exec "+step.name+"\x1b[0m")
+	time.Sleep(dur - 2*quarter)
 
 	result := simOutcome(step.name, step.env, attempt)
 	if result.Success {
-		e.write(ctx, ref, "stdout", "[sim] "+step.name+" completed in "+dur.String())
+		e.write(ctx, ref, "stdout", "\x1b[32m✓\x1b[0m "+step.name+" completed in "+dur.String())
 	} else {
-		e.write(ctx, ref, "stderr", "[sim] "+step.name+" failed: "+result.Error+" (exit 1)")
+		e.write(ctx, ref, "stderr", "\x1b[31m✗ "+step.name+" failed: "+result.Error+"\x1b[0m (exit 1)")
 	}
 
 	log.Info().Str("step", step.name).Str("kind", "sim").
