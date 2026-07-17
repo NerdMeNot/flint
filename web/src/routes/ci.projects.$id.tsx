@@ -212,7 +212,7 @@ function ProjectDetailPage() {
       {showTrigger && (
         <TriggerOverlay
           projectId={id}
-          pipeline={activePipeline!}
+          pipeline={activePipeline ?? null}
           onClose={() => setShowTrigger(false)}
         />
       )}
@@ -289,18 +289,21 @@ function ProjectRunsTab({ runs, projectId }: { runs: PipelineRun[]; projectId: s
 // Trigger overlay
 // ---------------------------------------------------------------------------
 
+// pipeline is null when the project has no parsed pipeline definition yet —
+// triggering still works (the API only needs project + branch); the overlay
+// just has no dispatch inputs to offer.
 function TriggerOverlay({
   projectId,
   pipeline,
   onClose,
 }: {
   projectId: string
-  pipeline: PipelineDefinition
+  pipeline: PipelineDefinition | null
   onClose: () => void
 }) {
   const [inputs, setInputs] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = {}
-    for (const input of pipeline.dispatchInputs ?? []) {
+    for (const input of pipeline?.dispatchInputs ?? []) {
       defaults[input.name] = input.default ?? ''
     }
     return defaults
@@ -320,7 +323,6 @@ function TriggerOverlay({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!pipeline) return
     trigger.mutate(undefined)
   }
 
@@ -333,7 +335,7 @@ function TriggerOverlay({
       open
       onClose={onClose}
       title="Run pipeline"
-      subtitle={pipeline.filename}
+      subtitle={pipeline?.filename}
       wide
     >
       {submitted ? (
@@ -355,7 +357,7 @@ function TriggerOverlay({
                 </div>
 
                 {/* Dispatch inputs */}
-                {pipeline.dispatchInputs && pipeline.dispatchInputs.length > 0 ? (
+                {pipeline?.dispatchInputs && pipeline.dispatchInputs.length > 0 ? (
                   pipeline.dispatchInputs.map((input) => (
                     <div key={input.name} className="space-y-1.5">
                       <label className="text-xs font-medium text-foreground">

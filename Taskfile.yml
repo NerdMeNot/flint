@@ -197,10 +197,15 @@ tasks:
   dev-db:
     desc: Start a local Postgres for development (Podman)
     cmds:
-      - podman run -d --name flint-dev-db -p 5432:5432 -e POSTGRES_DB=flint -e POSTGRES_USER=flint -e POSTGRES_PASSWORD=flint postgres:17-alpine
+      # Reuse a stopped container from a previous session; create it otherwise.
+      - podman start flint-dev-db 2>/dev/null || podman run -d --name flint-dev-db -p 5432:5432 -e POSTGRES_DB=flint -e POSTGRES_USER=flint -e POSTGRES_PASSWORD=flint postgres:17-alpine
       - echo "waiting for postgres..."; until podman exec flint-dev-db pg_isready -U flint >/dev/null 2>&1; do sleep 1; done; echo "postgres ready"
     status:
-      - podman container exists flint-dev-db
+      # Up to date only when the container is actually running — a merely
+      # *existing* (stopped) container previously short-circuited this task
+      # and left the stack pointing at a dead Postgres. (No Go-template format
+      # string here: Task's own templating would swallow the braces.)
+      - podman ps -q --filter name=^flint-dev-db$ --filter status=running | grep -q .
 
   dev-db-stop:
     desc: Stop and remove the local dev Postgres
