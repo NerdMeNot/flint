@@ -112,10 +112,17 @@ func (s *Server) handleDrainMachine(ctx context.Context, c *app.RequestContext) 
 		operator = "operator:" + claims.Email
 	}
 	reason := "operator drain"
-	if err := s.deps.Q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
-		ID: id, Status: "draining", DrainReason: &reason,
-	}); err != nil {
+	// Optimistic: the machine must still be in the status we read (the fleet may
+	// have moved it to draining/terminating/lost concurrently). 0 rows = raced.
+	n, err := s.deps.Q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+		ID: id, FromStatus: m.Status, Status: "draining", DrainReason: &reason,
+	})
+	if err != nil {
 		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
+	if n == 0 {
+		apiBadRequest(ctx, c, "machine state changed while draining; refresh and retry")
 		return
 	}
 	_ = s.deps.Q.InsertMachineEvent(ctx, db.InsertMachineEventParams{

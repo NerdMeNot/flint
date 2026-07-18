@@ -7,7 +7,45 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
+
+// A2: machine transitions are optimistic — UpdateMachineStatus moves the row only
+// if it's still in the expected `from` status, so a transition computed against a
+// stale read can't clobber a concurrent one (last-writer-wins would corrupt
+// busy/idle accounting under multi-replica load).
+func TestUpdateMachineStatus_OptimisticGuard(t *testing.T) {
+	h, _ := elasticHarness(t, "optimistic-pool")
+	ctx := context.Background()
+	poolID := poolIDByName(t, h, "optimistic-pool")
+
+	h.insertPendingAssignment(t, poolID)
+	_, err := h.fleet.Provision(ctx)
+	require.NoError(t, err)
+	waitForCond(t, 5*time.Second, func() bool {
+		return countMachines(t, h, poolID, "idle") == 1
+	}, "machine should register and go idle")
+
+	var mid string
+	require.NoError(t, h.pool.QueryRow(ctx,
+		`SELECT id FROM machines WHERE pool_id = $1 AND status = 'idle'`, poolID).Scan(&mid))
+
+	// First idle→busy from the true state wins.
+	n, err := h.q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+		ID: mid, FromStatus: "idle", Status: "busy",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+
+	// A second transition still keyed on `idle` (a stale read) affects no rows —
+	// the machine is busy now.
+	n, err = h.q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+		ID: mid, FromStatus: "idle", Status: "busy",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n, "a stale from-status must not clobber a concurrent transition")
+}
 
 // A1: two dispatch workers must not both read the same deficit and both boot it.
 // The per-pool advisory lock serializes provisioning; a worker that can't take

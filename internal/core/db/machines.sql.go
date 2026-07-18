@@ -738,7 +738,7 @@ func (q *Queries) TouchMachineHeartbeat(ctx context.Context, arg TouchMachineHea
 	return err
 }
 
-const updateMachineStatus = `-- name: UpdateMachineStatus :exec
+const updateMachineStatus = `-- name: UpdateMachineStatus :execrows
 UPDATE machines SET
     status = $1,
     drain_reason = COALESCE($2, drain_reason),
@@ -748,7 +748,7 @@ UPDATE machines SET
     idle_since     = CASE WHEN $1 = 'idle' THEN now() ELSE idle_since END,
     terminated_at  = CASE WHEN $1 IN ('terminated', 'failed') THEN now() ELSE terminated_at END,
     updated_at = now()
-WHERE id = $5
+WHERE id = $5 AND status = $6
 `
 
 type UpdateMachineStatusParams struct {
@@ -757,17 +757,26 @@ type UpdateMachineStatusParams struct {
 	ProviderRef    *string    `json:"provider_ref"`
 	BootDeadlineAt *time.Time `json:"boot_deadline_at"`
 	ID             string     `json:"id"`
+	FromStatus     string     `json:"from_status"`
 }
 
 // Used only by the fleet transition chokepoint after validating the edge; callers
-// never update status directly.
-func (q *Queries) UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) error {
-	_, err := q.db.Exec(ctx, updateMachineStatus,
+// never update status directly. The `from` guard makes the transition optimistic:
+// the row moves only if it's still in the expected state, so 0 rows affected means
+// another actor already moved it (a lost race). The chokepoint surfaces that so the
+// caller can skip or roll back, rather than clobbering a concurrent transition
+// (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
+func (q *Queries) UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateMachineStatus,
 		arg.Status,
 		arg.DrainReason,
 		arg.ProviderRef,
 		arg.BootDeadlineAt,
 		arg.ID,
+		arg.FromStatus,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
