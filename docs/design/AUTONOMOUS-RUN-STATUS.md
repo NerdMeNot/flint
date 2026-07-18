@@ -6,10 +6,12 @@ the exact PRs and their merge order, and what remains with concrete next steps.
 
 **Headline:** Track A (fleet correctness & hardening) is **complete** — 8 tested,
 pushed PRs. Track C (pipeline DSL) landed **C1, C2, C3, C5**; C4 is deferred on a
-runtime dependency (below). Track B (fleet economics) and Track D (pipeline "big
-bet") were **not started** — their designs are preserved below as the pickup
-point. Everything landed is its own draft PR: nothing is half-committed, every
-PR builds + vets + passes its tests against dev Postgres.
+runtime dependency (below). Track B (fleet economics) has its **B1 core landed**
+(ResolvePolicy + reliability seam, #98); B2/B3 not started. Track D (pipeline "big
+bet") has its **D1 foundation landed** (declared inputs + content-key, #99);
+D2/D3 not started. Everything landed is its own draft PR: nothing is
+half-committed, every PR builds + vets + passes its tests against dev Postgres.
+The remaining-work designs are preserved below as the pickup point.
 
 Every PR is a **draft**. They are **stacked** — review/merge in the order given.
 
@@ -86,22 +88,28 @@ loud-rejection with its enforcement path.
 
 ---
 
-## Track B — Fleet economics — NOT STARTED (design preserved)
+## Track B — Fleet economics — B1 core landed (#98); B2/B3 not started
 
-The reliability-class work. Base: the end of Track A (`fix/fleet-small-correctness`).
-Current model: `pkg/compute` has `CapacityType` = `{spot, on_demand, any}`; the
-fleet does not resolve per-branch/per-event policy or group demand by run.
+The reliability-class work. Stack: `feat/fleet-reliability-policy` (#98) off
+`fix/fleet-small-correctness` (#92).
 
-- **B1 — reliability-class seam + effective-policy resolution (headline).**
-  `Requirements.Capacity`/`Offer.Capacity` → `{stable|interruptible|any}`;
-  provider `Classes()` advertising what it supports; awsec2 maps
-  on-demand↔stable, spot↔interruptible; narrow `PolicyPatch` to
-  `{overflow class, objective}`; a **pure** `resolvePolicy(base, branch, event)`
-  (first-match-wins — start here, it's the most testable unit); new
-  `PendingProvisioningDemandByRun` (join `pipeline_runs`, group by pool/branch/
-  event); `provisionPool` resolves per demand-group; ledger branch/event/
-  appliedOverride. Graceful degrade: a provider without interruptible runs
-  all-stable.
+- **B1 — reliability-class seam + effective-policy resolution — LANDED (#98).**
+  Two units in the PR:
+  - **`ResolvePolicy(base, branch, event)`** (`runner/policy.go`): pure,
+    first-match-wins application of the pool's per-branch/event overrides — which
+    were already loaded from the DB but never applied (dead data). Exhaustively
+    table-tested.
+  - **Reliability seam**: `CapacityType` reframed as a reliability contract
+    (on_demand = stable, spot = interruptible); provider `Classes()` advertises
+    what it supplies; `DegradeCapacity` resolves a request to a supported class
+    with an asymmetric rule (interruptible→stable upgrade when needed, never the
+    unsafe reverse); `provisionPool` degrades before quoting so a spot pool on a
+    stable-only provider (localdev) boots instead of silently starving.
+    Conformance asserts a provider advertises the classes it quotes.
+  - **Remaining B1** (next unit): `PendingProvisioningDemandByRun` (join
+    `pipeline_runs`, group by pool/branch/event) → `provisionPool` calls
+    ResolvePolicy per demand group and ledgers the applied override. The two
+    landed pieces are its inputs.
 - **B2 — interruptible safety + mixed capacity.** The "a live multi-step run's
   holder must be `stable`" scheduling rule; capacity `{base, overflow}` with
   boots tagged floor-fill vs overflow. (Reclaim→retry is already done via #84.)
@@ -114,18 +122,23 @@ Design corpus: `docs/design/fleet/` and `competitive-buildkite.md`.
 
 ---
 
-## Track D — Pipeline "big bet" — NOT STARTED (design preserved)
+## Track D — Pipeline "big bet" — D1 foundation landed (#99); D2/D3 not started
 
 The differentiator. Flint is ~60% there (named `outputs`, artifact hand-off,
-`cache` + `hashFiles`, real DAG). Base: end of Track C. **`fromJSON` (C5, #96) is
-already in place as the D3 prerequisite.**
+`cache` + `hashFiles`, real DAG). Stack: `feat/pipeline-content-cache` (#99) off
+`feat/pipeline-expr-breadth` (#96). **`fromJSON` (C5, #96) is already in place as
+the D3 prerequisite.**
 
-- **D1 — declared job `inputs:` → content-hash cache key + skip-if-unchanged.**
-  Job-level `inputs:` (globs + upstream outputs + env); engine derives the cache
-  key from the input hash; skip a job whose inputs are unchanged since its last
-  success. Reuse `hashFiles` + the cache infra. **Be conservative — a wrong cache
-  key is worse than no cache; gate skip-if-unchanged behind an explicit opt-in
-  and lean on determinism tests.**
+- **D1 — declared job `inputs:` → content-hash cache key + skip — FOUNDATION
+  LANDED (#99).** The conservative core (the plan flags this as the be-careful
+  item): `Job.Inputs` (files globs + upstream `needs` outputs + env), validated
+  (inputs.needs tied to needs:); and the pure, exhaustively-tested
+  `DeriveContentKey` (sorted, length-prefixed, namespaced, injection-proof
+  sha256 — deterministic and collision-safe). **Deliberately NOT yet wired**
+  (next units, both consume DeriveContentKey): synthesize the derived key into
+  the compiled step's cache, and the **opt-in** skip-if-unchanged engine
+  decision. A wrong cache key is worse than no cache — hence key-primitive-first,
+  skip-behind-opt-in.
 - **D2 — `affected` mode.** Run only jobs whose declared inputs changed between
   `--base`/`--head` + dependents (project graph ∩ git-diff).
 - **D3 — runtime fan-out.** A step emits a JSON array → engine spawns one child
@@ -140,8 +153,11 @@ already in place as the D3 prerequisite.**
 |------|--------------|-------------|
 | C4 action modules | needs per-step container execution in the daemon | `agentd` container-per-step launch |
 | C5 trigger/secret breadth | separate wiring; expr core landed | lift each loud-rejection with its path |
-| B1–B3 economics | not started; multi-layer + DB | start with the pure `resolvePolicy` |
-| D1–D3 big bet | not started; D1 needs conservative cache-key design | D3 prerequisite `fromJSON` is done (#96) |
+| B1 remainder | per-run demand grouping + provisioner wiring | `PendingProvisioningDemandByRun` + call ResolvePolicy per group |
+| B2 interruptible safety, B3 economics polish | not started; need base/overflow capacity design | after B1 remainder |
+| D1 skip-if-unchanged | risky; foundation (key primitive) landed | wire DeriveContentKey → cache; opt-in skip |
+| D2 affected mode | not started; needs git-diff ∩ project graph | declared inputs (#99) provide the graph |
+| D3 runtime fan-out | not started; needs engine child-job spawning | `fromJSON` done (#96); same matrix-group concept as failFast |
 | pipeline-spec/execution-model de-k8s prose | ~90 "pod"/k8s references need careful contextual editing | a focused doc pass (no code impact) |
 | matrix `failFast: true` / `maxParallel` | engine sibling-group cancellation | same matrix-group concept as D3 |
 
@@ -149,8 +165,9 @@ already in place as the D3 prerequisite.**
 
 ## Merge order cheat-sheet
 
-- **Fleet stack:** #84 → #85 → #86 → #87 → #88 → #89 → #90 → #91 → #92
-- **Pipeline stack:** #93 → #94 → #95 → #96
+- **Fleet stack:** #84 → #85 → #86 → #87 → #88 → #89 → #90 → #91 → #92 → **#98** (B1)
+- **Pipeline stack:** #93 → #94 → #95 → #96 → **#99** (D1)
 
 The two stacks are independent (fleet off the PR-0 base; pipeline off `main`) and
-touch disjoint files, so they can merge in either relative order.
+touch disjoint files, so they can merge in either relative order. (#97, this doc,
+is off `main` and stands alone.)
