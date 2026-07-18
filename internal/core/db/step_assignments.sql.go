@@ -242,7 +242,7 @@ func (q *Queries) FailMachineAssignments(ctx context.Context, arg FailMachineAss
 	return items, nil
 }
 
-const finishAssignment = `-- name: FinishAssignment :exec
+const finishAssignment = `-- name: FinishAssignment :execrows
 UPDATE step_assignments SET
     status = $1, error = $2, finished_at = now()
 WHERE id = $3 AND status IN ('pending', 'assigned', 'running')
@@ -254,9 +254,16 @@ type FinishAssignmentParams struct {
 	ID     string  `json:"id"`
 }
 
-func (q *Queries) FinishAssignment(ctx context.Context, arg FinishAssignmentParams) error {
-	_, err := q.db.Exec(ctx, finishAssignment, arg.Status, arg.Error, arg.ID)
-	return err
+// :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
+// the assignment was already finalized by an earlier delivery) and skip the
+// steps_completed bump + busy→idle transition, which would otherwise drift the
+// machine's stats and accounting on a redelivered result.
+func (q *Queries) FinishAssignment(ctx context.Context, arg FinishAssignmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishAssignment, arg.Status, arg.Error, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getAssignment = `-- name: GetAssignment :one

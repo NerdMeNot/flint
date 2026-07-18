@@ -34,10 +34,13 @@ func elasticHarness(t *testing.T, poolName string) (*harness, *computetest.Fake)
 	// Booted "instances" register like real agents would from cloud-init.
 	fake.OnCreate = func(m computetest.FakeMachine) {
 		go func() {
-			_, err := h.client.RegisterMachine(context.Background(), agentRegisterReq(m))
-			if err != nil {
-				t.Logf("fake machine registration failed: %v", err)
-			}
+			// Fire-and-forget, like cloud-init. This goroutine can outlive the
+			// test (the provider Create returns before registration completes), so
+			// it must never touch t.* — logging after the test finishes panics the
+			// whole package ("Log in goroutine after Test completed"), which showed
+			// up as an intermittent suite FAIL. A registration that genuinely fails
+			// surfaces deterministically as a waitForCond timeout in the test body.
+			_, _ = h.client.RegisterMachine(context.Background(), agentRegisterReq(m))
 		}()
 	}
 
