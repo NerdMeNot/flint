@@ -524,6 +524,36 @@ func (_m *Querier) ClaimQueuedSteps(ctx context.Context, limit int32) ([]db.Clai
 	return r0, r1
 }
 
+// ClaimStaleWorkflows provides a mock function with given fields: ctx
+func (_m *Querier) ClaimStaleWorkflows(ctx context.Context) ([]db.ClaimStaleWorkflowsRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimStaleWorkflows")
+	}
+
+	var r0 []db.ClaimStaleWorkflowsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ClaimStaleWorkflowsRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ClaimStaleWorkflowsRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ClaimStaleWorkflowsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CleanResolvedOutbox provides a mock function with given fields: ctx
 func (_m *Querier) CleanResolvedOutbox(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -578,6 +608,24 @@ func (_m *Querier) CleanupOldEngineEvents(ctx context.Context) error {
 	return r0
 }
 
+// CleanupOldFleetDecisions provides a mock function with given fields: ctx
+func (_m *Querier) CleanupOldFleetDecisions(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CleanupOldFleetDecisions")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // CleanupOldLoginAttempts provides a mock function with given fields: ctx
 func (_m *Querier) CleanupOldLoginAttempts(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -589,6 +637,42 @@ func (_m *Querier) CleanupOldLoginAttempts(ctx context.Context) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// CleanupOldMachineEvents provides a mock function with given fields: ctx
+func (_m *Querier) CleanupOldMachineEvents(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CleanupOldMachineEvents")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// CleanupOldStepAssignments provides a mock function with given fields: ctx, retentionDays
+func (_m *Querier) CleanupOldStepAssignments(ctx context.Context, retentionDays int32) error {
+	ret := _m.Called(ctx, retentionDays)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CleanupOldStepAssignments")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int32) error); ok {
+		r0 = rf(ctx, retentionDays)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -9338,24 +9422,6 @@ func (_m *Querier) SweepStaleRunningSteps(ctx context.Context) (int64, error) {
 	}
 
 	return r0, r1
-}
-
-// SweepStaleWorkflows provides a mock function with given fields: ctx
-func (_m *Querier) SweepStaleWorkflows(ctx context.Context) error {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SweepStaleWorkflows")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
 }
 
 // TerminalRunIDs provides a mock function with given fields: ctx, runIds
