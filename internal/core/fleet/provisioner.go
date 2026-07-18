@@ -411,8 +411,24 @@ func (f *Fleet) terminateMachine(ctx context.Context, machineID, poolID, reason 
 	}); err != nil {
 		return err
 	}
+	// Defense in depth: ClaimIdleMachinesPastTTL excludes machines with live work,
+	// so this should be empty — but if a machine is ever terminated while holding
+	// an assignment, fail it and route it back through the engine's retry path
+	// rather than orphaning the step.
+	killErr := "machine terminated (" + reason + ")"
+	orphaned, err := qtx.FailMachineAssignments(ctx, db.FailMachineAssignmentsParams{
+		MachineID: &machineID, Error: &killErr,
+	})
+	if err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	if len(orphaned) > 0 {
+		log.Warn().Str("machine", machineID).Int("assignments", len(orphaned)).
+			Msg("fleet: terminated a machine that still held work — requeued via signals")
+		f.failStepsViaSignals(ctx, orphaned)
 	}
 
 	provider, err := f.provider(ctx, m.Provider)
