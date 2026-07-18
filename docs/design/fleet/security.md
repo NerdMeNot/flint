@@ -8,8 +8,26 @@ system as much as an economic one: the same machine may run code from different
 runs, projects, and workspaces, and the fleet decides who lands where. This doc
 maps the trust boundaries, what's already sound, and where the sharp edges are.
 
-Grounded where possible; a few points are stated as **requirements to verify**
-against the runtime (agentd) rather than asserted current behavior.
+Grounded where possible; the "verify" items below were **verified against the
+runtime** — see the status box.
+
+---
+
+## Verification status (verified — code-read of agentd/engine)
+
+The three "possible live bug" flags came back **mostly reassuring**; the real
+findings are narrower and more actionable than the original speculation:
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| **S2** task-token replay for secrets | **SAFE (premise was wrong)** — secrets are gated by machine-bearer token + assignment→machine binding + status∈{running,assigned}, *not* the task token; completion revokes via the status gate | `agentgrpc/data.go:25-27,88-99` |
+| **S3** per-step pid/mount isolation | **SAFE for the /proc·mount·/tmp vector** — pid+mount+ipc+uts namespaces present (containerd default spec) | `runtime/containerd_linux.go:270`, containerd `defaultUnixNamespaces` |
+| **S4** workspace remanence | **LOW** — GC is lazy (heartbeat-driven) but runs are runID-path-isolated + mount-ns-walled, so no same-path or cross-mount cross-tenant read | `agentd/daemon.go:215,282`, `state.go:56` |
+| **P1/P3** duplicate completion | **FENCED at the engine** — attempt-scoped signed task token + terminal-idempotency no-op a superseded/duplicate completion | `pg_engine.go:249,267,280` |
+
+**But S3 found two real hardening gaps** for genuinely mutually-distrusting
+tenants (see S3 below), and S2 found one **latent gap** (`GetCloneToken`). Those
+are the actual work; the speculative secret-leak is not present.
 
 ---
 
@@ -53,46 +71,62 @@ every co-resident step's secrets**, plus any container-escape that reaches it.
 
 *Implications:*
 - A `isolation: dedicated` pool (B2) isn't just a bin-packing/cost knob — it's the
-  only way to make the agent single-tenant, which some workloads will require.
-- The task token must be **step-lifetime-scoped and unreplayable** (see S2).
+  only way to make the agent single-tenant, which untrusted multi-tenancy requires
+  (reinforced by S3's hardening gaps below).
 - Sensitive workspaces should be schedulable to single-tenant machines by policy,
   not just by luck of packing.
 
-### S2. Task-token lifetime & revocation **[requirement to verify]**
+### S2. Data-plane auth — VERIFIED SAFE, one latent gap **[verified]**
 
-The task token gates secret and clone-token pulls. For the pull model to hold, it
-must be: (a) valid only for its step's lifetime, (b) revoked/expired on
-`ReportStepComplete`, and (c) bound to the step identity so it can't be replayed
-to fetch a *different* step's secrets. If it's a long-TTL HMAC with no
-step-completion revocation, a later step on the same warm machine — or a leaked
-token — could re-pull.
+Premise corrected: secret pulls are **not** task-token-gated. `GetStepSecrets`
+authorizes with the machine bearer token + assignment→machine binding + a status
+gate (`agentgrpc/data.go:25-27,88-99`), and secrets come from the assignment's
+own payload scope — a machine can only read secrets for assignments legitimately
+bound to it, and only while `running`/`assigned`. Completion flips the status,
+so the gate is an **effective revoke-on-complete**. The task token (used only by
+`ReportStepComplete`) has no TTL and is never revoked, but per-attempt binding +
+terminal-idempotency (P1) make replay a harmless no-op.
 
-*Action:* verify the token carries a short expiry + step binding and is rejected
-after completion; if not, that's a security bug, not a nicety.
+*Latent gap (fix before it bites):* `GetCloneToken` (`data.go:68-84`) lacks the
+assignment-status check `GetStepSecrets` has — currently low-impact only because
+it returns no real forge token yet. Add the status gate before forge tokens ship.
+Optionally give the task token a short TTL as defense-in-depth.
 
-### S3. Namespace isolation completeness **[requirement to verify]**
+### S3. Namespace isolation — VERIFIED present, but container-grade **[verified]**
 
-Per-step **network** isolation (CNI netns) is documented. Secret env vars,
-`/proc/<pid>/environ`, core dumps, and shared `/tmp` cross containers only if
-**pid + mount + user** namespaces are *also* per-step. If steps share a pid or
-mount namespace, one tenant's step can read another's env/files on the same host.
+The specific vector (cross-tenant read via `/proc`, shared mounts, or `/tmp`) is
+**blocked**: each step gets its own **pid + mount + ipc + uts** namespace from
+containerd's default spec (`runtime/containerd_linux.go:270`, unpinned
+`defaultUnixNamespaces` → runc unshares fresh), its own rootfs snapshot, and only
+per-run `/workspace` + per-step `/flint/io` + per-step ro `/flint/secrets/env`
+are bound in (`containerd_linux.go:481-499`). No host `/tmp`, no host `/proc`.
 
-*Action:* confirm agentd gives each step its own pid, mount, and (ideally) user
-namespace — not just network. If not, cross-tenant secret exposure is possible
-even with the good pull model, because the leak happens *after* injection.
+But it's **container-grade, not a hardened multi-tenant sandbox** — two real gaps:
+- **No user namespace** (no `WithUserNamespace` anywhere): root-in-container =
+  host root, so any kernel-level container escape collapses isolation across *all*
+  co-resident tenants. The biggest gap.
+- **Service-less steps share the HOST network namespace**
+  (`oci.WithHostNamespace("network")`, `containerd_linux.go:217`) — not a
+  `/proc`/file vector, but a genuine cross-tenant channel: steps can reach each
+  other's localhost-bound ports and see host interfaces.
+- (Plus: `privileged` steps are permitted by policy, `containerd_linux.go:264`,
+  which defeats the isolation for that step.)
 
-### S4. Workspace data remanence on warm machines **[soundness]**
+*Read:* fine for **cooperating tenants within one org** (the common case);
+**not** a hard boundary for mutually-distrusting tenants — which is exactly why
+`isolation: dedicated` (S1/B2) is the control there, and why user-ns + a per-step
+netns option are the hardening backlog.
 
-Warm/bin-packed machines are reused across runs. A run's workspace (source,
-build outputs, injected secret *files*, caches) sits on local disk. GC exists —
-the agent reaps directories for runs that have reached a terminal state
-(`heartbeat.go:102-105`, via `TerminalRunIDs`) — but it's **lazy** (heartbeat
-cadence). Between a run finishing and the next GC sweep, a step from a *different
-workspace* scheduled onto the same machine could read the stale workspace dir.
+### S4. Workspace remanence — VERIFIED low **[verified]**
 
-*Action:* cleanup must be **eager on run-terminal / before reuse**, not just
-periodic; and secret *files* (as opposed to env) must be written to per-step
-tmpfs that's unmounted at step end, never the shared workspace tree.
+GC is confirmed **lazy** — the agent `os.RemoveAll`s a run's dir only when a
+heartbeat response lists it (`daemon.go:215,282`, terminal runs via
+`TerminalRunIDs`), on the ~10s cadence. **But it isn't a cross-tenant leak:** each
+run gets its own `runs/<runID>/workspace` (`state.go:56`), so a later run can't
+read another's by the same path, and S3's mount namespace walls off enumeration.
+Residual is disk lingering + reliance on S3 holding. Still worth making cleanup
+eager on run-terminal (defence in depth) and keeping secret *files* on per-step
+tmpfs unmounted at step end — but this is hardening, not a live bug.
 
 ### S5. Pool as a privilege boundary — usage RBAC **[tension]** (expands B2)
 
@@ -139,9 +173,18 @@ compliance is auditable.
 
 ## Priority read
 
-Verify now (possible live security bugs, not future features): **S2**
-(task-token lifetime), **S3** (pid/mount ns isolation), **S4** (eager workspace
-cleanup before reuse). Design before multi-tenant pools ship: **S1/S5**
-(dedicated isolation + pool-usage RBAC). The good news is the core secret model
-(S-intro) is sound — these are edges, but S2–S4 are the kind of edges that are
-*bugs* if they're wrong, so they lead.
+**Verified: no live secret-leak.** The three "possible bug" flags (S2/S3/S4)
+came back safe for the vectors that would have been bugs — secrets aren't
+task-token-gated, per-step pid/mount isolation is present, and lazy GC isn't
+cross-tenant-readable. The core pull-model (S-intro) is sound.
+
+The **real** work, now that the speculation is cleared:
+- **S2 latent gap** — `GetCloneToken` needs the assignment-status check
+  `GetStepSecrets` has, before real forge tokens ship. Small, do it early.
+- **S3 hardening** — no user namespace + shared host network are the two things
+  that make bin-packed multi-tenancy container-grade rather than a hard boundary.
+  Fix (user-ns remap + a per-step netns option), or gate untrusted tenants behind
+  **`isolation: dedicated`** (S1/S5) and be explicit that shared pools are for
+  cooperating teams.
+- **S5** — pool-usage RBAC before any pool has prod network reach.
+- **S7** — residency as a hard constraint before EU/regulated workloads.

@@ -466,8 +466,8 @@ Hard gate before advertising scale-out: **A1, A2** (provisioning correctness).
 Crash-safety to land with the reconcile work: **A5**.
 Decide before interruptible becomes a default: **B1** (workspace durability) and
 **B4** (reclaim-window handling).
-Verify now as possible live security bugs: **S2/S3/S4** (see
-[security.md](./security.md)).
+Security flags **S2/S3/S4 verified safe** (no live secret-leak; see
+[security.md](./security.md)) — residual is hardening, not bugs.
 Ship before real money is at stake: **F1** (org budget/machine cap) — a cost
 platform with no budget stop is a liability.
 Everything else is real but sequenceable — see the [roadmap](./roadmap.md).

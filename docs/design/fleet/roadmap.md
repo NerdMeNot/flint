@@ -119,24 +119,35 @@ reorder everything below.
 - **Cost attribution (D1):** core-seconds split for shared machines; standing
   capacity as an explicit pool line item.
 
-### Verify-now (possible live bugs, not features)
+### Verified (was "verify-now") — outcomes + the small real fixes
 
-Ahead of any new feature work, confirm/fix — cheap if right, real bugs if wrong:
-- **S2** task token is step-lifetime-scoped, step-bound, revoked on completion.
-- **S3** each step gets its own pid + mount (+ user) namespace, not just network.
-- **S4** workspace cleanup is eager on run-terminal / before machine reuse, and
-  secret *files* live on per-step tmpfs, never the shared workspace tree
-  (see [security.md](./security.md)).
-- **P3** `CompleteAssignment` guards on `status='running'` (idempotent complete);
-  **P1** a fencing token exists (or is added) so a superseded agent's late report
-  and Flint-mediated effects are rejected (see [protocol.md](./protocol.md)).
+Code-read of agentd/engine cleared the four "possible live bug" flags — all safe
+or better than feared (details in [security.md](./security.md) /
+[protocol.md](./protocol.md)). What survived is a short list of *small, real*
+fixes, not emergencies:
+- **S2 →** `GetCloneToken` (`data.go:68-84`) needs the assignment-status gate that
+  `GetStepSecrets` has — **do before real forge tokens ship.** Optional: task-token
+  TTL for defence-in-depth.
+- **S3 →** basic pid/mount isolation is present, but for *untrusted* multi-tenancy
+  add **user-namespace remap** + a **per-step netns option** (host network is
+  currently shared), or gate untrusted tenants behind `isolation: dedicated`.
+- **P3 →** make `FinishAssignment` `:execrows` so a duplicate complete doesn't
+  drift the completed-steps stat. Trivial.
+- **S4 →** eager workspace cleanup on run-terminal as defence-in-depth. Low.
 
-### Foundational: exactly-once effects (P1) — precedes safe interruptible
+The engine already fences duplicate/superseded completions (P1), so the honest
+**at-least-once + idempotent-steps** contract just needs to be *stated* in
+docs/UX — a writing task, not a code fix. Reappearing-agent reconciliation (P2)
+and the completion↔engine crash window (P6) remain the genuine protocol gaps.
 
-The duplicate-execution fence (P1) is a prerequisite for interruptible capacity:
-reclaims requeue steps, and without fencing that means running side effects
-twice. Land the fence + P2/P6 reconciliation with (or before) PR 2's
-interruptible-safety work.
+### Interruptible safety rests on an engine fence that already exists
+
+Good news for PR 2: the duplicate-execution fence P1 needs is **already there** —
+the engine no-ops a superseded completion via the attempt-scoped signed task
+token (verified, [protocol.md](./protocol.md)). So reclaim→requeue won't corrupt
+workflow state. PR 2's remaining safety work is therefore the *workspace*
+durability rule (B1) + stating the at-least-once/idempotent-steps contract, plus
+the lower-frequency P2/P6 reconciliation — not building a fence from scratch.
 
 ### Near-term guardrail (before real money is at stake)
 

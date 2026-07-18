@@ -37,27 +37,33 @@ At-least-once + steps with side effects is the whole problem below.
 
 ---
 
-## P1. Duplicate step execution — the core hazard **[soundness]** ← the big one
+## P1. Duplicate step execution — VERIFIED fenced at the engine **[verified]**
 
-The failure: an agent claims a step (`running`), executes it, but either its
-`ReportStepComplete` is lost (partition) **or** its heartbeat lapses long enough
-to be marked `lost`. `FailMachineAssignments` then fails the assignment and the
-engine requeues it — onto a **different machine that runs the same step again**.
-Meanwhile the original agent may still be running it, or may have finished with
-side effects already applied. **A step that deploys, publishes, sends a
-notification, or writes to a store runs those side effects twice.**
+The failure mode: an agent claims a step (`running`), executes it, but its
+`ReportStepComplete` is lost or its heartbeat lapses long enough to be marked
+`lost`. `FailMachineAssignments` fails the assignment and the engine requeues it —
+onto a **different machine that runs the same step again**, while the original
+agent may still be running or have finished with side effects applied.
 
-The recovery mechanisms are exactly what *causes* the double-run — they can't
-tell "agent dead" from "agent unreachable but working."
+**Flint's internal state is fenced.** `CompleteStep` decodes an HMAC-signed task
+token carrying `{WorkflowID, StepName, Attempt}` (`pg_engine.go:249`,
+`token.go:18-38`), locks the step **for that exact attempt** (`LockStep`,
+`pg_engine.go:267`), and **no-ops if it is already terminal**
+(`pg_engine.go:280`). A retry gets a **new attempt + a fresh token**
+(`loop.go:219`). So the original agent's late completion — after its attempt was
+failed and requeued — cannot re-advance the workflow, overwrite the result, or
+touch the new attempt. The fence I thought was missing already exists, via the
+attempt-scoped signed token + terminal-idempotency.
 
-*What's needed:* a **fencing token** (monotonic per assignment/attempt). The
-engine/fleet accepts a `ReportStepComplete` (and the step's externally-visible
-effects, where they route through Flint — artifact upload, status posting) only
-from the *current* fence; a superseded agent's late completion is rejected. This
-turns at-least-once *delivery* into at-most-once *effect* for anything Flint
-mediates. Effects the step performs directly (a raw `kubectl apply`) can't be
-fenced by Flint — those need step-level idempotency, and the docs must say so
-plainly rather than imply exactly-once.
+**What is *not* fenced (and can't be): external side effects.** The original agent
+already ran the deploy/publish/write; the requeued attempt runs it again. Flint
+mediates *its own* state (workflow advancement, result acceptance) exactly-once,
+but effects a step performs on the outside world are inherently at-least-once.
+
+*Honest contract:* **Flint gives at-least-once step execution.** Exactly-once
+holds for Flint-mediated state; steps with external side effects must be
+idempotent (or fence themselves). The docs/UX must say this plainly rather than
+imply exactly-once — that's the real action item here, not a missing fence.
 
 ## P2. Split-brain: the reappearing agent **[soundness]**
 
@@ -75,17 +81,20 @@ against their current state; a reappeared agent must be told "your step N was
 reassigned — stop / discard," and its late reports fenced (P1). Pair with the
 control-plane-downtime catch-up sweep (hard-cases C5).
 
-## P3. `CompleteAssignment` is not idempotent **[correctness]**
+## P3. `CompleteAssignment` — VERIFIED minor (stat drift only) **[verified]**
 
-`CompleteAssignment` (`claim.go:29`) calls `FinishAssignment` (status → terminal)
-**and** `IncrementMachineStepsCompleted` unconditionally. A duplicate
-`ReportStepComplete` — plausible under retries/partitions — double-counts the
-machine's completed-steps stat and can re-run the `busy → idle` logic. The
-terminal-status write is harmless-if-repeated, but the increment drifts and the
-completion isn't guarded on "was actually running."
+Better than feared. `FinishAssignment` **does** guard —
+`WHERE ... status IN ('pending','assigned','running')`
+(`step_assignments.sql:45`) — so a late complete after a `lost`/`failed`
+assignment can't overwrite the terminal status, and the `busy → idle` transition
+is guarded by a `status == busy` check (`claim.go`). The **only** unfenced part is
+`IncrementMachineStepsCompleted`, which runs unconditionally regardless of whether
+`FinishAssignment` affected a row (it's a `:exec`), so a duplicate
+`ReportStepComplete` drifts the machine's completed-steps **stat**. A cosmetic
+counter, not a soundness issue.
 
-*Fix:* guard `FinishAssignment` on `WHERE status='running'` and only bump stats /
-transition when that UPDATE affected a row — so a second complete is a no-op.
+*Fix (small):* make `FinishAssignment` `:execrows` and only bump the stat when it
+affected a row.
 
 ## P4. The liveness oracle has false positives **[robustness]**
 
@@ -139,11 +148,18 @@ sequence; use the `LogDigest` to detect truncation.
 
 ## Priority read
 
-**P1** (fencing to prevent duplicate side effects) is the one that matters most —
-it's the difference between "at-least-once delivery" (fine) and "runs your deploy
-twice" (not fine), and it's foundational for making interruptible capacity
-(reclaims → requeues) safe at all. **P2/P3/P6** are the correctness cluster around
-it. **P4/P5** are tuning that trades duplicate-runs against stuck-work. Honest
-framing for users: Flint gives **at-least-once step execution**; exactly-once
-holds only for effects Flint mediates and fences — everything else needs
-idempotent steps.
+**Verified: the engine-state fence exists** (P1) and completion is effectively
+idempotent (P3) — the scariest items are handled. So the real action items are
+narrower:
+- **The contract, not code:** make "at-least-once execution; idempotent steps for
+  external side effects" explicit in docs/UX (P1). This is the honest framing and
+  it's currently unstated.
+- **P2** (reappearing-agent reconciliation) and **P6** (completion↔engine crash
+  window) are the remaining genuine correctness gaps — real but lower-frequency.
+- **P4/P5** are tuning (liveness false-positives vs stuck-work); **P3**'s stat
+  drift and **P7**'s log dedup are minor.
+
+Net: at-least-once delivery with an exactly-once *engine-state* fence. That's a
+sound foundation for interruptible capacity — the reclaim→requeue path won't
+corrupt workflow state; it just needs idempotent steps for external effects,
+which must be said out loud.
