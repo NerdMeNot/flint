@@ -67,9 +67,13 @@ UPDATE machines SET
     updated_at = now()
 WHERE id = @id;
 
--- name: UpdateMachineStatus :exec
+-- name: UpdateMachineStatus :execrows
 -- Used only by the fleet transition chokepoint after validating the edge; callers
--- never update status directly.
+-- never update status directly. The `from` guard makes the transition optimistic:
+-- the row moves only if it's still in the expected state, so 0 rows affected means
+-- another actor already moved it (a lost race). The chokepoint surfaces that so the
+-- caller can skip or roll back, rather than clobbering a concurrent transition
+-- (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
 UPDATE machines SET
     status = @status,
     drain_reason = COALESCE(sqlc.narg(drain_reason), drain_reason),
@@ -79,7 +83,7 @@ UPDATE machines SET
     idle_since     = CASE WHEN @status = 'idle' THEN now() ELSE idle_since END,
     terminated_at  = CASE WHEN @status IN ('terminated', 'failed') THEN now() ELSE terminated_at END,
     updated_at = now()
-WHERE id = @id;
+WHERE id = @id AND status = @from_status;
 
 -- name: ClaimExpiredBootDeadlines :many
 -- Sweep: machines that never registered before their boot deadline.

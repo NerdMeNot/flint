@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -284,6 +285,19 @@ func (f *Fleet) bootMachine(ctx context.Context, pool db.ListMachinePoolsRow, pr
 		providerRef: &ref.ID, bootDeadline: &bootDeadline,
 		metadata: map[string]any{"providerRef": ref.ID},
 	}); err != nil {
+		if errors.Is(err, ErrMachineTransitionRaceLost) {
+			// The instance registered (requested → idle) between the status read
+			// above and here — the same fast-register case, just observed a beat
+			// later. Record the provider ref and leave it idle; do NOT force it
+			// back to provisioning (the pre-guard code silently did, moving a live
+			// machine backwards).
+			if err := qtx2.SetMachineProviderRef(ctx, db.SetMachineProviderRefParams{
+				ID: machineID, ProviderRef: &ref.ID,
+			}); err != nil {
+				return err
+			}
+			return tx2.Commit(ctx)
+		}
 		return err
 	}
 	return tx2.Commit(ctx)
@@ -383,6 +397,12 @@ func (f *Fleet) terminateMachine(ctx context.Context, machineID, poolID, reason 
 		eventType: "terminate", actor: actorFleet, reason: reason,
 		drainReason: &reason,
 	}); err != nil {
+		if errors.Is(err, ErrMachineTransitionRaceLost) {
+			// The machine is no longer in the state we read (it got bound to work,
+			// or another actor is already terminating it) — abort rather than
+			// destroy a machine that isn't idle anymore.
+			return nil
+		}
 		return err
 	}
 	if _, err := qtx.InsertFleetDecision(ctx, db.InsertFleetDecisionParams{
@@ -415,6 +435,9 @@ func (f *Fleet) terminateMachine(ctx context.Context, machineID, poolID, reason 
 		machineID: machineID, from: machineTerminating, to: machineTerminated,
 		eventType: "terminated", actor: actorProvider, reason: reason,
 	}); err != nil {
+		if errors.Is(err, ErrMachineTransitionRaceLost) {
+			return nil // already finalized by reconcile's cleanup pass
+		}
 		return err
 	}
 	if err := qtx2.ResolveFleetDecisionByMachine(ctx, db.ResolveFleetDecisionByMachineParams{

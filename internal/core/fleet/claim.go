@@ -53,7 +53,10 @@ func (f *Fleet) CompleteAssignment(ctx context.Context, assignmentID, machineID,
 			if err := transitionMachine(ctx, qtx, machineTransition{
 				machineID: machineID, from: machineBusy, to: machineIdle,
 				eventType: "idle", actor: actorAgent,
-			}); err != nil {
+			}); err != nil && !errors.Is(err, ErrMachineTransitionRaceLost) {
+				// A lost race means another actor already moved the machine off
+				// busy (scale-down, reconcile) — the assignment finalize must
+				// still succeed, so swallow it.
 				return err
 			}
 		}

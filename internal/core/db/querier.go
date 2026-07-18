@@ -653,8 +653,12 @@ type Querier interface {
 	TouchScimToken(ctx context.Context, tokenHash string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	// Used only by the fleet transition chokepoint after validating the edge; callers
-	// never update status directly.
-	UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) error
+	// never update status directly. The `from` guard makes the transition optimistic:
+	// the row moves only if it's still in the expected state, so 0 rows affected means
+	// another actor already moved it (a lost race). The chokepoint surfaces that so the
+	// caller can skip or roll back, rather than clobbering a concurrent transition
+	// (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
+	UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) (int64, error)
 	// UI-managed project labels (the registry curates the vocabulary; this stores
 	// the chosen key:value and free tags on the project).
 	UpdateProjectTags(ctx context.Context, arg UpdateProjectTagsParams) error

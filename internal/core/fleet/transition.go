@@ -3,10 +3,17 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 )
+
+// ErrMachineTransitionRaceLost is returned by transitionMachine when the row was
+// no longer in the expected `from` state (another actor moved it first). It is a
+// benign outcome for callers that don't hold the machine row locked — they skip
+// the transition rather than clobber the concurrent one.
+var ErrMachineTransitionRaceLost = errors.New("fleet: machine transition lost a race (row already moved)")
 
 // Actors recorded on machine events.
 const (
@@ -39,14 +46,21 @@ func transitionMachine(ctx context.Context, qtx *db.Queries, t machineTransition
 	if !validMachineTransition(t.from, t.to) {
 		return invalidTransitionError(t.machineID, t.from, t.to)
 	}
-	if err := qtx.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+	n, err := qtx.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
 		ID:             t.machineID,
+		FromStatus:     t.from,
 		Status:         t.to,
 		DrainReason:    t.drainReason,
 		ProviderRef:    t.providerRef,
 		BootDeadlineAt: t.bootDeadline,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if n == 0 {
+		// The row wasn't in `from` anymore — a concurrent actor moved it. Skip
+		// the event too, so state and history stay in lockstep.
+		return ErrMachineTransitionRaceLost
 	}
 	return insertMachineEvent(ctx, qtx, t)
 }
