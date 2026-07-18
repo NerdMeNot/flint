@@ -514,8 +514,16 @@ type Querier interface {
 	// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
 	// skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
 	PauseWorkflow(ctx context.Context, id string) (int64, error)
-	// Fleet provisioner input: unbound demand per pool.
+	// Fleet scheduler input: unbound demand per pool (ALL pending, incl. work pinned
+	// to an existing holder — the scheduler still has to place those on their holder).
 	PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error)
+	// Fleet provisioner input: pending demand a NEW machine can actually serve.
+	// Excludes pending assignments whose run is already pinned by HARD affinity to a
+	// live (idle/busy) holder machine in the same pool — booting can't take that work
+	// (it can only run on the holder), so it must not inflate the provisioning
+	// deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
+	// succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
+	PendingProvisioningDemand(ctx context.Context) ([]PendingProvisioningDemandRow, error)
 	// Pool insights (7d): queue waits and the warm-hit rate. A warm hit is an
 	// assignment whose machine was already registered when the work arrived — the
 	// run never waited on a boot.

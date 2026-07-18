@@ -29,8 +29,11 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Provisioning demand excludes work pinned by hard affinity to an existing
+	// holder machine: a new machine can't take it (it must run on the holder), so
+	// counting it would over-provision idle capacity.
 	demand := map[string]int64{}
-	if rows, err := q.PendingAssignmentDemand(ctx); err == nil {
+	if rows, err := q.PendingProvisioningDemand(ctx); err == nil {
 		for _, r := range rows {
 			demand[r.PoolID] = r.N
 		}
@@ -51,7 +54,51 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 	return booted, nil
 }
 
+// tryLockPool takes a session-scoped advisory lock that serializes provisioning
+// for one pool across every dispatch-mode worker sharing this database. It is
+// non-blocking: if another worker already holds it, (nil, false) is returned and
+// the caller skips this pool this tick rather than reading the same deficit and
+// double-provisioning it. The returned release frees the lock and the connection
+// and must be deferred when locked is true. Session-scoped (not xact-scoped)
+// because provisioning spans slow provider Quote/Create calls that must not run
+// inside a transaction; a crashed worker's dropped connection auto-releases the
+// lock. Keyed the same way as the engine's per-org lock (orgs.sql), a distinct
+// 'flint-prov:' namespace so the two never collide.
+func (f *Fleet) tryLockPool(ctx context.Context, poolID string) (release func(), locked bool, err error) {
+	conn, err := f.pool.Acquire(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	var got bool
+	if err := conn.QueryRow(ctx,
+		`SELECT pg_try_advisory_lock(hashtext('flint-prov:' || $1))`, poolID,
+	).Scan(&got); err != nil {
+		conn.Release()
+		return nil, false, err
+	}
+	if !got {
+		conn.Release()
+		return nil, false, nil
+	}
+	return func() {
+		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext('flint-prov:' || $1))`, poolID)
+		conn.Release()
+	}, true, nil
+}
+
 func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, pending int64) (int, error) {
+	// Serialize this pool's provisioning across workers: without it, two dispatch
+	// replicas both read the same deficit and both boot it (N× over-provision,
+	// past max_machines/min_warm). The loser skips this pool this tick.
+	release, locked, err := f.tryLockPool(ctx, pool.ID)
+	if err != nil {
+		return 0, err
+	}
+	if !locked {
+		return 0, nil
+	}
+	defer release()
+
 	q := db.New(f.pool)
 	counts := map[string]int64{}
 	rows, err := q.CountPoolMachinesByStatus(ctx, pool.ID)

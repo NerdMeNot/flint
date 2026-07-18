@@ -543,7 +543,8 @@ type PendingAssignmentDemandRow struct {
 	MemoryMb  int64  `json:"memory_mb"`
 }
 
-// Fleet provisioner input: unbound demand per pool.
+// Fleet scheduler input: unbound demand per pool (ALL pending, incl. work pinned
+// to an existing holder — the scheduler still has to place those on their holder).
 func (q *Queries) PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error) {
 	rows, err := q.db.Query(ctx, pendingAssignmentDemand)
 	if err != nil {
@@ -559,6 +560,53 @@ func (q *Queries) PendingAssignmentDemand(ctx context.Context) ([]PendingAssignm
 			&i.CpuMillis,
 			&i.MemoryMb,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendingProvisioningDemand = `-- name: PendingProvisioningDemand :many
+SELECT sa.pool_id, count(*) AS n
+FROM step_assignments sa
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id
+`
+
+type PendingProvisioningDemandRow struct {
+	PoolID string `json:"pool_id"`
+	N      int64  `json:"n"`
+}
+
+// Fleet provisioner input: pending demand a NEW machine can actually serve.
+// Excludes pending assignments whose run is already pinned by HARD affinity to a
+// live (idle/busy) holder machine in the same pool — booting can't take that work
+// (it can only run on the holder), so it must not inflate the provisioning
+// deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
+// succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
+func (q *Queries) PendingProvisioningDemand(ctx context.Context) ([]PendingProvisioningDemandRow, error) {
+	rows, err := q.db.Query(ctx, pendingProvisioningDemand)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingProvisioningDemandRow{}
+	for rows.Next() {
+		var i PendingProvisioningDemandRow
+		if err := rows.Scan(&i.PoolID, &i.N); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

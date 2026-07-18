@@ -110,12 +110,34 @@ WHERE a.run_id = $1
 ORDER BY a.created_at;
 
 -- name: PendingAssignmentDemand :many
--- Fleet provisioner input: unbound demand per pool.
+-- Fleet scheduler input: unbound demand per pool (ALL pending, incl. work pinned
+-- to an existing holder — the scheduler still has to place those on their holder).
 SELECT pool_id, count(*) AS n,
        COALESCE(SUM(cpu_millis), 0)::bigint AS cpu_millis,
        COALESCE(SUM(memory_mb), 0)::bigint AS memory_mb
 FROM step_assignments WHERE status = 'pending'
 GROUP BY pool_id;
+
+-- name: PendingProvisioningDemand :many
+-- Fleet provisioner input: pending demand a NEW machine can actually serve.
+-- Excludes pending assignments whose run is already pinned by HARD affinity to a
+-- live (idle/busy) holder machine in the same pool — booting can't take that work
+-- (it can only run on the holder), so it must not inflate the provisioning
+-- deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
+-- succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
+SELECT sa.pool_id, count(*) AS n
+FROM step_assignments sa
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id;
 
 -- name: TerminalRunIDs :many
 -- Heartbeat GC input: of the run ids resident on a machine's disk, which have
