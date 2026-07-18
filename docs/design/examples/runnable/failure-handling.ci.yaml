@@ -1,0 +1,38 @@
+# Runnable example: failure handling with when: + status functions.
+#
+# Compiles offline (no module registry) and is enforced by
+# internal/products/ci/examples_runnable_test.go. Exercises the job-level
+# outcome gate (`when:`) and the success()/failure()/always() status functions.
+
+image: alpine:3.19
+triggers:
+  push: { branches: [main] }
+
+jobs:
+  # Root job. Everything downstream gates on its outcome.
+  deploy:
+    steps:
+      - run: ./deploy.sh
+
+  # Runs ONLY if deploy (its needs subgraph) failed — the rollback path.
+  rollback:
+    needs: [deploy]
+    when: onFailure
+    steps:
+      - run: ./rollback.sh
+
+  # Runs regardless of outcome, and uses failure() to branch its message.
+  notify:
+    needs: [deploy, rollback]
+    when: always
+    steps:
+      - name: notify-outcome
+        run: ./notify.sh
+
+  # Runs only on a clean deploy, and only on main — success() composes with the
+  # rest of the expression context.
+  announce:
+    needs: [deploy]
+    if: ${{ success() && git.branch == 'main' }}
+    steps:
+      - run: ./announce.sh
