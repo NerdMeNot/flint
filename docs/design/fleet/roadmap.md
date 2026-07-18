@@ -121,12 +121,22 @@ reorder everything below.
 
 ### Verify-now (possible live bugs, not features)
 
-Ahead of any new feature work, confirm/fix — these are cheap if right, security
-holes if wrong (see [security.md](./security.md)):
+Ahead of any new feature work, confirm/fix — cheap if right, real bugs if wrong:
 - **S2** task token is step-lifetime-scoped, step-bound, revoked on completion.
 - **S3** each step gets its own pid + mount (+ user) namespace, not just network.
 - **S4** workspace cleanup is eager on run-terminal / before machine reuse, and
-  secret *files* live on per-step tmpfs, never the shared workspace tree.
+  secret *files* live on per-step tmpfs, never the shared workspace tree
+  (see [security.md](./security.md)).
+- **P3** `CompleteAssignment` guards on `status='running'` (idempotent complete);
+  **P1** a fencing token exists (or is added) so a superseded agent's late report
+  and Flint-mediated effects are rejected (see [protocol.md](./protocol.md)).
+
+### Foundational: exactly-once effects (P1) — precedes safe interruptible
+
+The duplicate-execution fence (P1) is a prerequisite for interruptible capacity:
+reclaims requeue steps, and without fencing that means running side effects
+twice. Land the fence + P2/P6 reconciliation with (or before) PR 2's
+interruptible-safety work.
 
 ### Near-term guardrail (before real money is at stake)
 
@@ -154,6 +164,12 @@ holes if wrong (see [security.md](./security.md)):
 - **Operability:** per-run "why am I queued" (H1), infra-vs-user retry budget
   split (H2), estimated-vs-actual cost reconciliation (H3).
 - **Cloud-account quota awareness (F3)** and **token/registration hardening (S6)**.
+- **Protocol hardening:** liveness-oracle tuning + suspected state (P4),
+  claim-deadline/strike tuning (P5), log-stream dedup (P7).
+- **Storage economics (see [storage.md](./storage.md)):** cross-machine cold-fill
+  coalescing / warm-snapshot (St1), data-transfer pricing in provisioning +
+  region co-location (St2), per-workspace cache scoping + signed entries (St3),
+  S3 artifact/cache retention & lifecycle (St4).
 
 ## Testing strategy
 
