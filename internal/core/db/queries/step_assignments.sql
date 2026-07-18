@@ -39,7 +39,11 @@ WHERE id = (
 )
 RETURNING id, run_id, step_name, attempt, payload;
 
--- name: FinishAssignment :exec
+-- name: FinishAssignment :execrows
+-- :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
+-- the assignment was already finalized by an earlier delivery) and skip the
+-- steps_completed bump + busy→idle transition, which would otherwise drift the
+-- machine's stats and accounting on a redelivered result.
 UPDATE step_assignments SET
     status = @status, error = sqlc.narg(error), finished_at = now()
 WHERE id = @id AND status IN ('pending', 'assigned', 'running');

@@ -155,6 +155,11 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 		if err != nil {
 			return booted, fmt.Errorf("quote: %w", err)
 		}
+		// Drop offers whose quote validity has lapsed before we commit to one:
+		// spot prices drift, and booting on a stale offer means the recorded
+		// price (and the economics decision built on it) is fiction. An offer
+		// that declares no expiry (zero value) is always valid.
+		offers = freshOffers(offers, time.Now())
 		if len(offers) == 0 {
 			f.recordNoCapacity(ctx, pool, req)
 			break
@@ -494,6 +499,19 @@ func requirementsFromPool(pool db.ListMachinePoolsRow) (compute.Requirements, er
 		InstanceTypes: pool.InstanceTypes,
 		Regions:       pool.Regions,
 	}
+	// A pool that declares a GPU shape must have it surfaced in the Quote — else
+	// the provider ranks CPU-only offers and boots a machine that can't run the
+	// work. A vendor is the minimum meaningful declaration.
+	if pool.GpuVendor != nil && *pool.GpuVendor != "" {
+		gpu := &compute.GPU{Vendor: *pool.GpuVendor}
+		if pool.GpuModel != nil {
+			gpu.Model = *pool.GpuModel
+		}
+		if pool.GpuCount.Valid {
+			gpu.Count = int(pool.GpuCount.Int32)
+		}
+		req.GPU = gpu
+	}
 	var err error
 	if pool.Cpu != "" {
 		if req.CPUMillis, err = units.ParseCPUMillis(pool.Cpu); err != nil {
@@ -511,6 +529,19 @@ func requirementsFromPool(pool db.ListMachinePoolsRow) (compute.Requirements, er
 		}
 	}
 	return req, nil
+}
+
+// freshOffers drops offers whose ExpiresAt has passed. A zero ExpiresAt means
+// the provider makes no validity claim, so it's kept. Returns a filtered slice
+// (the common case — nothing expired — returns the input unchanged).
+func freshOffers(offers []compute.Offer, now time.Time) []compute.Offer {
+	fresh := offers[:0:0]
+	for _, o := range offers {
+		if o.ExpiresAt.IsZero() || o.ExpiresAt.After(now) {
+			fresh = append(fresh, o)
+		}
+	}
+	return fresh
 }
 
 // rankOffers orders offers by the pool's objective:

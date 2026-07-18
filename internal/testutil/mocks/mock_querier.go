@@ -2575,21 +2575,31 @@ func (_m *Querier) FindDeviceCodeByUserCode(ctx context.Context, userCode string
 }
 
 // FinishAssignment provides a mock function with given fields: ctx, arg
-func (_m *Querier) FinishAssignment(ctx context.Context, arg db.FinishAssignmentParams) error {
+func (_m *Querier) FinishAssignment(ctx context.Context, arg db.FinishAssignmentParams) (int64, error) {
 	ret := _m.Called(ctx, arg)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FinishAssignment")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.FinishAssignmentParams) error); ok {
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.FinishAssignmentParams) (int64, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.FinishAssignmentParams) int64); ok {
 		r0 = rf(ctx, arg)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(int64)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, db.FinishAssignmentParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // FinishRun provides a mock function with given fields: ctx, arg

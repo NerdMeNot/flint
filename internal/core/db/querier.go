@@ -207,7 +207,11 @@ type Querier interface {
 	FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error
 	FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error)
 	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
-	FinishAssignment(ctx context.Context, arg FinishAssignmentParams) error
+	// :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
+	// the assignment was already finalized by an earlier delivery) and skip the
+	// steps_completed bump + busy→idle transition, which would otherwise drift the
+	// machine's stats and accounting on a redelivered result.
+	FinishAssignment(ctx context.Context, arg FinishAssignmentParams) (int64, error)
 	FinishRun(ctx context.Context, arg FinishRunParams) error
 	FinishWorkflow(ctx context.Context, arg FinishWorkflowParams) error
 	GetActiveWebhooksForEvent(ctx context.Context, arg GetActiveWebhooksForEventParams) ([]GetActiveWebhooksForEventRow, error)
