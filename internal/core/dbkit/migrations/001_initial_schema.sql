@@ -1718,6 +1718,15 @@ CREATE INDEX idx_machine_events_machine ON public.machine_events USING btree (ma
 
 
 --
+-- Name: idx_machine_events_created; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldMachineEvents (retention). idx_machine_events_machine leads
+-- with machine_id, so it can't serve a global created_at prune.
+--
+
+CREATE INDEX idx_machine_events_created ON public.machine_events USING btree (created_at);
+
+
+--
 -- Name: idx_assignments_pending; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1758,6 +1767,15 @@ CREATE INDEX idx_assignments_run_status ON public.step_assignments USING btree (
 
 
 --
+-- Name: idx_assignments_retention; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldStepAssignments (retention): terminal assignments by
+-- finished_at. Without it the batched prune seq-scans the fattest table.
+--
+
+CREATE INDEX idx_assignments_retention ON public.step_assignments USING btree (finished_at) WHERE (status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text, 'lost'::text]));
+
+
+--
 -- Name: idx_fleet_decisions_pool; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1769,6 +1787,15 @@ CREATE INDEX idx_fleet_decisions_pool ON public.fleet_decisions USING btree (poo
 --
 
 CREATE INDEX idx_fleet_decisions_machine ON public.fleet_decisions USING btree (machine_id) WHERE (machine_id IS NOT NULL);
+
+
+--
+-- Name: idx_fleet_decisions_created; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldFleetDecisions (retention). idx_fleet_decisions_pool leads
+-- with pool_id, so it can't serve a global created_at prune.
+--
+
+CREATE INDEX idx_fleet_decisions_created ON public.fleet_decisions USING btree (created_at);
 
 
 --

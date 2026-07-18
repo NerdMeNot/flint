@@ -790,6 +790,20 @@ func (l *Loop) sweep(ctx context.Context) {
 		} else if n > 0 {
 			log.Info().Int64("count", n).Int("retentionDays", days).Msg("engine: runs retention pruned old runs")
 		}
+		// step_assignments do NOT cascade from runs (no FK on the hot dispatch
+		// path), so prune the terminal ones on the same window — they're the
+		// fattest unbounded table.
+		if err := q.CleanupOldStepAssignments(ctx, int32(days)); err != nil {
+			log.Warn().Err(err).Msg("engine: step-assignment retention failed")
+		}
+	}
+	// Fleet append-only tables that grow forever otherwise (the engine sweep runs
+	// in every worker, so this covers dispatch-only deployments too).
+	if err := q.CleanupOldMachineEvents(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: machine-events retention failed")
+	}
+	if err := q.CleanupOldFleetDecisions(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: fleet-decisions retention failed")
 	}
 
 	// 5. Tear down resources for terminal runs not yet cleaned. Same exactly-once

@@ -139,6 +139,19 @@ WHERE sa.status = 'pending'
   )
 GROUP BY sa.pool_id;
 
+-- name: CleanupOldStepAssignments :exec
+-- Retention: terminal assignments past the window. They do NOT cascade from
+-- DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the
+-- hot dispatch path off the runs lock), and each carries the fattest JSONB
+-- payload in the operational path, so this is the top bloat vector. Batched, on
+-- the same window as runs retention.
+DELETE FROM step_assignments WHERE id IN (
+    SELECT id FROM step_assignments
+    WHERE status IN ('succeeded', 'failed', 'cancelled', 'lost')
+      AND finished_at < now() - make_interval(days => sqlc.arg(retention_days)::int)
+    LIMIT 2000
+);
+
 -- name: TerminalRunIDs :many
 -- Heartbeat GC input: of the run ids resident on a machine's disk, which have
 -- reached a terminal state (their workspace dirs are safe to delete).

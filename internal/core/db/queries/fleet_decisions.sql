@@ -23,3 +23,12 @@ ORDER BY created_at DESC LIMIT $1 OFFSET $2;
 SELECT created_at FROM fleet_decisions
 WHERE pool_id = $1 AND decision_type = 'no_capacity'
 ORDER BY created_at DESC LIMIT 1;
+
+-- name: CleanupOldFleetDecisions :exec
+-- The economics ledger is retained long (90 days) so decisions stay auditable,
+-- but not forever. Batched, like the other retention sweeps.
+DELETE FROM fleet_decisions WHERE id IN (
+    SELECT id FROM fleet_decisions
+    WHERE created_at < now() - interval '90 days'
+    LIMIT 2000
+);

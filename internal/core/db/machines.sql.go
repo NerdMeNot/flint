@@ -136,6 +136,22 @@ func (q *Queries) ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMach
 	return items, nil
 }
 
+const cleanupOldMachineEvents = `-- name: CleanupOldMachineEvents :exec
+DELETE FROM machine_events WHERE id IN (
+    SELECT id FROM machine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+)
+`
+
+// Prune machine transition history older than 30 days (mirrors engine_events).
+// Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+// Batched so a backlog can't stall a sweep with one giant DELETE.
+func (q *Queries) CleanupOldMachineEvents(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, cleanupOldMachineEvents)
+	return err
+}
+
 const completeMachineRegistration = `-- name: CompleteMachineRegistration :exec
 UPDATE machines SET
     bootstrap_token_hash = NULL,

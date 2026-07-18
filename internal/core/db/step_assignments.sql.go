@@ -138,6 +138,25 @@ func (q *Queries) ClaimPendingAssignments(ctx context.Context, arg ClaimPendingA
 	return items, nil
 }
 
+const cleanupOldStepAssignments = `-- name: CleanupOldStepAssignments :exec
+DELETE FROM step_assignments WHERE id IN (
+    SELECT id FROM step_assignments
+    WHERE status IN ('succeeded', 'failed', 'cancelled', 'lost')
+      AND finished_at < now() - make_interval(days => $1::int)
+    LIMIT 2000
+)
+`
+
+// Retention: terminal assignments past the window. They do NOT cascade from
+// DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the
+// hot dispatch path off the runs lock), and each carries the fattest JSONB
+// payload in the operational path, so this is the top bloat vector. Batched, on
+// the same window as runs retention.
+func (q *Queries) CleanupOldStepAssignments(ctx context.Context, retentionDays int32) error {
+	_, err := q.db.Exec(ctx, cleanupOldStepAssignments, retentionDays)
+	return err
+}
+
 const failAssignment = `-- name: FailAssignment :one
 UPDATE step_assignments SET status = 'failed', error = $1, finished_at = now()
 WHERE id = $2 AND status IN ('assigned', 'running')

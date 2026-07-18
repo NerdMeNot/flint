@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+const cleanupOldFleetDecisions = `-- name: CleanupOldFleetDecisions :exec
+DELETE FROM fleet_decisions WHERE id IN (
+    SELECT id FROM fleet_decisions
+    WHERE created_at < now() - interval '90 days'
+    LIMIT 2000
+)
+`
+
+// The economics ledger is retained long (90 days) so decisions stay auditable,
+// but not forever. Batched, like the other retention sweeps.
+func (q *Queries) CleanupOldFleetDecisions(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, cleanupOldFleetDecisions)
+	return err
+}
+
 const insertFleetDecision = `-- name: InsertFleetDecision :one
 INSERT INTO fleet_decisions (pool_id, machine_id, decision_type, inputs, chosen, alternatives)
 VALUES ($1, $2, $3, $4, $5, $6)
