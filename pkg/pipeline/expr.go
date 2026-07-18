@@ -34,6 +34,7 @@ var reservedContextVars = map[string]bool{
 	"environment": true, "triggeredBy": true, "triggerType": true, "status": true,
 	"project": true, "run": true, "inputs": true, "env": true, "secrets": true,
 	"matrix": true, "steps": true, "webhook": true, "hashFiles": true,
+	"success": true, "failure": true, "always": true,
 }
 
 // IsReservedContextVar reports whether name collides with a built-in expression

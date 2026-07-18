@@ -84,6 +84,7 @@ func (p *Pipeline) compileJob(name string, job Job, expanded map[string]Job, sur
 		Resources:      compileResources(job.Resources),
 		Environments:   job.Environments,
 		If:             job.If,
+		When:           job.When,
 		Timeout:        job.Timeout,
 		Env:            mergeEnv(p.Env, job.Env),
 		Secrets:        compileSecrets(p.Secrets, job.Secrets),

@@ -65,6 +65,13 @@ type Job struct {
 	// Scoping / conditions.
 	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
 	If           string   `yaml:"if,omitempty" json:"if,omitempty"`
+	// When gates the job on the outcome of its `needs` subgraph: onSuccess
+	// (default) runs only if no needed job failed, onFailure only if one did,
+	// always runs regardless. Scoped to this job's ancestors, not the whole
+	// pipeline — an onFailure notify in one branch is unaffected by a failure in
+	// an independent branch. This is the declarative failure-handling primitive;
+	// `if:` (with success()/failure()/always()) refines it further.
+	When string `yaml:"when,omitempty" json:"when,omitempty"`
 
 	// Body — exactly one of steps | gate.
 	Steps []Step         `yaml:"steps,omitempty" json:"steps,omitempty"`

@@ -85,7 +85,8 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 			}
 
 			// Dependency-scoped `when:` — did any of THIS step's ancestors fail?
-			if !stepShouldRun(step.when, ancestorFailed(stepName, stepByName)) {
+			upstreamFailed := ancestorFailed(stepName, stepByName)
+			if !stepShouldRun(step.when, upstreamFailed) {
 				stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
 					withReason("when condition not met"))
 				continue
@@ -96,7 +97,7 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 			// then silently skips the step at runtime. Deciding "don't run"
 			// must be reserved for expressions that evaluated to false.
 			if step.ifCondition != "" {
-				exprCtx := buildEngineExprContext(input, stepOutputs, step.dependsOn)
+				exprCtx := buildEngineExprContext(input, stepOutputs, step.dependsOn, upstreamFailed)
 				shouldRun, evalErr := pipeline.EvalCondition(step.ifCondition, exprCtx)
 				if evalErr != nil {
 					reason := fmt.Sprintf("if condition %q failed to evaluate: %v", step.ifCondition, evalErr)
@@ -439,7 +440,7 @@ func allWavesComplete(waves [][]string, stepByName map[string]stepRow) bool {
 // expression context
 // ─────────────────────────────────────────────────────────────
 
-func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult, dependsOn []string) pipeline.ExprContext {
+func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]StepResult, dependsOn []string, upstreamFailed bool) pipeline.ExprContext {
 	ctx := pipeline.ExprContext{
 		// git/run/inputs come from the generic Inputs bag (populated by
 		// normalizeInputs for CI runs), not from typed fields — the engine is
@@ -469,6 +470,19 @@ func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]Ste
 		}
 	}
 	ctx["needs"] = needs
+
+	// Status functions for if: conditions, scoped to THIS step's dependency
+	// subgraph (the same scope as `when:` — upstreamFailed is ancestorFailed for
+	// this step, not a global pipeline verdict). They let an expression react to
+	// upstream outcome: `if: ${{ failure() }}`, `if: ${{ success() && branch ==
+	// 'main' }}`. Note these only matter once the step is reached: a job keeps
+	// the default onSuccess `when`, so to run on failure it must also set `when:
+	// onFailure`/`always` (which is what lets the engine evaluate if: at all when
+	// an ancestor failed). At validation time upstreamFailed is false — only the
+	// functions' presence matters for the type-check.
+	ctx["success"] = func() bool { return !upstreamFailed }
+	ctx["failure"] = func() bool { return upstreamFailed }
+	ctx["always"] = func() bool { return true }
 
 	return ctx
 }
@@ -523,5 +537,5 @@ func exprNamespace(inputs map[string]any, key string) map[string]any {
 func ValidationExprContext() pipeline.ExprContext {
 	in := StartWorkflowInput{Kind: "ci", Env: map[string]string{}}
 	in.normalizeInputs()
-	return buildEngineExprContext(in, nil, nil)
+	return buildEngineExprContext(in, nil, nil, false)
 }

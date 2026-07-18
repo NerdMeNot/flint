@@ -34,6 +34,9 @@ type richValidator struct {
 	issues  []pipeline.ValidationIssue
 }
 
+// validJobWhenValues is the allowed set for a job's `when:` outcome gate.
+var validJobWhenValues = map[string]bool{"onSuccess": true, "onFailure": true, "always": true}
+
 func (v *richValidator) errorf(code, field, msg string, args ...any) {
 	v.issues = append(v.issues, pipeline.ValidationIssue{
 		Code: code, Field: field, Severity: pipeline.SeverityError,
@@ -250,6 +253,16 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 		v.errorSuggest(pipeline.CodeInvalidValue, field+".maxParallel",
 			"Remove maxParallel",
 			"matrix parallelism caps are not yet enforced by the engine")
+	}
+
+	// when: — outcome gate on the job's needs subgraph.
+	if job.When != "" && !validJobWhenValues[job.When] {
+		suggestion := "Valid values: onSuccess, onFailure, always"
+		if closest := pipeline.FindClosest(job.When, validJobWhenValues); closest != "" {
+			suggestion = fmt.Sprintf("Did you mean %q? %s", closest, suggestion)
+		}
+		v.errorSuggest(pipeline.CodeInvalidValue, field+".when",
+			suggestion, "job %q has invalid when value %q", name, job.When)
 	}
 
 	// if: — compile-checked against the runtime context shape.
