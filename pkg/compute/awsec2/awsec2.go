@@ -122,6 +122,11 @@ func newWithAPI(name string, cfg Config, api ec2API) *Provider {
 
 func (p *Provider) Name() string { return p.name }
 
+// Classes: EC2 supplies both stable (on-demand) and interruptible (spot).
+func (p *Provider) Classes() []compute.CapacityType {
+	return []compute.CapacityType{compute.CapacityOnDemand, compute.CapacitySpot}
+}
+
 // Quote prices catalog types satisfying the requirements: on-demand from the
 // embedded baseline, spot from live DescribeSpotPriceHistory (5-minute cache).
 func (p *Provider) Quote(ctx context.Context, req compute.Requirements) ([]compute.Offer, error) {

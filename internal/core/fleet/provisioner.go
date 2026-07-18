@@ -148,6 +148,16 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 	if err != nil {
 		return 0, err
 	}
+	// Degrade the requested reliability class to one the provider actually
+	// supplies (B1): a pool asking for interruptible on a stable-only provider
+	// (a homelab, localdev) is upgraded to stable so it still boots, instead of
+	// getting zero offers and silently starving the run.
+	if degraded, changed := compute.DegradeCapacity(req.Capacity, provider.Classes()); changed {
+		log.Info().Str("pool", pool.Name).
+			Str("requested", string(req.Capacity)).Str("resolved", string(degraded)).
+			Msg("fleet: reliability class degraded to provider-supported class")
+		req.Capacity = degraded
+	}
 
 	booted := 0
 	for range needed {

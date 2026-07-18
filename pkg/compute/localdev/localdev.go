@@ -105,6 +105,12 @@ func newProvider(_ context.Context, name string, configJSON json.RawMessage, _ [
 
 func (p *Provider) Name() string { return p.name }
 
+// Classes: a local machine is only ever stable — a laptop isn't preemptible. A
+// pool that asks for interruptible capacity is degraded to this by the fleet.
+func (p *Provider) Classes() []compute.CapacityType {
+	return []compute.CapacityType{compute.CapacityOnDemand}
+}
+
 // Quote offers one local machine at the configured price. It only offers when
 // the requested arch matches the host (a local process can't emulate a
 // different CPU) and never claims spot capacity — a laptop isn't preemptible.

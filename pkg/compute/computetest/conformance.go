@@ -40,6 +40,11 @@ func RunConformance(t *testing.T, mk func(t *testing.T) compute.Provider) {
 		if len(offers) == 0 {
 			return // static-style provider: nothing to price
 		}
+		// An elastic provider must advertise the classes it actually quotes, so
+		// the fleet's DegradeCapacity can trust Classes() (advertising a class you
+		// never supply would let a degrade pick a dead class).
+		classes := p.Classes()
+		require.NotEmpty(t, classes, "an elastic provider must advertise its reliability classes")
 		for _, o := range offers {
 			assert.NotEmpty(t, o.Provider, "offer must carry the provider name")
 			assert.NotEmpty(t, o.InstanceType)
@@ -47,6 +52,7 @@ func RunConformance(t *testing.T, mk func(t *testing.T) compute.Provider) {
 			assert.GreaterOrEqual(t, o.MemoryMB, baseReq.MemoryMB, "offer must satisfy memory")
 			assert.Equal(t, baseReq.Arch, o.Arch, "offer must match arch")
 			assert.Greater(t, o.PricePerHourUSD, 0.0, "offer must be priced")
+			assert.Contains(t, classes, o.Capacity, "every offer's class must be advertised by Classes()")
 		}
 
 		// Arch filter must hold: an arm64 request never yields amd64 offers.

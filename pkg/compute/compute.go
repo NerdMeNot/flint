@@ -19,7 +19,16 @@ import (
 	"time"
 )
 
-// CapacityType selects the purchase model for elastic capacity.
+// CapacityType selects the reliability class of elastic capacity. The wire
+// values name the common purchase models, but the meaning is a reliability
+// contract, not a cloud product:
+//
+//	on_demand ("stable")        — the provider won't reclaim it out from under a
+//	                              running step; the safe home for long/live work.
+//	spot      ("interruptible") — cheaper but reclaimable; fine for retryable or
+//	                              short work, and reclaim→retry is handled upstream.
+//	any                         — the fleet picks whichever the pool's objective
+//	                              prefers.
 type CapacityType string
 
 const (
@@ -27,6 +36,44 @@ const (
 	CapacityOnDemand CapacityType = "on_demand"
 	CapacityAny      CapacityType = "any"
 )
+
+// Interruptible reports whether this class may be reclaimed while a step runs.
+func (c CapacityType) Interruptible() bool { return c == CapacitySpot }
+
+// DegradeCapacity resolves a requested reliability class against what a provider
+// actually supports, so a run is never starved because its pool asked for a
+// class this provider lacks — the headline reliability guarantee. The direction
+// is deliberately asymmetric:
+//
+//   - requested is "any", empty, or supported → unchanged (no degrade).
+//   - interruptible requested but unsupported, and stable IS supported → upgrade
+//     to stable. Safe: the run gets MORE reliability than asked (it just costs
+//     more), instead of hanging with no capacity (e.g. a spot pool on a homelab
+//     that only offers stable machines).
+//   - stable requested but unsupported → left unchanged. We never silently hand
+//     back interruptible for a stable request — that would violate the very
+//     reliability the pool asked for; Quote returning no offers is the honest
+//     outcome, surfaced as no-capacity rather than an unsafe placement.
+//
+// The bool reports whether a degrade happened, for the decision ledger.
+func DegradeCapacity(requested CapacityType, supported []CapacityType) (CapacityType, bool) {
+	if requested == "" || requested == CapacityAny || containsClass(supported, requested) {
+		return requested, false
+	}
+	if requested == CapacitySpot && containsClass(supported, CapacityOnDemand) {
+		return CapacityOnDemand, true
+	}
+	return requested, false
+}
+
+func containsClass(classes []CapacityType, want CapacityType) bool {
+	for _, c := range classes {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
 
 // Sentinel errors providers use to declare capabilities they don't have.
 var (
@@ -140,6 +187,13 @@ type MachineRef struct {
 type Provider interface {
 	// Name is the configured instance name ("aws-us-east-1"), not the type.
 	Name() string
+
+	// Classes advertises the reliability classes this provider can supply
+	// (e.g. {on_demand, spot} for a cloud, {on_demand} for a homelab). The fleet
+	// uses it to degrade a pool's request to a class the provider actually has,
+	// via DegradeCapacity, so a run is never starved for an unsupported class.
+	// A provider with no elastic capacity (static pools) returns nil.
+	Classes() []CapacityType
 
 	// Quote returns zero or more offers satisfying req. Best-first ordering is
 	// NOT required — the fleet manager ranks. A provider with no elastic
