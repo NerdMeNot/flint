@@ -200,11 +200,11 @@ var matrixTokenExpr = regexp.MustCompile(`\bmatrix\.(\w+)\b`)
 func expandMatrix(jobs map[string]Job) map[string]Job {
 	out := make(map[string]Job, len(jobs))
 	for name, job := range jobs {
-		if len(job.Matrix) == 0 {
+		if job.Matrix.Empty() {
 			out[name] = job
 			continue
 		}
-		for _, combo := range matrixCombos(job.Matrix) {
+		for _, combo := range expandMatrixCombos(job.Matrix) {
 			variant := job
 			variant.Matrix = nil
 			variant.Image = interpolateMatrix(variant.Image, combo)
@@ -286,6 +286,111 @@ func interpolateMatrixExpr(s string, combo map[string]string) string {
 
 // matrixCombos returns the cartesian product of the matrix dimensions, with keys
 // processed in sorted order for deterministic naming.
+// expandMatrixCombos produces the final combination set: the cartesian product
+// of the base dimensions, minus excludes, plus includes. Semantics follow GitHub
+// Actions:
+//   - exclude: drop every combination that matches all key/values in the entry
+//     (a partial filter — exclude {os: mac} removes every mac combination).
+//   - include: for each entry, split its keys into base-dimension keys (a filter)
+//     and extra keys. Combinations matching the filter gain the extra keys
+//     (without overwriting existing values). If the entry's filter matches no
+//     existing combination (it names dimension values not in the product), it is
+//     appended as a brand-new combination. An entry with only extra keys merges
+//     them into every combination.
+func expandMatrixCombos(m *MatrixSpec) []map[string]string {
+	combos := matrixCombos(m.Dimensions)
+
+	if len(m.Exclude) > 0 {
+		kept := combos[:0:0]
+		for _, c := range combos {
+			if !comboMatchesAny(c, m.Exclude) {
+				kept = append(kept, c)
+			}
+		}
+		combos = kept
+	}
+
+	baseKeys := make(map[string]bool, len(m.Dimensions))
+	for k := range m.Dimensions {
+		baseKeys[k] = true
+	}
+	for _, inc := range m.Include {
+		filter := map[string]string{}
+		extra := map[string]string{}
+		for k, v := range inc {
+			if baseKeys[k] {
+				filter[k] = v
+			} else {
+				extra[k] = v
+			}
+		}
+		matched := false
+		for _, c := range combos {
+			if comboMatches(c, filter) {
+				matched = true
+				for k, v := range extra {
+					if _, exists := c[k]; !exists {
+						c[k] = v
+					}
+				}
+			}
+		}
+		if !matched {
+			nc := make(map[string]string, len(inc))
+			maps.Copy(nc, inc)
+			combos = append(combos, nc)
+		}
+	}
+	return dedupCombos(combos)
+}
+
+// comboMatches reports whether every key/value in filter is present and equal in
+// combo. An empty filter matches any combination.
+func comboMatches(combo, filter map[string]string) bool {
+	for k, v := range filter {
+		if combo[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// comboMatchesAny reports whether combo matches any of the (non-empty) entries.
+func comboMatchesAny(combo map[string]string, entries []map[string]string) bool {
+	for _, e := range entries {
+		if len(e) > 0 && comboMatches(combo, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// dedupCombos drops exact-duplicate combinations (same key/value set), which
+// include entries can introduce, keeping first-seen order.
+func dedupCombos(combos []map[string]string) []map[string]string {
+	seen := map[string]bool{}
+	out := combos[:0]
+	for _, c := range combos {
+		keys := make([]string, 0, len(c))
+		for k := range c {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var sig strings.Builder
+		for _, k := range keys {
+			sig.WriteString(k)
+			sig.WriteByte('=')
+			sig.WriteString(c[k])
+			sig.WriteByte('\x00')
+		}
+		if !seen[sig.String()] {
+			seen[sig.String()] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func matrixCombos(m map[string][]string) []map[string]string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

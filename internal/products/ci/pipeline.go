@@ -90,9 +90,9 @@ type Job struct {
 	Cache    *pipeline.CacheSpec `yaml:"cache,omitempty" json:"cache,omitempty"`
 
 	// Matrix / fan-out.
-	Matrix      map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"`
-	FailFast    *bool               `yaml:"failFast,omitempty" json:"failFast,omitempty"`
-	MaxParallel int                 `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	Matrix      *MatrixSpec `yaml:"matrix,omitempty" json:"matrix,omitempty"`
+	FailFast    *bool       `yaml:"failFast,omitempty" json:"failFast,omitempty"`
+	MaxParallel int         `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
 
 	// Limits.
 	Timeout     string       `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -101,6 +101,68 @@ type Job struct {
 	// Reuse: a job module reference + its inputs (resolved before validation).
 	Use  string         `yaml:"use,omitempty" json:"use,omitempty"`
 	With map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
+}
+
+// MatrixSpec is a job's fan-out: base Dimensions (the cartesian axes) plus
+// optional Include (extra or extended combinations) and Exclude (combinations to
+// drop), following the GitHub Actions model. Because include/exclude nest under
+// matrix: alongside the dimension axes, the spec needs a custom unmarshaler to
+// separate them from the axes.
+type MatrixSpec struct {
+	Dimensions map[string][]string `json:"dimensions,omitempty"`
+	Include    []map[string]string `json:"include,omitempty"`
+	Exclude    []map[string]string `json:"exclude,omitempty"`
+}
+
+// UnmarshalYAML splits the reserved include/exclude keys from the dimension axes.
+func (m *MatrixSpec) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("matrix must be a mapping of dimensions (plus optional include/exclude)")
+	}
+	m.Dimensions = map[string][]string{}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, val := node.Content[i].Value, node.Content[i+1]
+		switch key {
+		case "include":
+			if err := val.Decode(&m.Include); err != nil {
+				return fmt.Errorf("matrix.include: %w", err)
+			}
+		case "exclude":
+			if err := val.Decode(&m.Exclude); err != nil {
+				return fmt.Errorf("matrix.exclude: %w", err)
+			}
+		default:
+			var vals []string
+			if err := val.Decode(&vals); err != nil {
+				return fmt.Errorf("matrix dimension %q must be a list of values: %w", key, err)
+			}
+			m.Dimensions[key] = vals
+		}
+	}
+	return nil
+}
+
+// Empty reports whether the matrix produces no fan-out at all.
+func (m *MatrixSpec) Empty() bool {
+	return m == nil || (len(m.Dimensions) == 0 && len(m.Include) == 0)
+}
+
+// AllKeys is every dimension key, including keys introduced only by include
+// entries — so a matrix.<key> reference to an include-only key still validates.
+func (m *MatrixSpec) AllKeys() map[string]bool {
+	keys := map[string]bool{}
+	if m == nil {
+		return keys
+	}
+	for k := range m.Dimensions {
+		keys[k] = true
+	}
+	for _, inc := range m.Include {
+		for k := range inc {
+			keys[k] = true
+		}
+	}
+	return keys
 }
 
 // Step is a single command inside a job's pod. Steps run sequentially and share
