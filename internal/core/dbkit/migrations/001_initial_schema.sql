@@ -1517,6 +1517,16 @@ CREATE INDEX idx_pipeline_runs_running ON public.pipeline_runs USING btree (stat
 
 
 --
+-- Name: idx_pipeline_runs_terminal_finished; Type: INDEX; Schema: public; Owner: -
+-- Serves DeleteOldRuns (retention): terminal runs ordered by finished_at. The
+-- only other status index (idx_pipeline_runs_running) covers running rows, so
+-- the retention delete would otherwise seq-scan as the table grows.
+--
+
+CREATE INDEX idx_pipeline_runs_terminal_finished ON public.pipeline_runs USING btree (finished_at) WHERE (status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text]));
+
+
+--
 -- Name: idx_projects_org; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1734,6 +1744,17 @@ CREATE INDEX idx_assignments_run ON public.step_assignments USING btree (run_id)
 --
 
 CREATE UNIQUE INDEX idx_assignments_step_active ON public.step_assignments USING btree (step_id) WHERE (status = ANY (ARRAY['pending'::text, 'assigned'::text, 'running'::text]));
+
+
+--
+-- Name: idx_assignments_run_status; Type: INDEX; Schema: public; Owner: -
+-- Serves PendingProvisioningDemand's affinity subquery, which looks up an
+-- assignment's run across ALL live+terminal statuses (assigned/running/
+-- succeeded/failed) to decide if the run has a live holder. The partial
+-- idx_assignments_run excludes succeeded/failed, so it can't serve this.
+--
+
+CREATE INDEX idx_assignments_run_status ON public.step_assignments USING btree (run_id, status);
 
 
 --
