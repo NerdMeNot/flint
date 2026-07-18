@@ -116,11 +116,18 @@ GROUP BY status;
 
 -- name: ClaimIdleMachinesPastTTL :many
 -- Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
--- min_warm before draining.
+-- min_warm before draining. The NOT EXISTS guard is essential: a machine can be
+-- status='idle' yet still hold a live assignment (busy/idle accounting can drift,
+-- or work was bound just after it went idle) — terminating it would kill running
+-- work, so those are never candidates.
 SELECT m.id, m.pool_id FROM machines m
 JOIN machine_pools p ON p.id = m.pool_id
 WHERE m.status = 'idle'
   AND m.idle_since < now() - make_interval(secs := p.idle_ttl_seconds)
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
+  )
 FOR UPDATE OF m SKIP LOCKED;
 
 -- name: IncrementMachineStepsCompleted :exec

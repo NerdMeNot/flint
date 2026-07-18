@@ -169,6 +169,42 @@ func TestScaleDown_SkipsPoolLockedByAnotherWorker(t *testing.T) {
 	assert.Equal(t, 1, reaped, "scale-down resumes once the lock is free")
 }
 
+// A4: a machine can be status='idle' yet still hold a live assignment (accounting
+// drift). Scale-down must not terminate it and kill the running work.
+func TestScaleDown_SkipsMachineWithLiveWork(t *testing.T) {
+	h, _ := elasticHarness(t, "idle-with-work-pool")
+	ctx := context.Background()
+	poolID := poolIDByName(t, h, "idle-with-work-pool")
+
+	h.insertPendingAssignment(t, poolID)
+	_, err := h.fleet.Provision(ctx)
+	require.NoError(t, err)
+	waitForCond(t, 5*time.Second, func() bool {
+		return countMachines(t, h, poolID, "idle") == 1
+	}, "machine should register and go idle")
+
+	var mid string
+	require.NoError(t, h.pool.QueryRow(ctx,
+		`SELECT id FROM machines WHERE pool_id = $1 AND status = 'idle'`, poolID).Scan(&mid))
+
+	// Drift: a running assignment on the machine, but its status is idle past TTL.
+	_, err = h.pool.Exec(ctx, `
+		INSERT INTO step_assignments (step_id, workflow_id, run_id, step_name, attempt,
+			pool_id, machine_id, status, cpu_millis, memory_mb, payload)
+		VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'live-step', 0,
+			$1, $2, 'running', 1000, 1024, '{}')`, poolID, mid)
+	require.NoError(t, err)
+	_, err = h.pool.Exec(ctx,
+		`UPDATE machines SET status = 'idle', idle_since = now() - interval '1 hour' WHERE id = $1`, mid)
+	require.NoError(t, err)
+
+	// minWarm=0, so only the active-work guard protects it.
+	reaped, err := h.fleet.ScaleDown(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, reaped, "a machine holding live work must not be scaled down")
+	assert.Equal(t, 1, countMachines(t, h, poolID, "idle"), "the machine survives")
+}
+
 // A2: demand pinned by hard run-affinity to an existing holder machine must not
 // inflate the provisioning deficit — a new machine can't take it (it can only
 // run on the holder), so booting for it just burns idle capacity.
