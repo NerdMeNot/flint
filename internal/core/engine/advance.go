@@ -214,14 +214,17 @@ func isPipelineFailed(dagWaves [][]string, stepByName map[string]stepRow) bool {
 // ─────────────────────────────────────────────────────────────
 
 type stepRow struct {
-	id          string
-	name        string
-	status      string
-	attempt     int
-	onFailure   string
-	ifCondition string
-	when        string
-	dependsOn   []string
+	id               string
+	name             string
+	status           string
+	attempt          int
+	onFailure        string
+	ifCondition      string
+	when             string
+	dependsOn        []string
+	maxAttempts      int
+	retryBackoff     string
+	retryIntervalSec int
 }
 
 func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (map[string]stepRow, error) {
@@ -232,12 +235,15 @@ func loadLatestSteps(ctx context.Context, qtx *db.Queries, workflowID string) (m
 	result := make(map[string]stepRow)
 	for _, row := range rows {
 		s := stepRow{
-			id:        row.ID,
-			name:      row.Name,
-			status:    row.Status,
-			attempt:   int(row.Attempt),
-			onFailure: row.OnFailure,
-			dependsOn: decodeDependsOn(row.DependsOn),
+			id:               row.ID,
+			name:             row.Name,
+			status:           row.Status,
+			attempt:          int(row.Attempt),
+			onFailure:        row.OnFailure,
+			dependsOn:        decodeDependsOn(row.DependsOn),
+			maxAttempts:      int(row.MaxAttempts),
+			retryBackoff:     row.RetryBackoff,
+			retryIntervalSec: int(row.RetryIntervalSeconds),
 		}
 		if row.IfCondition != nil {
 			if v, ok := row.IfCondition.(string); ok {
@@ -344,8 +350,29 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 			newStatus = stepFailed
 		}
 		result := StepResult{StepName: signal.StepName, Success: signal.Success, Error: signal.Reason}
-		stepByName[signal.StepName] = markStep(ctx, qtx, workflowID, step, newStatus,
+		updated := markStep(ctx, qtx, workflowID, step, newStatus,
 			withResult(result), withActor(actorInformer), withReason(signal.Reason))
+		stepByName[signal.StepName] = updated
+
+		// A machine-lost / infra failure must honour the step's retry policy the
+		// same way an agent-reported failure (CompleteStep) and a dispatch failure
+		// (failStepAndAdvance) do — otherwise a spot reclaim fails a step
+		// permanently even with attempts remaining. Schedule the next attempt and,
+		// if one was parked, reflect it in the working set so THIS advance pass
+		// treats the step as non-terminal (blocks downstream) instead of
+		// propagating a terminal failure.
+		if !signal.Success {
+			scheduled, err := maybeScheduleRetry(ctx, qtx, step.id, workflowID, signal.StepName,
+				step.attempt, step.maxAttempts, step.retryBackoff, step.retryIntervalSec)
+			if err != nil {
+				return err
+			}
+			if scheduled {
+				updated.status = stepRetryWait
+				updated.attempt = step.attempt + 1
+				stepByName[signal.StepName] = updated
+			}
+		}
 
 		log.Info().
 			Str("step", signal.StepName).

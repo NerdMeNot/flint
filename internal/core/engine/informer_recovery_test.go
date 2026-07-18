@@ -78,6 +78,60 @@ func TestInformerSignal_PromptConsumption(t *testing.T) {
 	assert.Equal(t, 0, unconsumed)
 }
 
+// TestMachineLostSignal_HonoursRetry is the regression guard for the fix that a
+// machine-lost / infrastructure failure — delivered as a step-result signal, the
+// same path a spot reclaim or expired heartbeat uses — schedules a retry when
+// attempts remain, instead of failing the step permanently. Before the fix the
+// signal path called markStep(failed) but never maybeScheduleRetry, so spot
+// interruptions burned steps that were explicitly configured to retry.
+func TestMachineLostSignal_HonoursRetry(t *testing.T) {
+	pool := internalTestDB(t)
+	ctx := context.Background()
+	runID := uuid.NewString()
+	orgID, projectID := seedRun(t, pool, runID)
+
+	eng := New(pool, nil)
+	defer eng.Close()
+
+	// One step, two attempts, long backoff so the retry parks rather than fires.
+	waves := [][]pipeline.Step{
+		{{Name: "a", Image: "alpine:3.19", Run: pipeline.Cmd("echo a"),
+			Retry: &pipeline.RetrySpec{Attempts: 2, Delay: "60s"}}},
+	}
+	wfID, err := eng.StartWorkflowWithWaves(ctx, StartWorkflowInput{
+		RunID: runID, OrgID: orgID, ProjectID: projectID, TriggerType: "manual",
+	}, waves)
+	require.NoError(t, err)
+
+	// Dispatch a; the agent then goes lost without reporting.
+	loop := NewLoop(eng, ExecutorRegistry{"run": hangingExecutor{}}, LoopConfig{ClaimBatchSize: 1000})
+	loop.claimAndDispatchSimple(ctx)
+
+	// The fleet marks the machine lost, fails the assignment, and delivers a
+	// step-result failure signal — the exact spot-reclaim path.
+	require.NoError(t, eng.DeliverSignal(ctx, wfID, "step-result", map[string]any{
+		"stepName": "a",
+		"runID":    runID,
+		"success":  false,
+		"reason":   "machine lost (heartbeat lease expired)",
+	}))
+
+	loop.processStepResultSignals(ctx)
+
+	state, err := eng.QueryWorkflow(ctx, wfID)
+	require.NoError(t, err)
+	a := stepByName(state, "a")
+	assert.Equal(t, "retry_wait", a.Status, "machine-lost failure must park a retry, not fail terminally")
+	assert.Equal(t, 1, a.Attempt, "latest attempt should be the parked retry")
+	assert.Equal(t, "running", state.Status, "workflow keeps running while the retry backs off")
+
+	// A retry_backoff timer must be pending (the retry honours the backoff).
+	var timerCount int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM timers WHERE workflow_id=$1 AND step_name='a' AND timer_type='retry_backoff' AND fired=false`, wfID).Scan(&timerCount))
+	assert.Equal(t, 1, timerCount, "a retry_backoff timer should be pending after machine-lost")
+}
+
 // TestInformerSignal_SuccessAdvancesDownstream covers the success path: a
 // completed Job whose agent crashed before reporting still advances the DAG.
 func TestInformerSignal_SuccessAdvancesDownstream(t *testing.T) {

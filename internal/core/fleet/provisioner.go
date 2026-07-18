@@ -54,24 +54,25 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 	return booted, nil
 }
 
-// tryLockPool takes a session-scoped advisory lock that serializes provisioning
-// for one pool across every dispatch-mode worker sharing this database. It is
-// non-blocking: if another worker already holds it, (nil, false) is returned and
-// the caller skips this pool this tick rather than reading the same deficit and
-// double-provisioning it. The returned release frees the lock and the connection
+// tryLockPool takes a session-scoped advisory lock that serializes one kind of
+// capacity decision (namespace) for one pool across every dispatch-mode worker
+// sharing this database. It is non-blocking: if another worker already holds it,
+// (nil, false) is returned and the caller skips this pool this tick rather than
+// racing on a stale read. The returned release frees the lock and the connection
 // and must be deferred when locked is true. Session-scoped (not xact-scoped)
-// because provisioning spans slow provider Quote/Create calls that must not run
+// because these paths span slow provider Create/Destroy calls that must not run
 // inside a transaction; a crashed worker's dropped connection auto-releases the
-// lock. Keyed the same way as the engine's per-org lock (orgs.sql), a distinct
-// 'flint-prov:' namespace so the two never collide.
-func (f *Fleet) tryLockPool(ctx context.Context, poolID string) (release func(), locked bool, err error) {
+// lock. Keyed like the engine's per-org lock (orgs.sql); each namespace
+// ('flint-prov:', 'flint-scaledown:') is a distinct key so unrelated decisions
+// don't serialize against each other.
+func (f *Fleet) tryLockPool(ctx context.Context, namespace, poolID string) (release func(), locked bool, err error) {
 	conn, err := f.pool.Acquire(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	var got bool
 	if err := conn.QueryRow(ctx,
-		`SELECT pg_try_advisory_lock(hashtext('flint-prov:' || $1))`, poolID,
+		`SELECT pg_try_advisory_lock(hashtext($1 || $2))`, namespace, poolID,
 	).Scan(&got); err != nil {
 		conn.Release()
 		return nil, false, err
@@ -81,7 +82,7 @@ func (f *Fleet) tryLockPool(ctx context.Context, poolID string) (release func(),
 		return nil, false, nil
 	}
 	return func() {
-		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext('flint-prov:' || $1))`, poolID)
+		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1 || $2))`, namespace, poolID)
 		conn.Release()
 	}, true, nil
 }
@@ -90,7 +91,7 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 	// Serialize this pool's provisioning across workers: without it, two dispatch
 	// replicas both read the same deficit and both boot it (N× over-provision,
 	// past max_machines/min_warm). The loser skips this pool this tick.
-	release, locked, err := f.tryLockPool(ctx, pool.ID)
+	release, locked, err := f.tryLockPool(ctx, "flint-prov:", pool.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -292,51 +293,74 @@ func (f *Fleet) bootMachine(ctx context.Context, pool db.ListMachinePoolsRow, pr
 // keeping the warm minimum. Static machines are never terminated — Flint
 // doesn't own their power button.
 func (f *Fleet) ScaleDown(ctx context.Context) (int, error) {
-	q := db.New(f.pool)
-	candidates, err := q.ClaimIdleMachinesPastTTL(ctx)
+	candidates, err := db.New(f.pool).ClaimIdleMachinesPastTTL(ctx)
 	if err != nil || len(candidates) == 0 {
 		return 0, err
 	}
 
-	// Per-pool idle counts + policy so the warm floor holds.
-	terminated := 0
-	idleByPool := map[string]int64{}
-	poolInfo := map[string]db.GetMachinePoolByIDRow{}
+	// Group idle candidates by pool, preserving first-seen order.
+	byPool := map[string][]string{}
+	order := []string{}
 	for _, c := range candidates {
-		if _, ok := poolInfo[c.PoolID]; !ok {
-			info, err := q.GetMachinePoolByID(ctx, c.PoolID)
-			if err != nil {
-				continue
-			}
-			poolInfo[c.PoolID] = info
-			counts, _ := q.CountPoolMachinesByStatus(ctx, c.PoolID)
-			for _, r := range counts {
-				if r.Status == machineIdle {
-					idleByPool[c.PoolID] = r.N
-				}
-			}
+		if _, seen := byPool[c.PoolID]; !seen {
+			order = append(order, c.PoolID)
 		}
+		byPool[c.PoolID] = append(byPool[c.PoolID], c.ID)
 	}
 
-	for _, c := range candidates {
-		pool, ok := poolInfo[c.PoolID]
-		if !ok || pool.Provider == "static" {
+	terminated := 0
+	for _, poolID := range order {
+		// Serialize a pool's scale-down across workers: without it, two replicas
+		// each read an independent idle count and terminate down to minWarm
+		// against their own view, collectively breaching the warm floor. The
+		// loser skips this pool this tick.
+		release, locked, err := f.tryLockPool(ctx, "flint-scaledown:", poolID)
+		if err != nil {
+			return terminated, err
+		}
+		if !locked {
 			continue
 		}
-		if idleByPool[c.PoolID] <= int64(pool.MinWarm) {
-			continue // the warm floor is the user's declared speed choice
-		}
-		if err := f.terminateMachine(ctx, c.ID, c.PoolID, "idle_ttl"); err != nil {
-			log.Error().Err(err).Str("machine", c.ID).Msg("fleet: scale-down failed")
-			continue
-		}
-		idleByPool[c.PoolID]--
-		terminated++
+		terminated += f.scaleDownPool(ctx, poolID, byPool[poolID])
+		release()
 	}
 	if terminated > 0 {
 		log.Info().Int("machines", terminated).Msg("fleet: idle machines scaled down")
 	}
 	return terminated, nil
+}
+
+// scaleDownPool terminates a pool's idle-past-TTL machines down to its warm
+// floor. Called under the pool's scale-down lock, so the idle count it reads
+// already reflects any peer worker's terminations this tick — the minWarm floor
+// is enforced against fresh, serialized state.
+func (f *Fleet) scaleDownPool(ctx context.Context, poolID string, machineIDs []string) int {
+	q := db.New(f.pool)
+	pool, err := q.GetMachinePoolByID(ctx, poolID)
+	if err != nil || pool.Provider == "static" {
+		return 0 // static machines are never terminated — Flint doesn't own their power button
+	}
+	var idle int64
+	counts, _ := q.CountPoolMachinesByStatus(ctx, poolID)
+	for _, r := range counts {
+		if r.Status == machineIdle {
+			idle = r.N
+		}
+	}
+
+	terminated := 0
+	for _, id := range machineIDs {
+		if idle <= int64(pool.MinWarm) {
+			break // the warm floor is the user's declared speed choice
+		}
+		if err := f.terminateMachine(ctx, id, poolID, "idle_ttl"); err != nil {
+			log.Error().Err(err).Str("machine", id).Msg("fleet: scale-down failed")
+			continue
+		}
+		idle--
+		terminated++
+	}
+	return terminated
 }
 
 // terminateMachine drives idle → terminating → Destroy → terminated with the

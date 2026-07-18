@@ -345,6 +345,7 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 
 const latestStepsByWorkflow = `-- name: LatestStepsByWorkflow :many
 SELECT DISTINCT ON (name) id, name, status, attempt, on_failure,
+    max_attempts, retry_backoff, retry_interval_seconds,
     step_def->>'if' AS if_condition,
     step_def->>'when' AS when_condition,
     step_def->'dependsOn' AS depends_on
@@ -353,14 +354,17 @@ ORDER BY name, attempt DESC
 `
 
 type LatestStepsByWorkflowRow struct {
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	Status        string      `json:"status"`
-	Attempt       int32       `json:"attempt"`
-	OnFailure     string      `json:"on_failure"`
-	IfCondition   interface{} `json:"if_condition"`
-	WhenCondition interface{} `json:"when_condition"`
-	DependsOn     interface{} `json:"depends_on"`
+	ID                   string      `json:"id"`
+	Name                 string      `json:"name"`
+	Status               string      `json:"status"`
+	Attempt              int32       `json:"attempt"`
+	OnFailure            string      `json:"on_failure"`
+	MaxAttempts          int32       `json:"max_attempts"`
+	RetryBackoff         string      `json:"retry_backoff"`
+	RetryIntervalSeconds int32       `json:"retry_interval_seconds"`
+	IfCondition          interface{} `json:"if_condition"`
+	WhenCondition        interface{} `json:"when_condition"`
+	DependsOn            interface{} `json:"depends_on"`
 }
 
 func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) ([]LatestStepsByWorkflowRow, error) {
@@ -378,6 +382,9 @@ func (q *Queries) LatestStepsByWorkflow(ctx context.Context, workflowID string) 
 			&i.Status,
 			&i.Attempt,
 			&i.OnFailure,
+			&i.MaxAttempts,
+			&i.RetryBackoff,
+			&i.RetryIntervalSeconds,
 			&i.IfCondition,
 			&i.WhenCondition,
 			&i.DependsOn,

@@ -69,6 +69,7 @@ RETURNING affected.name, affected.attempt, affected.old_status;
 
 -- name: LatestStepsByWorkflow :many
 SELECT DISTINCT ON (name) id, name, status, attempt, on_failure,
+    max_attempts, retry_backoff, retry_interval_seconds,
     step_def->>'if' AS if_condition,
     step_def->>'when' AS when_condition,
     step_def->'dependsOn' AS depends_on

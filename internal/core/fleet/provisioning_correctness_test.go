@@ -46,6 +46,53 @@ func TestProvision_SkipsPoolLockedByAnotherWorker(t *testing.T) {
 	assert.Equal(t, 1, booted, "provisioning resumes once the pool lock is free")
 }
 
+// #2b: two workers must not each scale a pool down to minWarm against independent
+// idle counts and collectively breach the warm floor. The per-pool scale-down
+// lock serializes them; a worker that can't take it skips the pool this tick. We
+// hold the lock on a separate connection and assert ScaleDown terminates nothing
+// until it's released. (The scheduler's guard, #2a, is a blocking transaction
+// lock exercised by the existing scheduling tests.)
+func TestScaleDown_SkipsPoolLockedByAnotherWorker(t *testing.T) {
+	h, _ := elasticHarness(t, "scaledown-lock-pool")
+	ctx := context.Background()
+	poolID := poolIDByName(t, h, "scaledown-lock-pool")
+
+	// Boot an idle machine, then age it well past the pool's idle TTL.
+	h.insertPendingAssignment(t, poolID)
+	_, err := h.fleet.Provision(ctx)
+	require.NoError(t, err)
+	waitForCond(t, 5*time.Second, func() bool {
+		return countMachines(t, h, poolID, "idle") == 1
+	}, "machine should register and go idle")
+	_, err = h.pool.Exec(ctx,
+		`UPDATE step_assignments SET status = 'succeeded', finished_at = now() WHERE pool_id = $1`, poolID)
+	require.NoError(t, err)
+	_, err = h.pool.Exec(ctx,
+		`UPDATE machines SET status = 'idle', idle_since = now() - interval '1 hour' WHERE pool_id = $1`, poolID)
+	require.NoError(t, err)
+
+	// Another worker is already scaling this pool down: it holds the lock.
+	conn, err := h.pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	var held bool
+	require.NoError(t, conn.QueryRow(ctx,
+		`SELECT pg_try_advisory_lock(hashtext('flint-scaledown:' || $1))`, poolID).Scan(&held))
+	require.True(t, held)
+
+	reaped, err := h.fleet.ScaleDown(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, reaped, "must not scale down a pool another worker is scaling down")
+	assert.Equal(t, 1, countMachines(t, h, poolID, "idle"), "the idle machine survives while locked")
+
+	// Release; scale-down proceeds.
+	_, err = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext('flint-scaledown:' || $1))`, poolID)
+	require.NoError(t, err)
+	reaped, err = h.fleet.ScaleDown(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, reaped, "scale-down resumes once the lock is free")
+}
+
 // A2: demand pinned by hard run-affinity to an existing holder machine must not
 // inflate the provisioning deficit — a new machine can't take it (it can only
 // run on the holder), so booting for it just burns idle capacity.

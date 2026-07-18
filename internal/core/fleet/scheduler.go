@@ -60,6 +60,17 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(f.pool).WithTx(tx)
 
+	// Serialize a pool's scheduling across workers. Without it, two replicas read
+	// the same MachineFreeCapacity snapshot (neither's binds committed yet) and
+	// both pack their disjoint pending sets onto the same machine, overcommitting
+	// its CPU/mem. A transaction-scoped advisory lock (auto-released on commit)
+	// makes the loser wait, then read the winner's committed binds. Fast path —
+	// scheduling is pure DB, no external calls — so blocking here is cheap.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('flint-sched:' || $1))`, poolID); err != nil {
+		return 0, err
+	}
+
 	pending, err := qtx.ClaimPendingAssignments(ctx, db.ClaimPendingAssignmentsParams{
 		PoolID: poolID, Limit: schedulerBatch,
 	})
