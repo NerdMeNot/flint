@@ -245,6 +245,37 @@ func TestProvision_SkipsAffinityPinnedDemand(t *testing.T) {
 	assert.GreaterOrEqual(t, booted, 1, "unpinned demand still provisions")
 }
 
+// A6: the fixed-cost gate. A scale-to-zero pool (min_warm=0) with no pending
+// demand must be skipped before the provisioning lock + per-pool count — those
+// per-tick round-trips are exactly the cost the gate removes for a quiet fleet.
+// The observable contract: nothing is booted and any existing idle capacity is
+// left untouched. (The complementary "gate must not over-skip" direction — a
+// warm-floor pool with zero demand, and a zero-warm pool with demand — is held
+// by TestElastic_MinWarmFloorHolds and the demand/affinity tests above.)
+func TestProvision_QuietZeroWarmPoolIsSkipped(t *testing.T) {
+	h, _ := elasticHarness(t, "quiet-pool")
+	ctx := context.Background()
+	poolID := poolIDByName(t, h, "quiet-pool")
+
+	// Boot one machine (via a transient demand), let it go idle, then clear demand
+	// so the pool is genuinely quiet with an idle machine resident.
+	h.insertPendingAssignment(t, poolID)
+	_, err := h.fleet.Provision(ctx)
+	require.NoError(t, err)
+	waitForCond(t, 5*time.Second, func() bool {
+		return countMachines(t, h, poolID, "idle") == 1
+	}, "seed machine should register and go idle")
+	_, err = h.pool.Exec(ctx, `DELETE FROM step_assignments WHERE pool_id = $1`, poolID)
+	require.NoError(t, err)
+
+	// Pool is min_warm=0 (elasticHarness default) with zero demand: the gate
+	// short-circuits, so nothing boots and the idle machine is untouched.
+	booted, err := h.fleet.Provision(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, booted, "a quiet scale-to-zero pool must not provision")
+	assert.Equal(t, 1, countMachines(t, h, poolID, "idle"), "the resident idle machine is left in place")
+}
+
 // insertPendingForRun plants pending demand for a specific run id, so tests can
 // bind a run to a holder and then add more work for the same run.
 func (h *harness) insertPendingForRun(t *testing.T, poolID, runID string) string {

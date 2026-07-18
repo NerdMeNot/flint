@@ -45,6 +45,15 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 		if pool.Provider == "static" {
 			continue // static capacity joins by token; nothing to boot
 		}
+		// Fixed-cost gate (#6): a scale-to-zero pool with no pending demand can
+		// never need a boot, so skip the advisory lock + per-pool count entirely.
+		// Without this, every idle pool pays a lock round-trip and a count query
+		// each tick, so the loop's floor cost grows with pool count even when the
+		// whole fleet is quiet. Pools with a warm floor (min_warm > 0) still fall
+		// through — maintaining that floor inherently requires the current count.
+		if demand[pool.ID] == 0 && pool.MinWarm == 0 {
+			continue
+		}
 		n, err := f.provisionPool(ctx, pool, demand[pool.ID])
 		if err != nil {
 			log.Error().Err(err).Str("pool", pool.Name).Msg("fleet: provisioning failed")
