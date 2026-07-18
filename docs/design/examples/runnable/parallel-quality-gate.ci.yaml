@@ -1,0 +1,57 @@
+# Runnable example: a parallel quality gate over a shared build.
+#
+# build → (lint ∥ unit-test ∥ integration-test) → package. The three quality
+# jobs share the `needs: [build]` edge, so the engine runs them in one wave;
+# package waits for all of them. Exercises cross-job needs, artifacts along the
+# needs edge, a service sidecar, cache, and continueOnError.
+
+image: golang:1.26
+runner: standard
+env:
+  GOFLAGS: -mod=readonly
+triggers:
+  pull_request: { branches: [main] }
+  push: { branches: [main] }
+
+jobs:
+  build:
+    cache:
+      key: gomod-${{ hashFiles('go.sum') }}
+      restoreKeys: [gomod-]
+      paths: [/go/pkg/mod]
+    steps:
+      - run: go mod download
+      - run: go build -o bin/app ./cmd/app
+    artifacts:
+      - bin/
+
+  lint:
+    needs: [build]
+    steps:
+      - run: go vet ./...
+      - name: staticcheck
+        run: staticcheck ./...
+        continueOnError: true
+
+  unit-test:
+    needs: [build]
+    steps:
+      - run: go test -race ./...
+
+  integration-test:
+    needs: [build]
+    env:
+      DATABASE_URL: "postgres://postgres:test@localhost:5432/app"
+    services:
+      - { name: postgres, image: postgres:16, env: { POSTGRES_PASSWORD: test, POSTGRES_DB: app } }
+    steps:
+      - name: wait-for-db
+        run: until pg_isready -h localhost; do sleep 1; done
+        timeout: 1m
+        retry: { attempts: 5, delay: 3s }
+      - run: go test -tags=integration ./test/integration/...
+
+  package:
+    needs: [build, lint, unit-test, integration-test]
+    steps:
+      - run: ./scripts/package.sh

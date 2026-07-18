@@ -1,0 +1,29 @@
+# Runnable example: a matrix job fanning out one pod per combination.
+#
+# The unit-test job expands into one pod per (go × os) pair, each with matrix.*
+# available in expressions (here to pick the image). Exercises matrix expansion
+# and needs edges into/out of a matrix job.
+
+image: golang:1.26
+triggers:
+  push: { branches: [main] }
+
+jobs:
+  build:
+    steps:
+      - run: go build ./...
+
+  unit-test:
+    needs: [build]
+    matrix:
+      go: ["1.24", "1.25", "1.26"]
+      os: [linux]
+    image: golang:${{ matrix.go }}
+    steps:
+      - run: go test ./...
+
+  report:
+    needs: [unit-test]
+    when: always
+    steps:
+      - run: ./scripts/collect-results.sh
