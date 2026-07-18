@@ -484,6 +484,12 @@ func buildEngineExprContext(input StartWorkflowInput, stepOutputs map[string]Ste
 	ctx["failure"] = func() bool { return upstreamFailed }
 	ctx["always"] = func() bool { return true }
 
+	// Context-independent helpers (fromJSON/toJSON/format), shared verbatim with
+	// the validation context so an if: using them can't validate-clean then break.
+	for k, fn := range pipeline.StdExprFuncs() {
+		ctx[k] = fn
+	}
+
 	return ctx
 }
 
