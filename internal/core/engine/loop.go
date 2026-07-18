@@ -708,6 +708,53 @@ func (l *Loop) processStepResultSignals(ctx context.Context) {
 	}
 }
 
+// finishStaleWorkflows recovers workflows stuck 'running' with every step
+// terminal — the finish was lost to a worker crash. It routes each through the
+// real finishWorkflow path (finish the workflow, emit the workflow_finished
+// event, FinishRun, enqueue webhooks) with the verdict derived from the steps,
+// rather than the old bare UPDATE that stranded the run 'running' with no
+// webhook and always recorded 'failed'. Claim and finish share one transaction
+// so the FOR UPDATE ... SKIP LOCKED locks held by the claim protect the finish;
+// a workflow a live advance is already finishing is skipped (locked) this tick.
+func (l *Loop) finishStaleWorkflows(ctx context.Context) {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("engine: begin tx for stale-workflow finish")
+		return
+	}
+	defer tx.Rollback(ctx)
+	qtx := db.New(l.pool).WithTx(tx)
+
+	stale, err := qtx.ClaimStaleWorkflows(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("engine: claim stale workflows failed")
+		return
+	}
+	if len(stale) == 0 {
+		return
+	}
+	for _, w := range stale {
+		status := "succeeded"
+		if w.HasFailure {
+			status = "failed"
+		}
+		log.Warn().Str("workflow", w.ID).Str("status", status).
+			Msg("engine: sweep recovered stale workflow (finishing)")
+		finishWorkflow(ctx, qtx, w.ID, status)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: commit stale-workflow finish failed")
+		tx.Rollback(ctx)
+		return
+	}
+	// Wake any waiting parents/webhook processing for the recovered workflows.
+	q := db.New(l.pool)
+	for _, w := range stale {
+		_ = q.NotifyEngine(ctx, w.ID)
+		l.engine.notifyState(ctx, w.ID)
+	}
+}
+
 // sweep detects and recovers from stale state.
 func (l *Loop) sweep(ctx context.Context) {
 	log.Debug().Msg("engine: sweep started")
@@ -753,9 +800,7 @@ func (l *Loop) sweep(ctx context.Context) {
 	}
 
 	// 2. Stale workflows where all steps are terminal but workflow still "running".
-	if err := q.SweepStaleWorkflows(ctx); err != nil {
-		log.Warn().Err(err).Msg("engine: sweep stale workflows failed")
-	}
+	l.finishStaleWorkflows(ctx)
 
 	// 3. Recover outbox events stranded in 'processing' by a worker crash.
 	if count, err := q.RecoverStaleOutboxEvents(ctx); err != nil {

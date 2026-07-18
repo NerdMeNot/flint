@@ -61,6 +61,18 @@ type Querier interface {
 	// read is best-effort: a pause committing after this read may let one already-
 	// queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
+	// Backstop recovery: workflows still 'running' although every step has already
+	// reached a terminal state — the advance that should have finished them was lost
+	// to a worker crash between marking the last step terminal and committing the
+	// finish. Returns the id and whether any step failed, so the caller routes each
+	// through the real finish path (FinishWorkflow + workflow_finished event +
+	// FinishRun + webhook enqueue) with the correct verdict, instead of a bare status
+	// UPDATE that used to strand the run 'running' with no webhook and always mark it
+	// 'failed' even when every step succeeded. FOR UPDATE ... SKIP LOCKED so it never
+	// contends with a live advance holding the same workflow row (the engine advances
+	// one workflow at a time under a FOR UPDATE lock); a workflow a live advance is
+	// about to finish is simply skipped this tick.
+	ClaimStaleWorkflows(ctx context.Context) ([]ClaimStaleWorkflowsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
 	// Prune transition history older than 30 days so the table stays bounded.
@@ -658,7 +670,6 @@ type Querier interface {
 	// longer claims, past a grace period since they started.
 	StaleRunningAssignmentsForMachine(ctx context.Context, arg StaleRunningAssignmentsForMachineParams) ([]StaleRunningAssignmentsForMachineRow, error)
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
-	SweepStaleWorkflows(ctx context.Context) error
 	// Heartbeat GC input: of the run ids resident on a machine's disk, which have
 	// reached a terminal state (their workspace dirs are safe to delete).
 	TerminalRunIDs(ctx context.Context, runIds []string) ([]string, error)
