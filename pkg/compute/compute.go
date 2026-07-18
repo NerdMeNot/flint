@@ -123,9 +123,16 @@ const (
 
 // MachineRef identifies a provider-side machine for Destroy/List.
 type MachineRef struct {
-	Provider string   `json:"provider"`
-	ID       string   `json:"id"` // provider instance id (e.g. i-0abc…)
-	State    RefState `json:"state"`
+	Provider string `json:"provider"`
+	ID       string `json:"id"` // provider instance id (e.g. i-0abc…)
+	// MachineID is the Flint machines-row id this instance was created for,
+	// recovered from the provider's instance tag/label in List (and echoed by
+	// Create). Reconciliation correlates on it so an instance Flint created but
+	// hasn't finished recording (its provider_ref not yet committed) is never
+	// mistaken for a zombie and destroyed. Empty when a provider can't surface
+	// it — such instances fall back to the sighting-grace path.
+	MachineID string   `json:"machineId,omitempty"`
+	State     RefState `json:"state"`
 }
 
 // Provider is the contract compute integrations implement. Keep it brutally

@@ -9,7 +9,45 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/pkg/compute"
 )
+
+// A3: an instance Flint created but hasn't finished recording (still 'requested',
+// its provider_ref not yet committed) must NOT be destroyed as a zombie —
+// reconcile correlates on the durable MachineID tag, not the provider_ref.
+func TestReconcile_DoesNotDestroyMachineBeingRecorded(t *testing.T) {
+	h, fake := elasticHarness(t, "reconcile-live-pool")
+	fake.OnCreate = nil // we drive Create directly; no auto-registration
+	ctx := context.Background()
+	poolID := poolIDByName(t, h, "reconcile-live-pool")
+
+	// Mid-provision: a machine row exists in 'requested' with no provider_ref.
+	machineID := "22222222-2222-2222-2222-222222222222"
+	_, err := h.pool.Exec(ctx, `
+		INSERT INTO machines (id, pool_id, provider, status, cpu_millis, memory_mb, disk_gb, arch)
+		VALUES ($1, $2, 'fake-cloud', 'requested', 2000, 4096, 0, 'amd64')`, machineID, poolID)
+	require.NoError(t, err)
+
+	// The provider has a live instance for it (distinct instance id), tagged with
+	// the MachineID — exactly what List surfaces.
+	_, err = fake.Create(ctx, compute.Offer{InstanceType: "t3.small", Arch: "amd64"},
+		compute.Bootstrap{MachineID: machineID})
+	require.NoError(t, err)
+
+	// Two reconcile passes (the second-sighting grace would reap a true zombie).
+	require.NoError(t, h.fleet.Reconcile(ctx))
+	require.NoError(t, h.fleet.Reconcile(ctx))
+
+	refs, err := fake.List(ctx)
+	require.NoError(t, err)
+	live := 0
+	for _, r := range refs {
+		if r.MachineID == machineID && r.State != compute.RefTerminated {
+			live++
+		}
+	}
+	assert.Equal(t, 1, live, "a live instance still being recorded must not be reaped as a zombie")
+}
 
 // A2: machine transitions are optimistic — UpdateMachineStatus moves the row only
 // if it's still in the expected `from` status, so a transition computed against a
