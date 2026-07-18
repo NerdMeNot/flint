@@ -210,6 +210,40 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 		}
 	}
 
+	// Declared content inputs (D1): each inputs.needs entry must reference a job
+	// this job actually `needs` (its output can't feed a content key otherwise),
+	// and files/env must be non-empty/valid. This is what lets the engine derive
+	// a content cache key instead of the author hand-writing one.
+	if !job.Inputs.Empty() {
+		needed := toSet(job.Needs)
+		for i, ref := range job.Inputs.Needs {
+			dep := ref
+			if idx := strings.IndexByte(ref, '.'); idx >= 0 {
+				dep = ref[:idx] // "build.version" → "build"
+			}
+			if !jobNames[dep] {
+				v.errorf(pipeline.CodeUnknownRef, fmt.Sprintf("%s.inputs.needs[%d]", field, i),
+					"job %q inputs reference unknown job %q", name, dep)
+			} else if !needed[dep] {
+				v.errorSuggest(pipeline.CodeUnknownRef, fmt.Sprintf("%s.inputs.needs[%d]", field, i),
+					fmt.Sprintf("Add %q to this job's needs:", dep),
+					"job %q inputs depend on %q but it is not in needs", name, dep)
+			}
+		}
+		for i, f := range job.Inputs.Files {
+			if strings.TrimSpace(f) == "" {
+				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.files[%d]", field, i),
+					"job %q has an empty input file glob", name)
+			}
+		}
+		for i, e := range job.Inputs.Env {
+			if !pipeline.IsValidEnvName(e) {
+				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.env[%d]", field, i),
+					"job %q input env %q is not a valid environment variable name", name, e)
+			}
+		}
+	}
+
 	// Environment narrowing.
 	if len(pipelineEnvs) > 0 {
 		for i, e := range job.Environments {

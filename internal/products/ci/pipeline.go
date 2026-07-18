@@ -85,6 +85,12 @@ type Job struct {
 	Outputs   map[string]string `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	Artifacts []string          `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 
+	// Inputs declares what this job's result depends on, so the engine can derive
+	// a content-hash cache key (and, opt-in, skip the job when its inputs are
+	// unchanged since its last success) WITHOUT the author hand-writing a key.
+	// The "big bet": inputs, not keys.
+	Inputs *JobInputs `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+
 	// Pod features.
 	Services []pipeline.Service  `yaml:"services,omitempty" json:"services,omitempty"`
 	Cache    *pipeline.CacheSpec `yaml:"cache,omitempty" json:"cache,omitempty"`
@@ -163,6 +169,29 @@ func (m *MatrixSpec) AllKeys() map[string]bool {
 		}
 	}
 	return keys
+}
+
+// JobInputs is the declared dependency surface of a job — the inputs whose
+// content determines whether the job's result can be reused. The engine hashes
+// them into the job's cache key:
+//
+//	files: workspace globs, hashed by content (via hashFiles on the agent).
+//	needs: upstream job outputs (needs.<job>.outputs.<name>) whose VALUES feed
+//	       the hash — a changed upstream output invalidates this job.
+//	env:   environment variable names whose values feed the hash.
+//
+// Everything an author would otherwise stuff into a hand-written cache key,
+// declared structurally so `affected` mode and skip-if-unchanged can reason about
+// it. A job with inputs and no explicit cache.key gets a derived key.
+type JobInputs struct {
+	Files []string `yaml:"files,omitempty" json:"files,omitempty"`
+	Needs []string `yaml:"needs,omitempty" json:"needs,omitempty"`
+	Env   []string `yaml:"env,omitempty" json:"env,omitempty"`
+}
+
+// Empty reports whether the job declares no content inputs.
+func (j *JobInputs) Empty() bool {
+	return j == nil || (len(j.Files) == 0 && len(j.Needs) == 0 && len(j.Env) == 0)
 }
 
 // Step is a single command inside a job's pod. Steps run sequentially and share
