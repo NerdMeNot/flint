@@ -150,3 +150,13 @@ WHERE provider = $1 AND status NOT IN ('terminated', 'failed');
 -- agent registered before the provisioning transition could commit.
 UPDATE machines SET provider_ref = $2, provisioned_at = COALESCE(provisioned_at, now()), updated_at = now()
 WHERE id = $1;
+
+-- name: CleanupOldMachineEvents :exec
+-- Prune machine transition history older than 30 days (mirrors engine_events).
+-- Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+-- Batched so a backlog can't stall a sweep with one giant DELETE.
+DELETE FROM machine_events WHERE id IN (
+    SELECT id FROM machine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+);

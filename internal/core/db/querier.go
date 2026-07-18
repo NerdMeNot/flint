@@ -44,7 +44,10 @@ type Querier interface {
 	// Sweep: machines whose heartbeat lease lapsed → lost.
 	ClaimExpiredHeartbeats(ctx context.Context) ([]ClaimExpiredHeartbeatsRow, error)
 	// Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
-	// min_warm before draining.
+	// min_warm before draining. The NOT EXISTS guard is essential: a machine can be
+	// status='idle' yet still hold a live assignment (busy/idle accounting can drift,
+	// or work was bound just after it went idle) — terminating it would kill running
+	// work, so those are never candidates.
 	ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMachinesPastTTLRow, error)
 	// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
 	// can detect events stranded by a worker crash mid-delivery.
@@ -64,7 +67,20 @@ type Querier interface {
 	// Batched (one batch per sweep) so a long-lived install's backlog can't stall
 	// a sweep tick with one giant DELETE.
 	CleanupOldEngineEvents(ctx context.Context) error
+	// The economics ledger is retained long (90 days) so decisions stay auditable,
+	// but not forever. Batched, like the other retention sweeps.
+	CleanupOldFleetDecisions(ctx context.Context) error
 	CleanupOldLoginAttempts(ctx context.Context) error
+	// Prune machine transition history older than 30 days (mirrors engine_events).
+	// Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+	// Batched so a backlog can't stall a sweep with one giant DELETE.
+	CleanupOldMachineEvents(ctx context.Context) error
+	// Retention: terminal assignments past the window. They do NOT cascade from
+	// DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the
+	// hot dispatch path off the runs lock), and each carries the fattest JSONB
+	// payload in the operational path, so this is the top bloat vector. Batched, on
+	// the same window as runs retention.
+	CleanupOldStepAssignments(ctx context.Context, retentionDays int32) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
 	ClearUserTOTP(ctx context.Context, id string) error
 	CompleteDeviceCode(ctx context.Context, arg CompleteDeviceCodeParams) error
