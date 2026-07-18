@@ -1,0 +1,25 @@
+# Runnable example: matrix depth with exclude + include.
+#
+# The base grid is go × os; exclude drops a known-broken pair; include both
+# extends an existing combination with an extra key and adds a brand-new
+# combination on a newer toolchain. failFast: false states the current
+# all-variants-run behavior explicitly.
+
+image: golang:1.26
+triggers:
+  push: { branches: [main] }
+
+jobs:
+  test:
+    matrix:
+      go: ["1.24", "1.25", "1.26"]
+      os: [linux, mac]
+      exclude:
+        - { go: "1.24", os: mac }        # unsupported toolchain on mac
+      include:
+        - { go: "1.26", os: linux, coverage: "on" }   # extend one combo
+        - { go: "1.27", os: linux, experimental: "true" }  # new bleeding-edge combo
+    failFast: false
+    image: golang:${{ matrix.go }}
+    steps:
+      - run: go test ./...

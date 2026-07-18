@@ -243,11 +243,14 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 	v.checkDuration(field+".timeout", job.Timeout)
 	v.checkMatrix(field, name, job)
 
-	// Fail-fast/parallelism knobs the engine does not enforce yet.
-	if job.FailFast != nil {
+	// failFast: false is the current engine behavior (all variants run to
+	// completion), so accept it — it lets an author state the intent explicitly.
+	// failFast: true would need the engine to cancel sibling variants on the
+	// first failure, which it does not do yet, so it is still rejected.
+	if job.FailFast != nil && *job.FailFast {
 		v.errorSuggest(pipeline.CodeInvalidValue, field+".failFast",
-			"Remove failFast (variants currently always run to completion)",
-			"matrix fail-fast is not yet enforced by the engine")
+			"Set failFast: false (or remove it) — variants currently always run to completion",
+			"matrix failFast: true (cancel siblings on first failure) is not yet enforced by the engine")
 	}
 	if job.MaxParallel != 0 {
 		v.errorSuggest(pipeline.CodeInvalidValue, field+".maxParallel",
@@ -369,17 +372,33 @@ func (v *richValidator) checkGate(field, jobName string, g *pipeline.Gate) {
 // ── Matrix ──────────────────────────────────────────────────────────────
 
 func (v *richValidator) checkMatrix(field, name string, job Job) {
-	if len(job.Matrix) > 0 {
-		combos := 1
-		for dim, vals := range job.Matrix {
+	if !job.Matrix.Empty() {
+		for dim, vals := range job.Matrix.Dimensions {
 			if len(vals) == 0 {
 				v.errorf(pipeline.CodeInvalidValue, field+".matrix."+dim,
 					"matrix dimension %q has no values", dim)
-				continue
 			}
-			combos *= len(vals)
 		}
-		if combos > maxMatrixCombos {
+		// exclude keys must name real dimensions — an exclude on a non-dimension
+		// silently matches nothing, which is almost always a typo.
+		dimSet := map[string]bool{}
+		for dim := range job.Matrix.Dimensions {
+			dimSet[dim] = true
+		}
+		for i, e := range job.Matrix.Exclude {
+			for k := range e {
+				if !dimSet[k] {
+					suggestion := "Declared dimensions: " + strings.Join(sortedKeys(dimSet), ", ")
+					if closest := pipeline.FindClosest(k, dimSet); closest != "" {
+						suggestion = fmt.Sprintf("Did you mean %q? %s", closest, suggestion)
+					}
+					v.errorSuggest(pipeline.CodeUnknownRef, fmt.Sprintf("%s.matrix.exclude[%d]", field, i),
+						suggestion, "exclude references unknown matrix dimension %q", k)
+				}
+			}
+		}
+		// The bound is on the FINAL combination count (after exclude/include).
+		if combos := len(expandMatrixCombos(job.Matrix)); combos > maxMatrixCombos {
 			v.errorf(pipeline.CodeBoundsExceeded, field+".matrix",
 				"job %q matrix expands to %d combinations (limit %d)", name, combos, maxMatrixCombos)
 		}
@@ -393,15 +412,13 @@ func (v *richValidator) checkMatrix(field, name string, job Job) {
 		}
 	}
 
-	// Every ${{ matrix.X }} reference must name a declared dimension, and
-	// matrix references are only valid inside matrix jobs.
-	dims := map[string]bool{}
-	for dim := range job.Matrix {
-		dims[dim] = true
-	}
+	// Every ${{ matrix.X }} reference must name a declared dimension (including
+	// keys introduced only by include entries), and matrix references are only
+	// valid inside matrix jobs.
+	dims := job.Matrix.AllKeys()
 	check := func(where, s string) {
 		for _, key := range matrixRefs(s) {
-			if len(job.Matrix) == 0 {
+			if job.Matrix.Empty() {
 				v.errorf(pipeline.CodeUnknownRef, where,
 					"references matrix.%s but job %q has no matrix", key, name)
 				continue
