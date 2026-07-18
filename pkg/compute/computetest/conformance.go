@@ -99,10 +99,20 @@ func RunConformance(t *testing.T, mk func(t *testing.T) compute.Provider) {
 		require.NoError(t, err)
 		assert.Equal(t, ref1.ID, ref2.ID, "Create must be idempotent per bootstrap.MachineID")
 
-		// List contains the created ref.
+		// List contains the created ref, and surfaces the MachineID it was
+		// created for — reconciliation correlates on that tag so a still-being-
+		// recorded machine isn't destroyed as a zombie. A provider that can't tag
+		// instances leaves it empty, but then it can't be crash-safe under
+		// concurrent reconcile.
 		refs, err := p.List(ctx)
 		require.NoError(t, err)
 		assert.True(t, containsRef(refs, ref1.ID), "List must include created machines")
+		for _, r := range refs {
+			if r.ID == ref1.ID {
+				assert.Equal(t, bootstrap.MachineID, r.MachineID,
+					"List must surface the MachineID the instance was created for")
+			}
+		}
 
 		// Destroy, twice (idempotent), and List drops it.
 		require.NoError(t, p.Destroy(ctx, ref1))

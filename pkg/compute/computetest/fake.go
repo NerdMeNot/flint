@@ -138,7 +138,8 @@ func (f *Fake) Create(ctx context.Context, offer compute.Offer, bootstrap comput
 			Provider: f.ProviderName,
 			ID: fmt.Sprintf("fake-%s-%d-%s",
 				strings.ReplaceAll(offer.InstanceType, ".", "-"), f.seq, hex.EncodeToString(nonce)),
-			State: compute.RefRunning,
+			MachineID: bootstrap.MachineID,
+			State:     compute.RefRunning,
 		},
 		Offer: offer, Bootstrap: bootstrap, CreatedAt: time.Now(),
 	}

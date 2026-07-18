@@ -143,7 +143,7 @@ func (p *Provider) Create(_ context.Context, offer compute.Offer, bootstrap comp
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	ref := compute.MachineRef{Provider: p.name, ID: bootstrap.MachineID, State: compute.RefRunning}
+	ref := compute.MachineRef{Provider: p.name, ID: bootstrap.MachineID, MachineID: bootstrap.MachineID, State: compute.RefRunning}
 	if _, alive := p.running()[bootstrap.MachineID]; alive {
 		return ref, nil // already running (OS truth) — idempotent across restarts
 	}
@@ -212,7 +212,8 @@ func (p *Provider) List(_ context.Context) ([]compute.MachineRef, error) {
 	running := p.running()
 	out := make([]compute.MachineRef, 0, len(running))
 	for id := range running {
-		out = append(out, compute.MachineRef{Provider: p.name, ID: id, State: compute.RefRunning})
+		// localdev uses the Flint machine id as the instance id, so they coincide.
+		out = append(out, compute.MachineRef{Provider: p.name, ID: id, MachineID: id, State: compute.RefRunning})
 	}
 	return out, nil
 }
