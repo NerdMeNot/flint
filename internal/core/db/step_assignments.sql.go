@@ -498,7 +498,7 @@ func (q *Queries) ListRunAssignments(ctx context.Context, runID string) ([]ListR
 }
 
 const machineFreeCapacity = `-- name: MachineFreeCapacity :many
-SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at,
+SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at, m.capacity_type,
        COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
        COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
        COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
@@ -514,6 +514,7 @@ type MachineFreeCapacityRow struct {
 	CpuMillis          int64      `json:"cpu_millis"`
 	MemoryMb           int64      `json:"memory_mb"`
 	LastHeartbeatAt    *time.Time `json:"last_heartbeat_at"`
+	CapacityType       *string    `json:"capacity_type"`
 	CommittedCpuMillis int64      `json:"committed_cpu_millis"`
 	CommittedMemoryMb  int64      `json:"committed_memory_mb"`
 	ActiveRunIds       []string   `json:"active_run_ids"`
@@ -540,6 +541,7 @@ func (q *Queries) MachineFreeCapacity(ctx context.Context, poolID string) ([]Mac
 			&i.CpuMillis,
 			&i.MemoryMb,
 			&i.LastHeartbeatAt,
+			&i.CapacityType,
 			&i.CommittedCpuMillis,
 			&i.CommittedMemoryMb,
 			&i.ActiveRunIds,

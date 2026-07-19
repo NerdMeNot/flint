@@ -93,7 +93,7 @@ WHERE machine_id = $1 AND status IN ('assigned', 'running');
 -- runs whose earlier steps already finished here (the workspace directory
 -- outlives the assignment) — 'lost' (machine death; retries start fresh) and
 -- 'cancelled' assignments don't pin a run.
-SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at,
+SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at, m.capacity_type,
        COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
        COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
        COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
