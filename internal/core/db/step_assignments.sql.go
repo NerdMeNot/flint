@@ -643,6 +643,66 @@ func (q *Queries) PendingProvisioningDemand(ctx context.Context) ([]PendingProvi
 	return items, nil
 }
 
+const pendingProvisioningDemandByGroup = `-- name: PendingProvisioningDemandByGroup :many
+SELECT sa.pool_id,
+       COALESCE(pr.branch, '') AS branch,
+       COALESCE(pr.trigger_type, '') AS event,
+       count(*) AS n
+FROM step_assignments sa
+LEFT JOIN pipeline_runs pr ON pr.id = sa.run_id
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id, pr.branch, pr.trigger_type
+`
+
+type PendingProvisioningDemandByGroupRow struct {
+	PoolID string `json:"pool_id"`
+	Branch string `json:"branch"`
+	Event  string `json:"event"`
+	N      int64  `json:"n"`
+}
+
+// Same provisionable demand as PendingProvisioningDemand, but split by the run's
+// (branch, event) so the fleet can resolve per-branch/event economics policy
+// (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+// the branch/trigger_type; a run with a null branch/type collapses to ” (the
+// wildcard context, which only matches an override whose field is also empty).
+// LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+// the ” wildcard context instead) — an INNER JOIN would silently drop such
+// assignments from the provisioning deficit.
+func (q *Queries) PendingProvisioningDemandByGroup(ctx context.Context) ([]PendingProvisioningDemandByGroupRow, error) {
+	rows, err := q.db.Query(ctx, pendingProvisioningDemandByGroup)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingProvisioningDemandByGroupRow{}
+	for rows.Next() {
+		var i PendingProvisioningDemandByGroupRow
+		if err := rows.Scan(
+			&i.PoolID,
+			&i.Branch,
+			&i.Event,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const releaseUnclaimedAssignments = `-- name: ReleaseUnclaimedAssignments :many
 UPDATE step_assignments SET
     status = 'pending', machine_id = NULL, assigned_at = NULL, claim_deadline_at = NULL

@@ -143,6 +143,33 @@ WHERE sa.status = 'pending'
   )
 GROUP BY sa.pool_id;
 
+-- name: PendingProvisioningDemandByGroup :many
+-- Same provisionable demand as PendingProvisioningDemand, but split by the run's
+-- (branch, event) so the fleet can resolve per-branch/event economics policy
+-- (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+-- the branch/trigger_type; a run with a null branch/type collapses to '' (the
+-- wildcard context, which only matches an override whose field is also empty).
+-- LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+-- the '' wildcard context instead) — an INNER JOIN would silently drop such
+-- assignments from the provisioning deficit.
+SELECT sa.pool_id,
+       COALESCE(pr.branch, '') AS branch,
+       COALESCE(pr.trigger_type, '') AS event,
+       count(*) AS n
+FROM step_assignments sa
+LEFT JOIN pipeline_runs pr ON pr.id = sa.run_id
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id, pr.branch, pr.trigger_type;
+
 -- name: CleanupOldStepAssignments :exec
 -- Retention: terminal assignments past the window. They do NOT cascade from
 -- DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the

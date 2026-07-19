@@ -60,3 +60,45 @@ func TestRequirementsFromPool_PopulatesGPU(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cpuOnly.GPU)
 }
+
+// B1: resolveProvisionContext picks the dominant demand group and applies the
+// pool's per-branch/event override to it. A base spot pool with a main→on_demand
+// override boots stable when main demand dominates, spot otherwise.
+func TestResolveProvisionContext_PerBranchClass(t *testing.T) {
+	pool := db.ListMachinePoolsRow{
+		CapacityType: "spot", Objective: "cost", MinWarm: 0, MaxMachines: 5,
+		IdleTtlSeconds: 300,
+		// main runs on stable (on_demand) with a latency objective; everything
+		// else keeps the base spot/cost.
+		Overrides: []byte(`[{"match":{"branch":"main"},"set":{"capacityType":"on_demand","objective":"latency"}}]`),
+	}
+
+	t.Run("main-dominant demand resolves the override", func(t *testing.T) {
+		pc := resolveProvisionContext(pool, []db.PendingProvisioningDemandByGroupRow{
+			{Branch: "main", Event: "push", N: 5},
+			{Branch: "pr/7", Event: "pull_request", N: 2},
+		})
+		assert.Equal(t, compute.CapacityOnDemand, pc.capacity)
+		assert.Equal(t, "latency", pc.objective)
+		assert.Equal(t, "main", pc.branch)
+		assert.True(t, pc.overrideApplied)
+	})
+
+	t.Run("PR-dominant demand keeps the base policy", func(t *testing.T) {
+		pc := resolveProvisionContext(pool, []db.PendingProvisioningDemandByGroupRow{
+			{Branch: "main", Event: "push", N: 1},
+			{Branch: "pr/7", Event: "pull_request", N: 9},
+		})
+		assert.Equal(t, compute.CapacityType("spot"), pc.capacity)
+		assert.Equal(t, "cost", pc.objective)
+		assert.Equal(t, "pr/7", pc.branch)
+		assert.False(t, pc.overrideApplied)
+	})
+
+	t.Run("no demand (warm-floor only) resolves the base against the empty context", func(t *testing.T) {
+		pc := resolveProvisionContext(pool, nil)
+		assert.Equal(t, compute.CapacityType("spot"), pc.capacity)
+		assert.Equal(t, "cost", pc.objective)
+		assert.Equal(t, "", pc.branch)
+	})
+}

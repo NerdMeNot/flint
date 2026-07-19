@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/pkg/compute"
 	"github.com/NerdMeNot/flint/pkg/units"
 )
@@ -30,13 +31,16 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Provisioning demand excludes work pinned by hard affinity to an existing
-	// holder machine: a new machine can't take it (it must run on the holder), so
-	// counting it would over-provision idle capacity.
-	demand := map[string]int64{}
-	if rows, err := q.PendingProvisioningDemand(ctx); err == nil {
+	// Provisioning demand, split by the run's (branch, event) so the fleet can
+	// resolve per-branch/event economics policy before quoting. Excludes work
+	// pinned by hard affinity to an existing holder (a new machine can't take it),
+	// which would otherwise over-provision idle capacity.
+	demandByPool := map[string][]db.PendingProvisioningDemandByGroupRow{}
+	totalByPool := map[string]int64{}
+	if rows, err := q.PendingProvisioningDemandByGroup(ctx); err == nil {
 		for _, r := range rows {
-			demand[r.PoolID] = r.N
+			demandByPool[r.PoolID] = append(demandByPool[r.PoolID], r)
+			totalByPool[r.PoolID] += r.N
 		}
 	}
 
@@ -51,10 +55,10 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 		// each tick, so the loop's floor cost grows with pool count even when the
 		// whole fleet is quiet. Pools with a warm floor (min_warm > 0) still fall
 		// through — maintaining that floor inherently requires the current count.
-		if demand[pool.ID] == 0 && pool.MinWarm == 0 {
+		if totalByPool[pool.ID] == 0 && pool.MinWarm == 0 {
 			continue
 		}
-		n, err := f.provisionPool(ctx, pool, demand[pool.ID])
+		n, err := f.provisionPool(ctx, pool, totalByPool[pool.ID], demandByPool[pool.ID])
 		if err != nil {
 			log.Error().Err(err).Str("pool", pool.Name).Msg("fleet: provisioning failed")
 			continue
@@ -62,6 +66,58 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 		booted += n
 	}
 	return booted, nil
+}
+
+// provisionContext is the resolved economics context for a pool's boots this
+// tick: the reliability class and objective to quote by, and the (branch, event)
+// that selected them (recorded in the ledger). CapacityType and Objective are
+// resolved per the pool's dominant pending demand via ResolvePolicy; the warm
+// floor stays pool-level (min_warm is standing capacity, not per-branch — a pool
+// serves many branches at once, so there is no single "active" context for it).
+type provisionContext struct {
+	branch, event   string
+	capacity        compute.CapacityType
+	objective       string
+	overrideApplied bool
+}
+
+// basePolicyFromRow reconstructs the pool's base economics policy (with its
+// per-branch/event overrides parsed from the stored JSON) so ResolvePolicy can
+// apply them. Invalid overrides JSON degrades to "no overrides" — the API
+// validates on write, so this only guards hand-edited rows.
+func basePolicyFromRow(pool db.ListMachinePoolsRow) runner.Policy {
+	base := runner.Policy{
+		CapacityType: pool.CapacityType,
+		Objective:    pool.Objective,
+		MinWarm:      int(pool.MinWarm),
+		MaxMachines:  int(pool.MaxMachines),
+		IdleTTL:      time.Duration(pool.IdleTtlSeconds) * time.Second,
+	}
+	if len(pool.Overrides) > 0 {
+		_ = json.Unmarshal(pool.Overrides, &base.Overrides)
+	}
+	return base
+}
+
+// resolveProvisionContext picks the pool's dominant pending demand group (the
+// largest (branch, event) bucket) and resolves the effective policy for it. With
+// no demand (warm-floor-only boots), it resolves the base policy against the
+// empty context.
+func resolveProvisionContext(pool db.ListMachinePoolsRow, groups []db.PendingProvisioningDemandByGroupRow) provisionContext {
+	var branch, event string
+	var best int64
+	for _, g := range groups {
+		if g.N > best {
+			best, branch, event = g.N, g.Branch, g.Event
+		}
+	}
+	eff := runner.ResolvePolicy(basePolicyFromRow(pool), branch, event)
+	return provisionContext{
+		branch: branch, event: event,
+		capacity:        compute.CapacityType(eff.CapacityType),
+		objective:       eff.Objective,
+		overrideApplied: eff.CapacityType != pool.CapacityType || eff.Objective != pool.Objective,
+	}
 }
 
 // tryLockPool takes a session-scoped advisory lock that serializes one kind of
@@ -97,7 +153,7 @@ func (f *Fleet) tryLockPool(ctx context.Context, namespace, poolID string) (rele
 	}, true, nil
 }
 
-func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, pending int64) (int, error) {
+func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, pending int64, groups []db.PendingProvisioningDemandByGroupRow) (int, error) {
 	// Serialize this pool's provisioning across workers: without it, two dispatch
 	// replicas both read the same deficit and both boot it (N× over-provision,
 	// past max_machines/min_warm). The loser skips this pool this tick.
@@ -148,6 +204,11 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 	if err != nil {
 		return 0, err
 	}
+	// Resolve this tick's economics from the pool's dominant pending demand:
+	// per-branch/event policy sets the reliability class + objective (main →
+	// stable, PRs → interruptible), recorded in the ledger.
+	pc := resolveProvisionContext(pool, groups)
+	req.Capacity = pc.capacity
 	// Degrade the requested reliability class to one the provider actually
 	// supplies (B1): a pool asking for interruptible on a stable-only provider
 	// (a homelab, localdev) is upgraded to stable so it still boots, instead of
@@ -157,6 +218,7 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 			Str("requested", string(req.Capacity)).Str("resolved", string(degraded)).
 			Msg("fleet: reliability class degraded to provider-supported class")
 		req.Capacity = degraded
+		pc.capacity = degraded
 	}
 
 	booted := 0
@@ -174,15 +236,16 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 			f.recordNoCapacity(ctx, pool, req)
 			break
 		}
-		rankOffers(offers, pool.Objective)
-		if err := f.bootMachine(ctx, pool, provider, offers); err != nil {
+		rankOffers(offers, pc.objective)
+		if err := f.bootMachine(ctx, pool, provider, offers, pc); err != nil {
 			return booted, err
 		}
 		booted++
 	}
 	if booted > 0 {
 		log.Info().Int("machines", booted).Str("pool", pool.Name).
-			Int64("pending", pending).Msg("fleet: provisioning machines")
+			Int64("pending", pending).Str("branch", pc.branch).Str("event", pc.event).
+			Str("capacity", string(pc.capacity)).Msg("fleet: provisioning machines")
 	}
 	return booted, nil
 }
@@ -190,7 +253,7 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 // bootMachine executes one provision decision: ledger + machine row + token in
 // one transaction, then the provider Create (idempotent per machine id, so a
 // crash between commit and Create is retried safely by reconciliation).
-func (f *Fleet) bootMachine(ctx context.Context, pool db.ListMachinePoolsRow, provider compute.Provider, offers []compute.Offer) error {
+func (f *Fleet) bootMachine(ctx context.Context, pool db.ListMachinePoolsRow, provider compute.Provider, offers []compute.Offer, pc provisionContext) error {
 	chosen := offers[0]
 	bootstrapToken, tokenHash, err := MintToken()
 	if err != nil {
@@ -229,8 +292,9 @@ func (f *Fleet) bootMachine(ctx context.Context, pool db.ListMachinePoolsRow, pr
 	}
 
 	inputs := map[string]any{
-		"pool": pool.Name, "objective": pool.Objective,
-		"capacityType": pool.CapacityType, "minWarm": pool.MinWarm,
+		"pool": pool.Name, "objective": pc.objective,
+		"capacityType": string(pc.capacity), "minWarm": pool.MinWarm,
+		"branch": pc.branch, "event": pc.event, "overrideApplied": pc.overrideApplied,
 	}
 	alternatives := offers[1:min(len(offers), 6)] // top rejected offers, bounded
 	if _, err := qtx.InsertFleetDecision(ctx, db.InsertFleetDecisionParams{
