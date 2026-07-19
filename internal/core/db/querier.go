@@ -556,6 +556,15 @@ type Querier interface {
 	// deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
 	// succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
 	PendingProvisioningDemand(ctx context.Context) ([]PendingProvisioningDemandRow, error)
+	// Same provisionable demand as PendingProvisioningDemand, but split by the run's
+	// (branch, event) so the fleet can resolve per-branch/event economics policy
+	// (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+	// the branch/trigger_type; a run with a null branch/type collapses to '' (the
+	// wildcard context, which only matches an override whose field is also empty).
+	// LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+	// the '' wildcard context instead) — an INNER JOIN would silently drop such
+	// assignments from the provisioning deficit.
+	PendingProvisioningDemandByGroup(ctx context.Context) ([]PendingProvisioningDemandByGroupRow, error)
 	// Pool insights (7d): queue waits and the warm-hit rate. A warm hit is an
 	// assignment whose machine was already registered when the work arrived — the
 	// run never waited on a boot.

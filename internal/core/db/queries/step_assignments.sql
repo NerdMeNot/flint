@@ -93,7 +93,7 @@ WHERE machine_id = $1 AND status IN ('assigned', 'running');
 -- runs whose earlier steps already finished here (the workspace directory
 -- outlives the assignment) — 'lost' (machine death; retries start fresh) and
 -- 'cancelled' assignments don't pin a run.
-SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at,
+SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at, m.capacity_type,
        COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
        COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
        COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
@@ -142,6 +142,33 @@ WHERE sa.status = 'pending'
       AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
   )
 GROUP BY sa.pool_id;
+
+-- name: PendingProvisioningDemandByGroup :many
+-- Same provisionable demand as PendingProvisioningDemand, but split by the run's
+-- (branch, event) so the fleet can resolve per-branch/event economics policy
+-- (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+-- the branch/trigger_type; a run with a null branch/type collapses to '' (the
+-- wildcard context, which only matches an override whose field is also empty).
+-- LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+-- the '' wildcard context instead) — an INNER JOIN would silently drop such
+-- assignments from the provisioning deficit.
+SELECT sa.pool_id,
+       COALESCE(pr.branch, '') AS branch,
+       COALESCE(pr.trigger_type, '') AS event,
+       count(*) AS n
+FROM step_assignments sa
+LEFT JOIN pipeline_runs pr ON pr.id = sa.run_id
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id, pr.branch, pr.trigger_type;
 
 -- name: CleanupOldStepAssignments :exec
 -- Retention: terminal assignments past the window. They do NOT cascade from

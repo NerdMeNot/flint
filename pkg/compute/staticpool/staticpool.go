@@ -26,6 +26,9 @@ type Provider struct {
 
 func (p *Provider) Name() string { return p.name }
 
+// Classes: static pools have no elastic capacity to advertise.
+func (p *Provider) Classes() []compute.CapacityType { return nil }
+
 // Quote returns no offers: static pools cannot mint capacity on demand.
 func (p *Provider) Quote(context.Context, compute.Requirements) ([]compute.Offer, error) {
 	return nil, nil
