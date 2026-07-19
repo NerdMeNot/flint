@@ -277,6 +277,17 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 	v.checkDuration(field+".timeout", job.Timeout)
 	v.checkMatrix(field, name, job)
 
+	// fanOut: a runtime array expression. Mutually exclusive with matrix (both
+	// are fan-out mechanisms; matrix is compile-time, fanOut runtime), and
+	// compile-checked against the runtime context.
+	if job.FanOut != "" {
+		if !job.Matrix.Empty() {
+			v.errorf(pipeline.CodeInvalidValue, field+".fanOut",
+				"job %q sets both matrix and fanOut — use one fan-out mechanism", name)
+		}
+		v.checkExpr(field+".fanOut", job.FanOut, v.jobExprCtx(job))
+	}
+
 	// failFast: false is the current engine behavior (all variants run to
 	// completion), so accept it — it lets an author state the intent explicitly.
 	// failFast: true would need the engine to cancel sibling variants on the

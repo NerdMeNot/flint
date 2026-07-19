@@ -99,6 +99,12 @@ type Job struct {
 	Matrix      *MatrixSpec `yaml:"matrix,omitempty" json:"matrix,omitempty"`
 	FailFast    *bool       `yaml:"failFast,omitempty" json:"failFast,omitempty"`
 	MaxParallel int         `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	// FanOut is an expression yielding a JSON array (typically an upstream
+	// output, e.g. ${{ fromJSON(needs.shard.outputs.list) }}). UNLIKE matrix
+	// (static, known at compile), fan-out expands at RUNTIME: the engine
+	// evaluates the array once its producer finishes, then spawns one child job
+	// per element (via ExpandFanOut) with the element in FLINT_FANOUT_ITEM.
+	FanOut string `yaml:"fanOut,omitempty" json:"fanOut,omitempty"`
 
 	// Limits.
 	Timeout     string       `yaml:"timeout,omitempty" json:"timeout,omitempty"`
