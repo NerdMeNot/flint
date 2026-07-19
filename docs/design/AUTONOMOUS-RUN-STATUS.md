@@ -4,14 +4,15 @@ Read this first. It records what an autonomous session delivered against the pla
 in `.claude/plans` (fleet provisioning hardening + pipeline DSL completeness),
 the exact PRs and their merge order, and what remains with concrete next steps.
 
-**Headline:** Track A (fleet correctness & hardening) is **complete** — 8 tested,
-pushed PRs. Track C (pipeline DSL) landed **C1, C2, C3, C5**; C4 is deferred on a
-runtime dependency (below). Track B (fleet economics) has its **B1 core landed**
-(ResolvePolicy + reliability seam, #98); B2/B3 not started. Track D (pipeline "big
-bet") has its **D1 foundation landed** (declared inputs + content-key, #99);
-D2/D3 not started. Everything landed is its own draft PR: nothing is
-half-committed, every PR builds + vets + passes its tests against dev Postgres.
-The remaining-work designs are preserved below as the pickup point.
+**Headline:** All four tracks landed. Track A (fleet hardening) **complete** (8
+PRs, #85–92). Track C (pipeline DSL) landed **C1, C2, C3, C5**; C4 deferred on a
+runtime dependency (below). Track B (fleet economics) **complete** — B1 + B2 + B3
+(#98). Track D (pipeline "big bet") landed **D1 foundation + D2 + D3 foundation**
+(#99). Everything is its own draft PR: nothing half-committed, every PR builds +
+vets + passes its tests against dev Postgres. The two "foundation" pieces (D1
+skip, D3 spawn) intentionally stop before the risky engine wiring — the
+load-bearing, exhaustively-tested primitives are landed; the wiring is the noted
+next step. 16 PRs total (#84 base + #85–99).
 
 Every PR is a **draft**. They are **stacked** — review/merge in the order given.
 
@@ -88,7 +89,7 @@ loud-rejection with its enforcement path.
 
 ---
 
-## Track B — Fleet economics — B1 core landed (#98); B2/B3 not started
+## Track B — Fleet economics — COMPLETE (B1 + B2 + B3, all on #98)
 
 The reliability-class work. Stack: `feat/fleet-reliability-policy` (#98) off
 `fix/fleet-small-correctness` (#92).
@@ -106,10 +107,24 @@ The reliability-class work. Stack: `feat/fleet-reliability-policy` (#98) off
     unsafe reverse); `provisionPool` degrades before quoting so a spot pool on a
     stable-only provider (localdev) boots instead of silently starving.
     Conformance asserts a provider advertises the classes it quotes.
-  - **Remaining B1** (next unit): `PendingProvisioningDemandByRun` (join
-    `pipeline_runs`, group by pool/branch/event) → `provisionPool` calls
-    ResolvePolicy per demand group and ledgers the applied override. The two
-    landed pieces are its inputs.
+  - **Per-branch provisioning wiring**: `PendingProvisioningDemandByGroup` (LEFT
+    JOIN `pipeline_runs`, group by pool/branch/event) → `provisionPool` resolves
+    the effective policy from the pool's DOMINANT demand group (basePolicyFromRow
+    parses the override JSON, ResolvePolicy applies it), so the reliability class
+    + objective follow the demand (main → stable/latency, PRs → spot/cost). The
+    chosen branch/event/capacity/override is ledgered.
+- **B2 — interruptible safety — LANDED (#98).** `pickMachine` prefers STABLE
+  capacity when placing a run with no holder yet (that placement establishes the
+  workspace holder), using interruptible only as overflow. So a run's home lands
+  on non-reclaimable capacity; run affinity still overrides (a run already homed
+  on spot stays there). MachineFreeCapacity surfaces `capacity_type`.
+- **B3 — economics polish — LANDED (#98).** The `balanced` offer score folds
+  `InterruptionRisk` into the effective price (× (1 + risk)), so a barely-cheaper
+  but likely-reclaimed spot offer loses to a stable one, while a genuinely cheap
+  low-risk spot still wins. cost/latency objectives unchanged.
+- **Remaining (minor):** a per-branch `min_warm` override (needs a primary-context
+  design — a pool serves many branches at once); a hard placement GUARANTEE (vs
+  B2's preference); a `strict` opt-out from the interruptible→stable degrade.
 - **B2 — interruptible safety + mixed capacity.** The "a live multi-step run's
   holder must be `stable`" scheduling rule; capacity `{base, overflow}` with
   boots tagged floor-fill vs overflow. (Reclaim→retry is already done via #84.)
@@ -122,7 +137,7 @@ Design corpus: `docs/design/fleet/` and `competitive-buildkite.md`.
 
 ---
 
-## Track D — Pipeline "big bet" — D1 foundation landed (#99); D2/D3 not started
+## Track D — Pipeline "big bet" — D1 foundation + D2 + D3 foundation (all #99)
 
 The differentiator. Flint is ~60% there (named `outputs`, artifact hand-off,
 `cache` + `hashFiles`, real DAG). Stack: `feat/pipeline-content-cache` (#99) off
@@ -139,6 +154,19 @@ the D3 prerequisite.**
   the compiled step's cache, and the **opt-in** skip-if-unchanged engine
   decision. A wrong cache key is worse than no cache — hence key-primitive-first,
   skip-behind-opt-in.
+- **D2 — affected mode — LANDED (#99).** `AffectedJobs(jobs, changedFiles)`:
+  every job whose declared `inputs.files` globs (doublestar) match a changed
+  path, closed under the needs graph. Conservative — a job with no declared file
+  inputs is always affected (opt INTO skippability). Pure + tested; the git-diff
+  plumbing and `--affected` flag are the thin wiring on top.
+- **D3 — runtime fan-out — FOUNDATION LANDED (#99).** `Job.FanOut` (an expression
+  yielding a runtime JSON array, e.g. `${{ fromJSON(needs.plan.outputs.shards)
+  }}`) + the pure `ExpandFanOut(name, job, items)` that materializes one child
+  job per element (`<job>[i]`, element in `FLINT_FANOUT_ITEM`). Validated
+  (mutually exclusive with matrix). **NOT yet wired**: the engine evaluating the
+  array at runtime and spawning the children into the running workflow + fan-in
+  edge rewrite — the same dynamic-step-insertion machinery matrix `failFast` also
+  needs. `fromJSON` (C5) makes the array expression evaluable.
 - **D2 — `affected` mode.** Run only jobs whose declared inputs changed between
   `--base`/`--head` + dependents (project graph ∩ git-diff).
 - **D3 — runtime fan-out.** A step emits a JSON array → engine spawns one child
@@ -149,17 +177,18 @@ the D3 prerequisite.**
 
 ## Deferred items summary (so nothing is silently dropped)
 
-| Item | Why deferred | Unblocks it |
-|------|--------------|-------------|
-| C4 action modules | needs per-step container execution in the daemon | `agentd` container-per-step launch |
-| C5 trigger/secret breadth | separate wiring; expr core landed | lift each loud-rejection with its path |
-| B1 remainder | per-run demand grouping + provisioner wiring | `PendingProvisioningDemandByRun` + call ResolvePolicy per group |
-| B2 interruptible safety, B3 economics polish | not started; need base/overflow capacity design | after B1 remainder |
-| D1 skip-if-unchanged | risky; foundation (key primitive) landed | wire DeriveContentKey → cache; opt-in skip |
-| D2 affected mode | not started; needs git-diff ∩ project graph | declared inputs (#99) provide the graph |
-| D3 runtime fan-out | not started; needs engine child-job spawning | `fromJSON` done (#96); same matrix-group concept as failFast |
-| pipeline-spec/execution-model de-k8s prose | ~90 "pod"/k8s references need careful contextual editing | a focused doc pass (no code impact) |
-| matrix `failFast: true` / `maxParallel` | engine sibling-group cancellation | same matrix-group concept as D3 |
+Only the wiring that sits on top of a landed, tested primitive remains — plus two
+runtime-dependency deferrals. Nothing is half-built.
+
+| Item | State | Next step |
+|------|-------|-----------|
+| C4 action modules | deferred | needs `agentd` per-step container execution (daemon runtime) |
+| C5 trigger/secret breadth | expr core landed; rest deferred | lift each loud-rejection with its enforcement path |
+| D1 skip-if-unchanged | key primitive landed (#99) | wire DeriveContentKey → cache; gate skip behind opt-in |
+| D3 engine spawn | expansion primitive landed (#99) | engine evaluates the array + spawns children + fan-in edge rewrite |
+| matrix `failFast: true` / `maxParallel` | rejected loudly | same dynamic-step / sibling-group machinery as D3 spawn |
+| B economics extras | B1–B3 landed | per-branch `min_warm`; hard placement guarantee; `strict` degrade opt-out |
+| pipeline-spec/execution-model de-k8s prose | deferred | a focused doc pass (~90 refs; no code impact) |
 
 ---
 
