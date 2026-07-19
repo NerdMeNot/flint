@@ -102,3 +102,30 @@ func TestResolveProvisionContext_PerBranchClass(t *testing.T) {
 		assert.Equal(t, "", pc.branch)
 	})
 }
+
+// B3: the balanced objective folds reclaim risk into the effective price, so a
+// barely-cheaper but likely-reclaimed spot offer loses to a stable one — while a
+// genuinely cheap spot offer still wins. Pure cost ignores risk.
+func TestRankOffers_InterruptionPenalty(t *testing.T) {
+	cheapRiskySpot := compute.Offer{InstanceType: "spot", PricePerHourUSD: 0.05, InterruptionRisk: 0.5, ExpectedBootSeconds: 20}
+	pricierStable := compute.Offer{InstanceType: "stable", PricePerHourUSD: 0.06, InterruptionRisk: 0, ExpectedBootSeconds: 20}
+
+	t.Run("balanced penalizes the risky spot below the stable offer", func(t *testing.T) {
+		offers := []compute.Offer{cheapRiskySpot, pricierStable}
+		rankOffers(offers, "balanced")
+		assert.Equal(t, "stable", offers[0].InstanceType, "high reclaim risk outweighs a small price edge")
+	})
+
+	t.Run("cost ignores risk — cheapest wins", func(t *testing.T) {
+		offers := []compute.Offer{pricierStable, cheapRiskySpot}
+		rankOffers(offers, "cost")
+		assert.Equal(t, "spot", offers[0].InstanceType, "cost objective takes the sticker price")
+	})
+
+	t.Run("a genuinely cheap low-risk spot still wins under balanced", func(t *testing.T) {
+		cheapSafeSpot := compute.Offer{InstanceType: "spot", PricePerHourUSD: 0.03, InterruptionRisk: 0.05, ExpectedBootSeconds: 20}
+		offers := []compute.Offer{pricierStable, cheapSafeSpot}
+		rankOffers(offers, "balanced")
+		assert.Equal(t, "spot", offers[0].InstanceType, "a big price edge survives a small risk premium")
+	})
+}

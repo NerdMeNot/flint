@@ -625,6 +625,13 @@ func freshOffers(offers []compute.Offer, now time.Time) []compute.Offer {
 //	balanced — price × (1 + bootSeconds/300): a 5-minute boot doubles the
 //	           effective price, so cheap-but-slow loses to slightly-pricier-
 //	           but-fast unless the gap is real
+// interruptionPenaltyWeight scales how much reclaim risk penalizes an offer's
+// balanced score. At weight 1.0 a 100%-reclaim offer would double its effective
+// price; a typical 5–10% spot risk adds a 5–10% premium — enough that a barely-
+// cheaper-but-riskier spot offer loses to a stable one, but a genuinely cheap
+// spot offer still wins.
+const interruptionPenaltyWeight = 1.0
+
 func rankOffers(offers []compute.Offer, objective string) {
 	score := func(o compute.Offer) float64 {
 		switch objective {
@@ -633,7 +640,13 @@ func rankOffers(offers []compute.Offer, objective string) {
 		case "latency":
 			return float64(o.ExpectedBootSeconds)
 		default:
-			return o.PricePerHourUSD * (1 + float64(o.ExpectedBootSeconds)/300)
+			// balanced: price penalized by boot latency AND reclaim risk. A cheap
+			// spot offer that is likely to be reclaimed isn't the deal its sticker
+			// price suggests — the reclaim costs a re-run — so fold InterruptionRisk
+			// into the effective price (B3).
+			return o.PricePerHourUSD *
+				(1 + float64(o.ExpectedBootSeconds)/300) *
+				(1 + o.InterruptionRisk*interruptionPenaltyWeight)
 		}
 	}
 	sort.SliceStable(offers, func(i, j int) bool { return score(offers[i]) < score(offers[j]) })
