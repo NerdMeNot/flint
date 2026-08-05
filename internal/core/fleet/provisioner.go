@@ -625,6 +625,7 @@ func freshOffers(offers []compute.Offer, now time.Time) []compute.Offer {
 //	balanced — price × (1 + bootSeconds/300): a 5-minute boot doubles the
 //	           effective price, so cheap-but-slow loses to slightly-pricier-
 //	           but-fast unless the gap is real
+//
 // interruptionPenaltyWeight scales how much reclaim risk penalizes an offer's
 // balanced score. At weight 1.0 a 100%-reclaim offer would double its effective
 // price; a typical 5–10% spot risk adds a 5–10% premium — enough that a barely-
