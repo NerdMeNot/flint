@@ -7,8 +7,8 @@ export function RunStatusPill({ status, size = 'md' }: { status: string; size?: 
   const v = runStatusVisualFor(status)
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium ${v.text} ${
-        size === 'sm' ? 'text-[11px]' : 'text-xs'
+      className={`inline-flex items-center gap-1.5 font-mono font-semibold uppercase tracking-wider ${v.chip} ${
+        size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]'
       }`}
     >
       <v.Icon size={13} className={v.spin ? 'animate-spin' : undefined} />

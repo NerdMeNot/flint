@@ -174,23 +174,13 @@ function LoginPage() {
     <div className="min-h-screen flex items-center justify-center px-4"
       style={{ background: 'var(--background)' }}>
 
-      {/* Atmospheric background */}
-      <div className="fixed inset-0 pointer-events-none" style={{
-        background: `
-          radial-gradient(ellipse 60% 50% at 50% 20%, var(--hero-a) 0%, transparent 70%),
-          radial-gradient(ellipse 40% 40% at 80% 60%, var(--hero-b) 0%, transparent 60%)
-        `,
-      }} />
-
       <div className="relative w-full max-w-[400px]">
         {/* Brand */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg font-bold text-lg mb-3"
+          <div className="flex h-10 w-10 items-center justify-center rounded-sm font-bold text-lg mb-3"
             style={{
-              background: 'linear-gradient(135deg, var(--ring), var(--success))',
-              color: 'white',
-              fontFamily: 'Fraunces, Georgia, serif',
-              boxShadow: '0 4px 16px rgba(34, 211, 238, 0.3)',
+              background: 'var(--primary)',
+              color: 'var(--primary-foreground)',
             }}>
             F
           </div>

@@ -135,7 +135,7 @@ export function Sidebar() {
       <div className={`flex h-14 lg:h-16 items-center border-b border-border ${collapsed ? 'flex-col justify-center gap-1 px-2' : 'gap-2.5 px-5'}`}>
         <Link to="/" className="flex items-center gap-2.5 min-w-0" title="Home">
           <div className="flex h-7 w-7 lg:h-8 lg:w-8 items-center justify-center rounded-md font-bold text-sm lg:text-base shrink-0"
-            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
             F
           </div>
           {!collapsed && (
@@ -274,7 +274,7 @@ export function Sidebar() {
         {/* Brand (same as navContent) */}
         <div className="flex h-14 items-center border-b border-border gap-2.5 px-5">
           <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
-            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
             F
           </div>
           <span className="display-title font-bold text-foreground text-lg tracking-tight">Flint</span>

@@ -212,7 +212,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
         {/* Mobile brand */}
         <div className="lg:hidden flex items-center gap-2 shrink-0">
           <div className="flex h-6 w-6 items-center justify-center rounded font-bold text-xs"
-            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
             F
           </div>
           <span className="display-title font-bold text-foreground text-base tracking-tight">
@@ -252,7 +252,7 @@ function FocusedShell({ onSearchClick, label }: { onSearchClick: () => void; lab
       >
         <div className="flex items-center gap-2">
           <div className="flex h-6 w-6 lg:h-7 lg:w-7 items-center justify-center rounded font-bold text-xs lg:text-sm"
-            style={{ background: 'linear-gradient(135deg, var(--ring), var(--success))', color: 'white', fontFamily: 'Fraunces, Georgia, serif' }}>
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
             F
           </div>
           <span className="display-title font-bold text-foreground text-base lg:text-lg tracking-tight">

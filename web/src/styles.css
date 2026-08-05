@@ -1,112 +1,124 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Design language ────────────────────────────────────────
+   Solid fills, sharp edges, hairline rules. Surfaces are opaque
+   — no translucency, no backdrop blur, no gradient wash. Depth
+   is expressed by a 1px solid border, never by a shadow. Every
+   border is a flat hex, never an rgba(): an alpha border shifts
+   with whatever is behind it, which is exactly the softness we
+   removed. Colour palettes live in lib/appearance.ts; the values
+   below are Ember, the default, so a no-JS first paint is right.
+   ───────────────────────────────────────────────────────────── */
+
 :root {
-  --radius: 0.5rem;
+  --radius: 0.125rem;          /* 2px — the whole ramp derives from this */
 
-  /* ── Ocean palette (default) ────────────────────── */
-  --background: #e4f6fa;
-  --foreground: #083344;
-  --card: rgba(255, 255, 255, 0.93);
-  --card-foreground: #083344;
-  --popover: rgba(255, 255, 255, 0.95);
-  --popover-foreground: #083344;
-  --primary: #0891b2;
-  --primary-foreground: #ffffff;
-  --secondary: #d2f0f6;
-  --secondary-foreground: #083344;
-  --muted: #d2f0f6;
-  --muted-foreground: #1a6578;
-  --accent: #d2f0f6;
-  --accent-foreground: #083344;
-  --destructive: #dc2626;
-  --border: rgba(8, 51, 68, 0.12);
-  --input: rgba(8, 51, 68, 0.12);
-  --ring: #22d3ee;
+  /* ── Ember palette (default) ────────────────────── */
+  --background: #f5f5f5;
+  --foreground: #202020;
+  --card: #ffffff;
+  --card-foreground: #202020;
+  --popover: #ffffff;
+  --popover-foreground: #202020;
+  --primary: #ff6a1a;
+  --primary-foreground: #201004;
+  --secondary: #ededed;
+  --secondary-foreground: #202020;
+  --muted: #ededed;
+  --muted-foreground: #5c5c5c;
+  --accent: #ffede2;
+  --accent-foreground: #202020;
+  --border: #dddddd;
+  --input: #dddddd;
+  --ring: #ff6a1a;
 
-  --sidebar: rgba(240, 253, 255, 0.86);
-  --sidebar-foreground: #083344;
-  --sidebar-primary: #22d3ee;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: rgba(34, 211, 238, 0.10);
-  --sidebar-accent-foreground: #083344;
-  --sidebar-border: rgba(8, 51, 68, 0.12);
-  --sidebar-ring: #22d3ee;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #202020;
+  --sidebar-primary: #ff6a1a;
+  --sidebar-primary-foreground: #201004;
+  --sidebar-accent: #ffede2;
+  --sidebar-accent-foreground: #202020;
+  --sidebar-border: #dddddd;
+  --sidebar-ring: #ff6a1a;
 
-  /* Atmosphere & depth */
-  --surface: rgba(255, 255, 255, 0.78);
-  --surface-strong: rgba(255, 255, 255, 0.92);
-  --inset-glint: rgba(255, 255, 255, 0.85);
-  --kicker: rgba(8, 145, 178, 0.8);
-  --hero-a: rgba(34, 211, 238, 0.34);
-  --hero-b: rgba(6, 182, 212, 0.22);
-  --hero-c: rgba(34, 211, 238, 0.10);
-  --link-bg-hover: rgba(255, 255, 255, 0.92);
-  --chip-bg: rgba(255, 255, 255, 0.8);
-  --chip-line: rgba(8, 145, 178, 0.18);
+  /* Surfaces — opaque. Kept as tokens because FilterPill and
+     SaveViewButton read --surface-strong directly. */
+  --surface: #ffffff;
+  --surface-strong: #ffffff;
+  --kicker: #5c5c5c;
+  --link-bg-hover: #ededed;
+  --chip-bg: #ffffff;
+  --chip-line: #dddddd;
 
-  --success: #059669;
-  --warning: #d97706;
+  /* Status — fill-grade, each with its own ink. The ink is not a
+     constant: it flips to whichever of near-black/white clears
+     4.5:1 on that fill, which is why dark mode differs below. */
+  --success: #1a7f4b;
+  --success-foreground: #ffffff;
+  --warning: #8a5200;
+  --warning-foreground: #ffffff;
+  --destructive: #c0281c;
+  --destructive-foreground: #ffffff;
 
-  --chart-1: #22d3ee;
-  --chart-2: #059669;
-  --chart-3: #0891b2;
-  --chart-4: #67e8f9;
-  --chart-5: #1a6578;
+  --chart-1: #ff6a1a;
+  --chart-2: #1a7f4b;
+  --chart-3: #1668e3;
+  --chart-4: #8a5200;
+  --chart-5: #5c5c5c;
 }
 
 .dark {
-  --background: #061a22;
-  --foreground: #cef2f8;
-  --card: rgba(8, 30, 40, 0.88);
-  --card-foreground: #cef2f8;
-  --popover: rgba(8, 30, 40, 0.92);
-  --popover-foreground: #cef2f8;
-  --primary: #22d3ee;
-  --primary-foreground: #061a22;
-  --secondary: #0a2430;
-  --secondary-foreground: #cef2f8;
-  --muted: #0a2430;
-  --muted-foreground: #7dd8e8;
-  --accent: rgba(34, 211, 238, 0.12);
-  --accent-foreground: #cef2f8;
-  --destructive: #f87171;
-  --border: rgba(34, 211, 238, 0.18);
-  --input: rgba(34, 211, 238, 0.18);
-  --ring: #22d3ee;
+  --background: #16130f;
+  --foreground: #f0ede9;
+  --card: #201c17;
+  --card-foreground: #f0ede9;
+  --popover: #201c17;
+  --popover-foreground: #f0ede9;
+  --primary: #ff7a2e;
+  --primary-foreground: #1a0c02;
+  --secondary: #2a251f;
+  --secondary-foreground: #f0ede9;
+  --muted: #2a251f;
+  --muted-foreground: #a69e94;
+  --accent: #2e1e12;
+  --accent-foreground: #f0ede9;
+  --border: #35302a;
+  --input: #35302a;
+  --ring: #ff7a2e;
 
-  --sidebar: rgba(6, 26, 34, 0.92);
-  --sidebar-foreground: #cef2f8;
-  --sidebar-primary: #22d3ee;
-  --sidebar-primary-foreground: #061a22;
-  --sidebar-accent: rgba(34, 211, 238, 0.10);
-  --sidebar-accent-foreground: #cef2f8;
-  --sidebar-border: rgba(34, 211, 238, 0.18);
-  --sidebar-ring: #22d3ee;
+  --sidebar: #1a1712;
+  --sidebar-foreground: #f0ede9;
+  --sidebar-primary: #ff7a2e;
+  --sidebar-primary-foreground: #1a0c02;
+  --sidebar-accent: #2e1e12;
+  --sidebar-accent-foreground: #f0ede9;
+  --sidebar-border: #35302a;
+  --sidebar-ring: #ff7a2e;
 
-  --surface: rgba(8, 30, 40, 0.82);
-  --surface-strong: rgba(6, 26, 34, 0.94);
-  --inset-glint: rgba(160, 240, 255, 0.07);
-  --kicker: #67e8f9;
-  --hero-a: rgba(34, 211, 238, 0.18);
-  --hero-b: rgba(6, 182, 212, 0.10);
-  --hero-c: rgba(34, 211, 238, 0.05);
-  --link-bg-hover: rgba(12, 42, 56, 0.8);
-  --chip-bg: rgba(8, 30, 40, 0.9);
-  --chip-line: rgba(34, 211, 238, 0.24);
+  --surface: #201c17;
+  --surface-strong: #201c17;
+  --kicker: #a69e94;
+  --link-bg-hover: #2a251f;
+  --chip-bg: #201c17;
+  --chip-line: #35302a;
 
-  --success: #34d399;
-  --warning: #fbbf24;
+  --success: #35b06e;
+  --success-foreground: #141414;
+  --warning: #f5ce4b;
+  --warning-foreground: #141414;
+  --destructive: #e4695c;
+  --destructive-foreground: #141414;
 
-  --chart-1: #22d3ee;
-  --chart-2: #34d399;
-  --chart-3: #67e8f9;
-  --chart-4: #7dd8e8;
-  --chart-5: #cef2f8;
+  --chart-1: #ff7a2e;
+  --chart-2: #35b06e;
+  --chart-3: #4d9bff;
+  --chart-4: #f5ce4b;
+  --chart-5: #a69e94;
 }
 
 * {
@@ -117,126 +129,82 @@ html, body, #app {
   min-height: 100%;
 }
 
+/* Flat ground. The three radial hero gradients and the grid-texture
+   overlay that used to live here are gone — both had already been
+   dialled down twice because they fought the dense run/project
+   tables that are the actual product. */
 body {
   margin: 0;
   color: var(--foreground);
-  font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.9375rem;     /* 15px — matches new --text-sm */
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   line-height: 1.5;
   background-color: var(--background);
-  background:
-    radial-gradient(1100px 620px at -8% -10%, var(--hero-a), transparent 58%),
-    radial-gradient(1050px 620px at 112% -12%, var(--hero-b), transparent 62%),
-    radial-gradient(720px 380px at 50% 115%, var(--hero-c), transparent 68%),
-    var(--background);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  opacity: 0.18;             /* was 0.28 — softer so dense tables don't fight the wash */
-  background:
-    radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.8), transparent 34%),
-    radial-gradient(circle at 78% 26%, rgba(79, 184, 178, 0.2), transparent 42%),
-    radial-gradient(circle at 42% 82%, rgba(47, 106, 74, 0.14), transparent 36%);
-}
-
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  opacity: 0.07;             /* was 0.14 — grid texture is decorative, not load-bearing */
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(circle at 50% 30%, black, transparent 78%);
-}
-
 a:not([class]) {
   color: var(--primary);
-  text-decoration-color: rgba(50, 143, 151, 0.4);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 
 .display-title {
-  font-family: "Fraunces", Georgia, serif;
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
-/* ── Cards with depth ─────────────────────────────────── */
+/* ── Panels ───────────────────────────────────────────────
+   Solid fill + one hairline rule. No gradient, no inset glint,
+   no elevation shadow, no hover lift. */
 
 .island-shell {
   border: 1px solid var(--border);
-  background: linear-gradient(165deg, var(--surface-strong), var(--surface));
-  box-shadow:
-    0 1px 0 var(--inset-glint) inset,
-    0 22px 44px rgba(30, 90, 72, 0.10),
-    0 6px 18px rgba(23, 58, 64, 0.08);
-  backdrop-filter: blur(4px);
+  background: var(--card);
   border-radius: var(--radius-lg);
 }
 
 .feature-card {
   border: 1px solid var(--border);
-  background: linear-gradient(165deg,
-    color-mix(in oklab, var(--surface-strong) 93%, white 7%),
-    var(--surface));
-  box-shadow:
-    0 1px 0 var(--inset-glint) inset,
-    0 18px 34px rgba(30, 90, 72, 0.10),
-    0 4px 14px rgba(23, 58, 64, 0.06);
+  background: var(--card);
   border-radius: var(--radius-lg);
-  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  transition: border-color 150ms ease;
 }
 
 .feature-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
-  box-shadow:
-    0 1px 0 var(--inset-glint) inset,
-    0 24px 48px rgba(30, 90, 72, 0.14),
-    0 8px 20px rgba(23, 58, 64, 0.10);
+  border-color: var(--primary);
 }
 
 button, .island-shell, .feature-card, a {
-  transition: background-color 180ms ease, color 180ms ease,
-    border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: background-color 140ms ease, color 140ms ease,
+    border-color 140ms ease;
 }
 
+/* Eyebrow labels are mono in this language — machine-ish, not editorial. */
 .island-kicker {
-  letter-spacing: 0.14em;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-weight: 700;
-  font-size: 0.6875rem;     /* 11px — was 0.69rem */
+  font-weight: 600;
+  font-size: 0.6875rem;
   color: var(--kicker);
 }
 
+/* Entrance: a short fade. Kept because 30 surfaces use it, but
+   pared back from the 12px editorial rise. */
 .rise-in {
-  animation: rise-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise-in 260ms ease-out both;
 }
 
 @keyframes rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Running accent bar pulse */
+/* Running accent bar pulse — kept: it encodes live state, so it is
+   information rather than decoration. */
 .running-accent {
   animation: accent-pulse 2s ease-in-out infinite;
 }
@@ -246,25 +214,15 @@ button, .island-shell, .feature-card, a {
   50% { opacity: 0.4; }
 }
 
-/* Running shimmer overlay */
+/* The shimmer sweep was pure atmosphere. Neutralised rather than
+   deleted so the two call sites keep rendering inert markup; they
+   can be removed when those components are next touched. */
 .running-shimmer {
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 60%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--primary) 4%, transparent),
-    transparent
-  );
-  animation: shimmer 3s ease-in-out infinite;
+  display: none;
 }
 
-@keyframes shimmer {
-  0% { left: -60%; }
-  100% { left: 160%; }
+@media (prefers-reduced-motion: reduce) {
+  .rise-in, .running-accent { animation: none; }
 }
 
 /* Type ramp — desktop-first, standardized on the compact scale (Flint runs
@@ -295,8 +253,12 @@ body {
 }
 
 @theme inline {
-  --font-heading: "Fraunces", Georgia, serif;
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* Headings join the sans ramp — the Fraunces serif is gone. Mono is
+     promoted to a first-class role: SHAs, durations, machine IDs,
+     pool names, decision-ledger values. */
+  --font-heading: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -315,6 +277,7 @@ body {
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -330,7 +293,9 @@ body {
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
