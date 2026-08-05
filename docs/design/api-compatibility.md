@@ -149,9 +149,10 @@ session cookie** and/or a **short-lived token query param** for SSE routes
 
 `internal/platform/server/contract_test.go` validates that each `/api/v1`
 response contains the fields the UI requires. It is **skipped unless
-`FLINT_CONTRACT_URL` points at a running server** (a demo-mode server, Phase 3),
-so it becomes fully runnable once demo mode lands and then guards against drift in
-CI. The required-field expectations mirror `web/src/lib/api/types.ts`; update both
+`FLINT_CONTRACT_URL` points at a running server** — e.g. the local sim stack
+(`task dev-sim`), which runs the real engine with simulated step execution — so
+it guards against UI/server drift wherever a server is reachable. The
+required-field expectations mirror `web/src/lib/api/types.ts`; update both
 together when the contract changes.
 
 ---

@@ -5,10 +5,10 @@ package server
 // update both together when the contract changes. See
 // docs/design/api-compatibility.md.
 //
-// Skipped unless FLINT_CONTRACT_URL points at a running server (e.g. a demo-mode
-// server started with `flint server --demo`). Optional FLINT_CONTRACT_TOKEN is
-// sent as a Bearer token. Once demo mode (Phase 3) lands this runs in CI and
-// guards against UI/server drift.
+// Skipped unless FLINT_CONTRACT_URL points at a running server — e.g. the local
+// sim stack (`task dev-sim`), which runs the real engine with simulated step
+// execution. Optional FLINT_CONTRACT_TOKEN is sent as a Bearer token. Point it
+// at any reachable server to guard against UI/server drift.
 //
 //	FLINT_CONTRACT_URL=http://localhost:5000 go test ./internal/platform/server -run TestContract
 
@@ -26,7 +26,7 @@ func contractClient(t *testing.T) (string, func(path string) map[string]any) {
 	t.Helper()
 	base := os.Getenv("FLINT_CONTRACT_URL")
 	if base == "" {
-		t.Skip("set FLINT_CONTRACT_URL to a running server (e.g. flint server --demo) to run the contract test")
+		t.Skip("set FLINT_CONTRACT_URL to a running server (e.g. task dev-sim) to run the contract test")
 	}
 	token := os.Getenv("FLINT_CONTRACT_TOKEN")
 	hc := &http.Client{Timeout: 10 * time.Second}
