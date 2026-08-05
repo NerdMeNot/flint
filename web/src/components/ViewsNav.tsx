@@ -9,7 +9,7 @@ const activeStyle = { background: 'color-mix(in oklab, var(--ring), black 35%)' 
 
 function rowClass(active: boolean) {
   return `group flex items-center gap-2.5 rounded-lg py-1.5 px-3 text-sm font-medium transition-all duration-150 ${
-    active ? 'text-white shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
+    active ? 'text-white' : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
   }`
 }
 
@@ -25,7 +25,7 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
   const isActive = (id: string) => currentPath === `/ci/views/${id}`
 
   return (
-    <div className="pt-3 mt-2 border-t border-border/60 space-y-0.5">
+    <div className="pt-3 mt-2 border-t border-border space-y-0.5">
       <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/45">Views</p>
 
       {SMART_VIEWS.map((v) => {
@@ -45,7 +45,7 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
         )
       })}
 
-      {saved.length > 0 && <div className="h-px bg-border/40 my-1.5 mx-2" />}
+      {saved.length > 0 && <div className="h-px bg-border my-1.5 mx-2" />}
 
       {/* First-run nudge: tells people where saved views come from. */}
       {saved.length === 0 && (
@@ -71,7 +71,7 @@ export function ViewsNav({ collapsed }: { collapsed: boolean }) {
               type="button"
               onClick={() => del.mutate(v.id)}
               title="Delete view"
-              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded text-muted-foreground/50 opacity-0 group-hover/view:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded text-muted-foreground/50 opacity-0 group-hover/view:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:text-destructive hover:bg-destructive-subtle transition-all"
             >
               <X size={12} />
             </button>

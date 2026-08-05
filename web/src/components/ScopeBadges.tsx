@@ -17,7 +17,7 @@ export function ScopeBadges({ workspaces, environments }: ScopeBadgesProps) {
         workspaces.map((ws) => (
           <span
             key={ws}
-            className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-primary"
+            className="inline-flex items-center gap-1 rounded-md border border-primary bg-accent px-1.5 py-0.5 text-[11px] font-medium text-primary"
           >
             <Boxes size={9} />
             {ws}

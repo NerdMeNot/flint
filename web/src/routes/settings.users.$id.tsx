@@ -101,7 +101,7 @@ function UserDetailPage() {
           <button
             type="button"
             onClick={() => setShowAssignRole(true)}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent transition-colors"
           >
             <Plus size={12} />
             Assign role
@@ -208,7 +208,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
         <button
           type="button"
           onClick={() => setShowGenerate(true)}
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent transition-colors"
         >
           <Plus size={12} />
           Generate token
@@ -224,7 +224,7 @@ function PersonalTokensSection({ userId, userName }: { userId: string; userName:
             return (
               <div
                 key={token.id}
-                className={`island-shell p-3 flex items-center justify-between gap-3 ${isExpired ? 'border-warning/30' : ''}`}
+                className={`island-shell p-3 flex items-center justify-between gap-3 ${isExpired ? 'border-warning' : ''}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <Key size={13} className={isExpired ? 'text-warning shrink-0' : 'text-muted-foreground shrink-0'} />
@@ -294,7 +294,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
     <Modal open onClose={onClose} title="Generate Personal Token" subtitle={`Token for ${userName} — inherits your permissions`}>
       {generatedToken ? (
         <div className="px-5 py-5 space-y-4">
-          <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
+          <div className="rounded-lg border border-success bg-success-subtle p-4 space-y-2">
             <p className="text-xs font-semibold text-success">Token generated</p>
             <p className="text-[12px] text-muted-foreground">
               Copy this token now. It will not be shown again. Use it in the Flint CLI:
@@ -344,7 +344,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
                   <button key={opt.key} type="button" onClick={() => setExpiry(opt.key)}
                     className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                       expiry === opt.key
-                        ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                        ? 'bg-accent text-primary ring-1 ring-primary/20'
                         : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                     }`}>
                     {opt.label}
@@ -353,7 +353,7 @@ function GenerateTokenModal({ userId, userName, onClose }: { userId: string; use
               </div>
             </div>
 
-            <div className="rounded-lg border border-border/50 p-3">
+            <div className="rounded-lg border border-border p-3">
               <p className="text-[12px] text-muted-foreground">
                 This token will have the same permissions as <span className="font-medium text-foreground">{userName}</span>.
                 If your roles change, the token's access changes automatically.
@@ -510,7 +510,7 @@ function TeamMembershipChip({
     <Link
       to="/settings/teams/$id"
       params={{ id: team.id }}
-      className="island-shell p-3 flex items-center justify-between gap-3 hover:bg-accent/30 transition-colors group"
+      className="island-shell p-3 flex items-center justify-between gap-3 hover:bg-accent transition-colors group"
     >
       <div className="flex items-center gap-2 min-w-0">
         <Users size={14} className="text-muted-foreground shrink-0" />

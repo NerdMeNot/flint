@@ -39,7 +39,7 @@ function MetadataExpander({ metadata }: { metadata: unknown }) {
         metadata
       </button>
       {expanded && (
-        <pre className="mt-1.5 text-[11px] leading-relaxed bg-muted/50 border border-border rounded-md p-2.5 overflow-x-auto text-muted-foreground font-mono">
+        <pre className="mt-1.5 text-[11px] leading-relaxed bg-muted border border-border rounded-md p-2.5 overflow-x-auto text-muted-foreground font-mono">
           {JSON.stringify(metadata, null, 2)}
         </pre>
       )}
@@ -89,7 +89,7 @@ function AuditLogPage() {
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
           {/* Header */}
-          <div className="hidden sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="hidden sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] gap-3 px-4 py-2.5 border-b border-border bg-muted text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
             <span>Timestamp</span>
             <span>Action</span>
             <span>Resource</span>
@@ -102,7 +102,7 @@ function AuditLogPage() {
             {entries.map((entry, i) => (
               <div
                 key={entry.id}
-                className="rise-in px-4 py-3 sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] sm:gap-3 sm:items-start space-y-2 sm:space-y-0 hover:bg-accent/30 transition-colors"
+                className="rise-in px-4 py-3 sm:grid sm:grid-cols-[140px_1fr_1fr_120px_120px] sm:gap-3 sm:items-start space-y-2 sm:space-y-0 hover:bg-accent transition-colors"
                 style={{ animationDelay: `${i * 20 + 30}ms` }}
               >
                 {/* Timestamp */}

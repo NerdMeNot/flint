@@ -53,7 +53,7 @@ function SSOSettings() {
         </div>
       ) : configured.length === 0 ? (
         <div className="island-shell p-8 flex flex-col items-center text-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/40">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
             <ShieldCheck size={22} className="text-muted-foreground" />
           </div>
           <div>
@@ -76,7 +76,7 @@ function SSOSettings() {
           {configured.map((p) => (
             <div key={p.id} className="island-shell flex items-center justify-between gap-4 p-4 rise-in">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted">
                   <Settings2 size={16} className="text-foreground" />
                 </div>
                 <div className="min-w-0">

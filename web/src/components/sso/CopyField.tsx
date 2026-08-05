@@ -13,14 +13,14 @@ export function CopyField({ label, value, hint }: { label: string; value: string
     <div>
       <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
       <div className="flex items-stretch gap-2">
-        <code className="flex-1 min-w-0 truncate rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs font-mono text-foreground select-all">
+        <code className="flex-1 min-w-0 truncate rounded-lg border border-border bg-muted px-3 py-2 text-xs font-mono text-foreground select-all">
           {value}
         </code>
         <button
           type="button"
           onClick={() => copy(value)}
           aria-label={`Copy ${label}`}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent/50 transition-colors"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
         >
           {copied ? <Check size={13} className="text-[var(--success)]" /> : <Copy size={13} />}
           {copied ? 'Copied' : 'Copy'}

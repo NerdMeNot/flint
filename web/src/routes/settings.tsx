@@ -129,7 +129,7 @@ function SettingsLayout() {
                     aria-current={isActive ? 'page' : undefined}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       isActive
-                        ? 'text-white shadow-sm'
+                        ? 'text-white'
                         : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                     style={isActive ? { background: 'color-mix(in oklab, var(--ring), black 35%)' } : undefined}

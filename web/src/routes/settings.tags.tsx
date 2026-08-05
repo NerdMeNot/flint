@@ -103,7 +103,7 @@ function TagKeyRow({ tagKey, expanded, onToggle }: {
       <div
         role="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/30 transition-colors cursor-pointer"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent transition-colors cursor-pointer"
       >
         {expanded
           ? <ChevronDown size={15} className="text-muted-foreground shrink-0" />
@@ -120,7 +120,7 @@ function TagKeyRow({ tagKey, expanded, onToggle }: {
       </div>
 
       {expanded && (
-        <div className="border-t border-border/50 bg-accent/10 px-4 py-4 pl-11 space-y-4">
+        <div className="border-t border-border bg-accent px-4 py-4 pl-11 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">Label</label>
@@ -183,7 +183,7 @@ function CreateRow({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="bg-primary/5 px-4 py-3 flex flex-wrap items-end gap-3">
+    <div className="bg-accent px-4 py-3 flex flex-wrap items-end gap-3">
       <div className="space-y-1 flex-1 min-w-[120px]">
         <label className="text-[11px] font-medium text-muted-foreground">Key</label>
         <input
@@ -289,7 +289,7 @@ function ValueListEditor({ values, onChange, prefix }: {
             onDragEnd={() => { setDragFrom(null); setDragOver(null) }}
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-all ${
               dragFrom === i ? 'opacity-40' : ''
-            } ${isTarget ? 'border-primary/50 ring-1 ring-primary/30' : 'border-border'}`}
+            } ${isTarget ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
           >
             <GripVertical
               size={14}

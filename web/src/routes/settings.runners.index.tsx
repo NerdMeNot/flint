@@ -90,9 +90,9 @@ function PoolRow({ pool, index }: { pool: RunnerPool; index: number }) {
       <Link
         to="/settings/runners/$name"
         params={{ name: pool.name }}
-        className="flex items-center gap-3.5 px-4 py-3.5 flex-1 min-w-0 hover:bg-accent/30 transition-colors"
+        className="flex items-center gap-3.5 px-4 py-3.5 flex-1 min-w-0 hover:bg-accent transition-colors"
       >
-        <span className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${isStatic ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${isStatic ? 'bg-muted text-muted-foreground' : 'bg-accent text-primary'}`}>
           {isStatic ? <Server size={16} /> : <Cloud size={16} />}
         </span>
         <div className="flex-1 min-w-0 space-y-1.5">
@@ -134,7 +134,7 @@ function SpecChip({ children, icon, mono, accent }: {
 }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] ${mono ? 'font-mono' : ''} ${
-      accent ? 'border-primary/25 bg-primary/5 text-primary' : 'border-border bg-muted/40 text-muted-foreground'
+      accent ? 'border-primary bg-accent text-primary' : 'border-border bg-muted text-muted-foreground'
     }`}>
       {icon}{children}
     </span>

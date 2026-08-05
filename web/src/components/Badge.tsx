@@ -7,10 +7,10 @@ export type BadgeVariant = 'neutral' | 'primary' | 'success' | 'warning' | 'dang
 // used off-theme raw palette colors). Always carries a real `border` width.
 const VARIANTS: Record<BadgeVariant, string> = {
   neutral: 'bg-secondary border-border text-muted-foreground',
-  primary: 'bg-primary/10 border-primary/25 text-primary',
-  success: 'bg-success/10 border-success/30 text-success',
-  warning: 'bg-warning/10 border-warning/30 text-warning',
-  danger: 'bg-destructive/10 border-destructive/30 text-destructive',
+  primary: 'bg-accent border-primary text-primary',
+  success: 'bg-success-subtle border-success text-success',
+  warning: 'bg-warning-subtle border-warning text-warning',
+  danger: 'bg-destructive-subtle border-destructive text-destructive',
 }
 
 export function Badge({ children, variant = 'neutral', className = '' }: {

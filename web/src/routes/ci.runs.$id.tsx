@@ -465,7 +465,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               type="button"
               onClick={() => pause.mutate(run.id)}
               disabled={pause.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground transition-colors disabled:opacity-50"
             >
               {pause.isPending ? <Loader2 size={12} className="animate-spin" /> : <Pause size={12} />}
               {pause.isPending ? 'Pausing…' : 'Pause'}
@@ -476,7 +476,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               type="button"
               onClick={() => resume.mutate(run.id)}
               disabled={resume.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
             >
               {resume.isPending ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
               {resume.isPending ? 'Resuming…' : 'Resume'}
@@ -487,7 +487,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
               type="button"
               onClick={() => cancel.mutate(run.id)}
               disabled={cancel.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive transition-colors disabled:opacity-50"
             >
               {cancel.isPending ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
               {cancel.isPending ? 'Cancelling…' : 'Cancel'}
@@ -499,7 +499,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
                 type="button"
                 onClick={() => rerunFailed.mutate(run.id)}
                 disabled={rerunFailed.isPending}
-                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
               >
                 {rerunFailed.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
                 {rerunFailed.isPending ? 'Re-running…' : 'Re-run failed'}
@@ -508,7 +508,7 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
                 type="button"
                 onClick={() => retry.mutate(run.id)}
                 disabled={retry.isPending}
-                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
               >
                 {retry.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
                 {retry.isPending ? 'Retrying…' : 'Re-run all'}
@@ -664,7 +664,7 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
                   <span className="text-[13px] text-foreground/90 group-hover:text-primary transition-colors w-32 sm:w-40 truncate shrink-0">
                     {step.name}
                   </span>
-                  <span className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                  <span className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                     <span
                       className={`block h-full rounded-full ${step.status === 'failed' ? 'bg-destructive' : 'bg-success'}`}
                       style={{ width: `${Math.max((runMs / maxRun) * 100, 4)}%` }}
@@ -681,7 +681,7 @@ function RunSummary({ run, steps, isLive, now, onStepClick }: {
 
         <PlacementSection runId={run.id} live={isLive} />
 
-        <p className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border/60">
+        <p className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border">
           <ArrowRight size={12} className="text-muted-foreground/50" />
           Select a step to view its logs
         </p>
@@ -735,7 +735,7 @@ function PlacementSection({ runId, live }: { runId: string; live: boolean }) {
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+    <div className="rounded-lg border border-border bg-muted px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}
         <span className="truncate">{label}</span>
@@ -756,7 +756,7 @@ function ViewToggle({ label, icon, active, onClick }: {
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all duration-150 ${
-        active ? 'text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
+        active ? 'text-white' : 'text-muted-foreground hover:text-foreground'
       }`}
       style={active ? { background: 'color-mix(in oklab, var(--ring), black 35%)' } : undefined}
     >
@@ -814,7 +814,7 @@ function AllLogsPanel({ runId, steps, toolbar }: { runId: string; steps: any[]; 
         toolbar={toolbar}
       />
 
-      <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border bg-muted/20">
+      <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border bg-muted">
         <div className="relative flex-1 max-w-xs">
           <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <input
@@ -932,7 +932,7 @@ function StepActions({ runId, runStatus, step }: { runId: string; runStatus: str
           onClick={() => retryFrom.mutate()}
           disabled={retryFrom.isPending}
           title="Re-run the pipeline starting from this step"
-          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
         >
           {retryFrom.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
           <span className="hidden sm:inline">Retry from here</span>
@@ -1102,7 +1102,7 @@ function LogPanel({
                 type="button"
                 onClick={onBackToOverview}
                 title="Close logs"
-                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
               >
                 <X size={iconBtnSize} />
                 <span className="hidden sm:inline">Close</span>
@@ -1131,7 +1131,7 @@ function LogPanel({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 px-3 sm:px-4 py-1.5 border-b border-border shrink-0 bg-muted/20">
+      <div className="flex items-center gap-1 px-3 sm:px-4 py-1.5 border-b border-border shrink-0 bg-muted">
         <PanelTab
           icon={<Terminal size={12} />}
           label="Output"
@@ -1208,8 +1208,8 @@ function PanelTab({ icon, label, active, onClick }: {
 
 function FailureBanner({ step, onViewLogs }: { step: any; onViewLogs: () => void }) {
   return (
-    <div className="island-shell !p-0 overflow-hidden border-destructive/30 mb-4 lg:mb-5">
-      <div className="flex items-center gap-3 px-4 py-3 bg-destructive/5">
+    <div className="island-shell !p-0 overflow-hidden border-destructive mb-4 lg:mb-5">
+      <div className="flex items-center gap-3 px-4 py-3 bg-destructive-subtle">
         <XCircle size={16} className="text-destructive shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-destructive">
@@ -1225,7 +1225,7 @@ function FailureBanner({ step, onViewLogs }: { step: any; onViewLogs: () => void
         <button
           type="button"
           onClick={onViewLogs}
-          className="shrink-0 flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+          className="shrink-0 flex items-center gap-1.5 rounded-lg border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive-subtle transition-colors"
         >
           View logs <ArrowRight size={12} />
         </button>
@@ -1267,17 +1267,17 @@ function StatusBadge({ status }: { status: string }) {
     succeeded: {
       icon: <CheckCircle size={12} />,
       label: 'Passed',
-      className: 'bg-success/10 text-success border-success/20',
+      className: 'bg-success-subtle text-success border-success',
     },
     failed: {
       icon: <XCircle size={12} />,
       label: 'Failed',
-      className: 'bg-destructive/10 text-destructive border-destructive/20',
+      className: 'bg-destructive-subtle text-destructive border-destructive',
     },
     running: {
       icon: <Loader2 size={12} className="animate-spin" />,
       label: 'Running',
-      className: 'bg-primary/10 text-primary border-primary/20',
+      className: 'bg-accent text-primary border-primary',
     },
     pending: {
       icon: <Clock size={12} />,
@@ -1287,12 +1287,12 @@ function StatusBadge({ status }: { status: string }) {
     waiting: {
       icon: <Clock size={12} />,
       label: 'Waiting',
-      className: 'bg-warning/10 text-warning border-warning/20',
+      className: 'bg-warning-subtle text-warning border-warning',
     },
     paused: {
       icon: <Pause size={12} />,
       label: 'Paused',
-      className: 'bg-warning/10 text-warning border-warning/20',
+      className: 'bg-warning-subtle text-warning border-warning',
     },
     cancelled: {
       icon: <Clock size={12} />,

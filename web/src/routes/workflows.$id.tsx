@@ -116,7 +116,7 @@ function stepDuration(step: PipelineStep): string {
 
 function NotFound({ id }: { id: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
+    <div className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center">
       <p className="text-sm font-medium text-foreground">Run not found</p>
       <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
         No workflow run <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{id}</code> is available.

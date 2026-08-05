@@ -255,7 +255,7 @@ export function PoolEditor({ pool }: { pool?: RunnerPool }) {
 
         {/* The tradeoff, in dollars: warm machines cost money; zero warm means
             the first run after idle waits for a boot. */}
-        <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
+        <div className="rounded-lg border border-border bg-muted px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
           {Number(minWarm) > 0 ? (
             <>
               Keeping <span className="text-foreground font-medium">{minWarm}</span> machine{Number(minWarm) === 1 ? '' : 's'} warm
@@ -279,7 +279,7 @@ export function PoolEditor({ pool }: { pool?: RunnerPool }) {
           {mintedToken ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs font-mono break-all select-all">{mintedToken}</code>
+                <code className="flex-1 rounded-lg border border-border bg-muted px-3 py-2 text-xs font-mono break-all select-all">{mintedToken}</code>
                 <button
                   onClick={() => navigator.clipboard.writeText(mintedToken)}
                   className="rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -314,14 +314,14 @@ export function PoolEditor({ pool }: { pool?: RunnerPool }) {
           {editing && (
             <button
               onClick={() => setShowDelete(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive-subtle transition-colors"
             >
               <Trash2 size={13} /> Delete pool
             </button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {save.isError && <span className="text-xs text-danger">{(save.error as Error)?.message ?? 'Save failed'}</span>}
+          {save.isError && <span className="text-xs text-destructive">{(save.error as Error)?.message ?? 'Save failed'}</span>}
           <button
             onClick={submit}
             disabled={!name.trim() || save.isPending}
@@ -344,7 +344,7 @@ export function PoolEditor({ pool }: { pool?: RunnerPool }) {
           </button>
           <button
             onClick={() => remove.mutate(undefined)}
-            className="rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-colors"
+            className="rounded-lg bg-destructive px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-colors"
           >
             Delete
           </button>
@@ -378,7 +378,7 @@ function OverridesEditor({ overrides, onChange }: {
         <div key={i} className="rounded-lg border border-border p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted-foreground uppercase tracking-wider">When</span>
-            <button onClick={() => onChange(overrides.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-danger transition-colors">
+            <button onClick={() => onChange(overrides.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive transition-colors">
               <X size={13} />
             </button>
           </div>
@@ -441,7 +441,7 @@ function InsightsSection({ poolName, minWarm }: { poolName: string; minWarm: num
         <Insight label="Spot interruptions" value={String(data.interruptions)} />
       </div>
       {data.whatIf && minWarm === 0 && (
-        <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
+        <div className="rounded-lg border border-border bg-muted px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
           What if <span className="text-foreground font-medium">minWarm: 1</span>? A standing machine would cost about{' '}
           <span className="text-foreground font-medium">${data.whatIf.minWarmOne.costPerMonthUsd.toFixed(0)}/month</span>; observed
           cold runs waited <span className="text-foreground font-medium">{fmtSecs(data.whatIf.minWarmOne.coldWaitP50Secs)}</span> vs{' '}

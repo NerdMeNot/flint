@@ -70,14 +70,14 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
       <button type="button" onClick={() => shift(-1)} disabled={!canShift} title="Shift back" className={navBtn}><ChevronLeft size={14} /></button>
 
       <div className={`flex items-center rounded-lg border text-xs font-medium whitespace-nowrap transition-colors ${
-        active ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground'
+        active ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground'
       }`}>
         <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 px-2.5 py-1.5 hover:text-foreground transition-colors">
           <Clock size={12} />
           <span>{label}</span>
         </button>
         {active && (
-          <button type="button" onClick={() => onChange({})} title="Clear time range" className="flex items-center px-1.5 py-1.5 border-l border-primary/20 text-primary/60 hover:text-primary transition-colors">
+          <button type="button" onClick={() => onChange({})} title="Clear time range" className="flex items-center px-1.5 py-1.5 border-l border-primary text-primary/60 hover:text-primary transition-colors">
             <X size={11} />
           </button>
         )}
@@ -87,7 +87,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
       <button type="button" onClick={() => shift(1)} disabled={!canShift || atNow} title="Shift forward" className={navBtn}><ChevronRight size={14} /></button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-xl" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute left-0 top-full mt-1 z-50 w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-border overlay-edge" style={{ background: 'var(--surface-strong)' }}>
           <div className="flex items-center gap-1 p-1.5 border-b border-border">
             {(['quick', 'relative', 'absolute'] as Tab[]).map((t) => (
               <button
@@ -113,7 +113,7 @@ export function TimeRangeFilter({ value, onChange }: { value: TimeRange; onChang
                     type="button"
                     onClick={() => apply({ from: q.from, to: q.to })}
                     className={`text-left rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-                      on ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                      on ? 'bg-accent text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
                     {q.label}

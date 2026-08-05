@@ -102,7 +102,7 @@ function VariablesPage() {
                   <div
                     role="button"
                     onClick={() => setExpanded(expanded === variable.id ? null : variable.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/30 transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent transition-colors cursor-pointer"
                   >
                     {expanded === variable.id
                       ? <ChevronDown size={14} className="text-muted-foreground shrink-0" />
@@ -135,7 +135,7 @@ function VariablesPage() {
                   </div>
 
                   {expanded === variable.id && (
-                    <div className="border-t border-border/50 px-4 py-3 space-y-2">
+                    <div className="border-t border-border px-4 py-3 space-y-2">
                       {envValues.map(({ env, value }) => (
                         <ValueRow
                           key={env.id}
@@ -237,10 +237,10 @@ function GlobalVariableRow({ variable }: { variable: { id: string; name: string;
           autoFocus
           rows={2}
           placeholder={variable.isSecret ? 'Paste value (supports multi-line)' : 'Enter value (supports multi-line)'}
-          className="w-full rounded-md border border-primary/40 bg-transparent px-2.5 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
+          className="w-full rounded-md border border-primary bg-transparent px-2.5 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
         />
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={save} className="rounded-md px-2.5 py-1 text-xs font-medium text-success border border-success/30 hover:bg-success/5 transition-colors">Save</button>
+          <button type="button" onClick={save} className="rounded-md px-2.5 py-1 text-xs font-medium text-success border border-success hover:bg-success-subtle transition-colors">Save</button>
           <button type="button" onClick={() => setEditing(false)} className="rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground border border-border hover:bg-accent transition-colors">Cancel</button>
         </div>
       </div>
@@ -310,10 +310,10 @@ function ValueRow({ label, value, isSecret, onSave }: {
             autoFocus
             rows={2}
             placeholder={isSecret ? 'Paste value (supports multi-line, e.g. certificates, keys)' : 'Enter value (supports multi-line)'}
-            className="w-full rounded-md border border-primary/40 bg-transparent px-2.5 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
+            className="w-full rounded-md border border-primary bg-transparent px-2.5 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
           />
           <div className="flex items-center gap-1.5">
-            <button type="button" onClick={save} className="rounded-md px-2.5 py-1 text-xs font-medium text-success border border-success/30 hover:bg-success/5 transition-colors">Save</button>
+            <button type="button" onClick={save} className="rounded-md px-2.5 py-1 text-xs font-medium text-success border border-success hover:bg-success-subtle transition-colors">Save</button>
             <button type="button" onClick={() => setEditing(false)} className="rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground border border-border hover:bg-accent transition-colors">Cancel</button>
           </div>
         </div>
@@ -400,7 +400,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
                   onClick={() => setScope('global')}
                   className={`rounded-lg border p-3 text-left transition-colors ${
                     scope === 'global'
-                      ? 'border-primary/40 bg-primary/5'
+                      ? 'border-primary bg-accent'
                       : 'border-border hover:border-muted-foreground'
                   }`}
                 >
@@ -415,7 +415,7 @@ function CreateVariableModal({ onClose }: { onClose: () => void }) {
                   onClick={() => setScope('environment')}
                   className={`rounded-lg border p-3 text-left transition-colors ${
                     scope === 'environment'
-                      ? 'border-primary/40 bg-primary/5'
+                      ? 'border-primary bg-accent'
                       : 'border-border hover:border-muted-foreground'
                   }`}
                 >

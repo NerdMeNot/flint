@@ -191,7 +191,7 @@ function PermissionGrid({
       </thead>
       <tbody>
         {objects.map((object) => (
-          <tr key={object} className="border-t border-border/30">
+          <tr key={object} className="border-t border-border">
             <td className="py-1.5 pr-3 font-mono font-medium text-foreground text-[12px]">{object}</td>
             {actions.map((action) => {
               const key = `${object}:${action}`
@@ -215,7 +215,7 @@ function PermissionGrid({
                     <td key={action} className="text-center py-1.5 px-1.5">
                       <div
                         title="Required by another permission"
-                        className="w-[18px] h-[18px] rounded border flex items-center justify-center mx-auto bg-primary/30 border-primary/40 text-primary/60 cursor-not-allowed"
+                        className="w-[18px] h-[18px] rounded border flex items-center justify-center mx-auto bg-primary/30 border-primary text-primary/60 cursor-not-allowed"
                       >
                         <Lock size={9} />
                       </div>
@@ -231,7 +231,7 @@ function PermissionGrid({
                       className={`w-[18px] h-[18px] rounded border flex items-center justify-center mx-auto transition-colors ${
                         granted
                           ? 'bg-primary border-primary text-white'
-                          : 'border-border/60 hover:border-muted-foreground'
+                          : 'border-border hover:border-muted-foreground'
                       }`}
                     >
                       {granted && <Check size={11} />}

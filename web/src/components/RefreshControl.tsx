@@ -62,14 +62,14 @@ export function RefreshControl({ value, onChange, onRefresh }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-24 max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-lg overflow-hidden" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute right-0 top-full mt-1 z-50 w-24 max-w-[calc(100vw-1rem)] rounded-lg border border-border overlay-edge overflow-hidden" style={{ background: 'var(--surface-strong)' }}>
           {OPTIONS.map((o) => (
             <button
               key={o.label}
               type="button"
               onClick={() => { onChange(o.ms); setOpen(false) }}
               className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                o.ms === value ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                o.ms === value ? 'text-primary bg-accent' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
             >
               {o.label}

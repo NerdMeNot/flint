@@ -63,7 +63,7 @@ export function StepTimelinePanel({ runId, stepName, live }: { runId: string; st
               <li key={i} className="flex items-start gap-3 py-1.5">
                 <span className="relative flex flex-col items-center self-stretch">
                   <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full bg-current ${tone} opacity-80`} />
-                  {i < events.length - 1 && <span className="w-px flex-1 bg-border/70 mt-1 -mb-2.5" />}
+                  {i < events.length - 1 && <span className="w-px flex-1 bg-border mt-1 -mb-2.5" />}
                 </span>
                 <div className="min-w-0 flex-1 pb-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -88,7 +88,7 @@ export function StepTimelinePanel({ runId, stepName, live }: { runId: string; st
       )}
 
       {placements.length > 0 && (
-        <div className="space-y-2 pt-1 border-t border-border/60">
+        <div className="space-y-2 pt-1 border-t border-border">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60 pt-2">
             Placement
           </p>

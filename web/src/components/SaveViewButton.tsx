@@ -56,7 +56,7 @@ export function SaveViewButton({ route, search }: { route: string; search: Recor
           ? 'Save these filters as a view'
           : 'Apply a filter (search, tag, status, sort…) first, then save it as a reusable view'}
         className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-          open ? 'border-primary/40 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+          open ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:text-foreground'
         } disabled:opacity-40 disabled:cursor-not-allowed`}
       >
         <BookmarkPlus size={13} />
@@ -65,7 +65,7 @@ export function SaveViewButton({ route, search }: { route: string; search: Recor
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-border p-3 shadow-xl"
+          className="absolute right-0 top-full mt-1 z-50 w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-border p-3 overlay-edge"
           style={{ background: 'var(--surface-strong)' }}
         >
           <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5">

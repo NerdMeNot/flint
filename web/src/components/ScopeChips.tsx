@@ -17,7 +17,7 @@ export function ScopeChips() {
 
   return (
     <div
-      className="border-b border-border/60 px-4 sm:px-6 lg:px-8 py-2 flex items-center gap-3 flex-wrap"
+      className="border-b border-border px-4 sm:px-6 lg:px-8 py-2 flex items-center gap-3 flex-wrap"
       style={{ background: 'color-mix(in oklab, var(--surface) 60%, transparent)' }}
     >
       <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">
@@ -55,14 +55,14 @@ function ChipGroup({
       {items.map((key) => (
         <span
           key={key}
-          className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/8 pl-2 pr-1 py-0.5 text-xs font-medium text-primary"
+          className="inline-flex items-center gap-1 rounded-md border border-primary bg-accent pl-2 pr-1 py-0.5 text-xs font-medium text-primary"
         >
           <span className="opacity-70">{icon}</span>
           <span>{resolveLabel(key)}</span>
           <button
             type="button"
             onClick={() => onRemove(key)}
-            className="flex items-center justify-center w-4 h-4 rounded-sm text-primary/50 hover:text-primary hover:bg-primary/15 transition-colors"
+            className="flex items-center justify-center w-4 h-4 rounded-sm text-primary/50 hover:text-primary hover:bg-accent transition-colors"
             title="Remove"
           >
             <X size={10} />

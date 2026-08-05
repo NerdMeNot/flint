@@ -189,7 +189,7 @@ export function Sidebar() {
                   collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
                 } ${
                   isActive
-                    ? 'text-white shadow-sm'
+                    ? 'text-white'
                     : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
                 }`}
                 style={isActive ? activeStyle : undefined}
@@ -220,7 +220,7 @@ export function Sidebar() {
                 collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
               } ${
                 isActive
-                  ? 'text-white shadow-sm'
+                  ? 'text-white'
                   : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
               }`}
               style={isActive ? activeStyle : undefined}
@@ -300,7 +300,7 @@ export function Sidebar() {
                   to={item.to}
                   className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
                     isActive
-                      ? 'text-white shadow-sm'
+                      ? 'text-white'
                       : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
                   }`}
                   style={isActive ? activeStyle : undefined}
@@ -327,7 +327,7 @@ export function Sidebar() {
                 to={item.to}
                 className={`group flex items-center whitespace-nowrap rounded-lg py-2 text-sm font-medium transition-all duration-150 gap-2.5 px-3 ${
                   isActive
-                    ? 'text-white shadow-sm'
+                    ? 'text-white'
                     : 'text-muted-foreground hover:text-foreground hover:bg-[var(--link-bg-hover)]'
                 }`}
                 style={isActive ? activeStyle : undefined}
@@ -398,7 +398,7 @@ function UserProfile({ collapsed }: { collapsed: boolean }) {
           type="button"
           onClick={() => void logout()}
           title="Sign out"
-          className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/5 transition-colors"
+          className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive-subtle transition-colors"
         >
           <LogOut size={14} />
         </button>

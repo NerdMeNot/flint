@@ -124,7 +124,7 @@ function EnvironmentDetailPage() {
                 key={project.id}
                 to="/ci/projects/$id"
                 params={{ id: project.id }}
-                className="island-shell p-3 flex items-center gap-3 hover:bg-accent/30 transition-colors group"
+                className="island-shell p-3 flex items-center gap-3 hover:bg-accent transition-colors group"
               >
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
                 <div className="min-w-0">
@@ -154,7 +154,7 @@ function EnvironmentDetailPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-foreground">{role.name}</span>
                   {role.isSystem && (
-                    <span className="island-kicker !text-[11px] bg-primary/10 text-primary border-primary/20">System</span>
+                    <span className="island-kicker !text-[11px] bg-accent text-primary border-primary">System</span>
                   )}
                 </div>
                 <ScopeBadges workspaces={role.workspaces} environments={role.environments} />

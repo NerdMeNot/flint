@@ -51,10 +51,10 @@ function ProvidersPage() {
             <button
               key={p.id}
               onClick={() => setEditing(p)}
-              className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left hover:bg-accent/30 transition-colors rise-in"
+              className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left hover:bg-accent transition-colors rise-in"
               style={{ animationDelay: `${i * 35 + 20}ms` }}
             >
-              <span className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${p.type === 'static' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
+              <span className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${p.type === 'static' ? 'bg-muted text-muted-foreground' : 'bg-accent text-primary'}`}>
                 {p.type === 'static' ? <Server size={16} /> : <Cloud size={16} />}
               </span>
               <div className="flex-1 min-w-0">
@@ -94,7 +94,7 @@ function TestButton({ name }: { name: string }) {
   return (
     <span className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
       {result && (
-        <span className={`text-[11px] ${result.startsWith('ok') ? 'text-success' : 'text-danger'}`}>{result}</span>
+        <span className={`text-[11px] ${result.startsWith('ok') ? 'text-success' : 'text-destructive'}`}>{result}</span>
       )}
       <span
         role="button"
@@ -187,7 +187,7 @@ function ProviderModal({ provider, onClose }: { provider?: ComputeProvider; onCl
         </label>
 
         {(jsonError || save.isError) && (
-          <p className="text-xs text-danger">{jsonError || ((save.error as Error)?.message ?? 'Save failed')}</p>
+          <p className="text-xs text-destructive">{jsonError || ((save.error as Error)?.message ?? 'Save failed')}</p>
         )}
 
         <div className="flex items-center justify-between gap-2">
@@ -195,7 +195,7 @@ function ProviderModal({ provider, onClose }: { provider?: ComputeProvider; onCl
             {editing && (
               <button
                 onClick={() => setShowDelete(true)}
-                className="flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 transition-colors"
+                className="flex items-center gap-1.5 rounded-lg border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive-subtle transition-colors"
               >
                 <Trash2 size={13} /> Delete
               </button>
@@ -217,7 +217,7 @@ function ProviderModal({ provider, onClose }: { provider?: ComputeProvider; onCl
         </div>
 
         {showDelete && (
-          <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 space-y-2">
+          <div className="rounded-lg border border-destructive bg-destructive-subtle p-3 space-y-2">
             <p className="text-xs text-muted-foreground">
               Deleting a provider that pools reference is refused — repoint them first.
             </p>
@@ -227,12 +227,12 @@ function ProviderModal({ provider, onClose }: { provider?: ComputeProvider; onCl
               </button>
               <button
                 onClick={() => remove.mutate(undefined)}
-                className="rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-colors"
+                className="rounded-lg bg-destructive px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-colors"
               >
                 Delete provider
               </button>
             </div>
-            {remove.isError && <p className="text-xs text-danger">{(remove.error as Error)?.message ?? 'Delete failed'}</p>}
+            {remove.isError && <p className="text-xs text-destructive">{(remove.error as Error)?.message ?? 'Delete failed'}</p>}
           </div>
         )}
       </div>

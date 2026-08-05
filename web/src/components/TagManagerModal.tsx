@@ -90,7 +90,7 @@ export function TagManagerModal({
                             type="button"
                             onClick={() => onToggle(tag)}
                             className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] font-medium transition-colors ${
-                              on ? '' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                              on ? '' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground'
                             }`}
                             style={
                               on

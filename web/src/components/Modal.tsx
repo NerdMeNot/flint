@@ -45,7 +45,7 @@ export function Modal({ open, onClose, title, subtitle, children, wide }: ModalP
       />
       <div className="fixed inset-y-0 right-0 left-0 lg:left-[var(--sidebar-width,220px)] z-[100] flex items-start justify-center pt-[12vh] px-4 pointer-events-none">
         <div
-          className={`${wide ? 'max-w-lg' : 'max-w-md'} w-full rounded-xl border border-border shadow-2xl rise-in flex flex-col max-h-[75vh] pointer-events-auto`}
+          className={`${wide ? 'max-w-lg' : 'max-w-md'} w-full rounded-xl border border-border overlay-edge rise-in flex flex-col max-h-[75vh] pointer-events-auto`}
           style={{ background: 'var(--surface-strong)' }}
           onClick={(e) => e.stopPropagation()}
         >

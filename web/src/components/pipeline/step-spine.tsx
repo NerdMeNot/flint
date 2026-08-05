@@ -138,7 +138,7 @@ function SpineRow({
         selected
           ? 'border-primary bg-primary/[0.07]'
           : started
-            ? 'border-transparent hover:border-border hover:bg-accent/50'
+            ? 'border-transparent hover:border-border hover:bg-accent'
             : 'border-transparent opacity-55'
       }`}
     >
@@ -150,7 +150,7 @@ function SpineRow({
           {step.name}
         </span>
         {retried && (
-          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning/15 px-1 text-[9px] font-mono font-semibold text-warning">
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning-subtle px-1 text-[9px] font-mono font-semibold text-warning">
             <RotateCw size={8} />{step.attempt}
           </span>
         )}
@@ -163,7 +163,7 @@ function SpineRow({
         }`}>
           {durLabel}
         </span>
-        <span className="hidden sm:block w-16 lg:w-20 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+        <span className="hidden sm:block w-16 lg:w-20 h-1.5 rounded-full bg-muted overflow-hidden">
           {started && (
             <span className="flex h-full rounded-full" style={{ width: `${Math.min(Math.max(fillPct, 3), 100)}%` }}>
               {queuePct > 1 && (
@@ -207,10 +207,10 @@ function barColor(status: PipelineStep['status'], isGate: boolean): string {
     case 'failed': return 'bg-destructive'
     case 'running': return 'bg-primary'
     case 'waiting': return 'bg-warning'
-    case 'cancelled': return 'bg-muted-foreground/40'
-    case 'skipped': return 'bg-muted-foreground/25'
+    case 'cancelled': return 'bg-muted-foreground'
+    case 'skipped': return 'bg-border-strong'
     case 'queued': return 'bg-purple-400/60'
-    default: return 'bg-muted-foreground/40'
+    default: return 'bg-muted-foreground'
   }
 }
 

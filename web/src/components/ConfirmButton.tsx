@@ -45,7 +45,7 @@ export function ConfirmButton({ onConfirm, label, title, disabled, size = 13 }: 
         className={`rounded-md px-2.5 py-1 text-xs font-medium border transition-colors disabled:opacity-40 ${
           armed
             ? 'border-destructive bg-destructive text-white'
-            : 'border-border text-muted-foreground hover:text-destructive hover:border-destructive/40'
+            : 'border-border text-muted-foreground hover:text-destructive hover:border-destructive'
         }`}
       >
         {armed ? 'Confirm?' : label}
@@ -62,7 +62,7 @@ export function ConfirmButton({ onConfirm, label, title, disabled, size = 13 }: 
       title={armed ? 'Click again to confirm' : (title ?? 'Delete')}
       aria-label={title ?? 'Delete'}
       className={`w-7 h-7 flex items-center justify-center rounded shrink-0 transition-colors disabled:opacity-40 ${
-        armed ? 'bg-destructive text-white' : 'text-muted-foreground/50 hover:text-destructive hover:bg-destructive/5'
+        armed ? 'bg-destructive text-white' : 'text-muted-foreground/50 hover:text-destructive hover:bg-destructive-subtle'
       }`}
     >
       {armed ? <Check size={size} /> : <Trash2 size={size} />}

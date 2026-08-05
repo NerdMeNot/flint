@@ -22,9 +22,9 @@ const statusColors: Record<string, string> = {
   running: 'bg-primary animate-pulse',
   waiting: 'bg-warning',
   queued: 'bg-purple-400/60',
-  pending: 'bg-muted-foreground/20',
-  skipped: 'bg-muted-foreground/10',
-  cancelled: 'bg-muted-foreground/15',
+  pending: 'bg-border-strong',
+  skipped: 'bg-border',
+  cancelled: 'bg-border',
 }
 
 const gateColor = 'bg-warning/70'

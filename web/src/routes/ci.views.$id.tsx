@@ -82,7 +82,7 @@ function ViewPage() {
                 type="button"
                 onClick={() => del.mutate(view.id)}
                 title="Delete view"
-                className="flex items-center justify-center w-8 h-8 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                className="flex items-center justify-center w-8 h-8 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
               >
                 <Trash2 size={13} />
               </button>
@@ -150,9 +150,9 @@ function RunsResults({ search }: { search: Record<string, unknown> }) {
     <div className="island-shell !p-0 overflow-hidden">
       {grouped.map(({ bucket, runs }) => (
         <div key={bucket}>
-          <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent/20 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
             {bucket}
-            <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{runs.length}</span>
+            <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{runs.length}</span>
           </div>
           <div className="divide-y divide-border">
             {runs.map((run) => (

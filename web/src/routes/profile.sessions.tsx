@@ -54,7 +54,7 @@ function SessionsTab() {
             return (
               <div key={session.id} className="flex items-start justify-between gap-3 px-4 py-3">
                 <div className="flex items-start gap-3 min-w-0">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${session.current ? 'bg-primary/10' : 'bg-muted/50'}`}>
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${session.current ? 'bg-accent' : 'bg-muted'}`}>
                     <DeviceIcon size={17} className={session.current ? 'text-primary' : 'text-muted-foreground'} />
                   </div>
                   <div className="min-w-0">

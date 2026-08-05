@@ -99,8 +99,8 @@ function StepCard({
       onClick={onClick}
       className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all group ${
         isSelected
-          ? 'border-primary/40 bg-primary/8 ring-1 ring-primary/20'
-          : 'border-border hover:border-primary/25 bg-card hover:bg-accent'
+          ? 'border-primary bg-accent ring-1 ring-primary/20'
+          : 'border-border hover:border-primary bg-card hover:bg-accent'
       }`}
     >
       <StatusIcon status={step.status} />
@@ -112,7 +112,7 @@ function StepCard({
             {step.name}
           </span>
           {step.execType === 'gate' && (
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-warning px-1.5 py-0.5 rounded bg-warning/10 border border-warning/20">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-warning px-1.5 py-0.5 rounded bg-warning-subtle border border-warning">
               gate
             </span>
           )}

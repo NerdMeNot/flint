@@ -354,7 +354,7 @@ function LoginPage() {
               </div>
               <button
                 onClick={handleSSOLogin}
-                className="w-full flex items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
               >
                 <Shield size={16} />
                 Sign in with SSO

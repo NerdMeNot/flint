@@ -199,7 +199,7 @@ function GatesPage() {
                             type="button"
                             disabled={deciding}
                             onClick={() => reject.mutate({ runId: gate.runId, stepName: gate.stepName })}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors border-r border-border disabled:opacity-50"
+                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive-subtle transition-colors border-r border-border disabled:opacity-50"
                           >
                             {rejecting ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
                             {rejecting ? 'Rejecting…' : 'Reject'}
@@ -208,7 +208,7 @@ function GatesPage() {
                             type="button"
                             disabled={deciding}
                             onClick={() => approve.mutate({ runId: gate.runId, stepName: gate.stepName })}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success/5 transition-colors disabled:opacity-50"
+                            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-success hover:bg-success-subtle transition-colors disabled:opacity-50"
                           >
                             {approving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
                             {approving ? 'Approving…' : 'Approve'}
@@ -242,20 +242,20 @@ function GateStatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'pending':
       return (
-        <span className="island-kicker !text-[11px] shrink-0 bg-warning/10 text-warning border-warning/20">
+        <span className="island-kicker !text-[11px] shrink-0 bg-warning-subtle text-warning border-warning">
           Awaiting
         </span>
       )
     case 'approved':
       return (
-        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-success/10 text-success border-success/20">
+        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-success-subtle text-success border-success">
           <CheckCircle size={10} />
           Approved
         </span>
       )
     case 'rejected':
       return (
-        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-destructive/10 text-destructive border-destructive/20">
+        <span className="inline-flex items-center gap-1 island-kicker !text-[11px] shrink-0 bg-destructive-subtle text-destructive border-destructive">
           <Ban size={10} />
           Rejected
         </span>

@@ -48,7 +48,7 @@ function EnvironmentsPage() {
                 key={env.id}
                 to="/settings/environments/$id"
                 params={{ id: env.id }}
-                className="feature-card rise-in p-5 space-y-3 flex flex-col hover:bg-accent/50 transition-colors group"
+                className="feature-card rise-in p-5 space-y-3 flex flex-col hover:bg-accent transition-colors group"
                 style={{ animationDelay: `${i * 50 + 30}ms` }}
               >
                 <div className="flex items-start justify-between">

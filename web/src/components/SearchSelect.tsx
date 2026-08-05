@@ -61,7 +61,7 @@ export function SearchSelect({ items, selected, onChange, placeholder }: SearchS
           {selectedItems.map((item) => (
             <span
               key={item.id}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1 text-xs font-medium text-primary"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent border border-primary px-2 py-1 text-xs font-medium text-primary"
             >
               {item.icon}
               {item.label}
@@ -94,7 +94,7 @@ export function SearchSelect({ items, selected, onChange, placeholder }: SearchS
         {/* Dropdown results */}
         {open && filtered.length > 0 && (
           <div
-            className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto"
+            className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border overlay-edge overflow-hidden z-50 max-h-[200px] overflow-y-auto"
             style={{ background: 'var(--surface-strong)' }}
           >
             {filtered.slice(0, 10).map((item) => (
@@ -123,7 +123,7 @@ export function SearchSelect({ items, selected, onChange, placeholder }: SearchS
 
         {open && query && filtered.length === 0 && (
           <div
-            className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border shadow-lg overflow-hidden z-50"
+            className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border overlay-edge overflow-hidden z-50"
             style={{ background: 'var(--surface-strong)' }}
           >
             <p className="px-3 py-3 text-xs text-muted-foreground text-center">No results</p>

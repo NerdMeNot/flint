@@ -52,8 +52,8 @@ const PIP_CLASS: Record<StepStatusValue, string> = {
   succeeded: 'bg-success',
   failed: 'bg-destructive',
   running: 'bg-primary animate-pulse',
-  cancelled: 'bg-muted-foreground/40',
-  skipped: 'bg-muted-foreground/15',
+  cancelled: 'bg-muted-foreground',
+  skipped: 'bg-border',
   pending: 'bg-border',
   queued: 'bg-border',
   waiting: 'bg-border',
@@ -97,7 +97,7 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
     <Link
       to="/ci/runs/$id"
       params={{ id: run.id }}
-      className="flex hover:bg-accent/50 transition-colors group relative"
+      className="flex hover:bg-accent transition-colors group relative"
     >
       {/* Left accent bar */}
       <div className={`w-[3px] shrink-0 ${accent} ${isRunning ? 'running-accent' : ''}`} />

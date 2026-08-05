@@ -55,7 +55,7 @@ function FleetPage() {
             onClick={() => setStatus(s)}
             className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
               status === s
-                ? 'border-primary/40 bg-primary/10 text-primary'
+                ? 'border-primary bg-accent text-primary'
                 : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent'
             }`}
           >
@@ -101,7 +101,7 @@ function MachineRow({ machine: m, poolName, index }: { machine: Machine; poolNam
     <Link
       to="/fleet/$id"
       params={{ id: m.id }}
-      className="flex items-center gap-3.5 px-4 py-3 group hover:bg-accent/30 transition-colors rise-in"
+      className="flex items-center gap-3.5 px-4 py-3 group hover:bg-accent transition-colors rise-in"
       style={{ animationDelay: `${index * 25 + 20}ms` }}
     >
       <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">

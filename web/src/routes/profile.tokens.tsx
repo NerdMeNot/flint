@@ -21,7 +21,7 @@ function TokensTab() {
   if (!user) {
     return (
       <div className="max-w-2xl space-y-6">
-        <div className="h-7 w-44 rounded bg-muted/40 animate-pulse" />
+        <div className="h-7 w-44 rounded bg-muted animate-pulse" />
         <div className="island-shell h-32 animate-pulse" />
       </div>
     )
@@ -102,7 +102,7 @@ function TokenRow({ token, onDelete }: { token: PersonalToken; onDelete: () => v
 function TokenReveal({ token, onDismiss }: { token: string; onDismiss: () => void }) {
   const [copied, setCopied] = useState(false)
   return (
-    <div className="island-shell p-4 border-success/30 space-y-2" style={{ borderColor: 'color-mix(in oklab, var(--success) 30%, var(--border))' }}>
+    <div className="island-shell p-4 border-success space-y-2" style={{ borderColor: 'color-mix(in oklab, var(--success) 30%, var(--border))' }}>
       <p className="text-xs font-medium text-foreground">Copy your new token now — you won't be able to see it again.</p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 truncate rounded-md bg-secondary border border-border px-2.5 py-1.5 text-xs font-mono text-foreground">{token}</code>

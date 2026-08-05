@@ -141,7 +141,7 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
               {showSecret ? 'Hide' : 'Show'} manual entry key
             </button>
             {showSecret && (
-              <div className="mt-2 rounded-lg border border-border p-3 bg-muted/30">
+              <div className="mt-2 rounded-lg border border-border p-3 bg-muted">
                 <code className="text-xs font-mono text-foreground break-all select-all">{secret}</code>
               </div>
             )}
@@ -199,7 +199,7 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-4 bg-muted/20">
+          <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-4 bg-muted">
             {recoveryCodes.map((code, i) => (
               <code key={i} className="text-sm font-mono text-foreground py-1">{code}</code>
             ))}
@@ -208,14 +208,14 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
           <div className="flex gap-2">
             <button
               onClick={copyRecoveryCodes}
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
             >
               {copied ? <Check size={14} className="text-[var(--success)]" /> : <Copy size={14} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
             <button
               onClick={downloadRecoveryCodes}
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
             >
               <Download size={14} />
               Download

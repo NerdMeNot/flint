@@ -6,7 +6,7 @@ const SPARK: Record<RunStatusValue, string> = {
   running: 'bg-primary animate-pulse',
   pending: 'bg-border',
   paused: 'bg-warning/70',
-  cancelled: 'bg-muted-foreground/40',
+  cancelled: 'bg-muted-foreground',
 }
 
 // A pass/fail run-history sparkline — newest-first input, rendered oldest→newest.

@@ -61,7 +61,7 @@ export function WorkflowTriggerModal({
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <Upload size={13} /> Upload .yaml
           </button>
@@ -84,7 +84,7 @@ export function WorkflowTriggerModal({
         />
 
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive-subtle px-3 py-2 text-xs text-destructive">
             <AlertTriangle size={14} className="mt-px shrink-0" />
             <span className="font-mono break-all">{error}</span>
           </div>
@@ -102,7 +102,7 @@ export function WorkflowTriggerModal({
             type="button"
             onClick={submit}
             disabled={submitting}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary), black 12%))' }}
           >
             {submitting ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} strokeWidth={2.2} />}

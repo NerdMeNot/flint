@@ -137,7 +137,7 @@ function AttentionTile({ to, search, icon, label, count, tone }: {
     <Link
       to={to as never}
       search={search as never}
-      className="island-shell !p-4 lg:!p-5 flex flex-col gap-2 hover:bg-accent/40 transition-colors group"
+      className="island-shell !p-4 lg:!p-5 flex flex-col gap-2 hover:bg-accent transition-colors group"
     >
       <div className="flex items-center gap-2">
         <span className={color}>{icon}</span>
@@ -171,7 +171,7 @@ function ProjectsToWatch({ projects }: { projects: Project[] }) {
               key={p.id}
               to="/ci/projects/$id"
               params={{ id: p.id }}
-              className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
+              className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-accent transition-colors group"
             >
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.colour }} />
               <span className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors flex-1 min-w-0">{p.name}</span>

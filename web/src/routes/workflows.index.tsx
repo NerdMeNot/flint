@@ -36,7 +36,7 @@ function WorkflowsPage() {
         <button
           type="button"
           onClick={() => setShowTrigger(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white shadow-sm shrink-0"
+          className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white shrink-0"
           style={{ background: 'linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary), black 12%))' }}
         >
           <Plus size={16} strokeWidth={2.2} /> New run
@@ -108,7 +108,7 @@ function WorkflowsPage() {
 
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
-    <div className="rounded-xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
+    <div className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl"
         style={{ background: 'color-mix(in oklab, var(--primary) 16%, transparent)', color: 'var(--primary)' }}>
         <Workflow size={22} strokeWidth={1.8} />
@@ -121,7 +121,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
       <button
         type="button"
         onClick={onNew}
-        className="mt-5 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white shadow-sm"
+        className="mt-5 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white"
         style={{ background: 'linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary), black 12%))' }}
       >
         <Plus size={16} strokeWidth={2.2} /> New run

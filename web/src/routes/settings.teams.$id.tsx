@@ -94,7 +94,7 @@ function TeamDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowAssignRole(true)}
-                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent transition-colors"
               >
                 <Plus size={12} />
                 Assign role
@@ -133,7 +133,7 @@ function TeamDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowAddMember(true)}
-                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent transition-colors"
               >
                 <UserPlus size={12} />
                 Add member
@@ -144,7 +144,7 @@ function TeamDetailPage() {
             {team.members.map((member) => (
               <div
                 key={member.id}
-                className="flex items-center gap-4 px-5 py-3 hover:bg-accent/30 transition-colors"
+                className="flex items-center gap-4 px-5 py-3 hover:bg-accent transition-colors"
               >
                 <MemberAvatar name={member.name ?? member.email} />
                 <div className="flex-1 min-w-0">
@@ -356,7 +356,7 @@ function AddMemberOverlay({
                     type="button"
                     onClick={() => toggle(user.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                      isSelected ? 'bg-primary/5' : 'hover:bg-accent'
+                      isSelected ? 'bg-accent' : 'hover:bg-accent'
                     }`}
                   >
                     <MemberAvatar name={user.name ?? user.email} />

@@ -99,7 +99,7 @@ export function RunGantt({ steps, selectedStep, onStepClick, toolbar }: RunGantt
         </div>
 
         {pendingSteps.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-2 flex-wrap">
+          <div className="mt-3 pt-3 border-t border-border flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60">Pending</span>
             {pendingSteps.map((s) => (
               <span
@@ -163,7 +163,7 @@ function GanttRow({
       onClick={onClick}
       title={tip}
       className={`group flex w-full items-center gap-2 sm:gap-3 rounded-md px-1.5 py-1 text-left transition-colors ${
-        isSelected ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/20' : 'hover:bg-accent/60'
+        isSelected ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/20' : 'hover:bg-accent'
       }`}
     >
       {/* Name + status dot + retry badge */}
@@ -174,7 +174,7 @@ function GanttRow({
           {step.name}
         </span>
         {retried && (
-          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning/15 px-1 text-[9px] font-mono font-semibold text-warning">
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-warning-subtle px-1 text-[9px] font-mono font-semibold text-warning">
             <RotateCw size={8} />{step.attempt}
           </span>
         )}
@@ -185,7 +185,7 @@ function GanttRow({
         {GRID_PCTS.map((p) => (
           <span
             key={p}
-            className={`absolute top-0 bottom-0 w-px ${p === 0 || p === 100 ? 'bg-border/40' : 'bg-border/20'}`}
+            className={`absolute top-0 bottom-0 w-px ${p === 0 || p === 100 ? 'bg-border' : 'bg-border'}`}
             style={{ left: `${p}%` }}
           />
         ))}
@@ -244,13 +244,13 @@ function Legend() {
     <span className="inline-flex items-center gap-2.5">
       <span className="inline-flex items-center gap-1">
         <span
-          className="h-2 w-3 rounded-full bg-foreground/10"
+          className="h-2 w-3 rounded-full bg-muted"
           style={{ backgroundImage: 'repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-foreground) 16%, transparent) 0 1.5px, transparent 1.5px 5px)' }}
         />
         queue
       </span>
       <span className="inline-flex items-center gap-1">
-        <span className="h-2 w-3 rounded-full bg-muted-foreground/50" />
+        <span className="h-2 w-3 rounded-full bg-muted-foreground" />
         run
       </span>
     </span>
@@ -291,12 +291,12 @@ function barClass(status: PipelineStep['status'], isGate: boolean): string {
   switch (status) {
     case 'succeeded': return 'bg-success'
     case 'failed': return 'bg-destructive'
-    case 'running': return 'bg-primary shadow-[0_0_8px_-1px] shadow-primary/50'
+    case 'running': return 'bg-primary'
     case 'waiting': return 'bg-warning'
-    case 'cancelled': return 'bg-muted-foreground/40'
-    case 'skipped': return 'bg-muted-foreground/25'
+    case 'cancelled': return 'bg-muted-foreground'
+    case 'skipped': return 'bg-border-strong'
     case 'queued': return 'bg-purple-400/60'
-    default: return 'bg-muted-foreground/40'
+    default: return 'bg-muted-foreground'
   }
 }
 
@@ -308,7 +308,7 @@ function dotClass(status: PipelineStep['status'], isGate: boolean): string {
     case 'running': return 'bg-primary'
     case 'waiting': return 'bg-warning'
     case 'queued': return 'bg-purple-400'
-    default: return 'bg-muted-foreground/40'
+    default: return 'bg-muted-foreground'
   }
 }
 

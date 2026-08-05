@@ -22,7 +22,7 @@ const MarkdownBody = lazy(async () => {
         remarkPlugins={[remarkGfm]}
         components={{
           a: (props) => <a {...props} className="text-primary hover:underline" target="_blank" rel="noreferrer" />,
-          code: (props) => <code {...props} className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[0.85em]" />,
+          code: (props) => <code {...props} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]" />,
           p: (props) => <p {...props} className="my-1 first:mt-0 last:mb-0" />,
           ul: (props) => <ul {...props} className="my-1 list-disc pl-5" />,
           ol: (props) => <ol {...props} className="my-1 list-decimal pl-5" />,
@@ -47,9 +47,9 @@ const STYLE_META: Record<
   { icon: React.ComponentType<{ size?: number | string; className?: string }>; accent: string; iconColor: string }
 > = {
   info: { icon: Info, accent: 'border-l-sky-400/60', iconColor: 'text-sky-400' },
-  success: { icon: CheckCircle, accent: 'border-l-success/70', iconColor: 'text-success' },
-  warning: { icon: AlertTriangle, accent: 'border-l-warning/70', iconColor: 'text-warning' },
-  error: { icon: XCircle, accent: 'border-l-destructive/70', iconColor: 'text-destructive' },
+  success: { icon: CheckCircle, accent: 'border-l-success', iconColor: 'text-success' },
+  warning: { icon: AlertTriangle, accent: 'border-l-warning', iconColor: 'text-warning' },
+  error: { icon: XCircle, accent: 'border-l-destructive', iconColor: 'text-destructive' },
 }
 
 export function RunAnnotations({ runId, live }: { runId: string; live: boolean }) {

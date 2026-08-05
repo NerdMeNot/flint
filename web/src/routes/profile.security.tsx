@@ -23,8 +23,8 @@ function SecurityTab() {
 
 function Alert({ kind, children }: { kind: 'error' | 'success'; children: React.ReactNode }) {
   const cls = kind === 'error'
-    ? 'bg-destructive/10 border-destructive/25 text-destructive'
-    : 'bg-success/10 border-success/30 text-success'
+    ? 'bg-destructive-subtle border-destructive text-destructive'
+    : 'bg-success-subtle border-success text-success'
   return (
     <div className={`flex items-center gap-2 rounded-lg border p-3 text-sm ${cls}`}>
       {kind === 'error' ? <AlertCircle size={14} /> : <Check size={14} />}
@@ -161,7 +161,7 @@ function MFASection() {
               Disable MFA
             </button>
             <button onClick={() => { setShowDisable(false); setDisableCode('') }}
-              className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50">
+              className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
               Cancel
             </button>
           </div>
@@ -174,11 +174,11 @@ function MFASection() {
                 Your new recovery codes. Store them safely — each is single-use and the old codes no
                 longer work.
               </p>
-              <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-border bg-muted/20 p-3 font-mono text-xs text-foreground">
+              <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-border bg-muted p-3 font-mono text-xs text-foreground">
                 {newCodes.map((c, i) => <span key={i}>{c}</span>)}
               </div>
               <button onClick={() => { setShowRegen(false); setNewCodes([]) }}
-                className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50">
+                className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
                 Done
               </button>
             </>
@@ -200,7 +200,7 @@ function MFASection() {
                   Generate new codes
                 </button>
                 <button onClick={() => { setShowRegen(false); setRegenCode('') }}
-                  className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50">
+                  className="rounded-lg border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
                   Cancel
                 </button>
               </div>
@@ -217,11 +217,11 @@ function MFASection() {
           {mfaEnabled ? (
             <div className="flex gap-2">
               <button onClick={() => setShowRegen(true)}
-                className="rounded-lg border border-border font-medium text-xs px-3.5 py-1.5 text-foreground hover:bg-accent/50 transition-colors">
+                className="rounded-lg border border-border font-medium text-xs px-3.5 py-1.5 text-foreground hover:bg-accent transition-colors">
                 Regenerate recovery codes
               </button>
               <button onClick={() => setShowDisable(true)}
-                className="rounded-lg border border-destructive/30 text-destructive font-medium text-xs px-3.5 py-1.5 hover:bg-destructive/5 transition-colors">
+                className="rounded-lg border border-destructive text-destructive font-medium text-xs px-3.5 py-1.5 hover:bg-destructive-subtle transition-colors">
                 Disable MFA
               </button>
             </div>

@@ -59,7 +59,7 @@ function MachineDetailPage() {
       </div>
 
       {m.drainReason && (
-        <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+        <div className="rounded-lg border border-warning bg-warning-subtle px-3 py-2 text-xs text-muted-foreground">
           Draining: {m.drainReason}
         </div>
       )}

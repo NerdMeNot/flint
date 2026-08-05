@@ -270,13 +270,13 @@ function PendingBody({
             }
             rows={3}
             disabled={isBusy}
-            className="w-full rounded-lg border border-border bg-card/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 transition-colors resize-y disabled:opacity-50"
+            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 transition-colors resize-y disabled:opacity-50"
           />
         </Section>
       </div>
 
       {/* Action surface — different shape based on whether viewer can act */}
-      <div className="mt-8 pt-6 border-t border-border/50 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="mt-8 pt-6 border-t border-border flex flex-col sm:flex-row sm:items-center gap-3">
         {canApprove ? (
           <>
             <button
@@ -284,7 +284,7 @@ function PendingBody({
               onClick={onReject}
               disabled={!note.trim() || isBusy}
               title={!note.trim() ? 'A reason is required to reject' : 'Reject this deployment'}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card/40 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-destructive hover:border-destructive disabled:opacity-40 disabled:pointer-events-none transition-colors"
             >
               {decision.kind === 'rejecting' ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -381,7 +381,7 @@ function DecidedBody({
         </Section>
       </div>
 
-      <div className="mt-8 pt-6 border-t border-border/50 flex items-center gap-3">
+      <div className="mt-8 pt-6 border-t border-border flex items-center gap-3">
         <span className="text-xs text-muted-foreground">
           The pipeline will {isApproved ? 'continue past this gate' : 'not proceed past this gate'}.
         </span>
@@ -471,7 +471,7 @@ function HoldToApprove({
       onBlur={cancel}
       disabled={disabled || busy}
       aria-label="Hold to approve deployment"
-      className="relative w-full select-none flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold whitespace-nowrap overflow-hidden text-white shadow-sm disabled:opacity-50 disabled:pointer-events-none transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="relative w-full select-none flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold whitespace-nowrap overflow-hidden text-white disabled:opacity-50 disabled:pointer-events-none transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       style={{
         background: 'color-mix(in oklab, var(--success), black 18%)',
       }}
@@ -538,8 +538,8 @@ function ApproverChips() {
             title={`${a.name}${a.online ? ' · online' : ''}${a.me ? ' (you)' : ''}`}
             className={`inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-0.5 text-xs font-medium border ${
               a.me
-                ? 'border-primary/35 bg-primary/8 text-primary'
-                : 'border-border bg-card/40 text-foreground'
+                ? 'border-primary bg-accent text-primary'
+                : 'border-border bg-card text-foreground'
             }`}
           >
             <span

@@ -27,7 +27,7 @@ export function BackendStatusBanner() {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 bg-warning/15 px-4 py-1.5 text-center text-xs font-medium"
+      className="flex items-center justify-center gap-2 bg-warning-subtle px-4 py-1.5 text-center text-xs font-medium"
       style={{ color: 'var(--warning)' }}
     >
       <PlugZap size={13} aria-hidden />

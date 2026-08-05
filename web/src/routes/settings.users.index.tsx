@@ -44,7 +44,7 @@ function NewUserModal({ onClose }: { onClose: () => void }) {
           <p className="text-sm text-foreground">
             Share this temporary password with the user — it won't be shown again.
           </p>
-          <code className="block rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm font-mono break-all">
+          <code className="block rounded-lg border border-border bg-muted px-3 py-2 text-sm font-mono break-all">
             {generated}
           </code>
         </div>
@@ -161,7 +161,7 @@ function UsersPage() {
         <EmptyState icon={Users} message="No users yet." />
       ) : (
       <div className="island-shell !p-0 overflow-hidden">
-        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr] gap-3 px-4 py-2.5 border-b border-border bg-muted text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
           <span>User</span>
           <span>Roles</span>
           <span>Scope</span>
@@ -176,7 +176,7 @@ function UsersPage() {
                 key={user.id}
                 to="/settings/users/$id"
                 params={{ id: user.id }}
-                className="block px-4 py-3 sm:grid sm:grid-cols-[1fr_1fr_1fr] sm:gap-3 sm:items-center space-y-2 sm:space-y-0 hover:bg-accent/30 transition-colors group"
+                className="block px-4 py-3 sm:grid sm:grid-cols-[1fr_1fr_1fr] sm:gap-3 sm:items-center space-y-2 sm:space-y-0 hover:bg-accent transition-colors group"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <MemberAvatar name={user.name ?? user.email} />

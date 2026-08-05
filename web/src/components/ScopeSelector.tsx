@@ -59,7 +59,7 @@ function ScopeSegment({ icon, label, items, selected, onToggle }: ScopeSegmentPr
         onClick={() => setOpen(!open)}
         className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
           active
-            ? 'border-primary/30 bg-primary/5 text-primary'
+            ? 'border-primary bg-accent text-primary'
             : 'border-transparent text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
         }`}
       >
@@ -77,7 +77,7 @@ function ScopeSegment({ icon, label, items, selected, onToggle }: ScopeSegmentPr
 
       {open && (
         <div
-          className="absolute top-full left-0 mt-1.5 min-w-[220px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-xl overflow-hidden z-50"
+          className="absolute top-full left-0 mt-1.5 min-w-[220px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border overlay-edge overflow-hidden z-50"
           style={{ background: 'var(--surface-strong)' }}
         >
           {items.length === 0 && (
@@ -92,7 +92,7 @@ function ScopeSegment({ icon, label, items, selected, onToggle }: ScopeSegmentPr
                 onClick={() => onToggle(item.key)}
                 className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
                   isSelected
-                    ? 'text-primary bg-primary/5'
+                    ? 'text-primary bg-accent'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
               >

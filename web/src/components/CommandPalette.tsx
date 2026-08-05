@@ -235,7 +235,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       {/* Palette */}
       <div className="fixed inset-0 z-[110] flex items-start justify-center pt-[15vh] px-4 pointer-events-none">
         <div
-          className="w-full max-w-xl rounded-xl border border-border shadow-2xl overflow-hidden pointer-events-auto rise-in"
+          className="w-full max-w-xl rounded-xl border border-border overlay-edge overflow-hidden pointer-events-auto rise-in"
           style={{ background: 'var(--surface-strong)', animationDuration: '250ms' }}
           onKeyDown={handleKeyDown}
         >
@@ -281,7 +281,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                         onMouseEnter={() => setActiveIndex(idx)}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                           isActive
-                            ? 'bg-primary/10 text-foreground'
+                            ? 'bg-accent text-foreground'
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >

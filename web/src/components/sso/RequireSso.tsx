@@ -52,7 +52,7 @@ export function RequireSso() {
         </div>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted px-3 py-2.5">
         <KeyRound size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Break-glass preserved.</span> Local accounts

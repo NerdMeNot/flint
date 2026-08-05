@@ -56,7 +56,7 @@ export function Popover({ anchorRef, open, onClose, children }: {
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed rounded-lg border border-border shadow-xl overflow-hidden overflow-y-auto"
+      className="fixed rounded-lg border border-border overlay-edge overflow-hidden overflow-y-auto"
       // Fully opaque (opaque --background base + --popover tint) so nothing shows
       // through, and a high z so it clears every island/card.
       style={{

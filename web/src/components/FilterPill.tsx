@@ -35,7 +35,7 @@ export function FilterPill<K extends string = string>({ icon, label, active, onC
     <div ref={ref} className="relative">
       <div className={`flex items-center rounded-lg border text-xs font-medium whitespace-nowrap transition-colors ${
         active
-          ? 'border-primary/30 bg-primary/5 text-primary'
+          ? 'border-primary bg-accent text-primary'
           : 'border-border text-muted-foreground'
       }`}>
         <button
@@ -51,7 +51,7 @@ export function FilterPill<K extends string = string>({ icon, label, active, onC
           <button
             type="button"
             onClick={onClear}
-            className="flex items-center px-1.5 py-1.5 border-l border-primary/20 text-primary/60 hover:text-primary transition-colors"
+            className="flex items-center px-1.5 py-1.5 border-l border-primary text-primary/60 hover:text-primary transition-colors"
             title={`Clear ${label}`}
           >
             <X size={11} />
@@ -61,7 +61,7 @@ export function FilterPill<K extends string = string>({ icon, label, active, onC
 
       {open && (
         <div
-          className="absolute top-full left-0 mt-1 min-w-[160px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border shadow-lg overflow-hidden z-50"
+          className="absolute top-full left-0 mt-1 min-w-[160px] w-max max-w-[calc(100vw-1rem)] rounded-lg border border-border overlay-edge overflow-hidden z-50"
           style={{ background: 'var(--surface-strong)' }}
         >
           {items.map((item) => (
@@ -70,7 +70,7 @@ export function FilterPill<K extends string = string>({ icon, label, active, onC
               type="button"
               onClick={() => { onSelect(item.key); setOpen(false) }}
               className={`w-full flex items-center justify-between gap-4 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                item.active ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                item.active ? 'text-primary bg-accent' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
             >
               <span>{item.label}</span>

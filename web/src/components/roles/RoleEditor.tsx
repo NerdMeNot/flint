@@ -112,7 +112,7 @@ export function RoleEditor({ role }: { role?: Role }) {
       {/* Quick-start: only when creating — copy a base role, then tweak. */}
       {!role && templates.length > 0 && (
         <div
-          className="rounded-xl border border-primary/20 p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+          className="rounded-xl border border-primary p-4 flex flex-col sm:flex-row sm:items-center gap-3"
           style={{ background: 'color-mix(in oklab, var(--primary) 6%, var(--surface))' }}
         >
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
@@ -179,14 +179,14 @@ export function RoleEditor({ role }: { role?: Role }) {
           <section className="island-shell !p-0 overflow-hidden">
             <button
               type="button" onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-accent/30 transition-colors"
+              className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-accent transition-colors"
             >
               {showAdvanced ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
               <span className="text-sm font-semibold text-foreground">Advanced</span>
               <span className="text-xs text-muted-foreground">per-resource permission matrix</span>
             </button>
             {showAdvanced && (
-              <div className="px-5 pb-5 pt-1 border-t border-border/50">
+              <div className="px-5 pb-5 pt-1 border-t border-border">
                 <PermissionMatrix permissions={permissions} editable={!readOnly} onChange={readOnly ? undefined : setPermissions} />
               </div>
             )}
@@ -249,7 +249,7 @@ function CapabilityGroup({ title, caps, permSet, readOnly, onSet }: {
               disabled={readOnly}
               onClick={() => onSet(cap.id, !active)}
               className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors disabled:cursor-default ${
-                active ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-muted-foreground/40'
+                active ? 'border-primary bg-accent' : 'border-border hover:border-muted-foreground'
               }`}
             >
               <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${active ? 'bg-primary border-primary text-white' : 'border-border'}`}>
@@ -278,8 +278,8 @@ function ScopePicker({ label, specific, setSpecific, readOnly, options, selected
   variant: 'primary' | 'success'
 }) {
   const onClasses = variant === 'primary'
-    ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
-    : 'bg-success/10 text-success ring-1 ring-success/20'
+    ? 'bg-accent text-primary ring-1 ring-primary/20'
+    : 'bg-success-subtle text-success ring-1 ring-success/20'
   return (
     <div className="space-y-2">
       <label className="text-xs font-medium text-foreground">{label}</label>
@@ -344,7 +344,7 @@ function EffectivePanel({ permissions, wsSpecific, selectedWs, envSpecific, sele
         </>
       )}
 
-      <div className="border-t border-border/50 pt-3 space-y-1.5">
+      <div className="border-t border-border pt-3 space-y-1.5">
         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Scope</p>
         <p className="text-xs text-foreground">
           Workspaces: {wsSpecific ? (selectedWs.length ? selectedWs.join(', ') : 'none selected') : 'all'}

@@ -61,7 +61,7 @@ function AccountLayout() {
                 to={item.to}
                 aria-current={active ? 'page' : undefined}
                 className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                  active ? 'text-white shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  active ? 'text-white' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
                 style={active ? { background: 'color-mix(in oklab, var(--ring), black 35%)' } : undefined}
               >

@@ -62,7 +62,7 @@ function ApiKeysPage() {
             return (
               <div
                 key={apiKey.id}
-                className={`island-shell !p-0 overflow-hidden rise-in ${isExpired ? 'border-warning/40' : ''}`}
+                className={`island-shell !p-0 overflow-hidden rise-in ${isExpired ? 'border-warning' : ''}`}
                 style={{ animationDelay: `${i * 50 + 30}ms` }}
               >
                 <div className="p-4 space-y-3">
@@ -90,7 +90,7 @@ function ApiKeysPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                       role?.isSystem
-                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        ? 'bg-accent text-primary border border-primary'
                         : 'bg-secondary text-foreground border border-border'
                     }`}>
                       {role?.name ?? apiKey.role}
@@ -107,7 +107,7 @@ function ApiKeysPage() {
                   </div>
 
                   {/* Metadata */}
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground pt-2 border-t border-border/50">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground pt-2 border-t border-border">
                     <span className="flex items-center gap-1.5">
                       <Calendar size={11} />
                       Created {formatTime(apiKey.createdAt)} by <span className="font-mono">{apiKey.createdBy}</span>
@@ -221,7 +221,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
     <Modal open onClose={onClose} title="Create API Key" subtitle="Generate a new key for programmatic access" wide>
       {generatedToken ? (
         <div className="px-5 py-5 space-y-4">
-          <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
+          <div className="rounded-lg border border-success bg-success-subtle p-4 space-y-2">
             <p className="text-xs font-semibold text-success">Key created successfully</p>
             <p className="text-[12px] text-muted-foreground">
               Copy this token now. It will not be shown again.
@@ -305,7 +305,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                           <button key={ws.slug} type="button" onClick={() => toggleSet(selectedWs, setSelectedWs, ws.slug)}
                             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                               selectedWs.has(ws.slug)
-                                ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                                ? 'bg-accent text-primary ring-1 ring-primary/20'
                                 : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                             }`}>
                             {ws.name}
@@ -320,7 +320,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                           <button key={env.name} type="button" onClick={() => toggleSet(selectedEnv, setSelectedEnv, env.name)}
                             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                               selectedEnv.has(env.name)
-                                ? 'bg-primary/10 text-primary border border-primary/20'
+                                ? 'bg-accent text-primary border border-primary'
                                 : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                             }`}>
                             {env.name}
@@ -344,7 +344,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
                     onClick={() => setExpiry(opt.key)}
                     className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                       expiry === opt.key
-                        ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                        ? 'bg-accent text-primary ring-1 ring-primary/20'
                         : 'text-muted-foreground border border-border hover:text-foreground hover:bg-accent'
                     }`}
                   >

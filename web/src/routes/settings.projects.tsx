@@ -53,7 +53,7 @@ function ProjectsAdminPage() {
         <EmptyState icon={FolderGit2} message="No projects yet. Register a repository to get started." />
       ) : (
         <div className="island-shell !p-0 overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[1.4fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="hidden sm:grid sm:grid-cols-[1.4fr_1fr_auto] gap-3 px-4 py-2.5 border-b border-border bg-muted text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
             <span>Project</span>
             <span>Workspace</span>
             <span className="text-right">Actions</span>

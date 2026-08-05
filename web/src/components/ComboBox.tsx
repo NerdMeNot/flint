@@ -13,7 +13,7 @@ function MenuItem({ active, onClick, label, hint, icon }: { active?: boolean; on
       type="button"
       onMouseDown={(e) => { e.preventDefault(); onClick() }}
       className={`w-full text-left px-3 py-1.5 text-sm transition-colors flex items-center justify-between gap-2 ${
-        active ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+        active ? 'text-primary bg-accent' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
       }`}
     >
       <span className="flex items-center gap-1.5 min-w-0">{icon}<span className="font-mono truncate">{label}</span></span>
@@ -26,7 +26,7 @@ function MenuItem({ active, onClick, label, hint, icon }: { active?: boolean; on
 // it's obvious the presets are only suggestions.
 function CustomHint() {
   return (
-    <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-[10px] text-muted-foreground/70">
+    <div className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-[10px] text-muted-foreground/70">
       <Pencil size={10} /> Presets are suggestions — type to use any value
     </div>
   )
@@ -104,7 +104,7 @@ export function PillSelect({ values, onChange, options, addPlaceholder = 'custom
 
   const pill = (on: boolean) =>
     `inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-mono transition-colors ${
-      on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground'
+      on ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground'
     }`
 
   return (
@@ -136,12 +136,12 @@ export function PillSelect({ values, onChange, options, addPlaceholder = 'custom
           }}
           onBlur={addCustom}
           placeholder={addPlaceholder}
-          className="w-24 rounded-md border border-primary/40 bg-transparent px-2 py-1 text-[11px] font-mono outline-none"
+          className="w-24 rounded-md border border-primary bg-transparent px-2 py-1 text-[11px] font-mono outline-none"
         />
       ) : (
         <button
           type="button" onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 transition-colors"
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors"
         >
           <Plus size={10} /> custom
         </button>

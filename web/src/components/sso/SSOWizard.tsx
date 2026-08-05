@@ -203,7 +203,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
               <button
                 key={p.id}
                 onClick={() => choose(p)}
-                className="feature-card flex flex-col items-center justify-center gap-2 rounded-xl border border-border p-4 text-center hover:border-ring/40 transition-colors"
+                className="feature-card flex flex-col items-center justify-center gap-2 rounded-xl border border-border p-4 text-center hover:border-ring transition-colors"
               >
                 <ProviderLogo id={p.id} size={28} className="text-foreground" />
                 <span className="text-sm font-medium text-foreground">{p.name}</span>
@@ -230,11 +230,11 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
           <ProviderHeader preset={preset} />
 
           {presetProtocols(preset).length > 1 && (
-            <div className="flex gap-1 rounded-lg bg-muted/30 p-1 w-fit">
+            <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
               {presetProtocols(preset).map((proto) => (
                 <button key={proto} onClick={() => switchProtocol(proto)}
                   className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${
-                    protocol === proto ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    protocol === proto ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
                   }`}>
                   {proto.toUpperCase()}
                 </button>
@@ -250,7 +250,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
           )}
 
           {/* SP values to paste into the IdP */}
-          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+          <div className="rounded-xl border border-border bg-muted p-4 space-y-3">
             <p className="text-xs font-semibold text-foreground">Paste these into your IdP</p>
             {protocol === 'oidc' ? (
               <CopyField label="Redirect URI" value={redirectUri} />
@@ -287,11 +287,11 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex gap-1 rounded-lg bg-muted/30 p-1 w-fit">
+              <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
                 {(['url', 'xml'] as const).map((m) => (
                   <button key={m} onClick={() => setMetaMode(m)}
                     className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${
-                      metaMode === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                      metaMode === m ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`}>
                     {m === 'url' ? 'Metadata URL' : 'Upload XML'}
                   </button>
@@ -304,7 +304,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
                 </Field>
               ) : (
                 <Field label="IdP Metadata XML">
-                  <label className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground cursor-pointer hover:border-ring/40 transition-colors">
+                  <label className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground cursor-pointer hover:border-ring transition-colors">
                     <Upload size={14} />
                     {config.metadataXml ? 'XML loaded — choose a different file' : 'Choose a metadata.xml file'}
                     <input type="file" accept=".xml,application/xml,text/xml" className="hidden" onChange={onFile} />
@@ -320,7 +320,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
 
           {/* Setup steps */}
           {protoPreset && (
-            <details className="rounded-lg border border-border bg-muted/10 p-3">
+            <details className="rounded-lg border border-border bg-muted p-3">
               <summary className="text-xs font-medium text-foreground cursor-pointer">Setup steps for {preset.name}</summary>
               <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground list-decimal pl-4">
                 {protoPreset.setupSteps.map((s, i) => <li key={i}>{s}</li>)}
@@ -353,7 +353,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
           </button>
 
           {testResult && !testResult.ok && (
-            <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
+            <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive-subtle p-3 text-sm">
               <AlertCircle size={15} className="text-destructive shrink-0 mt-0.5" />
               <span className="text-destructive">{testResult.error || 'Connection failed'}</span>
             </div>
@@ -393,12 +393,12 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
               </p>
             </div>
             <button onClick={runTestSignIn} disabled={signingIn}
-              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent/50 disabled:opacity-50 transition-colors">
+              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50 transition-colors">
               {signingIn ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
               {signingIn ? 'Waiting for sign-in…' : 'Test sign-in'}
             </button>
             {signInError && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
+              <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive-subtle p-3 text-sm">
                 <AlertCircle size={15} className="text-destructive shrink-0 mt-0.5" />
                 <span className="text-destructive">{signInError}</span>
               </div>
@@ -417,7 +417,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
                     Raw claims your IdP sent
                   </p>
-                  <div className="rounded-lg border border-border bg-muted/30 p-2 font-mono text-[11px] text-foreground max-h-48 overflow-auto space-y-0.5">
+                  <div className="rounded-lg border border-border bg-muted p-2 font-mono text-[11px] text-foreground max-h-48 overflow-auto space-y-0.5">
                     {Object.entries(capturedClaims.raw).map(([k, v]) => (
                       <div key={k} className="flex gap-2">
                         <span className="text-primary shrink-0">{k}</span>
@@ -507,7 +507,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
             </div>
           )}
 
-          <details className="rounded-lg border border-border bg-muted/10 p-3">
+          <details className="rounded-lg border border-border bg-muted p-3">
             <summary className="cursor-pointer text-sm font-medium text-foreground">
               Azure group resolution (optional)
             </summary>
@@ -540,7 +540,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
       {/* ── Step: Activate ─────────────────────────────────────── */}
       {step === 'activate' && preset && (
         <div className="space-y-5">
-          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2">
+          <div className="rounded-xl border border-border bg-muted p-4 space-y-2">
             <div className="flex items-center gap-2">
               <ProviderLogo id={preset.id} size={20} className="text-foreground" />
               <span className="text-sm font-semibold text-foreground">{preset.name}</span>
@@ -568,14 +568,14 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
           </p>
 
           {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
+            <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive-subtle p-3 text-sm">
               <AlertCircle size={15} className="text-destructive shrink-0 mt-0.5" />
               <span className="text-destructive">{error}</span>
             </div>
           )}
 
           <div className="flex items-center gap-3">
-            <button onClick={goBack} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors">
+            <button onClick={goBack} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors">
               <ChevronLeft size={14} /> Back
             </button>
             <button onClick={activate} disabled={saving}
@@ -593,7 +593,7 @@ export function SSOWizard({ onComplete, onCancel }: Props) {
 function ProviderHeader({ preset }: { preset: SSOPreset }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/30">
+      <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted">
         <ProviderLogo id={preset.id} size={22} className="text-foreground" />
       </div>
       <div>
@@ -627,8 +627,8 @@ function ClaimChips({ keys, current, onPick }: { keys: string[]; current?: strin
           onClick={() => onPick(k)}
           className={`rounded px-1.5 py-0.5 text-[10px] font-mono border transition-colors ${
             current === k
-              ? 'border-primary bg-primary/15 text-primary'
-              : 'border-border text-muted-foreground hover:border-ring/40 hover:text-foreground'
+              ? 'border-primary bg-accent text-primary'
+              : 'border-border text-muted-foreground hover:border-ring hover:text-foreground'
           }`}
         >
           {k}
@@ -652,7 +652,7 @@ function StepButtons({ onBack, onNext, nextDisabled, nextLabel }: {
 }) {
   return (
     <div className="flex items-center gap-3 pt-1">
-      <button onClick={onBack} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors">
+      <button onClick={onBack} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors">
         <ChevronLeft size={14} /> Back
       </button>
       <button onClick={onNext} disabled={nextDisabled}

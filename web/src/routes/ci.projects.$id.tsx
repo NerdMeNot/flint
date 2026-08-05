@@ -163,9 +163,9 @@ function ProjectDetailPage() {
               onClick={() => setPipelineIdx(i)}
               className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                 i === pipelineIdx
-                  ? 'border-primary/40 bg-primary/5 text-foreground'
+                  ? 'border-primary bg-accent text-foreground'
                   : 'border-border text-muted-foreground hover:text-foreground'
-              } ${p.status === 'invalid' ? '!border-destructive/40' : ''}`}
+              } ${p.status === 'invalid' ? '!border-destructive' : ''}`}
             >
               <FileCode size={13} className={p.status === 'invalid' ? 'text-destructive' : i === pipelineIdx ? 'text-primary' : 'opacity-60'} />
               <span className="font-mono">{p.filename}</span>
@@ -270,9 +270,9 @@ function ProjectRunsTab({ runs, projectId }: { runs: PipelineRun[]; projectId: s
       </div>
       {grouped.map(({ bucket, runs: bucketRuns }) => (
         <div key={bucket}>
-          <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent/20 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
             {bucket}
-            <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{bucketRuns.length}</span>
+            <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{bucketRuns.length}</span>
           </div>
           <div className="divide-y divide-border">
             {bucketRuns.map((run) => (
@@ -459,7 +459,7 @@ function FormSelect({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:border-ring/40 focus:outline-none focus:ring-2 focus:ring-ring/40"
+        className="w-full flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:border-ring focus:outline-none focus:ring-2 focus:ring-ring/40"
       >
         <span className={selected ? 'text-foreground' : 'text-muted-foreground/50'}>
           {selected?.label ?? placeholder ?? 'Select...'}
@@ -469,7 +469,7 @@ function FormSelect({
 
       {open && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto"
+          className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-border overlay-edge overflow-hidden z-50 max-h-[200px] overflow-y-auto"
           style={{ background: 'var(--surface-strong)' }}
         >
           {placeholder && (
@@ -477,7 +477,7 @@ function FormSelect({
               type="button"
               onClick={() => { onChange(''); setOpen(false) }}
               className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                !value ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                !value ? 'text-primary bg-accent' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
             >
               {placeholder}
@@ -489,7 +489,7 @@ function FormSelect({
               type="button"
               onClick={() => { onChange(opt.key); setOpen(false) }}
               className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                value === opt.key ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                value === opt.key ? 'text-primary bg-accent' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
             >
               {opt.label}
@@ -507,8 +507,8 @@ function FormSelect({
 
 function PipelineErrorBanner({ errors, filename }: { errors: string[]; filename: string }) {
   return (
-    <div className="island-shell !p-0 overflow-hidden border-destructive/30">
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-destructive/5 border-b border-destructive/20">
+    <div className="island-shell !p-0 overflow-hidden border-destructive">
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-destructive-subtle border-b border-destructive">
         <AlertTriangle size={14} className="text-destructive shrink-0" />
         <span className="text-xs font-semibold text-destructive">
           {errors.length} {errors.length === 1 ? 'error' : 'errors'} in {filename}

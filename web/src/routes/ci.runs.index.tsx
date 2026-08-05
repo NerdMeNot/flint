@@ -198,9 +198,9 @@ function RunsListPage() {
         ) : (
           grouped.map(({ bucket, runs }) => (
             <div key={bucket}>
-              <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent/20 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <div className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-accent border-b border-border text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                 {bucket}
-                <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{runs.length}</span>
+                <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">{runs.length}</span>
               </div>
               <div className="divide-y divide-border">
                 {runs.map((run) => (

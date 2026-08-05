@@ -65,6 +65,22 @@
   --destructive: #c0281c;
   --destructive-foreground: #ffffff;
 
+  /* Solid pale grounds for status callouts — what `bg-success/10` used to
+     approximate. Shared across all palettes, because status is one language
+     regardless of accent. Not defined per-theme in appearance.ts: tokens a
+     theme omits keep their value from here, which is exactly what we want. */
+  --success-subtle: #e4f1ea;
+  --warning-subtle: #f5eddc;
+  --destructive-subtle: #fbe7e5;
+
+  /* Overlay depth. Blacksmith's own shadows are `8px 8px #202020` — a solid
+     offset block with ZERO blur, which is how a sharp-edged language shows
+     z-order. Dark mode sets this transparent: an offset on a dark ground
+     reads as a hole, so elevation there is carried by the lighter card fill
+     and the border instead. */
+  --border-strong: #b4b4b4;
+  --overlay-offset: #c8c8c8;
+
   --chart-1: #ff6a1a;
   --chart-2: #1a7f4b;
   --chart-3: #1668e3;
@@ -113,6 +129,13 @@
   --warning-foreground: #141414;
   --destructive: #e4695c;
   --destructive-foreground: #141414;
+
+  --success-subtle: #142a20;
+  --warning-subtle: #2c2616;
+  --destructive-subtle: #2e1917;
+
+  --border-strong: #4a443c;
+  --overlay-offset: transparent;
 
   --chart-1: #ff7a2e;
   --chart-2: #35b06e;
@@ -221,6 +244,13 @@ button, .island-shell, .feature-card, a {
   display: none;
 }
 
+/* Overlay depth — popovers, dropdowns, modals, the command palette.
+   A hard offset with no blur radius, so the shadow is itself a solid
+   shape with a sharp edge. See --overlay-offset. */
+.overlay-edge {
+  box-shadow: 3px 3px 0 0 var(--overlay-offset);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise-in, .running-accent { animation: none; }
 }
@@ -294,8 +324,12 @@ body {
   --color-background: var(--background);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-border-strong: var(--border-strong);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

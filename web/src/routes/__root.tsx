@@ -124,7 +124,7 @@ function RootError({ error, reset }: { error: Error; reset: () => void }) {
             reset()
             router.invalidate()
           }}
-          className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-accent/30 transition-colors text-foreground"
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-accent transition-colors text-foreground"
         >
           Retry now
         </button>
@@ -290,7 +290,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
       <button
         type="button"
         onClick={onClick}
-        className="sm:hidden flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+        className="sm:hidden flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         aria-label="Search"
       >
         <Search size={16} />
@@ -299,7 +299,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
       <button
         type="button"
         onClick={onClick}
-        className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground/60 border border-border rounded-lg hover:text-muted-foreground hover:border-border/80 hover:bg-accent/30 transition-colors"
+        className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground/60 border border-border rounded-lg hover:text-muted-foreground hover:border-border hover:bg-accent transition-colors"
       >
         <Search size={13} />
         <span>Search</span>

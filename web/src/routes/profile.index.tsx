@@ -33,7 +33,7 @@ function GeneralTab() {
   if (!user) {
     return (
       <div className="space-y-6 max-w-3xl">
-        <div className="h-7 w-40 rounded bg-muted/40 animate-pulse" />
+        <div className="h-7 w-40 rounded bg-muted animate-pulse" />
         <div className="island-shell h-40 animate-pulse" />
       </div>
     )
@@ -203,7 +203,7 @@ function AppearanceCard() {
                 type="button"
                 onClick={() => pickMode(value)}
                 className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors ${
-                  active ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                  active ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon size={14} />
@@ -226,7 +226,7 @@ function AppearanceCard() {
                 type="button"
                 onClick={() => pickColor(t.name)}
                 className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                  active ? 'border-primary/40 bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'
+                  active ? 'border-primary bg-accent text-foreground' : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <span className="w-4 h-4 rounded-full border border-border shrink-0" style={{ background: t.dot }} />

@@ -43,7 +43,7 @@ export function DateRangeCalendar({ from, to, onChange }: {
       return 'rounded-md bg-primary text-primary-foreground font-semibold'
     }
     const mid = combine(d, 12, 0)
-    if (from != null && to != null && mid > from && mid < to) return 'bg-primary/15 text-foreground'
+    if (from != null && to != null && mid > from && mid < to) return 'bg-accent text-foreground'
     if (dayEq(d, new Date())) return 'rounded-md text-primary ring-1 ring-primary/30'
     return 'rounded-md text-foreground hover:bg-accent'
   }

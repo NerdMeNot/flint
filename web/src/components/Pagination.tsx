@@ -95,7 +95,7 @@ export function Pagination({
               onClick={() => onPageChange(pageNum)}
               className={`flex items-center justify-center min-w-[28px] h-7 rounded-md px-1.5 text-xs font-medium transition-colors ${
                 pageNum === page
-                  ? 'bg-primary/15 text-primary'
+                  ? 'bg-accent text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
             >

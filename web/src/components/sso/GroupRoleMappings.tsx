@@ -88,7 +88,7 @@ export function GroupRoleMappings() {
                 type="button"
                 onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))}
                 aria-label="Remove mapping"
-                className="shrink-0 flex h-8 w-8 items-center justify-center rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive/5 transition-colors"
+                className="shrink-0 flex h-8 w-8 items-center justify-center rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive-subtle transition-colors"
               >
                 <Trash2 size={14} />
               </button>

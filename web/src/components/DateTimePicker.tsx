@@ -46,7 +46,7 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-left transition-colors hover:border-ring/40 focus:outline-none focus:ring-2 focus:ring-ring/40"
+        className="w-full flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-left transition-colors hover:border-ring focus:outline-none focus:ring-2 focus:ring-ring/40"
       >
         <CalendarDays size={13} className="text-muted-foreground shrink-0" />
         <span className={value ? 'text-foreground' : 'text-muted-foreground/50'}>
@@ -55,7 +55,7 @@ export function DateTimePicker({ value, onChange, placeholder = 'Pick date & tim
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[256px] max-w-[calc(100vw-1rem)] rounded-lg border border-border p-2.5 shadow-xl" style={{ background: 'var(--surface-strong)' }}>
+        <div className="absolute left-0 top-full mt-1 z-50 w-[256px] max-w-[calc(100vw-1rem)] rounded-lg border border-border p-2.5 overlay-edge" style={{ background: 'var(--surface-strong)' }}>
           <Calendar view={view} onView={setView} dayClassName={dayClassName} onPickDay={pickDay} />
           <div className="mt-2.5 pt-2.5 border-t border-border">
             <TimeField hour={sel ? sel.getHours() : 0} minute={sel ? sel.getMinutes() : 0} onChange={setTime} />

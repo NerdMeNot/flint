@@ -104,7 +104,7 @@ function RoleRow({ role, onDelete }: { role: Role; onDelete?: () => void }) {
   const permCount = isWildcard ? 'All' : `${role.permissions.length}`
 
   return (
-    <div className="flex items-center gap-3 hover:bg-accent/30 transition-colors">
+    <div className="flex items-center gap-3 hover:bg-accent transition-colors">
       <Link
         to="/settings/roles/$id"
         params={{ id: role.id }}
@@ -159,7 +159,7 @@ function AssignmentsTab() {
       </div>
 
       <div className="island-shell !p-0 overflow-hidden">
-        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] gap-3 px-4 py-2.5 border-b border-border bg-muted text-[12px] font-medium text-muted-foreground uppercase tracking-wider">
           <span>Subject</span><span>Role</span><span>Scope</span><span />
         </div>
         <div className="divide-y divide-border">
@@ -167,7 +167,7 @@ function AssignmentsTab() {
             const role = roleMap.get(a.role)
             const isTeam = a.subject.startsWith('team:')
             return (
-              <div key={`${a.subject}-${a.role}`} className="px-4 py-3 sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] sm:gap-3 sm:items-center space-y-2 sm:space-y-0 hover:bg-accent/30 transition-colors">
+              <div key={`${a.subject}-${a.role}`} className="px-4 py-3 sm:grid sm:grid-cols-[1fr_1fr_1fr_40px] sm:gap-3 sm:items-center space-y-2 sm:space-y-0 hover:bg-accent transition-colors">
                 <div className="flex items-center gap-2 min-w-0">
                   {isTeam ? <Users size={13} className="text-muted-foreground shrink-0" /> : <User size={13} className="text-muted-foreground shrink-0" />}
                   <span className="text-sm text-foreground font-mono truncate">{a.subject}</span>

@@ -18,7 +18,7 @@ export function DemoModeBanner() {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 bg-warning/15 px-4 py-1.5 text-center text-xs font-medium text-warning-foreground"
+      className="flex items-center justify-center gap-2 bg-warning-subtle px-4 py-1.5 text-center text-xs font-medium text-warning-foreground"
       style={{ color: 'var(--warning)' }}
     >
       <FlaskConical size={13} aria-hidden />

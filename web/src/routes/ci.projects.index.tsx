@@ -245,12 +245,12 @@ function ProjectsPage() {
               onClick={() => setAttention(!attention)}
               title="Projects that are currently red or have a low pass rate"
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                attention ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:text-foreground'
+                attention ? 'border-destructive bg-destructive-subtle text-destructive' : 'border-border text-muted-foreground hover:text-foreground'
               }`}
             >
               <AlertTriangle size={12} />
               Needs attention
-              <span className="rounded-full bg-destructive/20 text-destructive text-[10px] font-bold leading-none px-1.5 py-0.5">{attentionCount}</span>
+              <span className="rounded-full bg-destructive-subtle text-destructive text-[10px] font-bold leading-none px-1.5 py-0.5">{attentionCount}</span>
             </button>
           )}
           {needsGroupingCount > 0 && (
@@ -259,12 +259,12 @@ function ProjectsPage() {
               onClick={() => setNeedsGrouping(!needsGrouping)}
               title="Projects whose workspace was inferred (not declared) or that have no tags"
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                needsGrouping ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'
+                needsGrouping ? 'border-warning bg-warning-subtle text-warning' : 'border-border text-muted-foreground hover:text-foreground'
               }`}
             >
               <AlertTriangle size={12} />
               Needs grouping
-              <span className="rounded-full bg-warning/20 text-warning text-[10px] font-bold leading-none px-1.5 py-0.5">{needsGroupingCount}</span>
+              <span className="rounded-full bg-warning-subtle text-warning text-[10px] font-bold leading-none px-1.5 py-0.5">{needsGroupingCount}</span>
             </button>
           )}
           {filterGroups.length > 0 && (
@@ -272,7 +272,7 @@ function ProjectsPage() {
               type="button"
               onClick={() => setTagFilterOpen(true)}
               className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                selectedTags.length > 0 ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                selectedTags.length > 0 ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground hover:text-foreground'
               }`}
             >
               <Tag size={12} />
@@ -375,7 +375,7 @@ export function ProjectCard({ project, registry, index }: { project: Project; re
       <Link
         to="/ci/projects/$id"
         params={{ id: project.id }}
-        className="block p-5 space-y-3 hover:bg-accent/50 transition-colors group flex-1"
+        className="block p-5 space-y-3 hover:bg-accent transition-colors group flex-1"
       >
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -435,7 +435,7 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
       <Link
         to="/ci/projects/$id"
         params={{ id: project.id }}
-        className="flex flex-col justify-center gap-1 min-w-0 flex-1 px-4 py-2.5 hover:bg-accent/50 transition-colors group"
+        className="flex flex-col justify-center gap-1 min-w-0 flex-1 px-4 py-2.5 hover:bg-accent transition-colors group"
       >
         {/* Line 1: name + health + workspace */}
         <div className="flex items-center gap-2.5 min-w-0">
