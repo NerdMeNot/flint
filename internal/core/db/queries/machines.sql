@@ -67,9 +67,13 @@ UPDATE machines SET
     updated_at = now()
 WHERE id = @id;
 
--- name: UpdateMachineStatus :exec
+-- name: UpdateMachineStatus :execrows
 -- Used only by the fleet transition chokepoint after validating the edge; callers
--- never update status directly.
+-- never update status directly. The `from` guard makes the transition optimistic:
+-- the row moves only if it's still in the expected state, so 0 rows affected means
+-- another actor already moved it (a lost race). The chokepoint surfaces that so the
+-- caller can skip or roll back, rather than clobbering a concurrent transition
+-- (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
 UPDATE machines SET
     status = @status,
     drain_reason = COALESCE(sqlc.narg(drain_reason), drain_reason),
@@ -79,7 +83,7 @@ UPDATE machines SET
     idle_since     = CASE WHEN @status = 'idle' THEN now() ELSE idle_since END,
     terminated_at  = CASE WHEN @status IN ('terminated', 'failed') THEN now() ELSE terminated_at END,
     updated_at = now()
-WHERE id = @id;
+WHERE id = @id AND status = @from_status;
 
 -- name: ClaimExpiredBootDeadlines :many
 -- Sweep: machines that never registered before their boot deadline.
@@ -112,11 +116,18 @@ GROUP BY status;
 
 -- name: ClaimIdleMachinesPastTTL :many
 -- Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
--- min_warm before draining.
+-- min_warm before draining. The NOT EXISTS guard is essential: a machine can be
+-- status='idle' yet still hold a live assignment (busy/idle accounting can drift,
+-- or work was bound just after it went idle) — terminating it would kill running
+-- work, so those are never candidates.
 SELECT m.id, m.pool_id FROM machines m
 JOIN machine_pools p ON p.id = m.pool_id
 WHERE m.status = 'idle'
   AND m.idle_since < now() - make_interval(secs := p.idle_ttl_seconds)
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
+  )
 FOR UPDATE OF m SKIP LOCKED;
 
 -- name: IncrementMachineStepsCompleted :exec
@@ -139,3 +150,13 @@ WHERE provider = $1 AND status NOT IN ('terminated', 'failed');
 -- agent registered before the provisioning transition could commit.
 UPDATE machines SET provider_ref = $2, provisioned_at = COALESCE(provisioned_at, now()), updated_at = now()
 WHERE id = $1;
+
+-- name: CleanupOldMachineEvents :exec
+-- Prune machine transition history older than 30 days (mirrors engine_events).
+-- Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+-- Batched so a backlog can't stall a sweep with one giant DELETE.
+DELETE FROM machine_events WHERE id IN (
+    SELECT id FROM machine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+);

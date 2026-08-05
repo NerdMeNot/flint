@@ -138,6 +138,25 @@ func (q *Queries) ClaimPendingAssignments(ctx context.Context, arg ClaimPendingA
 	return items, nil
 }
 
+const cleanupOldStepAssignments = `-- name: CleanupOldStepAssignments :exec
+DELETE FROM step_assignments WHERE id IN (
+    SELECT id FROM step_assignments
+    WHERE status IN ('succeeded', 'failed', 'cancelled', 'lost')
+      AND finished_at < now() - make_interval(days => $1::int)
+    LIMIT 2000
+)
+`
+
+// Retention: terminal assignments past the window. They do NOT cascade from
+// DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the
+// hot dispatch path off the runs lock), and each carries the fattest JSONB
+// payload in the operational path, so this is the top bloat vector. Batched, on
+// the same window as runs retention.
+func (q *Queries) CleanupOldStepAssignments(ctx context.Context, retentionDays int32) error {
+	_, err := q.db.Exec(ctx, cleanupOldStepAssignments, retentionDays)
+	return err
+}
+
 const failAssignment = `-- name: FailAssignment :one
 UPDATE step_assignments SET status = 'failed', error = $1, finished_at = now()
 WHERE id = $2 AND status IN ('assigned', 'running')
@@ -223,7 +242,7 @@ func (q *Queries) FailMachineAssignments(ctx context.Context, arg FailMachineAss
 	return items, nil
 }
 
-const finishAssignment = `-- name: FinishAssignment :exec
+const finishAssignment = `-- name: FinishAssignment :execrows
 UPDATE step_assignments SET
     status = $1, error = $2, finished_at = now()
 WHERE id = $3 AND status IN ('pending', 'assigned', 'running')
@@ -235,9 +254,16 @@ type FinishAssignmentParams struct {
 	ID     string  `json:"id"`
 }
 
-func (q *Queries) FinishAssignment(ctx context.Context, arg FinishAssignmentParams) error {
-	_, err := q.db.Exec(ctx, finishAssignment, arg.Status, arg.Error, arg.ID)
-	return err
+// :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
+// the assignment was already finalized by an earlier delivery) and skip the
+// steps_completed bump + busy→idle transition, which would otherwise drift the
+// machine's stats and accounting on a redelivered result.
+func (q *Queries) FinishAssignment(ctx context.Context, arg FinishAssignmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishAssignment, arg.Status, arg.Error, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getAssignment = `-- name: GetAssignment :one
@@ -472,7 +498,7 @@ func (q *Queries) ListRunAssignments(ctx context.Context, runID string) ([]ListR
 }
 
 const machineFreeCapacity = `-- name: MachineFreeCapacity :many
-SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at,
+SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at, m.capacity_type,
        COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
        COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
        COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
@@ -488,6 +514,7 @@ type MachineFreeCapacityRow struct {
 	CpuMillis          int64      `json:"cpu_millis"`
 	MemoryMb           int64      `json:"memory_mb"`
 	LastHeartbeatAt    *time.Time `json:"last_heartbeat_at"`
+	CapacityType       *string    `json:"capacity_type"`
 	CommittedCpuMillis int64      `json:"committed_cpu_millis"`
 	CommittedMemoryMb  int64      `json:"committed_memory_mb"`
 	ActiveRunIds       []string   `json:"active_run_ids"`
@@ -514,6 +541,7 @@ func (q *Queries) MachineFreeCapacity(ctx context.Context, poolID string) ([]Mac
 			&i.CpuMillis,
 			&i.MemoryMb,
 			&i.LastHeartbeatAt,
+			&i.CapacityType,
 			&i.CommittedCpuMillis,
 			&i.CommittedMemoryMb,
 			&i.ActiveRunIds,
@@ -543,7 +571,8 @@ type PendingAssignmentDemandRow struct {
 	MemoryMb  int64  `json:"memory_mb"`
 }
 
-// Fleet provisioner input: unbound demand per pool.
+// Fleet scheduler input: unbound demand per pool (ALL pending, incl. work pinned
+// to an existing holder — the scheduler still has to place those on their holder).
 func (q *Queries) PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error) {
 	rows, err := q.db.Query(ctx, pendingAssignmentDemand)
 	if err != nil {
@@ -558,6 +587,113 @@ func (q *Queries) PendingAssignmentDemand(ctx context.Context) ([]PendingAssignm
 			&i.N,
 			&i.CpuMillis,
 			&i.MemoryMb,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendingProvisioningDemand = `-- name: PendingProvisioningDemand :many
+SELECT sa.pool_id, count(*) AS n
+FROM step_assignments sa
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id
+`
+
+type PendingProvisioningDemandRow struct {
+	PoolID string `json:"pool_id"`
+	N      int64  `json:"n"`
+}
+
+// Fleet provisioner input: pending demand a NEW machine can actually serve.
+// Excludes pending assignments whose run is already pinned by HARD affinity to a
+// live (idle/busy) holder machine in the same pool — booting can't take that work
+// (it can only run on the holder), so it must not inflate the provisioning
+// deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
+// succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
+func (q *Queries) PendingProvisioningDemand(ctx context.Context) ([]PendingProvisioningDemandRow, error) {
+	rows, err := q.db.Query(ctx, pendingProvisioningDemand)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingProvisioningDemandRow{}
+	for rows.Next() {
+		var i PendingProvisioningDemandRow
+		if err := rows.Scan(&i.PoolID, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendingProvisioningDemandByGroup = `-- name: PendingProvisioningDemandByGroup :many
+SELECT sa.pool_id,
+       COALESCE(pr.branch, '') AS branch,
+       COALESCE(pr.trigger_type, '') AS event,
+       count(*) AS n
+FROM step_assignments sa
+LEFT JOIN pipeline_runs pr ON pr.id = sa.run_id
+WHERE sa.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM step_assignments held
+    JOIN machines m ON m.id = held.machine_id
+    WHERE held.run_id = sa.run_id
+      AND m.pool_id = sa.pool_id
+      AND m.status IN ('idle', 'busy')
+      AND held.status IN ('assigned', 'running', 'succeeded', 'failed')
+  )
+GROUP BY sa.pool_id, pr.branch, pr.trigger_type
+`
+
+type PendingProvisioningDemandByGroupRow struct {
+	PoolID string `json:"pool_id"`
+	Branch string `json:"branch"`
+	Event  string `json:"event"`
+	N      int64  `json:"n"`
+}
+
+// Same provisionable demand as PendingProvisioningDemand, but split by the run's
+// (branch, event) so the fleet can resolve per-branch/event economics policy
+// (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+// the branch/trigger_type; a run with a null branch/type collapses to ” (the
+// wildcard context, which only matches an override whose field is also empty).
+// LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+// the ” wildcard context instead) — an INNER JOIN would silently drop such
+// assignments from the provisioning deficit.
+func (q *Queries) PendingProvisioningDemandByGroup(ctx context.Context) ([]PendingProvisioningDemandByGroupRow, error) {
+	rows, err := q.db.Query(ctx, pendingProvisioningDemandByGroup)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingProvisioningDemandByGroupRow{}
+	for rows.Next() {
+		var i PendingProvisioningDemandByGroupRow
+		if err := rows.Scan(
+			&i.PoolID,
+			&i.Branch,
+			&i.Event,
+			&i.N,
 		); err != nil {
 			return nil, err
 		}

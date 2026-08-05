@@ -83,9 +83,14 @@ func (m *mockEC2) DescribeInstances(_ context.Context, _ *ec2.DescribeInstancesI
 			continue
 		}
 		state := inst.state
+		var tags []ec2types.Tag
+		for k, v := range inst.tags {
+			tags = append(tags, ec2types.Tag{Key: awssdk.String(k), Value: awssdk.String(v)})
+		}
 		instances = append(instances, ec2types.Instance{
 			InstanceId: awssdk.String(inst.id),
 			State:      &ec2types.InstanceState{Name: state},
+			Tags:       tags,
 		})
 	}
 	return &ec2.DescribeInstancesOutput{

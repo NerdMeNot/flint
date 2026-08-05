@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/pkg/compute"
 )
 
 // claimDeadline bounds how long a bound assignment may sit unclaimed before
@@ -43,13 +44,14 @@ func (f *Fleet) SchedulePending(ctx context.Context) (int, error) {
 
 // candidate is a machine with mutable free-capacity bookkeeping for one pass.
 type candidate struct {
-	id        string
-	status    string
-	freeCPU   int64
-	freeMem   int64
-	runIDs    []string
-	nowBusy   bool // became busy during this pass
-	boundHere int
+	id            string
+	status        string
+	freeCPU       int64
+	freeMem       int64
+	runIDs        []string
+	interruptible bool // reclaimable (spot) capacity — avoided for new run holders
+	nowBusy       bool // became busy during this pass
+	boundHere     int
 }
 
 func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
@@ -59,6 +61,17 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(f.pool).WithTx(tx)
+
+	// Serialize a pool's scheduling across workers. Without it, two replicas read
+	// the same MachineFreeCapacity snapshot (neither's binds committed yet) and
+	// both pack their disjoint pending sets onto the same machine, overcommitting
+	// its CPU/mem. A transaction-scoped advisory lock (auto-released on commit)
+	// makes the loser wait, then read the winner's committed binds. Fast path —
+	// scheduling is pure DB, no external calls — so blocking here is cheap.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('flint-sched:' || $1))`, poolID); err != nil {
+		return 0, err
+	}
 
 	pending, err := qtx.ClaimPendingAssignments(ctx, db.ClaimPendingAssignmentsParams{
 		PoolID: poolID, Limit: schedulerBatch,
@@ -78,9 +91,10 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 			status: m.Status,
 			// Free = capacity − committed; capacity 0 means "unknown/unbounded"
 			// (a machine that self-reported nothing) — treat as roomy.
-			freeCPU: freeOrUnbounded(m.CpuMillis, m.CommittedCpuMillis),
-			freeMem: freeOrUnbounded(m.MemoryMb, m.CommittedMemoryMb),
-			runIDs:  m.ActiveRunIds,
+			freeCPU:       freeOrUnbounded(m.CpuMillis, m.CommittedCpuMillis),
+			freeMem:       freeOrUnbounded(m.MemoryMb, m.CommittedMemoryMb),
+			runIDs:        m.ActiveRunIds,
+			interruptible: m.CapacityType != nil && compute.CapacityType(*m.CapacityType).Interruptible(),
 		})
 	}
 
@@ -145,9 +159,27 @@ func pickMachine(candidates []*candidate, a db.ClaimPendingAssignmentsRow) *cand
 		return nil // wait for the run's machine — never split a run's workspace
 	}
 
+	// No holder yet: this placement establishes the run's workspace holder. Prefer
+	// STABLE capacity (B2) — an interruptible machine reclaimed mid-run loses the
+	// workspace and forces a from-scratch retry, so a run's home should be
+	// non-reclaimable. Interruptible machines are used only as OVERFLOW, when no
+	// stable machine has room. Within a class it's best-fit (smallest sufficient
+	// free CPU, so big future requests keep a machine to land on).
+	if best := bestFit(candidates, a, false); best != nil {
+		return best
+	}
+	return bestFit(candidates, a, true)
+}
+
+// bestFit returns the smallest-sufficient-CPU candidate with room for a. When
+// allowInterruptible is false, reclaimable machines are skipped.
+func bestFit(candidates []*candidate, a db.ClaimPendingAssignmentsRow, allowInterruptible bool) *candidate {
 	var best *candidate
 	for _, c := range candidates {
 		if c.freeCPU < a.CpuMillis || c.freeMem < a.MemoryMb {
+			continue
+		}
+		if c.interruptible && !allowInterruptible {
 			continue
 		}
 		if best == nil || c.freeCPU < best.freeCPU {

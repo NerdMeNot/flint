@@ -99,6 +99,10 @@ SELECT m.id, m.pool_id FROM machines m
 JOIN machine_pools p ON p.id = m.pool_id
 WHERE m.status = 'idle'
   AND m.idle_since < now() - make_interval(secs := p.idle_ttl_seconds)
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
+  )
 FOR UPDATE OF m SKIP LOCKED
 `
 
@@ -108,7 +112,10 @@ type ClaimIdleMachinesPastTTLRow struct {
 }
 
 // Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
-// min_warm before draining.
+// min_warm before draining. The NOT EXISTS guard is essential: a machine can be
+// status='idle' yet still hold a live assignment (busy/idle accounting can drift,
+// or work was bound just after it went idle) — terminating it would kill running
+// work, so those are never candidates.
 func (q *Queries) ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMachinesPastTTLRow, error) {
 	rows, err := q.db.Query(ctx, claimIdleMachinesPastTTL)
 	if err != nil {
@@ -127,6 +134,22 @@ func (q *Queries) ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMach
 		return nil, err
 	}
 	return items, nil
+}
+
+const cleanupOldMachineEvents = `-- name: CleanupOldMachineEvents :exec
+DELETE FROM machine_events WHERE id IN (
+    SELECT id FROM machine_events
+    WHERE created_at < now() - interval '30 days'
+    LIMIT 5000
+)
+`
+
+// Prune machine transition history older than 30 days (mirrors engine_events).
+// Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+// Batched so a backlog can't stall a sweep with one giant DELETE.
+func (q *Queries) CleanupOldMachineEvents(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, cleanupOldMachineEvents)
+	return err
 }
 
 const completeMachineRegistration = `-- name: CompleteMachineRegistration :exec
@@ -738,7 +761,7 @@ func (q *Queries) TouchMachineHeartbeat(ctx context.Context, arg TouchMachineHea
 	return err
 }
 
-const updateMachineStatus = `-- name: UpdateMachineStatus :exec
+const updateMachineStatus = `-- name: UpdateMachineStatus :execrows
 UPDATE machines SET
     status = $1,
     drain_reason = COALESCE($2, drain_reason),
@@ -748,7 +771,7 @@ UPDATE machines SET
     idle_since     = CASE WHEN $1 = 'idle' THEN now() ELSE idle_since END,
     terminated_at  = CASE WHEN $1 IN ('terminated', 'failed') THEN now() ELSE terminated_at END,
     updated_at = now()
-WHERE id = $5
+WHERE id = $5 AND status = $6
 `
 
 type UpdateMachineStatusParams struct {
@@ -757,17 +780,26 @@ type UpdateMachineStatusParams struct {
 	ProviderRef    *string    `json:"provider_ref"`
 	BootDeadlineAt *time.Time `json:"boot_deadline_at"`
 	ID             string     `json:"id"`
+	FromStatus     string     `json:"from_status"`
 }
 
 // Used only by the fleet transition chokepoint after validating the edge; callers
-// never update status directly.
-func (q *Queries) UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) error {
-	_, err := q.db.Exec(ctx, updateMachineStatus,
+// never update status directly. The `from` guard makes the transition optimistic:
+// the row moves only if it's still in the expected state, so 0 rows affected means
+// another actor already moved it (a lost race). The chokepoint surfaces that so the
+// caller can skip or roll back, rather than clobbering a concurrent transition
+// (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
+func (q *Queries) UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateMachineStatus,
 		arg.Status,
 		arg.DrainReason,
 		arg.ProviderRef,
 		arg.BootDeadlineAt,
 		arg.ID,
+		arg.FromStatus,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

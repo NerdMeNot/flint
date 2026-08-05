@@ -1517,6 +1517,16 @@ CREATE INDEX idx_pipeline_runs_running ON public.pipeline_runs USING btree (stat
 
 
 --
+-- Name: idx_pipeline_runs_terminal_finished; Type: INDEX; Schema: public; Owner: -
+-- Serves DeleteOldRuns (retention): terminal runs ordered by finished_at. The
+-- only other status index (idx_pipeline_runs_running) covers running rows, so
+-- the retention delete would otherwise seq-scan as the table grows.
+--
+
+CREATE INDEX idx_pipeline_runs_terminal_finished ON public.pipeline_runs USING btree (finished_at) WHERE (status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text]));
+
+
+--
 -- Name: idx_projects_org; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1708,6 +1718,15 @@ CREATE INDEX idx_machine_events_machine ON public.machine_events USING btree (ma
 
 
 --
+-- Name: idx_machine_events_created; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldMachineEvents (retention). idx_machine_events_machine leads
+-- with machine_id, so it can't serve a global created_at prune.
+--
+
+CREATE INDEX idx_machine_events_created ON public.machine_events USING btree (created_at);
+
+
+--
 -- Name: idx_assignments_pending; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1737,6 +1756,26 @@ CREATE UNIQUE INDEX idx_assignments_step_active ON public.step_assignments USING
 
 
 --
+-- Name: idx_assignments_run_status; Type: INDEX; Schema: public; Owner: -
+-- Serves PendingProvisioningDemand's affinity subquery, which looks up an
+-- assignment's run across ALL live+terminal statuses (assigned/running/
+-- succeeded/failed) to decide if the run has a live holder. The partial
+-- idx_assignments_run excludes succeeded/failed, so it can't serve this.
+--
+
+CREATE INDEX idx_assignments_run_status ON public.step_assignments USING btree (run_id, status);
+
+
+--
+-- Name: idx_assignments_retention; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldStepAssignments (retention): terminal assignments by
+-- finished_at. Without it the batched prune seq-scans the fattest table.
+--
+
+CREATE INDEX idx_assignments_retention ON public.step_assignments USING btree (finished_at) WHERE (status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text, 'lost'::text]));
+
+
+--
 -- Name: idx_fleet_decisions_pool; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1748,6 +1787,15 @@ CREATE INDEX idx_fleet_decisions_pool ON public.fleet_decisions USING btree (poo
 --
 
 CREATE INDEX idx_fleet_decisions_machine ON public.fleet_decisions USING btree (machine_id) WHERE (machine_id IS NOT NULL);
+
+
+--
+-- Name: idx_fleet_decisions_created; Type: INDEX; Schema: public; Owner: -
+-- Serves CleanupOldFleetDecisions (retention). idx_fleet_decisions_pool leads
+-- with pool_id, so it can't serve a global created_at prune.
+--
+
+CREATE INDEX idx_fleet_decisions_created ON public.fleet_decisions USING btree (created_at);
 
 
 --

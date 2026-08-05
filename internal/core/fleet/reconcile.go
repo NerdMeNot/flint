@@ -64,7 +64,9 @@ func (f *Fleet) reconcileProvider(ctx context.Context, providerName string) erro
 		return err
 	}
 	dbByRef := map[string]db.ListProviderMachinesRow{}
+	dbByMachineID := map[string]bool{} // every non-terminal machine Flint owns
 	for _, m := range dbMachines {
+		dbByMachineID[m.ID] = true
 		if m.ProviderRef != nil {
 			dbByRef[*m.ProviderRef] = m
 		}
@@ -77,12 +79,22 @@ func (f *Fleet) reconcileProvider(ctx context.Context, providerName string) erro
 			continue
 		}
 		liveRefs[ref.ID] = true
+		// Correlate on the durable MachineID tag FIRST. A machine Flint just
+		// created is idle/requested with its provider_ref not yet committed, so
+		// it isn't in dbByRef — but its instance is tagged with the MachineID,
+		// which IS in the DB. Reaping on the ref alone would destroy a live
+		// machine mid-provision.
+		if ref.MachineID != "" && dbByMachineID[ref.MachineID] {
+			f.clearZombie(ref.ID)
+			continue
+		}
 		if _, known := dbByRef[ref.ID]; known {
 			continue
 		}
-		// Not ours (yet): give in-flight Creates a grace window, then reap.
-		// Without a creation timestamp from the ref, the grace is approximated
-		// by only reaping on a second consecutive sighting (tracked in-memory).
+		// Genuinely unknown (no matching MachineID, no matching ref): give
+		// in-flight Creates from a provider that can't surface a MachineID a
+		// grace window, then reap. The grace is approximated by only reaping on a
+		// second consecutive sighting (tracked in-memory).
 		if !f.sightZombie(ref.ID) {
 			continue
 		}

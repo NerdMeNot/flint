@@ -66,9 +66,16 @@ func (s *Server) lookupSecret(ctx context.Context, orgID, projectID, environment
 // GetCloneToken returns the clone URL (and forge token, once connections mint
 // per-clone tokens) for the step's repository.
 func (s *Server) GetCloneToken(ctx context.Context, req *agentv1.GetCloneTokenRequest) (*agentv1.GetCloneTokenResponse, error) {
-	_, payload, err := s.assignmentForMachine(ctx, req.GetAssignmentId())
+	a, payload, err := s.assignmentForMachine(ctx, req.GetAssignmentId())
 	if err != nil {
 		return nil, err
+	}
+	// Same liveness gate as GetStepSecrets: a clone token (and, once connections
+	// mint them, a forge credential) must only be issued for an assignment that is
+	// still live on this machine — never for one already terminal (succeeded/
+	// failed/cancelled/lost).
+	if a.Status != "running" && a.Status != "assigned" {
+		return nil, status.Error(codes.FailedPrecondition, "assignment is not live")
 	}
 	repo := payload.GetRepo()
 	if repo == "" {

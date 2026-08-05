@@ -122,6 +122,11 @@ func newWithAPI(name string, cfg Config, api ec2API) *Provider {
 
 func (p *Provider) Name() string { return p.name }
 
+// Classes: EC2 supplies both stable (on-demand) and interruptible (spot).
+func (p *Provider) Classes() []compute.CapacityType {
+	return []compute.CapacityType{compute.CapacityOnDemand, compute.CapacitySpot}
+}
+
 // Quote prices catalog types satisfying the requirements: on-demand from the
 // embedded baseline, spot from live DescribeSpotPriceHistory (5-minute cache).
 func (p *Provider) Quote(ctx context.Context, req compute.Requirements) ([]compute.Offer, error) {
@@ -268,7 +273,7 @@ func (p *Provider) Create(ctx context.Context, offer compute.Offer, bootstrap co
 	id := awssdk.ToString(out.Instances[0].InstanceId)
 	log.Info().Str("instance", id).Str("type", offer.InstanceType).
 		Str("capacity", string(offer.Capacity)).Msg("awsec2: instance launched")
-	return compute.MachineRef{Provider: p.name, ID: id, State: compute.RefPending}, nil
+	return compute.MachineRef{Provider: p.name, ID: id, MachineID: bootstrap.MachineID, State: compute.RefPending}, nil
 }
 
 // Destroy terminates the instance; unknown ids are success.
@@ -299,10 +304,18 @@ func (p *Provider) List(ctx context.Context) ([]compute.MachineRef, error) {
 	var refs []compute.MachineRef
 	for _, res := range out.Reservations {
 		for _, inst := range res.Instances {
+			var machineID string
+			for _, tag := range inst.Tags {
+				if awssdk.ToString(tag.Key) == "flint:machine-id" {
+					machineID = awssdk.ToString(tag.Value)
+					break
+				}
+			}
 			refs = append(refs, compute.MachineRef{
-				Provider: p.name,
-				ID:       awssdk.ToString(inst.InstanceId),
-				State:    refState(inst.State),
+				Provider:  p.name,
+				ID:        awssdk.ToString(inst.InstanceId),
+				MachineID: machineID,
+				State:     refState(inst.State),
 			})
 		}
 	}

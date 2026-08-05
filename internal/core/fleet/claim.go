@@ -34,10 +34,17 @@ func (f *Fleet) CompleteAssignment(ctx context.Context, assignmentID, machineID,
 	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(f.pool).WithTx(tx)
 
-	if err := qtx.FinishAssignment(ctx, db.FinishAssignmentParams{
+	n, err := qtx.FinishAssignment(ctx, db.FinishAssignmentParams{
 		ID: assignmentID, Status: status, Error: errMsg,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if n == 0 {
+		// Duplicate completion: this assignment was already finalized by an
+		// earlier delivery. Bumping steps_completed or re-running the busy→idle
+		// transition here would double-count and corrupt accounting, so no-op.
+		return tx.Commit(ctx)
 	}
 	if err := qtx.IncrementMachineStepsCompleted(ctx, machineID); err != nil {
 		return err
@@ -53,7 +60,10 @@ func (f *Fleet) CompleteAssignment(ctx context.Context, assignmentID, machineID,
 			if err := transitionMachine(ctx, qtx, machineTransition{
 				machineID: machineID, from: machineBusy, to: machineIdle,
 				eventType: "idle", actor: actorAgent,
-			}); err != nil {
+			}); err != nil && !errors.Is(err, ErrMachineTransitionRaceLost) {
+				// A lost race means another actor already moved the machine off
+				// busy (scale-down, reconcile) — the assignment finalize must
+				// still succeed, so swallow it.
 				return err
 			}
 		}

@@ -73,6 +73,11 @@ func NewFake(name string) *Fake {
 
 func (f *Fake) Name() string { return f.ProviderName }
 
+// Classes: the fake supplies both classes so degrade paths can be exercised.
+func (f *Fake) Classes() []compute.CapacityType {
+	return []compute.CapacityType{compute.CapacityOnDemand, compute.CapacitySpot}
+}
+
 // Quote prices every shape that satisfies the requirements, emitting both
 // spot and on-demand offers when capacity is "any".
 func (f *Fake) Quote(ctx context.Context, req compute.Requirements) ([]compute.Offer, error) {
@@ -138,7 +143,8 @@ func (f *Fake) Create(ctx context.Context, offer compute.Offer, bootstrap comput
 			Provider: f.ProviderName,
 			ID: fmt.Sprintf("fake-%s-%d-%s",
 				strings.ReplaceAll(offer.InstanceType, ".", "-"), f.seq, hex.EncodeToString(nonce)),
-			State: compute.RefRunning,
+			MachineID: bootstrap.MachineID,
+			State:     compute.RefRunning,
 		},
 		Offer: offer, Bootstrap: bootstrap, CreatedAt: time.Now(),
 	}

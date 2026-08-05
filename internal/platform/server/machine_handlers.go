@@ -112,15 +112,33 @@ func (s *Server) handleDrainMachine(ctx context.Context, c *app.RequestContext) 
 		operator = "operator:" + claims.Email
 	}
 	reason := "operator drain"
-	if err := s.deps.Q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
-		ID: id, Status: "draining", DrainReason: &reason,
-	}); err != nil {
+	// Optimistic: the machine must still be in the status we read (the fleet may
+	// have moved it to draining/terminating/lost concurrently). 0 rows = raced.
+	n, err := s.deps.Q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+		ID: id, FromStatus: m.Status, Status: "draining", DrainReason: &reason,
+	})
+	if err != nil {
 		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
+	if n == 0 {
+		apiBadRequest(ctx, c, "machine state changed while draining; refresh and retry")
 		return
 	}
 	_ = s.deps.Q.InsertMachineEvent(ctx, db.InsertMachineEventParams{
 		MachineID: id, EventType: "drain", FromStatus: &m.Status,
 		ToStatus: strPointer("draining"), Actor: operator, Reason: &reason,
+	})
+	// Ledger the drain alongside provision/terminate so the fleet_decisions
+	// ledger is a complete record of every lifecycle decision, not just the
+	// economic ones — an operator-initiated drain is still a capacity decision
+	// someone may need to explain later.
+	drainInputs, _ := json.Marshal(map[string]any{
+		"operator": operator, "reason": reason, "fromStatus": m.Status,
+	})
+	_, _ = s.deps.Q.InsertFleetDecision(ctx, db.InsertFleetDecisionParams{
+		PoolID: &m.PoolID, MachineID: &id, DecisionType: "drain",
+		Inputs: drainInputs, Chosen: []byte("{}"), Alternatives: []byte("[]"),
 	})
 	s.recordAudit(ctx, "machine.drain", "machine")
 	c.JSON(consts.StatusOK, utils.H{"id": id, "status": "draining"})

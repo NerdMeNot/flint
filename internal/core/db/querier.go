@@ -44,7 +44,10 @@ type Querier interface {
 	// Sweep: machines whose heartbeat lease lapsed → lost.
 	ClaimExpiredHeartbeats(ctx context.Context) ([]ClaimExpiredHeartbeatsRow, error)
 	// Scale-down candidates: idle beyond the pool TTL. The provisioner re-checks
-	// min_warm before draining.
+	// min_warm before draining. The NOT EXISTS guard is essential: a machine can be
+	// status='idle' yet still hold a live assignment (busy/idle accounting can drift,
+	// or work was bound just after it went idle) — terminating it would kill running
+	// work, so those are never candidates.
 	ClaimIdleMachinesPastTTL(ctx context.Context) ([]ClaimIdleMachinesPastTTLRow, error)
 	// claimed_at stamps when the event entered 'processing' so RecoverStaleOutboxEvents
 	// can detect events stranded by a worker crash mid-delivery.
@@ -58,13 +61,38 @@ type Querier interface {
 	// read is best-effort: a pause committing after this read may let one already-
 	// queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
+	// Backstop recovery: workflows still 'running' although every step has already
+	// reached a terminal state — the advance that should have finished them was lost
+	// to a worker crash between marking the last step terminal and committing the
+	// finish. Returns the id and whether any step failed, so the caller routes each
+	// through the real finish path (FinishWorkflow + workflow_finished event +
+	// FinishRun + webhook enqueue) with the correct verdict, instead of a bare status
+	// UPDATE that used to strand the run 'running' with no webhook and always mark it
+	// 'failed' even when every step succeeded. FOR UPDATE ... SKIP LOCKED so it never
+	// contends with a live advance holding the same workflow row (the engine advances
+	// one workflow at a time under a FOR UPDATE lock); a workflow a live advance is
+	// about to finish is simply skipped this tick.
+	ClaimStaleWorkflows(ctx context.Context) ([]ClaimStaleWorkflowsRow, error)
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
 	// Prune transition history older than 30 days so the table stays bounded.
 	// Batched (one batch per sweep) so a long-lived install's backlog can't stall
 	// a sweep tick with one giant DELETE.
 	CleanupOldEngineEvents(ctx context.Context) error
+	// The economics ledger is retained long (90 days) so decisions stay auditable,
+	// but not forever. Batched, like the other retention sweeps.
+	CleanupOldFleetDecisions(ctx context.Context) error
 	CleanupOldLoginAttempts(ctx context.Context) error
+	// Prune machine transition history older than 30 days (mirrors engine_events).
+	// Heartbeat-driven busy⇄idle churn makes this high-volume on a live fleet.
+	// Batched so a backlog can't stall a sweep with one giant DELETE.
+	CleanupOldMachineEvents(ctx context.Context) error
+	// Retention: terminal assignments past the window. They do NOT cascade from
+	// DeleteOldRuns (step_assignments has no FK to runs — deliberate, to keep the
+	// hot dispatch path off the runs lock), and each carries the fattest JSONB
+	// payload in the operational path, so this is the top bloat vector. Batched, on
+	// the same window as runs retention.
+	CleanupOldStepAssignments(ctx context.Context, retentionDays int32) error
 	ClearForcePasswordChange(ctx context.Context, id string) error
 	ClearUserTOTP(ctx context.Context, id string) error
 	CompleteDeviceCode(ctx context.Context, arg CompleteDeviceCodeParams) error
@@ -179,7 +207,11 @@ type Querier interface {
 	FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error
 	FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error)
 	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
-	FinishAssignment(ctx context.Context, arg FinishAssignmentParams) error
+	// :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
+	// the assignment was already finalized by an earlier delivery) and skip the
+	// steps_completed bump + busy→idle transition, which would otherwise drift the
+	// machine's stats and accounting on a redelivered result.
+	FinishAssignment(ctx context.Context, arg FinishAssignmentParams) (int64, error)
 	FinishRun(ctx context.Context, arg FinishRunParams) error
 	FinishWorkflow(ctx context.Context, arg FinishWorkflowParams) error
 	GetActiveWebhooksForEvent(ctx context.Context, arg GetActiveWebhooksForEventParams) ([]GetActiveWebhooksForEventRow, error)
@@ -514,8 +546,25 @@ type Querier interface {
 	// affected (0 = already paused/terminal, a no-op). While paused, ClaimQueuedSteps
 	// skips its steps and advanceWorkflow queues nothing; in-flight steps still finish.
 	PauseWorkflow(ctx context.Context, id string) (int64, error)
-	// Fleet provisioner input: unbound demand per pool.
+	// Fleet scheduler input: unbound demand per pool (ALL pending, incl. work pinned
+	// to an existing holder — the scheduler still has to place those on their holder).
 	PendingAssignmentDemand(ctx context.Context) ([]PendingAssignmentDemandRow, error)
+	// Fleet provisioner input: pending demand a NEW machine can actually serve.
+	// Excludes pending assignments whose run is already pinned by HARD affinity to a
+	// live (idle/busy) holder machine in the same pool — booting can't take that work
+	// (it can only run on the holder), so it must not inflate the provisioning
+	// deficit. The affinity rule mirrors MachineFreeCapacity: assigned/running/
+	// succeeded/failed pin a run to its workspace machine; lost/cancelled don't.
+	PendingProvisioningDemand(ctx context.Context) ([]PendingProvisioningDemandRow, error)
+	// Same provisionable demand as PendingProvisioningDemand, but split by the run's
+	// (branch, event) so the fleet can resolve per-branch/event economics policy
+	// (main → stable, PRs → interruptible) before quoting. Joins pipeline_runs for
+	// the branch/trigger_type; a run with a null branch/type collapses to '' (the
+	// wildcard context, which only matches an override whose field is also empty).
+	// LEFT JOIN so demand never vanishes when a run row is missing (it collapses to
+	// the '' wildcard context instead) — an INNER JOIN would silently drop such
+	// assignments from the provisioning deficit.
+	PendingProvisioningDemandByGroup(ctx context.Context) ([]PendingProvisioningDemandByGroupRow, error)
 	// Pool insights (7d): queue waits and the warm-hit rate. A warm hit is an
 	// assignment whose machine was already registered when the work arrived — the
 	// run never waited on a boot.
@@ -634,7 +683,6 @@ type Querier interface {
 	// longer claims, past a grace period since they started.
 	StaleRunningAssignmentsForMachine(ctx context.Context, arg StaleRunningAssignmentsForMachineParams) ([]StaleRunningAssignmentsForMachineRow, error)
 	SweepStaleRunningSteps(ctx context.Context) (int64, error)
-	SweepStaleWorkflows(ctx context.Context) error
 	// Heartbeat GC input: of the run ids resident on a machine's disk, which have
 	// reached a terminal state (their workspace dirs are safe to delete).
 	TerminalRunIDs(ctx context.Context, runIds []string) ([]string, error)
@@ -645,8 +693,12 @@ type Querier interface {
 	TouchScimToken(ctx context.Context, tokenHash string) error
 	UpdateForgeConnectionByName(ctx context.Context, arg UpdateForgeConnectionByNameParams) (string, error)
 	// Used only by the fleet transition chokepoint after validating the edge; callers
-	// never update status directly.
-	UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) error
+	// never update status directly. The `from` guard makes the transition optimistic:
+	// the row moves only if it's still in the expected state, so 0 rows affected means
+	// another actor already moved it (a lost race). The chokepoint surfaces that so the
+	// caller can skip or roll back, rather than clobbering a concurrent transition
+	// (last-writer-wins would corrupt busy/idle accounting under multi-replica load).
+	UpdateMachineStatus(ctx context.Context, arg UpdateMachineStatusParams) (int64, error)
 	// UI-managed project labels (the registry curates the vocabulary; this stores
 	// the chosen key:value and free tags on the project).
 	UpdateProjectTags(ctx context.Context, arg UpdateProjectTagsParams) error

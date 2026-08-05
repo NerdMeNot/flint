@@ -63,14 +63,37 @@ SELECT step_outputs FROM workflows WHERE id = $1;
 -- batch in one round-trip (kills the per-step N+1 in claimAndDispatch).
 SELECT id, input, step_outputs FROM workflows WHERE id = ANY(sqlc.arg(workflow_ids)::uuid[]);
 
--- name: SweepStaleWorkflows :exec
-UPDATE workflows SET status = 'failed', finished_at = now()
-WHERE status = 'running'
-AND NOT EXISTS (
-    SELECT 1 FROM steps
-    WHERE workflow_id = workflows.id
-    AND status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
-);
+-- name: ClaimStaleWorkflows :many
+-- Backstop recovery: workflows still 'running' although every step has already
+-- reached a terminal state — the advance that should have finished them was lost
+-- to a worker crash between marking the last step terminal and committing the
+-- finish. Returns the id and whether any step failed, so the caller routes each
+-- through the real finish path (FinishWorkflow + workflow_finished event +
+-- FinishRun + webhook enqueue) with the correct verdict, instead of a bare status
+-- UPDATE that used to strand the run 'running' with no webhook and always mark it
+-- 'failed' even when every step succeeded. FOR UPDATE ... SKIP LOCKED so it never
+-- contends with a live advance holding the same workflow row (the engine advances
+-- one workflow at a time under a FOR UPDATE lock); a workflow a live advance is
+-- about to finish is simply skipped this tick.
+SELECT w.id,
+       EXISTS (
+           SELECT 1 FROM steps s
+           WHERE s.workflow_id = w.id AND s.status = 'failed'
+       ) AS has_failure
+FROM workflows w
+WHERE w.status = 'running'
+  -- Must have at least one step: a workflow that just went 'running' has a brief
+  -- window before its first advance creates steps, and "no non-terminal steps" is
+  -- vacuously true then — without this guard the sweep would finish a workflow
+  -- that hasn't started. (The old bare-UPDATE sweep had this latent bug.)
+  AND EXISTS (SELECT 1 FROM steps s WHERE s.workflow_id = w.id)
+  AND NOT EXISTS (
+    SELECT 1 FROM steps s
+    WHERE s.workflow_id = w.id
+    AND s.status NOT IN ('succeeded', 'failed', 'skipped', 'cancelled')
+  )
+FOR UPDATE OF w SKIP LOCKED
+LIMIT 200;
 
 -- name: RecentlyFinishedRunIDs :many
 SELECT DISTINCT pr.id AS run_id FROM pipeline_runs pr
