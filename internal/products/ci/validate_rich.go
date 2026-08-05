@@ -34,6 +34,9 @@ type richValidator struct {
 	issues  []pipeline.ValidationIssue
 }
 
+// validJobWhenValues is the allowed set for a job's `when:` outcome gate.
+var validJobWhenValues = map[string]bool{"onSuccess": true, "onFailure": true, "always": true}
+
 func (v *richValidator) errorf(code, field, msg string, args ...any) {
 	v.issues = append(v.issues, pipeline.ValidationIssue{
 		Code: code, Field: field, Severity: pipeline.SeverityError,
@@ -207,6 +210,40 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 		}
 	}
 
+	// Declared content inputs (D1): each inputs.needs entry must reference a job
+	// this job actually `needs` (its output can't feed a content key otherwise),
+	// and files/env must be non-empty/valid. This is what lets the engine derive
+	// a content cache key instead of the author hand-writing one.
+	if !job.Inputs.Empty() {
+		needed := toSet(job.Needs)
+		for i, ref := range job.Inputs.Needs {
+			dep := ref
+			if idx := strings.IndexByte(ref, '.'); idx >= 0 {
+				dep = ref[:idx] // "build.version" → "build"
+			}
+			if !jobNames[dep] {
+				v.errorf(pipeline.CodeUnknownRef, fmt.Sprintf("%s.inputs.needs[%d]", field, i),
+					"job %q inputs reference unknown job %q", name, dep)
+			} else if !needed[dep] {
+				v.errorSuggest(pipeline.CodeUnknownRef, fmt.Sprintf("%s.inputs.needs[%d]", field, i),
+					fmt.Sprintf("Add %q to this job's needs:", dep),
+					"job %q inputs depend on %q but it is not in needs", name, dep)
+			}
+		}
+		for i, f := range job.Inputs.Files {
+			if strings.TrimSpace(f) == "" {
+				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.files[%d]", field, i),
+					"job %q has an empty input file glob", name)
+			}
+		}
+		for i, e := range job.Inputs.Env {
+			if !pipeline.IsValidEnvName(e) {
+				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.env[%d]", field, i),
+					"job %q input env %q is not a valid environment variable name", name, e)
+			}
+		}
+	}
+
 	// Environment narrowing.
 	if len(pipelineEnvs) > 0 {
 		for i, e := range job.Environments {
@@ -240,16 +277,40 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 	v.checkDuration(field+".timeout", job.Timeout)
 	v.checkMatrix(field, name, job)
 
-	// Fail-fast/parallelism knobs the engine does not enforce yet.
-	if job.FailFast != nil {
+	// fanOut: a runtime array expression. Mutually exclusive with matrix (both
+	// are fan-out mechanisms; matrix is compile-time, fanOut runtime), and
+	// compile-checked against the runtime context.
+	if job.FanOut != "" {
+		if !job.Matrix.Empty() {
+			v.errorf(pipeline.CodeInvalidValue, field+".fanOut",
+				"job %q sets both matrix and fanOut — use one fan-out mechanism", name)
+		}
+		v.checkExpr(field+".fanOut", job.FanOut, v.jobExprCtx(job))
+	}
+
+	// failFast: false is the current engine behavior (all variants run to
+	// completion), so accept it — it lets an author state the intent explicitly.
+	// failFast: true would need the engine to cancel sibling variants on the
+	// first failure, which it does not do yet, so it is still rejected.
+	if job.FailFast != nil && *job.FailFast {
 		v.errorSuggest(pipeline.CodeInvalidValue, field+".failFast",
-			"Remove failFast (variants currently always run to completion)",
-			"matrix fail-fast is not yet enforced by the engine")
+			"Set failFast: false (or remove it) — variants currently always run to completion",
+			"matrix failFast: true (cancel siblings on first failure) is not yet enforced by the engine")
 	}
 	if job.MaxParallel != 0 {
 		v.errorSuggest(pipeline.CodeInvalidValue, field+".maxParallel",
 			"Remove maxParallel",
 			"matrix parallelism caps are not yet enforced by the engine")
+	}
+
+	// when: — outcome gate on the job's needs subgraph.
+	if job.When != "" && !validJobWhenValues[job.When] {
+		suggestion := "Valid values: onSuccess, onFailure, always"
+		if closest := pipeline.FindClosest(job.When, validJobWhenValues); closest != "" {
+			suggestion = fmt.Sprintf("Did you mean %q? %s", closest, suggestion)
+		}
+		v.errorSuggest(pipeline.CodeInvalidValue, field+".when",
+			suggestion, "job %q has invalid when value %q", name, job.When)
 	}
 
 	// if: — compile-checked against the runtime context shape.
@@ -356,17 +417,33 @@ func (v *richValidator) checkGate(field, jobName string, g *pipeline.Gate) {
 // ── Matrix ──────────────────────────────────────────────────────────────
 
 func (v *richValidator) checkMatrix(field, name string, job Job) {
-	if len(job.Matrix) > 0 {
-		combos := 1
-		for dim, vals := range job.Matrix {
+	if !job.Matrix.Empty() {
+		for dim, vals := range job.Matrix.Dimensions {
 			if len(vals) == 0 {
 				v.errorf(pipeline.CodeInvalidValue, field+".matrix."+dim,
 					"matrix dimension %q has no values", dim)
-				continue
 			}
-			combos *= len(vals)
 		}
-		if combos > maxMatrixCombos {
+		// exclude keys must name real dimensions — an exclude on a non-dimension
+		// silently matches nothing, which is almost always a typo.
+		dimSet := map[string]bool{}
+		for dim := range job.Matrix.Dimensions {
+			dimSet[dim] = true
+		}
+		for i, e := range job.Matrix.Exclude {
+			for k := range e {
+				if !dimSet[k] {
+					suggestion := "Declared dimensions: " + strings.Join(sortedKeys(dimSet), ", ")
+					if closest := pipeline.FindClosest(k, dimSet); closest != "" {
+						suggestion = fmt.Sprintf("Did you mean %q? %s", closest, suggestion)
+					}
+					v.errorSuggest(pipeline.CodeUnknownRef, fmt.Sprintf("%s.matrix.exclude[%d]", field, i),
+						suggestion, "exclude references unknown matrix dimension %q", k)
+				}
+			}
+		}
+		// The bound is on the FINAL combination count (after exclude/include).
+		if combos := len(expandMatrixCombos(job.Matrix)); combos > maxMatrixCombos {
 			v.errorf(pipeline.CodeBoundsExceeded, field+".matrix",
 				"job %q matrix expands to %d combinations (limit %d)", name, combos, maxMatrixCombos)
 		}
@@ -380,15 +457,13 @@ func (v *richValidator) checkMatrix(field, name string, job Job) {
 		}
 	}
 
-	// Every ${{ matrix.X }} reference must name a declared dimension, and
-	// matrix references are only valid inside matrix jobs.
-	dims := map[string]bool{}
-	for dim := range job.Matrix {
-		dims[dim] = true
-	}
+	// Every ${{ matrix.X }} reference must name a declared dimension (including
+	// keys introduced only by include entries), and matrix references are only
+	// valid inside matrix jobs.
+	dims := job.Matrix.AllKeys()
 	check := func(where, s string) {
 		for _, key := range matrixRefs(s) {
-			if len(job.Matrix) == 0 {
+			if job.Matrix.Empty() {
 				v.errorf(pipeline.CodeUnknownRef, where,
 					"references matrix.%s but job %q has no matrix", key, name)
 				continue

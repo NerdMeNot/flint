@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +36,8 @@ var reservedContextVars = map[string]bool{
 	"environment": true, "triggeredBy": true, "triggerType": true, "status": true,
 	"project": true, "run": true, "inputs": true, "env": true, "secrets": true,
 	"matrix": true, "steps": true, "webhook": true, "hashFiles": true,
+	"success": true, "failure": true, "always": true,
+	"fromJSON": true, "toJSON": true, "format": true,
 }
 
 // IsReservedContextVar reports whether name collides with a built-in expression
@@ -45,6 +49,72 @@ func IsReservedContextVar(name string) bool { return reservedContextVars[name] }
 // At runtime, the engine provides a real implementation.
 type FileHasher interface {
 	HashFiles(pattern string) (string, error)
+}
+
+// StdExprFuncs are the context-independent helper functions available in every
+// expression environment — validation and runtime alike. They carry no data
+// (unlike hashFiles or the status functions), so a single definition can be
+// merged into every context builder, which keeps validation and runtime from
+// drifting. fromJSON is the linchpin for runtime fan-out (a step emits a JSON
+// array; a downstream expression parses it).
+func StdExprFuncs() map[string]any {
+	return map[string]any{
+		// fromJSON parses a JSON string into a value (object → map, array →
+		// slice, scalar → scalar). Invalid JSON is a loud error, not a silent
+		// nil, so a malformed output fails the expression rather than the step.
+		"fromJSON": func(s string) (any, error) {
+			var v any
+			if err := json.Unmarshal([]byte(s), &v); err != nil {
+				return nil, fmt.Errorf("fromJSON: %w", err)
+			}
+			return v, nil
+		},
+		// toJSON serializes a value to a compact JSON string.
+		"toJSON": func(v any) (string, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return "", fmt.Errorf("toJSON: %w", err)
+			}
+			return string(b), nil
+		},
+		// format substitutes {0}, {1}, … in the template with the positional
+		// arguments (GitHub Actions style). A literal brace is written {{ or }}.
+		"format": func(format string, args ...any) string {
+			return formatTemplate(format, args)
+		},
+	}
+}
+
+// formatTemplate implements the format() placeholder substitution.
+func formatTemplate(format string, args []any) string {
+	var b strings.Builder
+	for i := 0; i < len(format); i++ {
+		c := format[i]
+		switch {
+		case c == '{' && i+1 < len(format) && format[i+1] == '{':
+			b.WriteByte('{')
+			i++
+		case c == '}' && i+1 < len(format) && format[i+1] == '}':
+			b.WriteByte('}')
+			i++
+		case c == '{':
+			end := strings.IndexByte(format[i:], '}')
+			if end < 0 {
+				b.WriteByte(c)
+				continue
+			}
+			idx, err := strconv.Atoi(format[i+1 : i+end])
+			if err != nil || idx < 0 || idx >= len(args) {
+				b.WriteString(format[i : i+end+1]) // leave the placeholder verbatim
+			} else {
+				fmt.Fprintf(&b, "%v", args[idx])
+			}
+			i += end
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // safeCompileOpts returns expr-lang options that sandbox the expression environment.
@@ -257,6 +327,8 @@ func BuildRuntimeContext(opts RuntimeContextOpts) ExprContext {
 		webhook["headers"] = headers
 	}
 	ctx["webhook"] = webhook
+
+	maps.Copy(ctx, StdExprFuncs())
 
 	// hashFiles function — uses FileHasher if provided, otherwise returns a
 	// deterministic placeholder. The placeholder uses the pattern as input so

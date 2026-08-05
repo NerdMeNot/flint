@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 // (as zero values) plus hashFiles, so expressions can be compile-checked without
 // triggering false "unknown variable" errors.
 func exprValidationContext() ExprContext {
-	return ExprContext{
+	ctx := ExprContext{
 		"branch": "", "commitSha": "", "shortSha": "", "tag": "",
 		"environment": "", "triggeredBy": "", "triggerType": "", "status": "",
 		"project":   map[string]any{"name": "", "repo": ""},
@@ -24,6 +25,8 @@ func exprValidationContext() ExprContext {
 		"webhook":   map[string]any{},
 		"hashFiles": func(string) string { return "" },
 	}
+	maps.Copy(ctx, StdExprFuncs())
+	return ctx
 }
 
 // enumSuggestion builds a suggestion for an invalid enum value: it lists the

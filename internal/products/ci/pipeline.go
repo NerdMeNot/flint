@@ -65,6 +65,13 @@ type Job struct {
 	// Scoping / conditions.
 	Environments []string `yaml:"environments,omitempty" json:"environments,omitempty"`
 	If           string   `yaml:"if,omitempty" json:"if,omitempty"`
+	// When gates the job on the outcome of its `needs` subgraph: onSuccess
+	// (default) runs only if no needed job failed, onFailure only if one did,
+	// always runs regardless. Scoped to this job's ancestors, not the whole
+	// pipeline — an onFailure notify in one branch is unaffected by a failure in
+	// an independent branch. This is the declarative failure-handling primitive;
+	// `if:` (with success()/failure()/always()) refines it further.
+	When string `yaml:"when,omitempty" json:"when,omitempty"`
 
 	// Body — exactly one of steps | gate.
 	Steps []Step         `yaml:"steps,omitempty" json:"steps,omitempty"`
@@ -78,14 +85,26 @@ type Job struct {
 	Outputs   map[string]string `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	Artifacts []string          `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 
+	// Inputs declares what this job's result depends on, so the engine can derive
+	// a content-hash cache key (and, opt-in, skip the job when its inputs are
+	// unchanged since its last success) WITHOUT the author hand-writing a key.
+	// The "big bet": inputs, not keys.
+	Inputs *JobInputs `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+
 	// Pod features.
 	Services []pipeline.Service  `yaml:"services,omitempty" json:"services,omitempty"`
 	Cache    *pipeline.CacheSpec `yaml:"cache,omitempty" json:"cache,omitempty"`
 
 	// Matrix / fan-out.
-	Matrix      map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"`
-	FailFast    *bool               `yaml:"failFast,omitempty" json:"failFast,omitempty"`
-	MaxParallel int                 `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	Matrix      *MatrixSpec `yaml:"matrix,omitempty" json:"matrix,omitempty"`
+	FailFast    *bool       `yaml:"failFast,omitempty" json:"failFast,omitempty"`
+	MaxParallel int         `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	// FanOut is an expression yielding a JSON array (typically an upstream
+	// output, e.g. ${{ fromJSON(needs.shard.outputs.list) }}). UNLIKE matrix
+	// (static, known at compile), fan-out expands at RUNTIME: the engine
+	// evaluates the array once its producer finishes, then spawns one child job
+	// per element (via ExpandFanOut) with the element in FLINT_FANOUT_ITEM.
+	FanOut string `yaml:"fanOut,omitempty" json:"fanOut,omitempty"`
 
 	// Limits.
 	Timeout     string       `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -94,6 +113,91 @@ type Job struct {
 	// Reuse: a job module reference + its inputs (resolved before validation).
 	Use  string         `yaml:"use,omitempty" json:"use,omitempty"`
 	With map[string]any `yaml:"with,omitempty" json:"with,omitempty"`
+}
+
+// MatrixSpec is a job's fan-out: base Dimensions (the cartesian axes) plus
+// optional Include (extra or extended combinations) and Exclude (combinations to
+// drop), following the GitHub Actions model. Because include/exclude nest under
+// matrix: alongside the dimension axes, the spec needs a custom unmarshaler to
+// separate them from the axes.
+type MatrixSpec struct {
+	Dimensions map[string][]string `json:"dimensions,omitempty"`
+	Include    []map[string]string `json:"include,omitempty"`
+	Exclude    []map[string]string `json:"exclude,omitempty"`
+}
+
+// UnmarshalYAML splits the reserved include/exclude keys from the dimension axes.
+func (m *MatrixSpec) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("matrix must be a mapping of dimensions (plus optional include/exclude)")
+	}
+	m.Dimensions = map[string][]string{}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, val := node.Content[i].Value, node.Content[i+1]
+		switch key {
+		case "include":
+			if err := val.Decode(&m.Include); err != nil {
+				return fmt.Errorf("matrix.include: %w", err)
+			}
+		case "exclude":
+			if err := val.Decode(&m.Exclude); err != nil {
+				return fmt.Errorf("matrix.exclude: %w", err)
+			}
+		default:
+			var vals []string
+			if err := val.Decode(&vals); err != nil {
+				return fmt.Errorf("matrix dimension %q must be a list of values: %w", key, err)
+			}
+			m.Dimensions[key] = vals
+		}
+	}
+	return nil
+}
+
+// Empty reports whether the matrix produces no fan-out at all.
+func (m *MatrixSpec) Empty() bool {
+	return m == nil || (len(m.Dimensions) == 0 && len(m.Include) == 0)
+}
+
+// AllKeys is every dimension key, including keys introduced only by include
+// entries — so a matrix.<key> reference to an include-only key still validates.
+func (m *MatrixSpec) AllKeys() map[string]bool {
+	keys := map[string]bool{}
+	if m == nil {
+		return keys
+	}
+	for k := range m.Dimensions {
+		keys[k] = true
+	}
+	for _, inc := range m.Include {
+		for k := range inc {
+			keys[k] = true
+		}
+	}
+	return keys
+}
+
+// JobInputs is the declared dependency surface of a job — the inputs whose
+// content determines whether the job's result can be reused. The engine hashes
+// them into the job's cache key:
+//
+//	files: workspace globs, hashed by content (via hashFiles on the agent).
+//	needs: upstream job outputs (needs.<job>.outputs.<name>) whose VALUES feed
+//	       the hash — a changed upstream output invalidates this job.
+//	env:   environment variable names whose values feed the hash.
+//
+// Everything an author would otherwise stuff into a hand-written cache key,
+// declared structurally so `affected` mode and skip-if-unchanged can reason about
+// it. A job with inputs and no explicit cache.key gets a derived key.
+type JobInputs struct {
+	Files []string `yaml:"files,omitempty" json:"files,omitempty"`
+	Needs []string `yaml:"needs,omitempty" json:"needs,omitempty"`
+	Env   []string `yaml:"env,omitempty" json:"env,omitempty"`
+}
+
+// Empty reports whether the job declares no content inputs.
+func (j *JobInputs) Empty() bool {
+	return j == nil || (len(j.Files) == 0 && len(j.Needs) == 0 && len(j.Env) == 0)
 }
 
 // Step is a single command inside a job's pod. Steps run sequentially and share
