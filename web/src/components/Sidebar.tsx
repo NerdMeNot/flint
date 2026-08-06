@@ -19,6 +19,7 @@ import { logout } from '#/lib/auth-token'
 import { ScopeSelector } from './ScopeSelector'
 import { CapabilitySwitcher, activeCapabilityID } from './CapabilitySwitcher'
 import { ViewsNav } from './ViewsNav'
+import { FlintMark } from '#/components/FlintMark'
 
 // A single NavItem type keeps both section arrays unionable so `section.items`
 // is one array type (not a union of arrays, which breaks .map typing).
@@ -134,10 +135,7 @@ export function Sidebar() {
       {/* Brand + collapse toggle */}
       <div className={`flex h-14 lg:h-16 items-center border-b border-border ${collapsed ? 'flex-col justify-center gap-1 px-2' : 'gap-2.5 px-5'}`}>
         <Link to="/" className="flex items-center gap-2.5 min-w-0" title="Home">
-          <div className="flex h-7 w-7 lg:h-8 lg:w-8 items-center justify-center rounded-md font-bold text-sm lg:text-base shrink-0"
-            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-            F
-          </div>
+          <FlintMark size={28} className="text-primary shrink-0" />
           {!collapsed && (
             <span className="display-title font-bold text-foreground text-lg tracking-tight">
               Flint
@@ -273,10 +271,7 @@ export function Sidebar() {
         </button>
         {/* Brand (same as navContent) */}
         <div className="flex h-14 items-center border-b border-border gap-2.5 px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md font-bold text-sm shrink-0"
-            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-            F
-          </div>
+          <FlintMark size={28} className="text-primary shrink-0" />
           <span className="display-title font-bold text-foreground text-lg tracking-tight">Flint</span>
         </div>
         {/* Scope filters — mobile only */}

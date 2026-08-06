@@ -51,6 +51,11 @@ Thumbs.db
 *.png
 *.jpg
 
+# ...but the shipped brand assets are source, not screenshots. Without these
+# exceptions the favicons are absent from a fresh clone and 404 in production.
+!web/public/*.png
+!web/public/brand/*.png
+
 # Node (web/)
 web/node_modules/
 web/.next/

@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Shield, Eye, EyeOff, AlertCircle, Loader2, ArrowRight } from 'lucide-react'
 import { storeSession } from '#/lib/auth-token'
+import { FlintMark } from '#/components/FlintMark'
 
 // The Go API returns errors as { error: { code, message, requestId } }, but some
 // paths return a plain string. Extract a renderable string either way — never the
@@ -177,13 +178,7 @@ function LoginPage() {
       <div className="relative w-full max-w-[400px]">
         {/* Brand */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-10 w-10 items-center justify-center rounded-sm font-bold text-lg mb-3"
-            style={{
-              background: 'var(--primary)',
-              color: 'var(--primary-foreground)',
-            }}>
-            F
-          </div>
+          <FlintMark size={44} className="text-primary mb-3" />
           <h1 className="display-title text-xl font-bold text-foreground tracking-tight">
             {forceChange ? 'Change Your Password' : mfaRequired ? 'Two-Factor Authentication' : 'Sign in to Flint'}
           </h1>

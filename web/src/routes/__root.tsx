@@ -22,6 +22,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { Search } from 'lucide-react'
 import appCss from '../styles.css?url'
+import { FlintMark } from '#/components/FlintMark'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;if(!stored){resolved='dark'}var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
@@ -32,7 +33,20 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Flint CI' },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      { rel: 'stylesheet', href: appCss },
+      // SVG first: browsers that support it get a crisp mark at any DPI, and it
+      // carries its own prefers-color-scheme rule so the tab icon tracks the OS
+      // theme. The .ico is the fallback and holds size-specific artwork — the
+      // 16px frame is drawn with thicker strokes, because the true geometry has
+      // tapers that sub-pixel away at that scale.
+      { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+      { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32.png' },
+      { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/favicon-16.png' },
+      { rel: 'alternate icon', href: '/favicon.ico' },
+      { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+      { rel: 'manifest', href: '/manifest.json' },
+    ],
   }),
   component: RootLayout,
   shellComponent: RootShell,
@@ -211,10 +225,7 @@ function MainContent({ onSearchClick }: { onSearchClick: () => void }) {
         <MobileMenuButton />
         {/* Mobile brand */}
         <div className="lg:hidden flex items-center gap-2 shrink-0">
-          <div className="flex h-6 w-6 items-center justify-center rounded font-bold text-xs"
-            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-            F
-          </div>
+          <FlintMark size={24} className="text-primary shrink-0" />
           <span className="display-title font-bold text-foreground text-base tracking-tight">
             Flint
           </span>
@@ -251,10 +262,7 @@ function FocusedShell({ onSearchClick, label }: { onSearchClick: () => void; lab
         style={{ background: 'var(--surface)', backdropFilter: 'blur(12px)' }}
       >
         <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 lg:h-7 lg:w-7 items-center justify-center rounded font-bold text-xs lg:text-sm"
-            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-            F
-          </div>
+          <FlintMark size={26} className="text-primary shrink-0" />
           <span className="display-title font-bold text-foreground text-base lg:text-lg tracking-tight">
             Flint
           </span>
