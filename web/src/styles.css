@@ -13,6 +13,15 @@
    with whatever is behind it, which is exactly the softness we
    removed. Colour palettes live in lib/appearance.ts; the values
    below are Ember, the default, so a no-JS first paint is right.
+
+   Dark grounds are neutral or COOL, never warm — measured, not felt.
+   A warm tint (hue 20-100) at L*~19 stops reading as a warm grey and
+   becomes brown: Ember's first ground sat at hue 75 with chroma
+   0.0093 and looked like mud, while Plasma at hue 298 carried MORE
+   chroma (0.0144) and still read clean. So it is the hue that fails
+   at low lightness, not the amount. Ember's ground is now cool
+   (hue 258), which also puts the orange accent in complementary
+   contrast against it rather than drowning it in its own hue.
    ───────────────────────────────────────────────────────────── */
 
 :root {
@@ -89,39 +98,39 @@
 }
 
 .dark {
-  --background: #16130f;
-  --foreground: #f0ede9;
-  --card: #201c17;
-  --card-foreground: #f0ede9;
-  --popover: #201c17;
-  --popover-foreground: #f0ede9;
+  --background: #121417;
+  --foreground: #eceff2;
+  --card: #1a1d21;
+  --card-foreground: #eceff2;
+  --popover: #1a1d21;
+  --popover-foreground: #eceff2;
   --primary: #ff7a2e;
   --primary-foreground: #1a0c02;
-  --secondary: #2a251f;
-  --secondary-foreground: #f0ede9;
-  --muted: #2a251f;
-  --muted-foreground: #a69e94;
-  --accent: #2e1e12;
-  --accent-foreground: #f0ede9;
-  --border: #35302a;
-  --input: #35302a;
+  --secondary: #23272c;
+  --secondary-foreground: #eceff2;
+  --muted: #23272c;
+  --muted-foreground: #99a2ab;
+  --accent: #3a2008;
+  --accent-foreground: #eceff2;
+  --border: #2e333a;
+  --input: #2e333a;
   --ring: #ff7a2e;
 
-  --sidebar: #1a1712;
-  --sidebar-foreground: #f0ede9;
+  --sidebar: #15181b;
+  --sidebar-foreground: #eceff2;
   --sidebar-primary: #ff7a2e;
   --sidebar-primary-foreground: #1a0c02;
-  --sidebar-accent: #2e1e12;
-  --sidebar-accent-foreground: #f0ede9;
-  --sidebar-border: #35302a;
+  --sidebar-accent: #3a2008;
+  --sidebar-accent-foreground: #eceff2;
+  --sidebar-border: #2e333a;
   --sidebar-ring: #ff7a2e;
 
-  --surface: #201c17;
-  --surface-strong: #201c17;
-  --kicker: #a69e94;
-  --link-bg-hover: #2a251f;
-  --chip-bg: #201c17;
-  --chip-line: #35302a;
+  --surface: #1a1d21;
+  --surface-strong: #1a1d21;
+  --kicker: #99a2ab;
+  --link-bg-hover: #23272c;
+  --chip-bg: #1a1d21;
+  --chip-line: #2e333a;
 
   --success: #35b06e;
   --success-foreground: #141414;
@@ -134,14 +143,14 @@
   --warning-subtle: #2c2616;
   --destructive-subtle: #2e1917;
 
-  --border-strong: #4a443c;
+  --border-strong: #414852;
   --overlay-offset: transparent;
 
   --chart-1: #ff7a2e;
   --chart-2: #35b06e;
   --chart-3: #4d9bff;
   --chart-4: #f5ce4b;
-  --chart-5: #a69e94;
+  --chart-5: #99a2ab;
 }
 
 * {
