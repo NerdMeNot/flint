@@ -106,7 +106,7 @@ function StepCard({
       <StatusIcon status={step.status} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`font-medium text-foreground truncate ${compact ? 'text-xs' : 'text-sm'} ${
+          <span className={`font-medium text-foreground truncate min-w-0 ${compact ? 'text-xs' : 'text-sm'} ${
             isSelected ? 'text-primary' : 'group-hover:text-primary'
           } transition-colors`}>
             {step.name}

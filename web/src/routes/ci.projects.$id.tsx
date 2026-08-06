@@ -94,7 +94,7 @@ function ProjectDetailPage() {
           <div className="space-y-1.5 lg:space-y-2 min-w-0">
             <div className="flex items-center gap-2.5">
               <div className="w-2.5 h-2.5 lg:w-3 lg:h-3 rounded-full shrink-0" style={{ backgroundColor: project.colour }} />
-              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate">
+              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate min-w-0">
                 {project.name}
               </h1>
               <span className="island-kicker !text-[11px] shrink-0">{project.workspace}</span>

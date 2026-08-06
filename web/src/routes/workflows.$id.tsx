@@ -41,7 +41,7 @@ function WorkflowRunPage() {
           <header className="island-shell p-4 sm:p-5 lg:p-6">
             <div className="flex flex-wrap items-center gap-3">
               <Workflow size={20} className="text-primary shrink-0" />
-              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate">{run.name}</h1>
+              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate min-w-0">{run.name}</h1>
               <RunStatusPill status={run.status} />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">

@@ -173,7 +173,7 @@ function AssignmentsTab() {
                   <span className="text-sm text-foreground font-mono truncate">{a.subject}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-foreground truncate">{role?.name ?? a.role}</span>
+                  <span className="text-sm text-foreground truncate min-w-0">{role?.name ?? a.role}</span>
                   {role?.isSystem && <Badge variant="primary">System</Badge>}
                 </div>
                 <div>{role && <ScopeBadges workspaces={role.workspaces} environments={role.environments} />}</div>

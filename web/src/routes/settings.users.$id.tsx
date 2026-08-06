@@ -83,7 +83,7 @@ function UserDetailPage() {
             )}
             <p className="text-sm text-muted-foreground flex items-center gap-1.5">
               <Mail size={13} className="shrink-0" />
-              {user.email}
+              <span className="truncate min-w-0" title={user.email}>{user.email}</span>
             </p>
             <p className="text-xs text-muted-foreground opacity-50 font-mono mt-0.5">{user.id}</p>
           </div>

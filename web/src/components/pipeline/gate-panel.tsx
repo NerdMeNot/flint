@@ -16,6 +16,7 @@ import {
 import { client } from '#/lib/orpc'
 import { PanelHeader } from './run-gantt'
 import type { PipelineStep } from '#/lib/api/types'
+import { BranchLabel, ShortSha } from '#/components/GitRef'
 
 // Mocked approver pool until the real RBAC integration lands. The
 // "you" entry is what makes the panel actionable; flip its `me` field
@@ -235,15 +236,15 @@ function PendingBody({
 
       <div className="mt-7 space-y-6">
         <Section label="Change summary">
-          <p className="text-base text-foreground mb-2 leading-snug">{run.commitMessage}</p>
+          <p className="text-base text-foreground mb-2 leading-snug line-clamp-2" title={run.commitMessage}>{run.commitMessage}</p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <GitBranch size={12} />
-              <span className="font-mono">{run.branch}</span>
+              <BranchLabel branch={run.branch} icon={false} max="16rem" />
             </span>
             <span className="flex items-center gap-1.5">
               <GitCommit size={12} />
-              <span className="font-mono">{run.commitSha}</span>
+              <ShortSha sha={run.commitSha} />
             </span>
             <span className="flex items-center gap-1.5">
               <User size={12} />

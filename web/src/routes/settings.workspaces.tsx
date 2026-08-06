@@ -57,7 +57,7 @@ function WorkspacesPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-sm text-foreground truncate">{ws.name}</h3>
+                    <h3 className="font-semibold text-sm text-foreground truncate min-w-0">{ws.name}</h3>
                     {ws.isDefault && <Badge variant="primary">Default</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground font-mono truncate">{ws.slug}</p>

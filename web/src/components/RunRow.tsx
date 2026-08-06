@@ -13,6 +13,7 @@ import { runStatusVisualFor } from '#/lib/status'
 import { parseDurationToSeconds } from '#/lib/run-feed'
 import { formatTimeline, formatExact } from '#/lib/format-time'
 import type { RunStepSummary, StepStatusValue } from '#/lib/api/types'
+import { BranchLabel, ShortSha } from '#/components/GitRef'
 
 interface Run {
   id: string
@@ -134,19 +135,23 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
           <span className="flex items-center gap-1 shrink-0" title={`${trigger.label} · ${run.workflowFile}`}>
             <trigger.Icon size={12} className="opacity-70" />
           </span>
-          <span className="flex items-center gap-1 shrink-0">
-            <GitBranch size={11} />
-            <span className="font-mono">{run.branch}</span>
-          </span>
-          <span className="opacity-25">·</span>
-          <span className="font-mono opacity-60 shrink-0">{run.commitSha}</span>
-          <span className="opacity-25">·</span>
+          {/* The branch is the only variable-length field here, so it is the one
+              that yields: min-w-0 + truncate instead of shrink-0. Marking it
+              shrink-0 like its neighbours did not keep it safe — it just pushed
+              the duration, time and actor past the right edge, hiding them
+              entirely. Overflow loses data more quietly than wrapping does. */}
+          <BranchLabel branch={run.branch} />
+          <span className="opacity-25 shrink-0">·</span>
+          {/* 7 characters is the git convention and what every forge shows; the
+              full 40 were eating a third of the row. Full value in the title. */}
+          <ShortSha sha={run.commitSha} className="opacity-60" />
+          <span className="opacity-25 shrink-0">·</span>
           <span className="flex items-center gap-1 shrink-0">
             <Timer size={11} />
             {isRunning && steps.length > 0 ? `${done}/${steps.length}` : run.duration}
             {!isRunning && <DurationDelta durationSecs={durationSecs} baselineSecs={baselineSecs} />}
           </span>
-          <span className="opacity-25">·</span>
+          <span className="opacity-25 shrink-0">·</span>
           <span
             className="opacity-50 shrink-0"
             title={run.startedAtTs
@@ -155,8 +160,8 @@ export function RunRow({ run, showProject = true, baselineSecs }: RunRowProps) {
           >
             {run.startedAtTs ? formatTimeline(run.startedAtTs) : run.startedAt}
           </span>
-          <span className="hidden md:inline opacity-25">·</span>
-          <span className="hidden md:inline opacity-50 shrink-0">{run.triggeredBy}</span>
+          <span className="hidden md:inline opacity-25 shrink-0">·</span>
+          <span className="hidden md:inline opacity-50 shrink-0 max-w-[8rem] truncate" title={run.triggeredBy}>{run.triggeredBy}</span>
         </div>
       </div>
 

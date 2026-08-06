@@ -106,7 +106,7 @@ export function SearchSelect({ items, selected, onChange, placeholder }: SearchS
               >
                 {item.icon}
                 <div className="min-w-0 flex-1">
-                  <span className="font-medium text-foreground">{item.label}</span>
+                  <span className="font-medium text-foreground truncate block" title={item.label}>{item.label}</span>
                   {item.detail && item.detail !== item.label && (
                     <span className="ml-2 text-xs text-muted-foreground">{item.detail}</span>
                   )}

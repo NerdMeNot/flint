@@ -81,7 +81,7 @@ function SSOSettings() {
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-foreground truncate">{p.displayName}</span>
+                    <span className="text-sm font-semibold text-foreground truncate min-w-0">{p.displayName}</span>
                     <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground uppercase">
                       {p.providerType}
                     </span>

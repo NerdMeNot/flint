@@ -415,7 +415,7 @@ export function ProjectCard({ project, registry, index }: { project: Project; re
               <StatusIcon status={project.lastRun.status} />
               <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-[5rem]">
                 <GitBranch size={11} className="shrink-0" />
-                <span className="font-mono truncate" title={project.lastRun.branch}>
+                <span className="font-mono truncate min-w-0" title={project.lastRun.branch}>
                   {project.lastRun.branch}
                 </span>
               </span>

@@ -114,7 +114,7 @@ function VariablesPage() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-sm text-foreground">{variable.name}</span>
+                        <span className="font-mono font-semibold text-sm text-foreground truncate min-w-0" title={variable.name}>{variable.name}</span>
                         {variable.isSecret && <Badge variant="warning">SECRET</Badge>}
                       </div>
                       {variable.description && (

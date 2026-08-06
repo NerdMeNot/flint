@@ -8,6 +8,7 @@ import { useAction } from '#/hooks/use-action'
 import { FilterPill } from '#/components/FilterPill'
 import { Pagination } from '#/components/Pagination'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
+import { BranchLabel } from '#/components/GitRef'
 
 type GateFilter = 'pending' | 'approved' | 'rejected'
 
@@ -153,7 +154,7 @@ function GatesPage() {
                 <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <GitBranch size={12} />
-                    <span className="font-mono">{gate.branch}</span>
+                    <BranchLabel branch={gate.branch} icon={false} max="14rem" />
                   </span>
                   <span className="flex items-center gap-1">
                     <User size={12} />

@@ -65,7 +65,7 @@ function WorkflowsPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Workflow size={15} className="text-primary shrink-0" />
-                    <span className="font-medium text-foreground truncate">{run.name}</span>
+                    <span className="font-medium text-foreground truncate min-w-0">{run.name}</span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted-foreground">
                     <span className="font-mono opacity-70">{run.id}</span>
@@ -79,7 +79,7 @@ function WorkflowsPage() {
                 <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="opacity-70">{triggerIcon[run.triggerType]}</span>
                   <span className="capitalize">{run.triggerType}</span>
-                  <span className="opacity-40 truncate">· {run.triggeredBy}</span>
+                  <span className="opacity-40 truncate min-w-0">· {run.triggeredBy}</span>
                 </div>
                 <div className="hidden sm:block text-xs text-muted-foreground font-mono">{run.duration}</div>
                 <div className="flex items-center justify-end sm:justify-center">

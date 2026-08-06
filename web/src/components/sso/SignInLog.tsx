@@ -38,7 +38,7 @@ export function SignInLog() {
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-foreground truncate">
+                  <span className="text-sm font-medium text-foreground truncate min-w-0">
                     {e.email || (e.result === 'failure' ? 'Unknown user' : '—')}
                   </span>
                   {e.result === 'failure' && e.summary && (

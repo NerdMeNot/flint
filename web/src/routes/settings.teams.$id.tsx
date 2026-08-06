@@ -48,7 +48,7 @@ function TeamDetailPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <h2 className="display-title text-lg font-bold text-foreground">{team.name}</h2>
+              <h2 className="display-title text-lg font-bold text-foreground truncate min-w-0" title={team.name}>{team.name}</h2>
               <Badge variant={team.source === 'idp' ? 'primary' : 'neutral'}>
                 {team.source === 'idp' ? 'IdP Synced' : 'Internal'}
               </Badge>

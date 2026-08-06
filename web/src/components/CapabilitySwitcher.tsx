@@ -64,7 +64,7 @@ export function CapabilitySwitcher({ collapsed = false }: { collapsed?: boolean 
             {!collapsed && (
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="display-title text-sm font-bold tracking-tight text-foreground truncate">{p.name}</span>
+                  <span className="display-title text-sm font-bold tracking-tight text-foreground truncate min-w-0">{p.name}</span>
                   {comingSoon && (
                     <span
                       className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wider"

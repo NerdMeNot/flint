@@ -105,7 +105,7 @@ function ScopeSegment({ icon, label, items, selected, onToggle }: ScopeSegmentPr
                 >
                   {isSelected && <Check size={11} strokeWidth={3} />}
                 </span>
-                <span className="flex-1 text-left">{item.label}</span>
+                <span className="flex-1 text-left truncate" title={item.label}>{item.label}</span>
               </button>
             )
           })}

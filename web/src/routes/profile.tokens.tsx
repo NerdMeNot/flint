@@ -84,7 +84,7 @@ function TokenRow({ token, onDelete }: { token: PersonalToken; onDelete: () => v
       <Key size={15} className="text-muted-foreground shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground truncate">{token.name}</span>
+          <span className="text-sm font-medium text-foreground truncate min-w-0">{token.name}</span>
           {expired && <Badge variant="danger">Expired</Badge>}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">

@@ -100,7 +100,7 @@ function PoolRow({ pool, index }: { pool: RunnerPool; index: number }) {
             <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors font-mono">{pool.name}</span>
             {pool.isDefault && <Badge variant="primary">Default</Badge>}
             {!pool.ready && <Badge variant="danger">Not ready</Badge>}
-            {pool.description && <span className="text-xs text-muted-foreground truncate hidden sm:inline">— {pool.description}</span>}
+            {pool.description && <span className="text-xs text-muted-foreground truncate min-w-0 hidden sm:inline">— {pool.description}</span>}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {(pool.cpu || pool.memory) && (

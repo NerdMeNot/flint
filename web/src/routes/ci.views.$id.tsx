@@ -53,7 +53,7 @@ function ViewPage() {
               {isSmart
                 ? <Sparkles size={18} className="text-primary shrink-0" />
                 : <Bookmark size={18} className="text-primary shrink-0" />}
-              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate">{view.name}</h1>
+              <h1 className="display-title text-2xl lg:text-3xl font-bold text-foreground truncate min-w-0">{view.name}</h1>
               <span className="island-kicker !text-[11px] shrink-0">{isSmart ? 'Smart view' : 'Saved view'}</span>
             </div>
             {chips.length > 0 && (

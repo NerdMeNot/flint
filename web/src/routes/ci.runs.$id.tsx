@@ -2,7 +2,6 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery, useQuery } from '@tanstack/react-query'
 import { useState, lazy, Suspense, useEffect, useRef } from 'react'
 import {
-  GitBranch,
   GitCommit,
   Clock,
   CheckCircle,
@@ -56,6 +55,7 @@ import { BackLink } from '#/components/BackLink'
 import { EVENT_LABELS, EVENT_TONE } from '#/lib/run-events'
 import { stripAnsi } from '#/lib/ansi'
 import type { StepLogLine } from '#/lib/api/types'
+import { BranchLabel, ShortSha } from '#/components/GitRef'
 
 const DagView = lazy(() =>
   import('#/components/pipeline/dag-view').then((m) => ({ default: m.DagView }))
@@ -430,17 +430,14 @@ function RunHeader({ run, isLive, elapsedSecs }: { run: any; isLive: boolean; el
       </div>
 
       <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <GitBranch size={13} />
-          <span className="font-mono">{run.branch}</span>
-        </span>
-        <span className="flex items-center gap-1.5">
+        <BranchLabel branch={run.branch} max="22rem" className="text-xs" />
+        <span className="flex items-center gap-1.5 shrink-0">
           <GitCommit size={13} />
-          <span className="font-mono">{run.commitSha}</span>
+          <ShortSha sha={run.commitSha} />
         </span>
-        <span className="flex items-center gap-1.5" title={triggerLabel(run.triggerType)}>
+        <span className="flex items-center gap-1.5 min-w-0 max-w-[12rem]" title={triggerLabel(run.triggerType)}>
           <TriggerIcon type={run.triggerType} />
-          {run.triggeredBy}
+          <span className="truncate" title={run.triggeredBy}>{run.triggeredBy}</span>
         </span>
         <span className={`flex items-center gap-1.5 ${isLive ? 'text-primary font-medium' : ''}`}>
           <Timer size={13} className={isLive ? 'animate-pulse' : ''} />
@@ -738,7 +735,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
     <div className="rounded-lg border border-border bg-muted px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}
-        <span className="truncate">{label}</span>
+        <span className="truncate min-w-0">{label}</span>
       </div>
       <p className="mt-1 text-lg font-bold tabular-nums text-foreground">{value}</p>
     </div>
