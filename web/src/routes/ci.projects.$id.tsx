@@ -31,6 +31,7 @@ import { TagManagerModal, type TagGroup } from '#/components/TagManagerModal'
 import { BackLink } from '#/components/BackLink'
 import { ProjectHealthBar } from '#/components/ProjectHealth'
 import { parseDurationToSeconds, median, groupByBucket } from '#/lib/run-feed'
+import { formatTimelineISO, formatExactISO } from '#/lib/format-time'
 
 export const Route = createFileRoute('/ci/projects/$id')({
   component: ProjectDetailPage,
@@ -136,7 +137,12 @@ function ProjectDetailPage() {
             {project.lastRun ? (
               <span className="flex items-center gap-1.5">
                 <RunStatusIcon status={project.lastRun.status} size={13} />
-                <span className="text-muted-foreground">{project.lastRun.startedAt}</span>
+                <span
+                  className="text-muted-foreground whitespace-nowrap"
+                  title={formatExactISO(project.lastRun.startedAt)}
+                >
+                  {formatTimelineISO(project.lastRun.startedAt)}
+                </span>
               </span>
             ) : <span className="text-muted-foreground">—</span>}
           </StatCell>

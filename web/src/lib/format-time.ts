@@ -80,3 +80,22 @@ export function formatTimeline(ms?: number): string {
   const d = new Date(ms)
   return (d.getFullYear() === new Date().getFullYear() ? dtf : dtfFullYear).format(d)
 }
+
+/**
+ * formatTimeline for endpoints that hand back an ISO string rather than epoch
+ * millis — which is most of the run payloads. Non-parseable values pass through
+ * untouched, because a few endpoints already return a pre-formatted "3 min ago"
+ * and re-formatting that would produce "Invalid Date".
+ */
+export function formatTimelineISO(iso?: string): string {
+  if (!iso) return '—'
+  const ms = new Date(iso).getTime()
+  return isNaN(ms) ? iso : formatTimeline(ms)
+}
+
+/** formatExact for an ISO string — for the title tooltip behind a relative label. */
+export function formatExactISO(iso?: string): string {
+  if (!iso) return ''
+  const ms = new Date(iso).getTime()
+  return isNaN(ms) ? iso : formatExact(ms)
+}

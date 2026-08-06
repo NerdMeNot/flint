@@ -14,6 +14,7 @@ import { needsAttention } from '#/lib/project-health'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { relativeToMinutes } from '#/lib/run-feed'
+import { formatTimelineISO, formatExactISO } from '#/lib/format-time'
 
 type ProjectView = 'grid' | 'list'
 export type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
@@ -405,17 +406,25 @@ export function ProjectCard({ project, registry, index }: { project: Project; re
           params={{ id: project.lastRun.id }}
           className="block px-5 py-2.5 border-t border-border hover:bg-accent transition-colors group"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {/* min-w-0 on both sides is load-bearing: a flex child defaults to
+              min-width:auto, so `truncate` on the branch does nothing without
+              it and the name wraps instead. The body sets overflow-wrap:anywhere,
+              which breaks mid-token — so the metadata is explicitly nowrap. */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
               <StatusIcon status={project.lastRun.status} />
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <GitBranch size={11} />
-                <span className="font-mono">{project.lastRun.branch}</span>
+              <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+                <GitBranch size={11} className="shrink-0" />
+                <span className="font-mono truncate" title={project.lastRun.branch}>
+                  {project.lastRun.branch}
+                </span>
               </span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
               <span>{project.lastRun.duration}</span>
-              <span className="opacity-50">{project.lastRun.startedAt}</span>
+              <span className="opacity-50" title={formatExactISO(project.lastRun.startedAt)}>
+                {formatTimelineISO(project.lastRun.startedAt)}
+              </span>
               <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
             </div>
           </div>
@@ -462,11 +471,15 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
           className="flex items-center gap-2 shrink-0 px-4 border-l border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors group"
         >
           <StatusIcon status={project.lastRun.status} />
-          <span className="hidden md:flex items-center gap-1">
-            <GitBranch size={11} />
-            <span className="font-mono">{project.lastRun.branch}</span>
+          <span className="hidden md:flex items-center gap-1 min-w-0 max-w-[14rem]">
+            <GitBranch size={11} className="shrink-0" />
+            <span className="font-mono truncate" title={project.lastRun.branch}>
+              {project.lastRun.branch}
+            </span>
           </span>
-          <span className="opacity-50">{project.lastRun.startedAt}</span>
+          <span className="opacity-50 whitespace-nowrap" title={formatExactISO(project.lastRun.startedAt)}>
+            {formatTimelineISO(project.lastRun.startedAt)}
+          </span>
           <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
         </Link>
       ) : (
