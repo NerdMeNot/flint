@@ -23,14 +23,19 @@ const getClient = createIsomorphicFn()
           // boundary, so the UI does not flicker through an error state — and,
           // more importantly, a background tab full of polling queries cannot
           // turn a routine 15-minute expiry into a retry storm.
-          fetch: async (input, init) => {
-            const res = await fetch(input, init)
+          // oRPC calls this as fetch(request, init, …): the auth header lives on
+          // the Request, and `init` carries only { redirect }. The retry copy has
+          // to be cloned BEFORE the first send, because a Request body can only
+          // be read once.
+          fetch: async (request, init) => {
+            const retry = request.clone()
+            const res = await fetch(request, init)
             if (res.status !== 401) return res
             if (!(await refreshSession())) return res
             const t = getAccessToken()
-            const headers = new Headers(init?.headers)
-            if (t) headers.set('authorization', `Bearer ${t}`)
-            return fetch(input, { ...init, headers })
+            if (!t) return res
+            retry.headers.set('authorization', `Bearer ${t}`)
+            return fetch(retry, init)
           },
         }),
       ),
