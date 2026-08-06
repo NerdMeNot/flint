@@ -7,7 +7,7 @@ import { createFileRoute } from '@tanstack/react-router'
 //   /api/v1/<path>
 // with the token as a Bearer header, and streams the SSE body straight back.
 // Used for run-state (/runs/:id/stream) and step-log streaming.
-const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
+const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:8080'
 
 export const Route = createFileRoute('/api/sse/$')({
   server: {

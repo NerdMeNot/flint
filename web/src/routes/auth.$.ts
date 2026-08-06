@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router'
 // its own origin and this server route forwards to the Go API verbatim — method,
 // body, and relevant response headers (Set-Cookie / Location for SSO redirects).
 // Mirrors the SSE proxy in api/sse.$.ts.
-const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
+const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:8080'
 
 export const Route = createFileRoute('/auth/$')({
   server: {

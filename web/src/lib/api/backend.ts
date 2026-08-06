@@ -8,7 +8,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { currentAuthHeader } from './server-token'
 import { ACCESS_COOKIE } from '#/lib/auth-token'
 
-const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
+const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:8080'
 
 // This module runs server-side only: the browser oRPC link calls /api/rpc, whose
 // handler code (this file) executes on the server, as does the SSR render. So

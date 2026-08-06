@@ -4,7 +4,7 @@ import { createFileRoute } from '@tanstack/react-router'
 // directly (different origin), so the reconnect banner and the root error
 // boundary poll /api/health here and this route forwards to the Go server's
 // public /health/ready. 204 = backend up, 503 = unreachable. No auth.
-const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:5000'
+const BACKEND_URL = process.env.FLINT_BACKEND_URL || 'http://localhost:8080'
 
 export const Route = createFileRoute('/api/health')({
   server: {
