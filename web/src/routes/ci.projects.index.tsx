@@ -14,7 +14,7 @@ import { needsAttention } from '#/lib/project-health'
 import type { TagKey, Project } from '#/lib/api/types'
 import { useCursorPagination } from '#/hooks/use-cursor-pagination'
 import { relativeToMinutes } from '#/lib/run-feed'
-import { formatTimelineISO, formatExactISO } from '#/lib/format-time'
+import { formatTimelineCompactISO, formatExactISO } from '#/lib/format-time'
 
 type ProjectView = 'grid' | 'list'
 export type ProjectSort = 'recent' | 'failing' | 'flaky' | 'name'
@@ -411,19 +411,24 @@ export function ProjectCard({ project, registry, index }: { project: Project; re
               it and the name wraps instead. The body sets overflow-wrap:anywhere,
               which breaks mid-token — so the metadata is explicitly nowrap. */}
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 basis-0 grow">
               <StatusIcon status={project.lastRun.status} />
-              <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-[5rem]">
                 <GitBranch size={11} className="shrink-0" />
                 <span className="font-mono truncate" title={project.lastRun.branch}>
                   {project.lastRun.branch}
                 </span>
               </span>
             </div>
+            {/* Compact label here, not formatTimeline: this group is nowrap and
+                shrink-0, so every character it gains is taken straight off the
+                branch. "Jul 20 '25" caps it at 10ch; the exact time lives in the
+                title. The branch keeps a 5rem floor so a long name degrades to a
+                readable prefix rather than a single ellipsis. */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
-              <span>{project.lastRun.duration}</span>
-              <span className="opacity-50" title={formatExactISO(project.lastRun.startedAt)}>
-                {formatTimelineISO(project.lastRun.startedAt)}
+              <span className="tabular-nums">{project.lastRun.duration}</span>
+              <span className="opacity-50 tabular-nums" title={formatExactISO(project.lastRun.startedAt)}>
+                {formatTimelineCompactISO(project.lastRun.startedAt)}
               </span>
               <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
             </div>
@@ -477,8 +482,8 @@ function ProjectRow({ project, registry, index }: { project: Project; registry: 
               {project.lastRun.branch}
             </span>
           </span>
-          <span className="opacity-50 whitespace-nowrap" title={formatExactISO(project.lastRun.startedAt)}>
-            {formatTimelineISO(project.lastRun.startedAt)}
+          <span className="opacity-50 whitespace-nowrap tabular-nums" title={formatExactISO(project.lastRun.startedAt)}>
+            {formatTimelineCompactISO(project.lastRun.startedAt)}
           </span>
           <ExternalLink size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
         </Link>

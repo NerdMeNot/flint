@@ -121,7 +121,17 @@ type runSpec struct {
 
 var (
 	authors  = []string{"carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy"}
-	branches = []string{"main", "main", "main", "feat/checkout-v2", "fix/race-condition", "chore/bump-deps"}
+	// Deliberately includes names long enough to overflow a card footer. Real
+	// teams generate branches like these from ticket templates, and a fixture
+	// that only ever emits "main" lets truncation bugs ship — the projects grid
+	// wrapped mid-word for exactly that reason.
+	branches = []string{
+		"main", "main", "main",
+		"feat/checkout-v2", "fix/race-condition", "chore/bump-deps",
+		"renovate/all-minor-patch-dependencies",
+		"feature/PLAT-4821-migrate-billing-to-new-ledger",
+		"revert-2291-hotfix/disable-legacy-webhook-retry-path",
+	}
 	messages = []string{
 		"Fix nil deref in webhook handler",
 		"Add retry to flaky upstream call",

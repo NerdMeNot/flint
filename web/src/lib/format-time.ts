@@ -99,3 +99,32 @@ export function formatExactISO(iso?: string): string {
   const ms = new Date(iso).getTime()
   return isNaN(ms) ? iso : formatExact(ms)
 }
+
+const dtfCompact = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' })
+
+/**
+ * Width-bounded timeline label for cramped slots — the project card footer,
+ * where the label sits in a nowrap group that refuses to shrink, so every extra
+ * character is stolen directly from the branch name beside it.
+ *
+ * formatTimeline is right where there is room, but it expands to
+ * "Jul 20, 10:00 AM" (16ch) past a week — more than twice "3d ago", and enough
+ * to truncate a branch down to nothing. This caps at 10ch ("Jul 20 '25") by
+ * dropping the time of day, which the title tooltip still carries.
+ */
+export function formatTimelineCompact(ms?: number): string {
+  if (!ms) return '—'
+  const diff = Date.now() - ms
+  if (diff < 7 * DAY) return formatAgo(ms)
+  const d = new Date(ms)
+  const day = dtfCompact.format(d)
+  const y = d.getFullYear()
+  return y === new Date().getFullYear() ? day : `${day} '${String(y).slice(2)}`
+}
+
+/** formatTimelineCompact for an ISO string. Non-parseable values pass through. */
+export function formatTimelineCompactISO(iso?: string): string {
+  if (!iso) return '—'
+  const ms = new Date(iso).getTime()
+  return isNaN(ms) ? iso : formatTimelineCompact(ms)
+}
