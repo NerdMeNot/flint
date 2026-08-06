@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -17,6 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -927,10 +929,19 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
-	// Look up user.
+	// Look up user. Only a genuinely empty orgs table means "not configured";
+	// every other error here is the database being unreachable or erroring, and
+	// reporting that as a configuration problem sends people to look in entirely
+	// the wrong place. (It did: a stopped Postgres surfaced on the sign-in screen
+	// as "org not configured", which reads like a broken install.)
 	org, err := s.deps.Q.GetOrg(ctx)
 	if err != nil {
-		apiInternal(ctx, c, "org not configured")
+		if errors.Is(err, pgx.ErrNoRows) {
+			apiInternal(ctx, c, "org not configured")
+		} else {
+			apiError(ctx, c, consts.StatusServiceUnavailable, "DATABASE_UNAVAILABLE",
+				"database unavailable — the API can't reach its datastore")
+		}
 		return
 	}
 

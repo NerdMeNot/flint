@@ -364,7 +364,7 @@ function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-6 opacity-60">
-          Flint CI — the platform your Kubernetes cluster deserves
+          Flint CI — pipelines on real machines, with the economics explained
         </p>
       </div>
     </div>
