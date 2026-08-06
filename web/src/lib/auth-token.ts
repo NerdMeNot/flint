@@ -41,6 +41,46 @@ export function storeSession(accessToken: string, refreshToken: string): void {
   document.cookie = `${ACCESS_COOKIE}=${accessToken}; path=/; max-age=86400; SameSite=Lax`
 }
 
+// The access token lives 15 minutes; the refresh token outlives it. Nothing was
+// spending the refresh token, so every session simply died mid-use — and because
+// the dead access token stays in the cookie (max-age 24h), each subsequent SSR
+// render re-sent it and got another 401. That is what turned an expiry into a
+// storm of failing queries, retries and error-boundary navigations.
+//
+// Single-flight: a page has many queries in parallel, and they all hit 401 in
+// the same instant. Without sharing one in-flight promise they would each POST
+// /auth/refresh, and every response but the first would present an
+// already-rotated refresh token — logging the user out for real.
+let refreshInFlight: Promise<boolean> | null = null
+
+export function refreshSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken()
+    if (!refreshToken) return false
+    try {
+      const res = await fetch('/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      })
+      if (!res.ok) return false
+      const data = (await res.json()) as { accessToken?: string; refreshToken?: string }
+      if (!data.accessToken) return false
+      // Re-store both, which also refreshes the cookie SSR reads.
+      storeSession(data.accessToken, data.refreshToken ?? refreshToken)
+      return true
+    } catch {
+      return false
+    } finally {
+      // Cleared on the next tick so callers awaiting this round all observe the
+      // same result before a new attempt can start.
+      setTimeout(() => { refreshInFlight = null }, 0)
+    }
+  })()
+  return refreshInFlight
+}
+
 // clearSession removes the session on logout / 401.
 export function clearSession(): void {
   if (typeof window === 'undefined') return

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Outlet,
   HeadContent,
@@ -9,7 +9,7 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { getAccessToken, clearSession } from '#/lib/auth-token'
+import { getAccessToken, clearSession, refreshSession } from '#/lib/auth-token'
 import { Sidebar, SidebarProvider, MobileMenuButton, useSidebar } from '#/components/Sidebar'
 import { ScopeSelector } from '#/components/ScopeSelector'
 import { ScopeProvider } from '#/lib/scope-context'
@@ -78,12 +78,31 @@ function RootError({ error, reset }: { error: Error; reset: () => void }) {
   // rather than showing a raw error envelope.
   const unauthorized = /Backend 401|UNAUTHORIZED|Unauthorized/i.test(msg)
 
+  // A 401 is usually just the 15-minute access token expiring, so try to refresh
+  // and recover in place before destroying the session.
+  //
+  // The guard ref is load-bearing. This boundary re-renders on every router
+  // update, and a page holds many queries that all 401 within the same instant;
+  // the previous version ran clearSession + navigate on each of those renders.
+  // Navigating re-rendered the boundary, which fired the effect again — a spin
+  // that allocated router state, error objects and query entries without bound.
+  // That is what took a tab to 8 GB and pinned a core. Recovery must run once.
+  const recovering = useRef(false)
   useEffect(() => {
-    if (unauthorized) {
-      clearSession()
-      router.navigate({ to: '/login' })
-    }
-  }, [unauthorized, router])
+    if (!unauthorized || recovering.current) return
+    recovering.current = true
+    void (async () => {
+      if (await refreshSession()) {
+        await queryClient.resetQueries()
+        reset()
+        router.invalidate()
+      } else {
+        clearSession()
+        router.navigate({ to: '/login' })
+      }
+      recovering.current = false
+    })()
+  }, [unauthorized, router, queryClient, reset])
 
   // Backend unreachable (initial load failed after the queries' own retries):
   // poll the same-origin health probe and recover automatically when the API is

@@ -16,7 +16,9 @@ export function BackendStatusBanner() {
       return true
     },
     refetchInterval: 5_000,
-    refetchIntervalInBackground: true,
+    // A hidden tab must not keep probing: with a dead session this poll was
+    // part of what kept a backgrounded tab busy and growing.
+    refetchIntervalInBackground: false,
     retry: false,
     staleTime: 0,
     gcTime: 0,
