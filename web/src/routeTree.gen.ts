@@ -9,76 +9,61 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TeamsRouteImport } from './routes/teams'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as LoadtestRouteImport } from './routes/loadtest'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WorkflowsIndexRouteImport } from './routes/workflows.index'
-import { Route as SettingsIndexRouteImport } from './routes/settings.index'
-import { Route as ProfileIndexRouteImport } from './routes/profile.index'
-import { Route as FleetIndexRouteImport } from './routes/fleet.index'
-import { Route as CiIndexRouteImport } from './routes/ci.index'
-import { Route as WorkflowsIdRouteImport } from './routes/workflows.$id'
-import { Route as SettingsWorkspacesRouteImport } from './routes/settings.workspaces'
-import { Route as SettingsVariablesRouteImport } from './routes/settings.variables'
-import { Route as SettingsUsersRouteImport } from './routes/settings.users'
-import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
-import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
-import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
-import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
-import { Route as SettingsProjectsRouteImport } from './routes/settings.projects'
-import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
-import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
-import { Route as SettingsAuditLogRouteImport } from './routes/settings.audit-log'
-import { Route as SettingsApiKeysRouteImport } from './routes/settings.api-keys'
-import { Route as ProfileTokensRouteImport } from './routes/profile.tokens'
-import { Route as ProfileSessionsRouteImport } from './routes/profile.sessions'
-import { Route as ProfileSecurityRouteImport } from './routes/profile.security'
-import { Route as FleetIdRouteImport } from './routes/fleet.$id'
-import { Route as CiProjectsRouteImport } from './routes/ci.projects'
-import { Route as CiGatesRouteImport } from './routes/ci.gates'
-import { Route as AuthSplatRouteImport } from './routes/auth.$'
+import { Route as LoadtestRouteImport } from './routes/loadtest'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as SettingsUsersIndexRouteImport } from './routes/settings.users.index'
-import { Route as SettingsTeamsIndexRouteImport } from './routes/settings.teams.index'
-import { Route as SettingsRunnersIndexRouteImport } from './routes/settings.runners.index'
-import { Route as SettingsRolesIndexRouteImport } from './routes/settings.roles.index'
-import { Route as SettingsEnvironmentsIndexRouteImport } from './routes/settings.environments.index'
-import { Route as CiRunsIndexRouteImport } from './routes/ci.runs.index'
-import { Route as CiProjectsIndexRouteImport } from './routes/ci.projects.index'
-import { Route as SettingsUsersIdRouteImport } from './routes/settings.users.$id'
-import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id'
-import { Route as SettingsRunnersNewRouteImport } from './routes/settings.runners.new'
-import { Route as SettingsRunnersNameRouteImport } from './routes/settings.runners.$name'
-import { Route as SettingsRolesNewRouteImport } from './routes/settings.roles.new'
-import { Route as SettingsRolesIdRouteImport } from './routes/settings.roles.$id'
-import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
-import { Route as CiViewsIdRouteImport } from './routes/ci.views.$id'
-import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
-import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
-import { Route as ApiSseSplatRouteImport } from './routes/api/sse.$'
+import { Route as AuthSplatRouteImport } from './routes/auth.$'
+import { Route as CiIndexRouteImport } from './routes/ci.index'
+import { Route as CiGatesRouteImport } from './routes/ci.gates'
+import { Route as CiProjectsRouteImport } from './routes/ci.projects'
+import { Route as FleetIndexRouteImport } from './routes/fleet.index'
+import { Route as FleetIdRouteImport } from './routes/fleet.$id'
+import { Route as ProfileIndexRouteImport } from './routes/profile.index'
+import { Route as ProfileSecurityRouteImport } from './routes/profile.security'
+import { Route as ProfileSessionsRouteImport } from './routes/profile.sessions'
+import { Route as ProfileTokensRouteImport } from './routes/profile.tokens'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsApiKeysRouteImport } from './routes/settings.api-keys'
+import { Route as SettingsAuditLogRouteImport } from './routes/settings.audit-log'
+import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
+import { Route as SettingsEnvironmentsRouteImport } from './routes/settings.environments'
+import { Route as SettingsProjectsRouteImport } from './routes/settings.projects'
+import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
+import { Route as SettingsSsoRouteImport } from './routes/settings.sso'
+import { Route as SettingsTagsRouteImport } from './routes/settings.tags'
+import { Route as SettingsTeamsRouteImport } from './routes/settings.teams'
+import { Route as SettingsUsersRouteImport } from './routes/settings.users'
+import { Route as SettingsVariablesRouteImport } from './routes/settings.variables'
+import { Route as SettingsWorkspacesRouteImport } from './routes/settings.workspaces'
+import { Route as WorkflowsIndexRouteImport } from './routes/workflows.index'
+import { Route as WorkflowsIdRouteImport } from './routes/workflows.$id'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
+import { Route as ApiSseSplatRouteImport } from './routes/api/sse.$'
+import { Route as CiProjectsIndexRouteImport } from './routes/ci.projects.index'
+import { Route as CiProjectsIdRouteImport } from './routes/ci.projects.$id'
+import { Route as CiRunsIndexRouteImport } from './routes/ci.runs.index'
+import { Route as CiRunsIdRouteImport } from './routes/ci.runs.$id'
+import { Route as CiViewsIdRouteImport } from './routes/ci.views.$id'
+import { Route as SettingsEnvironmentsIndexRouteImport } from './routes/settings.environments.index'
+import { Route as SettingsEnvironmentsIdRouteImport } from './routes/settings.environments.$id'
+import { Route as SettingsRolesIndexRouteImport } from './routes/settings.roles.index'
+import { Route as SettingsRolesIdRouteImport } from './routes/settings.roles.$id'
+import { Route as SettingsRolesNewRouteImport } from './routes/settings.roles.new'
+import { Route as SettingsRunnersIndexRouteImport } from './routes/settings.runners.index'
+import { Route as SettingsRunnersNameRouteImport } from './routes/settings.runners.$name'
+import { Route as SettingsRunnersNewRouteImport } from './routes/settings.runners.new'
+import { Route as SettingsTeamsIndexRouteImport } from './routes/settings.teams.index'
+import { Route as SettingsTeamsIdRouteImport } from './routes/settings.teams.$id'
+import { Route as SettingsUsersIndexRouteImport } from './routes/settings.users.index'
+import { Route as SettingsUsersIdRouteImport } from './routes/settings.users.$id'
 
-const TeamsRoute = TeamsRouteImport.update({
-  id: '/teams',
-  path: '/teams',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProfileRoute = ProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoadtestRoute = LoadtestRouteImport.update({
@@ -86,134 +71,24 @@ const LoadtestRoute = LoadtestRouteImport.update({
   path: '/loadtest',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkflowsIndexRoute = WorkflowsIndexRouteImport.update({
-  id: '/workflows/',
-  path: '/workflows/',
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const ProfileIndexRoute = ProfileIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ProfileRoute,
-} as any)
-const FleetIndexRoute = FleetIndexRouteImport.update({
-  id: '/fleet/',
-  path: '/fleet/',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CiIndexRoute = CiIndexRouteImport.update({
-  id: '/ci/',
-  path: '/ci/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WorkflowsIdRoute = WorkflowsIdRouteImport.update({
-  id: '/workflows/$id',
-  path: '/workflows/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsWorkspacesRoute = SettingsWorkspacesRouteImport.update({
-  id: '/workspaces',
-  path: '/workspaces',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsVariablesRoute = SettingsVariablesRouteImport.update({
-  id: '/variables',
-  path: '/variables',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsUsersRoute = SettingsUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsTeamsRoute = SettingsTeamsRouteImport.update({
+const TeamsRoute = TeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsTagsRoute = SettingsTagsRouteImport.update({
-  id: '/tags',
-  path: '/tags',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsSsoRoute = SettingsSsoRouteImport.update({
-  id: '/sso',
-  path: '/sso',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
-  id: '/providers',
-  path: '/providers',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
-  id: '/projects',
-  path: '/projects',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsEnvironmentsRoute = SettingsEnvironmentsRouteImport.update({
-  id: '/environments',
-  path: '/environments',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
-  id: '/connections',
-  path: '/connections',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsAuditLogRoute = SettingsAuditLogRouteImport.update({
-  id: '/audit-log',
-  path: '/audit-log',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
-  id: '/api-keys',
-  path: '/api-keys',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const ProfileTokensRoute = ProfileTokensRouteImport.update({
-  id: '/tokens',
-  path: '/tokens',
-  getParentRoute: () => ProfileRoute,
-} as any)
-const ProfileSessionsRoute = ProfileSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => ProfileRoute,
-} as any)
-const ProfileSecurityRoute = ProfileSecurityRouteImport.update({
-  id: '/security',
-  path: '/security',
-  getParentRoute: () => ProfileRoute,
-} as any)
-const FleetIdRoute = FleetIdRouteImport.update({
-  id: '/fleet/$id',
-  path: '/fleet/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CiProjectsRoute = CiProjectsRouteImport.update({
-  id: '/ci/projects',
-  path: '/ci/projects',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CiGatesRoute = CiGatesRouteImport.update({
-  id: '/ci/gates',
-  path: '/ci/gates',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthSplatRoute = AuthSplatRouteImport.update({
-  id: '/auth/$',
-  path: '/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -221,35 +96,139 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsUsersIndexRoute = SettingsUsersIndexRouteImport.update({
+const AuthSplatRoute = AuthSplatRouteImport.update({
+  id: '/auth/$',
+  path: '/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CiIndexRoute = CiIndexRouteImport.update({
+  id: '/ci/',
+  path: '/ci/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CiGatesRoute = CiGatesRouteImport.update({
+  id: '/ci/gates',
+  path: '/ci/gates',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CiProjectsRoute = CiProjectsRouteImport.update({
+  id: '/ci/projects',
+  path: '/ci/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FleetIndexRoute = FleetIndexRouteImport.update({
+  id: '/fleet/',
+  path: '/fleet/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FleetIdRoute = FleetIdRouteImport.update({
+  id: '/fleet/$id',
+  path: '/fleet/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileIndexRoute = ProfileIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => SettingsUsersRoute,
+  getParentRoute: () => ProfileRoute,
 } as any)
-const SettingsTeamsIndexRoute = SettingsTeamsIndexRouteImport.update({
+const ProfileSecurityRoute = ProfileSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileSessionsRoute = ProfileSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileTokensRoute = ProfileTokensRouteImport.update({
+  id: '/tokens',
+  path: '/tokens',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => SettingsTeamsRoute,
-} as any)
-const SettingsRunnersIndexRoute = SettingsRunnersIndexRouteImport.update({
-  id: '/runners/',
-  path: '/runners/',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsRolesIndexRoute = SettingsRolesIndexRouteImport.update({
-  id: '/roles/',
-  path: '/roles/',
+const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsEnvironmentsIndexRoute =
-  SettingsEnvironmentsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => SettingsEnvironmentsRoute,
-  } as any)
-const CiRunsIndexRoute = CiRunsIndexRouteImport.update({
-  id: '/ci/runs/',
-  path: '/ci/runs/',
+const SettingsAuditLogRoute = SettingsAuditLogRouteImport.update({
+  id: '/audit-log',
+  path: '/audit-log',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
+  id: '/connections',
+  path: '/connections',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsEnvironmentsRoute = SettingsEnvironmentsRouteImport.update({
+  id: '/environments',
+  path: '/environments',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
+  id: '/providers',
+  path: '/providers',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSsoRoute = SettingsSsoRouteImport.update({
+  id: '/sso',
+  path: '/sso',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTagsRoute = SettingsTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTeamsRoute = SettingsTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsUsersRoute = SettingsUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsVariablesRoute = SettingsVariablesRouteImport.update({
+  id: '/variables',
+  path: '/variables',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsWorkspacesRoute = SettingsWorkspacesRouteImport.update({
+  id: '/workspaces',
+  path: '/workspaces',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const WorkflowsIndexRoute = WorkflowsIndexRouteImport.update({
+  id: '/workflows/',
+  path: '/workflows/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkflowsIdRoute = WorkflowsIdRouteImport.update({
+  id: '/workflows/$id',
+  path: '/workflows/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
+  id: '/api/rpc/$',
+  path: '/api/rpc/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSseSplatRoute = ApiSseSplatRouteImport.update({
+  id: '/api/sse/$',
+  path: '/api/sse/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CiProjectsIndexRoute = CiProjectsIndexRouteImport.update({
@@ -257,44 +236,14 @@ const CiProjectsIndexRoute = CiProjectsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => CiProjectsRoute,
 } as any)
-const SettingsUsersIdRoute = SettingsUsersIdRouteImport.update({
+const CiProjectsIdRoute = CiProjectsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
-  getParentRoute: () => SettingsUsersRoute,
+  getParentRoute: () => CiProjectsRoute,
 } as any)
-const SettingsTeamsIdRoute = SettingsTeamsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => SettingsTeamsRoute,
-} as any)
-const SettingsRunnersNewRoute = SettingsRunnersNewRouteImport.update({
-  id: '/runners/new',
-  path: '/runners/new',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsRunnersNameRoute = SettingsRunnersNameRouteImport.update({
-  id: '/runners/$name',
-  path: '/runners/$name',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsRolesNewRoute = SettingsRolesNewRouteImport.update({
-  id: '/roles/new',
-  path: '/roles/new',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsRolesIdRoute = SettingsRolesIdRouteImport.update({
-  id: '/roles/$id',
-  path: '/roles/$id',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsEnvironmentsIdRoute = SettingsEnvironmentsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => SettingsEnvironmentsRoute,
-} as any)
-const CiViewsIdRoute = CiViewsIdRouteImport.update({
-  id: '/ci/views/$id',
-  path: '/ci/views/$id',
+const CiRunsIndexRoute = CiRunsIndexRouteImport.update({
+  id: '/ci/runs/',
+  path: '/ci/runs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CiRunsIdRoute = CiRunsIdRouteImport.update({
@@ -302,20 +251,71 @@ const CiRunsIdRoute = CiRunsIdRouteImport.update({
   path: '/ci/runs/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CiProjectsIdRoute = CiProjectsIdRouteImport.update({
+const CiViewsIdRoute = CiViewsIdRouteImport.update({
+  id: '/ci/views/$id',
+  path: '/ci/views/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsEnvironmentsIndexRoute =
+  SettingsEnvironmentsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SettingsEnvironmentsRoute,
+  } as any)
+const SettingsEnvironmentsIdRoute = SettingsEnvironmentsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
-  getParentRoute: () => CiProjectsRoute,
+  getParentRoute: () => SettingsEnvironmentsRoute,
 } as any)
-const ApiSseSplatRoute = ApiSseSplatRouteImport.update({
-  id: '/api/sse/$',
-  path: '/api/sse/$',
-  getParentRoute: () => rootRouteImport,
+const SettingsRolesIndexRoute = SettingsRolesIndexRouteImport.update({
+  id: '/roles/',
+  path: '/roles/',
+  getParentRoute: () => SettingsRoute,
 } as any)
-const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
-  id: '/api/rpc/$',
-  path: '/api/rpc/$',
-  getParentRoute: () => rootRouteImport,
+const SettingsRolesIdRoute = SettingsRolesIdRouteImport.update({
+  id: '/roles/$id',
+  path: '/roles/$id',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRolesNewRoute = SettingsRolesNewRouteImport.update({
+  id: '/roles/new',
+  path: '/roles/new',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRunnersIndexRoute = SettingsRunnersIndexRouteImport.update({
+  id: '/runners/',
+  path: '/runners/',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRunnersNameRoute = SettingsRunnersNameRouteImport.update({
+  id: '/runners/$name',
+  path: '/runners/$name',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRunnersNewRoute = SettingsRunnersNewRouteImport.update({
+  id: '/runners/new',
+  path: '/runners/new',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTeamsIndexRoute = SettingsTeamsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsTeamsRoute,
+} as any)
+const SettingsTeamsIdRoute = SettingsTeamsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => SettingsTeamsRoute,
+} as any)
+const SettingsUsersIndexRoute = SettingsUsersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsUsersRoute,
+} as any)
+const SettingsUsersIdRoute = SettingsUsersIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => SettingsUsersRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -653,32 +653,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/teams': {
-      id: '/teams'
-      path: '/teams'
-      fullPath: '/teams'
-      preLoaderRoute: typeof TeamsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/profile': {
-      id: '/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/loadtest': {
@@ -688,186 +667,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoadtestRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/workflows/': {
-      id: '/workflows/'
-      path: '/workflows'
-      fullPath: '/workflows/'
-      preLoaderRoute: typeof WorkflowsIndexRouteImport
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/': {
-      id: '/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/profile/': {
-      id: '/profile/'
-      path: '/'
-      fullPath: '/profile/'
-      preLoaderRoute: typeof ProfileIndexRouteImport
-      parentRoute: typeof ProfileRoute
-    }
-    '/fleet/': {
-      id: '/fleet/'
-      path: '/fleet'
-      fullPath: '/fleet/'
-      preLoaderRoute: typeof FleetIndexRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/ci/': {
-      id: '/ci/'
-      path: '/ci'
-      fullPath: '/ci/'
-      preLoaderRoute: typeof CiIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/workflows/$id': {
-      id: '/workflows/$id'
-      path: '/workflows/$id'
-      fullPath: '/workflows/$id'
-      preLoaderRoute: typeof WorkflowsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/workspaces': {
-      id: '/settings/workspaces'
-      path: '/workspaces'
-      fullPath: '/settings/workspaces'
-      preLoaderRoute: typeof SettingsWorkspacesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/variables': {
-      id: '/settings/variables'
-      path: '/variables'
-      fullPath: '/settings/variables'
-      preLoaderRoute: typeof SettingsVariablesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/users': {
-      id: '/settings/users'
-      path: '/users'
-      fullPath: '/settings/users'
-      preLoaderRoute: typeof SettingsUsersRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/teams': {
-      id: '/settings/teams'
+    '/teams': {
+      id: '/teams'
       path: '/teams'
-      fullPath: '/settings/teams'
-      preLoaderRoute: typeof SettingsTeamsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/tags': {
-      id: '/settings/tags'
-      path: '/tags'
-      fullPath: '/settings/tags'
-      preLoaderRoute: typeof SettingsTagsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/sso': {
-      id: '/settings/sso'
-      path: '/sso'
-      fullPath: '/settings/sso'
-      preLoaderRoute: typeof SettingsSsoRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/providers': {
-      id: '/settings/providers'
-      path: '/providers'
-      fullPath: '/settings/providers'
-      preLoaderRoute: typeof SettingsProvidersRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/projects': {
-      id: '/settings/projects'
-      path: '/projects'
-      fullPath: '/settings/projects'
-      preLoaderRoute: typeof SettingsProjectsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/environments': {
-      id: '/settings/environments'
-      path: '/environments'
-      fullPath: '/settings/environments'
-      preLoaderRoute: typeof SettingsEnvironmentsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/connections': {
-      id: '/settings/connections'
-      path: '/connections'
-      fullPath: '/settings/connections'
-      preLoaderRoute: typeof SettingsConnectionsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/audit-log': {
-      id: '/settings/audit-log'
-      path: '/audit-log'
-      fullPath: '/settings/audit-log'
-      preLoaderRoute: typeof SettingsAuditLogRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/api-keys': {
-      id: '/settings/api-keys'
-      path: '/api-keys'
-      fullPath: '/settings/api-keys'
-      preLoaderRoute: typeof SettingsApiKeysRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/profile/tokens': {
-      id: '/profile/tokens'
-      path: '/tokens'
-      fullPath: '/profile/tokens'
-      preLoaderRoute: typeof ProfileTokensRouteImport
-      parentRoute: typeof ProfileRoute
-    }
-    '/profile/sessions': {
-      id: '/profile/sessions'
-      path: '/sessions'
-      fullPath: '/profile/sessions'
-      preLoaderRoute: typeof ProfileSessionsRouteImport
-      parentRoute: typeof ProfileRoute
-    }
-    '/profile/security': {
-      id: '/profile/security'
-      path: '/security'
-      fullPath: '/profile/security'
-      preLoaderRoute: typeof ProfileSecurityRouteImport
-      parentRoute: typeof ProfileRoute
-    }
-    '/fleet/$id': {
-      id: '/fleet/$id'
-      path: '/fleet/$id'
-      fullPath: '/fleet/$id'
-      preLoaderRoute: typeof FleetIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ci/projects': {
-      id: '/ci/projects'
-      path: '/ci/projects'
-      fullPath: '/ci/projects'
-      preLoaderRoute: typeof CiProjectsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ci/gates': {
-      id: '/ci/gates'
-      path: '/ci/gates'
-      fullPath: '/ci/gates'
-      preLoaderRoute: typeof CiGatesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/$': {
-      id: '/auth/$'
-      path: '/auth/$'
-      fullPath: '/auth/$'
-      preLoaderRoute: typeof AuthSplatRouteImport
+      fullPath: '/teams'
+      preLoaderRoute: typeof TeamsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -877,46 +702,193 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/users/': {
-      id: '/settings/users/'
-      path: '/'
-      fullPath: '/settings/users/'
-      preLoaderRoute: typeof SettingsUsersIndexRouteImport
-      parentRoute: typeof SettingsUsersRoute
+    '/auth/$': {
+      id: '/auth/$'
+      path: '/auth/$'
+      fullPath: '/auth/$'
+      preLoaderRoute: typeof AuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/settings/teams/': {
-      id: '/settings/teams/'
-      path: '/'
-      fullPath: '/settings/teams/'
-      preLoaderRoute: typeof SettingsTeamsIndexRouteImport
-      parentRoute: typeof SettingsTeamsRoute
+    '/ci/': {
+      id: '/ci/'
+      path: '/ci'
+      fullPath: '/ci/'
+      preLoaderRoute: typeof CiIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/settings/runners/': {
-      id: '/settings/runners/'
-      path: '/runners'
-      fullPath: '/settings/runners/'
-      preLoaderRoute: typeof SettingsRunnersIndexRouteImport
+    '/ci/gates': {
+      id: '/ci/gates'
+      path: '/ci/gates'
+      fullPath: '/ci/gates'
+      preLoaderRoute: typeof CiGatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ci/projects': {
+      id: '/ci/projects'
+      path: '/ci/projects'
+      fullPath: '/ci/projects'
+      preLoaderRoute: typeof CiProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fleet/': {
+      id: '/fleet/'
+      path: '/fleet'
+      fullPath: '/fleet/'
+      preLoaderRoute: typeof FleetIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fleet/$id': {
+      id: '/fleet/$id'
+      path: '/fleet/$id'
+      fullPath: '/fleet/$id'
+      preLoaderRoute: typeof FleetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile/': {
+      id: '/profile/'
+      path: '/'
+      fullPath: '/profile/'
+      preLoaderRoute: typeof ProfileIndexRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/security': {
+      id: '/profile/security'
+      path: '/security'
+      fullPath: '/profile/security'
+      preLoaderRoute: typeof ProfileSecurityRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/sessions': {
+      id: '/profile/sessions'
+      path: '/sessions'
+      fullPath: '/profile/sessions'
+      preLoaderRoute: typeof ProfileSessionsRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/tokens': {
+      id: '/profile/tokens'
+      path: '/tokens'
+      fullPath: '/profile/tokens'
+      preLoaderRoute: typeof ProfileTokensRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/roles/': {
-      id: '/settings/roles/'
-      path: '/roles'
-      fullPath: '/settings/roles/'
-      preLoaderRoute: typeof SettingsRolesIndexRouteImport
+    '/settings/api-keys': {
+      id: '/settings/api-keys'
+      path: '/api-keys'
+      fullPath: '/settings/api-keys'
+      preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/environments/': {
-      id: '/settings/environments/'
-      path: '/'
-      fullPath: '/settings/environments/'
-      preLoaderRoute: typeof SettingsEnvironmentsIndexRouteImport
-      parentRoute: typeof SettingsEnvironmentsRoute
+    '/settings/audit-log': {
+      id: '/settings/audit-log'
+      path: '/audit-log'
+      fullPath: '/settings/audit-log'
+      preLoaderRoute: typeof SettingsAuditLogRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/ci/runs/': {
-      id: '/ci/runs/'
-      path: '/ci/runs'
-      fullPath: '/ci/runs/'
-      preLoaderRoute: typeof CiRunsIndexRouteImport
+    '/settings/connections': {
+      id: '/settings/connections'
+      path: '/connections'
+      fullPath: '/settings/connections'
+      preLoaderRoute: typeof SettingsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/environments': {
+      id: '/settings/environments'
+      path: '/environments'
+      fullPath: '/settings/environments'
+      preLoaderRoute: typeof SettingsEnvironmentsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/projects': {
+      id: '/settings/projects'
+      path: '/projects'
+      fullPath: '/settings/projects'
+      preLoaderRoute: typeof SettingsProjectsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/providers': {
+      id: '/settings/providers'
+      path: '/providers'
+      fullPath: '/settings/providers'
+      preLoaderRoute: typeof SettingsProvidersRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/sso': {
+      id: '/settings/sso'
+      path: '/sso'
+      fullPath: '/settings/sso'
+      preLoaderRoute: typeof SettingsSsoRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/tags': {
+      id: '/settings/tags'
+      path: '/tags'
+      fullPath: '/settings/tags'
+      preLoaderRoute: typeof SettingsTagsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/teams': {
+      id: '/settings/teams'
+      path: '/teams'
+      fullPath: '/settings/teams'
+      preLoaderRoute: typeof SettingsTeamsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/users': {
+      id: '/settings/users'
+      path: '/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof SettingsUsersRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/variables': {
+      id: '/settings/variables'
+      path: '/variables'
+      fullPath: '/settings/variables'
+      preLoaderRoute: typeof SettingsVariablesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/workspaces': {
+      id: '/settings/workspaces'
+      path: '/workspaces'
+      fullPath: '/settings/workspaces'
+      preLoaderRoute: typeof SettingsWorkspacesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/workflows/': {
+      id: '/workflows/'
+      path: '/workflows'
+      fullPath: '/workflows/'
+      preLoaderRoute: typeof WorkflowsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workflows/$id': {
+      id: '/workflows/$id'
+      path: '/workflows/$id'
+      fullPath: '/workflows/$id'
+      preLoaderRoute: typeof WorkflowsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/rpc/$': {
+      id: '/api/rpc/$'
+      path: '/api/rpc/$'
+      fullPath: '/api/rpc/$'
+      preLoaderRoute: typeof ApiRpcSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sse/$': {
+      id: '/api/sse/$'
+      path: '/api/sse/$'
+      fullPath: '/api/sse/$'
+      preLoaderRoute: typeof ApiSseSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ci/projects/': {
@@ -926,60 +898,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CiProjectsIndexRouteImport
       parentRoute: typeof CiProjectsRoute
     }
-    '/settings/users/$id': {
-      id: '/settings/users/$id'
+    '/ci/projects/$id': {
+      id: '/ci/projects/$id'
       path: '/$id'
-      fullPath: '/settings/users/$id'
-      preLoaderRoute: typeof SettingsUsersIdRouteImport
-      parentRoute: typeof SettingsUsersRoute
+      fullPath: '/ci/projects/$id'
+      preLoaderRoute: typeof CiProjectsIdRouteImport
+      parentRoute: typeof CiProjectsRoute
     }
-    '/settings/teams/$id': {
-      id: '/settings/teams/$id'
-      path: '/$id'
-      fullPath: '/settings/teams/$id'
-      preLoaderRoute: typeof SettingsTeamsIdRouteImport
-      parentRoute: typeof SettingsTeamsRoute
-    }
-    '/settings/runners/new': {
-      id: '/settings/runners/new'
-      path: '/runners/new'
-      fullPath: '/settings/runners/new'
-      preLoaderRoute: typeof SettingsRunnersNewRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/runners/$name': {
-      id: '/settings/runners/$name'
-      path: '/runners/$name'
-      fullPath: '/settings/runners/$name'
-      preLoaderRoute: typeof SettingsRunnersNameRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/roles/new': {
-      id: '/settings/roles/new'
-      path: '/roles/new'
-      fullPath: '/settings/roles/new'
-      preLoaderRoute: typeof SettingsRolesNewRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/roles/$id': {
-      id: '/settings/roles/$id'
-      path: '/roles/$id'
-      fullPath: '/settings/roles/$id'
-      preLoaderRoute: typeof SettingsRolesIdRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/environments/$id': {
-      id: '/settings/environments/$id'
-      path: '/$id'
-      fullPath: '/settings/environments/$id'
-      preLoaderRoute: typeof SettingsEnvironmentsIdRouteImport
-      parentRoute: typeof SettingsEnvironmentsRoute
-    }
-    '/ci/views/$id': {
-      id: '/ci/views/$id'
-      path: '/ci/views/$id'
-      fullPath: '/ci/views/$id'
-      preLoaderRoute: typeof CiViewsIdRouteImport
+    '/ci/runs/': {
+      id: '/ci/runs/'
+      path: '/ci/runs'
+      fullPath: '/ci/runs/'
+      preLoaderRoute: typeof CiRunsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ci/runs/$id': {
@@ -989,26 +919,96 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CiRunsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/ci/projects/$id': {
-      id: '/ci/projects/$id'
+    '/ci/views/$id': {
+      id: '/ci/views/$id'
+      path: '/ci/views/$id'
+      fullPath: '/ci/views/$id'
+      preLoaderRoute: typeof CiViewsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/environments/': {
+      id: '/settings/environments/'
+      path: '/'
+      fullPath: '/settings/environments/'
+      preLoaderRoute: typeof SettingsEnvironmentsIndexRouteImport
+      parentRoute: typeof SettingsEnvironmentsRoute
+    }
+    '/settings/environments/$id': {
+      id: '/settings/environments/$id'
       path: '/$id'
-      fullPath: '/ci/projects/$id'
-      preLoaderRoute: typeof CiProjectsIdRouteImport
-      parentRoute: typeof CiProjectsRoute
+      fullPath: '/settings/environments/$id'
+      preLoaderRoute: typeof SettingsEnvironmentsIdRouteImport
+      parentRoute: typeof SettingsEnvironmentsRoute
     }
-    '/api/sse/$': {
-      id: '/api/sse/$'
-      path: '/api/sse/$'
-      fullPath: '/api/sse/$'
-      preLoaderRoute: typeof ApiSseSplatRouteImport
-      parentRoute: typeof rootRouteImport
+    '/settings/roles/': {
+      id: '/settings/roles/'
+      path: '/roles'
+      fullPath: '/settings/roles/'
+      preLoaderRoute: typeof SettingsRolesIndexRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/api/rpc/$': {
-      id: '/api/rpc/$'
-      path: '/api/rpc/$'
-      fullPath: '/api/rpc/$'
-      preLoaderRoute: typeof ApiRpcSplatRouteImport
-      parentRoute: typeof rootRouteImport
+    '/settings/roles/$id': {
+      id: '/settings/roles/$id'
+      path: '/roles/$id'
+      fullPath: '/settings/roles/$id'
+      preLoaderRoute: typeof SettingsRolesIdRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/roles/new': {
+      id: '/settings/roles/new'
+      path: '/roles/new'
+      fullPath: '/settings/roles/new'
+      preLoaderRoute: typeof SettingsRolesNewRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/runners/': {
+      id: '/settings/runners/'
+      path: '/runners'
+      fullPath: '/settings/runners/'
+      preLoaderRoute: typeof SettingsRunnersIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/runners/$name': {
+      id: '/settings/runners/$name'
+      path: '/runners/$name'
+      fullPath: '/settings/runners/$name'
+      preLoaderRoute: typeof SettingsRunnersNameRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/runners/new': {
+      id: '/settings/runners/new'
+      path: '/runners/new'
+      fullPath: '/settings/runners/new'
+      preLoaderRoute: typeof SettingsRunnersNewRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/teams/': {
+      id: '/settings/teams/'
+      path: '/'
+      fullPath: '/settings/teams/'
+      preLoaderRoute: typeof SettingsTeamsIndexRouteImport
+      parentRoute: typeof SettingsTeamsRoute
+    }
+    '/settings/teams/$id': {
+      id: '/settings/teams/$id'
+      path: '/$id'
+      fullPath: '/settings/teams/$id'
+      preLoaderRoute: typeof SettingsTeamsIdRouteImport
+      parentRoute: typeof SettingsTeamsRoute
+    }
+    '/settings/users/': {
+      id: '/settings/users/'
+      path: '/'
+      fullPath: '/settings/users/'
+      preLoaderRoute: typeof SettingsUsersIndexRouteImport
+      parentRoute: typeof SettingsUsersRoute
+    }
+    '/settings/users/$id': {
+      id: '/settings/users/$id'
+      path: '/$id'
+      fullPath: '/settings/users/$id'
+      preLoaderRoute: typeof SettingsUsersIdRouteImport
+      parentRoute: typeof SettingsUsersRoute
     }
   }
 }
