@@ -2,7 +2,6 @@ package fleet
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -48,7 +47,6 @@ type candidate struct {
 	status        string
 	freeCPU       int64
 	freeMem       int64
-	runIDs        []string
 	interruptible bool // reclaimable (spot) capacity — avoided for new run holders
 	nowBusy       bool // became busy during this pass
 	boundHere     int
@@ -85,26 +83,41 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 		return 0, err
 	}
 	candidates := make([]*candidate, 0, len(rows))
+	byID := make(map[string]*candidate, len(rows))
 	for _, m := range rows {
-		candidates = append(candidates, &candidate{
+		c := &candidate{
 			id:     m.ID,
 			status: m.Status,
 			// Free = capacity − committed; capacity 0 means "unknown/unbounded"
 			// (a machine that self-reported nothing) — treat as roomy.
 			freeCPU:       freeOrUnbounded(m.CpuMillis, m.CommittedCpuMillis),
 			freeMem:       freeOrUnbounded(m.MemoryMb, m.CommittedMemoryMb),
-			runIDs:        m.ActiveRunIds,
 			interruptible: m.CapacityType != nil && compute.CapacityType(*m.CapacityType).Interruptible(),
-		})
+		}
+		candidates = append(candidates, c)
+		byID[m.ID] = c
+	}
+
+	// Resolve workspace holders for just this batch's runs. Asking per-run keeps
+	// the cost proportional to the batch rather than to every assignment the
+	// pool's machines have ever run.
+	holders, err := f.runHolders(ctx, qtx, poolID, pending)
+	if err != nil {
+		return 0, err
 	}
 
 	bound := 0
+	var queueWaits []time.Duration
 	deadline := time.Now().Add(claimDeadline)
 	for _, a := range pending {
-		best := pickMachine(candidates, a)
+		best := pickMachine(candidates, byID[holders[a.RunID]], a)
 		if best == nil {
 			continue // stays pending; the provisioner owns boot-new
 		}
+		// This binding establishes (or confirms) the run's holder, so later
+		// assignments for the same run in THIS batch follow it — the in-pass
+		// equivalent of what RunAffinityHolders will return on the next pass.
+		holders[a.RunID] = best.id
 		if err := qtx.BindAssignment(ctx, db.BindAssignmentParams{
 			ID: a.ID, MachineID: &best.id, ClaimDeadlineAt: &deadline,
 		}); err != nil {
@@ -123,17 +136,49 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 		}
 		best.freeCPU -= a.CpuMillis
 		best.freeMem -= a.MemoryMb
-		best.runIDs = append(best.runIDs, a.RunID)
 		best.boundHere++
 		bound++
+		queueWaits = append(queueWaits, time.Since(a.CreatedAt))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
+	}
+	// Reported only after the commit: a binding that rolled back never happened,
+	// and a queue-wait histogram that counts phantom placements is worse than none.
+	for _, w := range queueWaits {
+		recordAssignmentBound(ctx, poolID, w)
 	}
 	if bound > 0 {
 		log.Debug().Int("bound", bound).Str("pool", poolID).Msg("fleet: assignments scheduled")
 	}
 	return bound, nil
+}
+
+// runHolders maps run id → the machine already holding that run's workspace,
+// for the runs present in this batch. Runs with no holder are simply absent.
+func (f *Fleet) runHolders(ctx context.Context, qtx *db.Queries, poolID string, pending []db.ClaimPendingAssignmentsRow) (map[string]string, error) {
+	seen := make(map[string]struct{}, len(pending))
+	runIDs := make([]string, 0, len(pending))
+	for _, a := range pending {
+		if _, ok := seen[a.RunID]; ok {
+			continue
+		}
+		seen[a.RunID] = struct{}{}
+		runIDs = append(runIDs, a.RunID)
+	}
+	rows, err := qtx.RunAffinityHolders(ctx, db.RunAffinityHoldersParams{
+		RunIds: runIDs, PoolID: poolID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	holders := make(map[string]string, len(rows))
+	for _, r := range rows {
+		if r.MachineID != nil {
+			holders[r.RunID] = *r.MachineID
+		}
+	}
+	return holders, nil
 }
 
 // pickMachine chooses the machine for one assignment. Run affinity is a
@@ -144,14 +189,11 @@ func (f *Fleet) schedulePool(ctx context.Context, poolID string) (int, error) {
 // holder died, its assignments already failed through the machine-lost path
 // and the retry starts fresh. Runs with no holder yet get best-fit (smallest
 // sufficient free CPU, so large future requests keep a machine to land on).
-func pickMachine(candidates []*candidate, a db.ClaimPendingAssignmentsRow) *candidate {
-	var holder *candidate
-	for _, c := range candidates {
-		if slices.Contains(c.runIDs, a.RunID) {
-			holder = c
-			break
-		}
-	}
+//
+// holder is the run's established workspace machine, or nil if it has none
+// (including the case where the holder is no longer a schedulable candidate —
+// a dead machine unpins its runs so retries can start somewhere new).
+func pickMachine(candidates []*candidate, holder *candidate, a db.ClaimPendingAssignmentsRow) *candidate {
 	if holder != nil {
 		if holder.freeCPU >= a.CpuMillis && holder.freeMem >= a.MemoryMb {
 			return holder

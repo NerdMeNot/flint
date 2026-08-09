@@ -35,8 +35,18 @@ SELECT * FROM machines WHERE id = $1;
 -- 'requested' is included because provider.Create returns before the
 -- requested → provisioning transition commits, and a very fast instance could
 -- register in that window.
+--
+-- FOR UPDATE because the caller transitions the machine FROM the status this
+-- returns, and that transition is guarded by `WHERE status = @from_status`.
+-- Read without the lock, the status could change between this select and the
+-- update — exactly what happens when a fast instance registers while the
+-- provisioner is still committing requested → provisioning — and registration
+-- failed with a lost-race error instead of succeeding. Locking the row makes
+-- the two orderings deterministic: whoever gets the lock first wins, and the
+-- loser observes the committed status rather than a stale one.
 SELECT * FROM machines WHERE bootstrap_token_hash = $1
-  AND status IN ('requested', 'provisioning');
+  AND status IN ('requested', 'provisioning')
+FOR UPDATE;
 
 -- name: GetMachineByAgentTokenHash :one
 -- Auth interceptor lookup for all post-registration agent calls.
@@ -129,6 +139,23 @@ WHERE m.status = 'idle'
     WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
   )
 FOR UPDATE OF m SKIP LOCKED;
+
+-- name: FleetInventory :many
+-- Metrics input: the live fleet's shape in one query — machine counts and the
+-- committed $/hour they represent, grouped so a dashboard can slice by pool,
+-- state, and reliability class. This is the number the product promises to make
+-- legible, so it is read from the machines table (authoritative) rather than
+-- accumulated in-process, where it would drift across restarts and replicas.
+-- Terminal machines are excluded: they cost nothing and would grow forever.
+SELECT p.name AS pool_name,
+       m.status,
+       COALESCE(m.capacity_type, 'unknown')::text AS capacity_type,
+       count(*) AS n,
+       COALESCE(SUM(m.price_per_hour_usd), 0)::float8 AS hourly_cost_usd
+FROM machines m
+JOIN machine_pools p ON p.id = m.pool_id
+WHERE m.status NOT IN ('terminated', 'failed')
+GROUP BY p.name, m.status, COALESCE(m.capacity_type, 'unknown');
 
 -- name: IncrementMachineStepsCompleted :exec
 UPDATE machines SET steps_completed = steps_completed + 1, updated_at = now() WHERE id = $1;

@@ -38,7 +38,24 @@ var (
 	// Auth — sign-in outcomes labelled by method (local/oidc/saml) and result
 	// (success/failure). Powers SSO dashboards + failure-spike alerting.
 	AuthLoginsTotal metric.Int64Counter
+
+	// Fleet — machine lifecycle and the economics decisions behind it. The
+	// decision ledger explains any ONE provision after the fact; these are what
+	// tell you the fleet is 40 machines deep and climbing while it happens.
+	FleetProvisionAttempts   metric.Int64Counter
+	FleetMachinesTerminated  metric.Int64Counter
+	FleetMachinesLost        metric.Int64Counter
+	FleetBootDuration        metric.Float64Histogram
+	FleetAssignmentsBound    metric.Int64Counter
+	FleetQueueWaitSeconds    metric.Float64Histogram
+	FleetProviderCalls       metric.Int64Counter
+	FleetProviderCallSeconds metric.Float64Histogram
 )
+
+// Meter exposes the shared "flint" meter so packages that own their own state
+// (the fleet's DB-backed inventory gauges) can register observable instruments
+// against it, instead of this file reaching into their dependencies.
+func Meter() metric.Meter { return meter }
 
 func init() {
 	var err error
@@ -72,7 +89,7 @@ func init() {
 	must(err)
 
 	StepsDispatched, err = meter.Int64Counter("flint.engine.steps.dispatched",
-		metric.WithDescription("Total steps dispatched as K8s Jobs"))
+		metric.WithDescription("Total steps dispatched to machines"))
 	must(err)
 
 	StepsCompleted, err = meter.Int64Counter("flint.engine.steps.completed",
@@ -101,6 +118,38 @@ func init() {
 
 	AuthLoginsTotal, err = meter.Int64Counter("flint.auth.logins.total",
 		metric.WithDescription("Total sign-in attempts by method (local/oidc/saml) and result (success/failure)"))
+	must(err)
+
+	FleetProvisionAttempts, err = meter.Int64Counter("flint.fleet.provision.attempts",
+		metric.WithDescription("Machine provision attempts by pool, capacity type, objective, and result (booted/no_capacity/create_failed)"))
+	must(err)
+
+	FleetMachinesTerminated, err = meter.Int64Counter("flint.fleet.machines.terminated",
+		metric.WithDescription("Machines terminated by pool and reason (idle_ttl, drain, ...)"))
+	must(err)
+
+	FleetMachinesLost, err = meter.Int64Counter("flint.fleet.machines.lost",
+		metric.WithDescription("Machines lost by pool and cause (heartbeat_expired, instance_gone, boot_timeout)"))
+	must(err)
+
+	FleetBootDuration, err = meter.Float64Histogram("flint.fleet.boot.duration_seconds",
+		metric.WithDescription("Time from provision request to agent registration, by pool and capacity type"))
+	must(err)
+
+	FleetAssignmentsBound, err = meter.Int64Counter("flint.fleet.assignments.bound",
+		metric.WithDescription("Step assignments bound to a machine by pool"))
+	must(err)
+
+	FleetQueueWaitSeconds, err = meter.Float64Histogram("flint.fleet.assignments.queue_wait_seconds",
+		metric.WithDescription("Time a step assignment waited pending before being bound to a machine, by pool — the user-visible 'why is my build queued'"))
+	must(err)
+
+	FleetProviderCalls, err = meter.Int64Counter("flint.fleet.provider.calls",
+		metric.WithDescription("Compute-provider API calls by provider, operation, and result (ok/error/timeout)"))
+	must(err)
+
+	FleetProviderCallSeconds, err = meter.Float64Histogram("flint.fleet.provider.call_duration_seconds",
+		metric.WithDescription("Compute-provider API call latency by provider and operation — the signal ProviderTimeouts is tuned against"))
 	must(err)
 }
 

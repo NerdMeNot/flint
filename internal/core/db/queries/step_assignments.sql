@@ -10,9 +10,11 @@ INSERT INTO step_assignments (
 ) RETURNING id;
 
 -- name: ClaimPendingAssignments :many
--- Fleet scheduler input: oldest-first pending work for one pool.
+-- Fleet scheduler input: oldest-first pending work for one pool. created_at is
+-- returned so binding can report how long the work actually queued — the
+-- user-visible half of "why is my build waiting".
 SELECT id, step_id, workflow_id, run_id, step_name, attempt,
-       cpu_millis, memory_mb, disk_gb
+       cpu_millis, memory_mb, disk_gb, created_at
 FROM step_assignments
 WHERE pool_id = $1 AND status = 'pending'
 ORDER BY created_at
@@ -89,18 +91,55 @@ WHERE machine_id = $1 AND status IN ('assigned', 'running');
 -- name: MachineFreeCapacity :many
 -- Scheduler input: candidate machines for a pool with their committed capacity.
 -- Free = machines.cpu_millis − committed (computed by the caller); no reserved
--- counters to drift. active_run_ids drives HARD run affinity, so it includes
--- runs whose earlier steps already finished here (the workspace directory
--- outlives the assignment) — 'lost' (machine death; retries start fresh) and
--- 'cancelled' assignments don't pin a run.
+-- counters to drift.
+--
+-- Run affinity used to be answered here too, by array_agg-ing every run the
+-- machine had ever touched. That made the scheduler's hot path — once per pool
+-- per tick — proportional to the machine's whole 90-day retention window: on a
+-- 50-machine pool with 100k historical assignments it read every one of them,
+-- spilled the sort to a temp file, and took ~78ms. Affinity is now answered
+-- from the run side by RunAffinityHolders, which is proportional to the
+-- scheduling BATCH instead. What is left here touches only live work, so
+-- idx_assignments_machine_active applies and the same query costs ~0.1ms.
+--
+-- The status predicate must stay in the JOIN rather than a FILTER clause: in
+-- the FILTER position Postgres cannot match the partial index and goes back to
+-- reading everything.
 SELECT m.id, m.status, m.cpu_millis, m.memory_mb, m.last_heartbeat_at, m.capacity_type,
-       COALESCE(SUM(a.cpu_millis) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_cpu_millis,
-       COALESCE(SUM(a.memory_mb) FILTER (WHERE a.status IN ('assigned','running')), 0)::bigint AS committed_memory_mb,
-       COALESCE(array_agg(DISTINCT a.run_id) FILTER (WHERE a.status IN ('assigned','running','succeeded','failed')), '{}')::uuid[] AS active_run_ids
+       COALESCE(SUM(a.cpu_millis), 0)::bigint AS committed_cpu_millis,
+       COALESCE(SUM(a.memory_mb), 0)::bigint AS committed_memory_mb
 FROM machines m
-LEFT JOIN step_assignments a ON a.machine_id = m.id
+LEFT JOIN step_assignments a
+       ON a.machine_id = m.id
+      AND a.status IN ('assigned', 'running')
 WHERE m.pool_id = $1 AND m.status IN ('idle', 'busy')
 GROUP BY m.id;
+
+-- name: RunAffinityHolders :many
+-- Scheduler input: for the runs in THIS batch, which machine already holds each
+-- run's workspace. Run affinity is a hard guarantee — a run's workspace is a
+-- local directory on the machine that started it — so every later step of a run
+-- must land on its holder.
+--
+-- Asking it per-run rather than per-machine is what keeps it cheap: a batch is
+-- at most schedulerBatch runs, and (run_id, status) is already indexed, so this
+-- is ~2.7ms on a 100k-assignment table regardless of how much history the
+-- machines have accumulated.
+--
+-- 'succeeded'/'failed' assignments still pin a run (the workspace directory
+-- outlives the assignment that created it); 'lost' (machine death — retries
+-- start fresh) and 'cancelled' do not. DISTINCT ON + ORDER BY created_at picks
+-- the EARLIEST holder, which is the machine the workspace was established on.
+-- Only idle/busy machines in this pool can hold work; a dead machine's runs are
+-- deliberately unpinned so their retries can start somewhere new.
+SELECT DISTINCT ON (a.run_id) a.run_id, a.machine_id
+FROM step_assignments a
+JOIN machines m ON m.id = a.machine_id
+WHERE a.run_id = ANY(@run_ids::uuid[])
+  AND a.status IN ('assigned', 'running', 'succeeded', 'failed')
+  AND m.pool_id = @pool_id
+  AND m.status IN ('idle', 'busy')
+ORDER BY a.run_id, a.created_at;
 
 -- name: GetAssignment :one
 SELECT * FROM step_assignments WHERE id = $1;

@@ -35,13 +35,20 @@ func (f *Fleet) Provision(ctx context.Context) (int, error) {
 	// resolve per-branch/event economics policy before quoting. Excludes work
 	// pinned by hard affinity to an existing holder (a new machine can't take it),
 	// which would otherwise over-provision idle capacity.
+	//
+	// This query failing must NOT degrade to "no demand": that reads as a quiet,
+	// healthy fleet — every scale-to-zero pool is skipped by the gate below and
+	// queued work waits forever with nothing logged. Fail the pass instead, so
+	// the caller logs it and the next pass retries.
+	rows, err := q.PendingProvisioningDemandByGroup(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("pending provisioning demand: %w", err)
+	}
 	demandByPool := map[string][]db.PendingProvisioningDemandByGroupRow{}
 	totalByPool := map[string]int64{}
-	if rows, err := q.PendingProvisioningDemandByGroup(ctx); err == nil {
-		for _, r := range rows {
-			demandByPool[r.PoolID] = append(demandByPool[r.PoolID], r)
-			totalByPool[r.PoolID] += r.N
-		}
+	for _, r := range rows {
+		demandByPool[r.PoolID] = append(demandByPool[r.PoolID], r)
+		totalByPool[r.PoolID] += r.N
 	}
 
 	booted := 0
@@ -234,12 +241,15 @@ func (f *Fleet) provisionPool(ctx context.Context, pool db.ListMachinePoolsRow, 
 		offers = freshOffers(offers, time.Now())
 		if len(offers) == 0 {
 			f.recordNoCapacity(ctx, pool, req)
+			recordProvisionAttempt(ctx, pool.Name, string(pc.capacity), pc.objective, "no_capacity")
 			break
 		}
 		rankOffers(offers, pc.objective)
 		if err := f.bootMachine(ctx, pool, provider, offers, pc); err != nil {
+			recordProvisionAttempt(ctx, pool.Name, string(pc.capacity), pc.objective, "create_failed")
 			return booted, err
 		}
+		recordProvisionAttempt(ctx, pool.Name, string(pc.capacity), pc.objective, "booted")
 		booted++
 	}
 	if booted > 0 {
@@ -459,6 +469,7 @@ func (f *Fleet) scaleDownPool(ctx context.Context, poolID string, machineIDs []s
 			log.Error().Err(err).Str("machine", id).Msg("fleet: scale-down failed")
 			continue
 		}
+		recordMachineTerminated(ctx, pool.Name, "idle_ttl")
 		idle--
 		terminated++
 	}

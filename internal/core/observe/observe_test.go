@@ -18,7 +18,11 @@ func TestInit_NoEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init() error: %v", err)
 	}
-	defer shutdown(ctx)
+	t.Cleanup(func() {
+		if err := shutdown(ctx); err != nil {
+			t.Errorf("shutdown() error: %v", err)
+		}
+	})
 }
 
 func TestContext_RequestID(t *testing.T) {

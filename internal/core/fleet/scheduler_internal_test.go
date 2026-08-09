@@ -18,25 +18,25 @@ func TestPickMachine_PrefersStableForNewRuns(t *testing.T) {
 	spot := &candidate{id: "spot", freeCPU: 4000, freeMem: 8192, interruptible: true}
 
 	t.Run("stable preferred over interruptible with equal room", func(t *testing.T) {
-		got := pickMachine([]*candidate{spot, stable}, req)
+		got := pickMachine([]*candidate{spot, stable}, nil, req)
 		assert.Equal(t, "stable", got.id)
 	})
 
 	t.Run("smaller stable wins on best-fit among stable", func(t *testing.T) {
 		small := &candidate{id: "small", freeCPU: 1500, freeMem: 2048, interruptible: false}
-		got := pickMachine([]*candidate{stable, small, spot}, req)
+		got := pickMachine([]*candidate{stable, small, spot}, nil, req)
 		assert.Equal(t, "small", got.id, "best-fit picks the tightest stable machine")
 	})
 
 	t.Run("overflows to interruptible only when no stable fits", func(t *testing.T) {
 		fullStable := &candidate{id: "stable", freeCPU: 100, freeMem: 100, interruptible: false}
-		got := pickMachine([]*candidate{fullStable, spot}, req)
+		got := pickMachine([]*candidate{fullStable, spot}, nil, req)
 		assert.Equal(t, "spot", got.id, "interruptible is the overflow when stable is full")
 	})
 
 	t.Run("no capacity anywhere → nil", func(t *testing.T) {
 		full := &candidate{id: "x", freeCPU: 1, freeMem: 1, interruptible: false}
-		assert.Nil(t, pickMachine([]*candidate{full}, req))
+		assert.Nil(t, pickMachine([]*candidate{full}, nil, req))
 	})
 }
 
@@ -45,9 +45,20 @@ func TestPickMachine_PrefersStableForNewRuns(t *testing.T) {
 // only on that machine); we don't split a run across machines for reliability.
 func TestPickMachine_AffinityBeatsClassPreference(t *testing.T) {
 	req := db.ClaimPendingAssignmentsRow{RunID: "run-1", CpuMillis: 1000, MemoryMb: 1024}
-	spotHolder := &candidate{id: "spot-holder", freeCPU: 4000, freeMem: 8192, interruptible: true, runIDs: []string{"run-1"}}
+	spotHolder := &candidate{id: "spot-holder", freeCPU: 4000, freeMem: 8192, interruptible: true}
 	freeStable := &candidate{id: "free-stable", freeCPU: 4000, freeMem: 8192, interruptible: false}
 
-	got := pickMachine([]*candidate{freeStable, spotHolder}, req)
+	got := pickMachine([]*candidate{freeStable, spotHolder}, spotHolder, req)
 	assert.Equal(t, "spot-holder", got.id, "the run's existing holder wins even though it is interruptible")
+}
+
+// Affinity is a hard guarantee in BOTH directions: a run whose holder is full
+// waits for it rather than starting a second workspace on a machine with room.
+func TestPickMachine_FullHolderBlocksRatherThanSplitting(t *testing.T) {
+	req := db.ClaimPendingAssignmentsRow{RunID: "run-1", CpuMillis: 1000, MemoryMb: 1024}
+	fullHolder := &candidate{id: "holder", freeCPU: 10, freeMem: 10}
+	roomy := &candidate{id: "roomy", freeCPU: 8000, freeMem: 16384}
+
+	assert.Nil(t, pickMachine([]*candidate{fullHolder, roomy}, fullHolder, req),
+		"the run waits for its own machine; its workspace exists nowhere else")
 }

@@ -106,6 +106,10 @@ func (f *Fleet) Register(ctx context.Context, reg Registration) (RegisteredMachi
 		if err := tx.Commit(ctx); err != nil {
 			return RegisteredMachine{}, err
 		}
+		// Measured, not estimated: this is the real boot latency the warm-vs-boot
+		// trade is made against, whereas Offer.ExpectedBootSeconds is the provider's
+		// claim about it.
+		recordBootDuration(ctx, pool.Name, deref(m.CapacityType), time.Since(m.RequestedAt))
 		log.Info().Str("machine", m.ID).Str("pool", pool.Name).Int("bootSeconds", bootSeconds).
 			Msg("fleet: elastic machine registered")
 		return RegisteredMachine{

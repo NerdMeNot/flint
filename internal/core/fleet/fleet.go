@@ -63,6 +63,7 @@ func (f *Fleet) ExpireBootDeadlines(ctx context.Context) (int, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
 	}
+	recordMachineLost(ctx, "boot_timeout", len(rows))
 	if len(rows) > 0 {
 		log.Warn().Int("machines", len(rows)).Msg("fleet: boot deadlines expired")
 	}
@@ -112,6 +113,7 @@ func (f *Fleet) ExpireHeartbeatLeases(ctx context.Context) (int, error) {
 	// guarantee the informer path had.
 	f.failStepsViaSignals(ctx, failed)
 
+	recordMachineLost(ctx, "heartbeat_expired", len(rows))
 	if len(rows) > 0 {
 		log.Warn().Int("machines", len(rows)).Int("assignments", len(failed)).
 			Msg("fleet: heartbeat leases expired — machines lost")

@@ -30,9 +30,22 @@ func (f *Fleet) SetProviderResolver(r func(ctx context.Context, name string) (co
 	f.providerResolver = r
 }
 
-// provider resolves a compute provider by its configured name, constructing
-// from the compute_providers row and caching briefly.
+// provider resolves a compute provider by its configured name and wraps it so
+// every call is bounded by ProviderTimeouts. Wrapping here — the one place the
+// fleet obtains a provider — is what makes "no unbounded provider call" a
+// property of the package rather than a rule each call site must remember.
 func (f *Fleet) provider(ctx context.Context, name string) (compute.Provider, error) {
+	p, err := f.resolveProvider(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return withTimeouts(p, f.timeouts), nil
+}
+
+// resolveProvider constructs (or returns a cached) provider from the
+// compute_providers row. The cache holds the UNWRAPPED provider so the timeout
+// decorator is applied exactly once, at the provider() boundary.
+func (f *Fleet) resolveProvider(ctx context.Context, name string) (compute.Provider, error) {
 	if f.providerResolver != nil {
 		return f.providerResolver(ctx, name)
 	}
@@ -79,4 +92,8 @@ type providerCache struct {
 	providerResolver func(ctx context.Context, name string) (compute.Provider, error)
 	bootstrap        BootstrapEndpoints
 	zombieSightings  map[string]int
+	// timeouts bounds each provider API call. The zero value is filled from
+	// DefaultProviderTimeouts at wrap time, so an unconfigured Fleet is still
+	// bounded — unbounded is never reachable by forgetting to configure.
+	timeouts ProviderTimeouts
 }

@@ -209,6 +209,7 @@ func (f *Fleet) markMachineLost(ctx context.Context, machineID, fromStatus, reas
 		return err
 	}
 	f.failStepsViaSignals(ctx, failed)
+	recordMachineLost(ctx, "instance_gone", 1)
 	log.Warn().Str("machine", machineID).Str("reason", reason).
 		Int("assignments", len(failed)).Msg("fleet: machine lost (provider truth)")
 	return nil
