@@ -274,11 +274,7 @@ func (s *S3FS) GetManifest(ctx context.Context) (Manifest, int64, error) {
 
 	m := make(Manifest, len(sm.Entries))
 	for path, e := range sm.Entries {
-		m[path] = ManifestEntry{
-			Hash:  e.Hash,
-			Size:  e.Size,
-			Mtime: e.Mtime,
-		}
+		m[path] = ManifestEntry(e)
 	}
 	return m, sm.Version, nil
 }
@@ -291,11 +287,7 @@ func (s *S3FS) PutManifest(ctx context.Context, m Manifest, version int64) error
 		Entries: make(map[string]s3Entry, len(m)),
 	}
 	for path, e := range m {
-		sm.Entries[path] = s3Entry{
-			Hash:  e.Hash,
-			Size:  e.Size,
-			Mtime: e.Mtime,
-		}
+		sm.Entries[path] = s3Entry(e)
 	}
 
 	data, err := json.Marshal(sm)

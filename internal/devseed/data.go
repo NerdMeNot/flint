@@ -120,7 +120,7 @@ type runSpec struct {
 }
 
 var (
-	authors  = []string{"carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy"}
+	authors = []string{"carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy"}
 	// Deliberately includes names long enough to overflow a card footer. Real
 	// teams generate branches like these from ticket templates, and a fixture
 	// that only ever emits "main" lets truncation bugs ship — the projects grid

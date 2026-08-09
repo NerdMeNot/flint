@@ -128,10 +128,3 @@ func (c *SessionConfig) sessionDuration() time.Duration {
 	}
 	return 24 * time.Hour
 }
-
-func (c *SessionConfig) refreshDuration() time.Duration {
-	if c.RefreshDuration > 0 {
-		return c.RefreshDuration
-	}
-	return 7 * 24 * time.Hour
-}

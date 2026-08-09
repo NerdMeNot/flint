@@ -31,7 +31,7 @@ type gateResponse struct {
 
 func (s *Server) handleListGates(ctx context.Context, c *app.RequestContext) {
 	// Map the UI status filter to the DB step status; default to waiting (pending).
-	dbStatus := "waiting"
+	var dbStatus string
 	switch queryString(c, "status") {
 	case "", "pending":
 		dbStatus = "waiting"

@@ -65,14 +65,14 @@ func TestSAMLProvider_Integration(t *testing.T) {
 	metadataXML := testIdPMetadataXML(t, idpCert, idpKey)
 
 	spExpiry := time.Now().Add(365 * 24 * time.Hour)
-	_, _, spCertPEM := makeTestCert(t, "Flint SP", spExpiry)
+	makeTestCert(t, "Flint SP", spExpiry) // warm the helper; the SP cert is re-issued below against spKey
 	spKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	spKeyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(spKey)}))
 	// Re-issue the SP cert against the SP key so cert and key match.
 	spTmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "Flint SP"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: spExpiry}
 	spDER, err := x509.CreateCertificate(rand.Reader, spTmpl, spTmpl, &spKey.PublicKey, spKey)
 	require.NoError(t, err)
-	spCertPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: spDER}))
+	spCertPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: spDER}))
 
 	p, err := BuildSAMLProvider(ProviderConfig{
 		MetadataXML: metadataXML,

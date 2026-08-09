@@ -3,9 +3,10 @@ package engine
 import (
 	"context"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // maxTimersPerTick bounds how many due timers a single tick processes so timer
@@ -39,7 +40,7 @@ func fireOneTimer(ctx context.Context, pool db.Pool) (done bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(pool).WithTx(tx)
 
 	t, err := qtx.LockNextDueTimer(ctx)

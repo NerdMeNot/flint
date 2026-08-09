@@ -30,11 +30,6 @@ type runDetailLoadedMsg struct {
 	err   error
 }
 
-type stepsLoadedMsg struct {
-	state *WorkflowState
-	err   error
-}
-
 // Periodic refresh.
 type tickMsg time.Time
 

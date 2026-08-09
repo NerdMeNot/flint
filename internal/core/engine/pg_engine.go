@@ -7,13 +7,14 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // PgEngine is the Postgres-backed implementation of Engine.
@@ -74,7 +75,7 @@ func (e *PgEngine) startWorkflow(ctx context.Context, input StartWorkflowInput, 
 	if err != nil {
 		return "", fmt.Errorf("engine: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(e.pool).WithTx(tx)
 
 	runExists, err := qtx.RunExists(ctx, input.RunID)
@@ -260,7 +261,7 @@ func (e *PgEngine) completeStepOnce(ctx context.Context, token TaskToken, result
 	if err != nil {
 		return fmt.Errorf("engine: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(e.pool).WithTx(tx)
 
 	// Lock and validate the step.
@@ -410,7 +411,7 @@ func (e *PgEngine) cancelWorkflowOnce(ctx context.Context, workflowID string) er
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(e.pool).WithTx(tx)
 
 	if err := qtx.CancelWorkflow(ctx, workflowID); err != nil {
@@ -467,7 +468,7 @@ func (e *PgEngine) PauseWorkflow(ctx context.Context, workflowID string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(e.pool).WithTx(tx)
 
 	n, err := qtx.PauseWorkflow(ctx, workflowID)
@@ -500,7 +501,7 @@ func (e *PgEngine) ResumeWorkflow(ctx context.Context, workflowID string) error 
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback(ctx)
+		defer tx.Rollback(ctx) //nolint:errcheck
 		qtx := db.New(e.pool).WithTx(tx)
 
 		n, err := qtx.ResumeWorkflow(ctx, workflowID)
@@ -547,7 +548,7 @@ func (e *PgEngine) ResolveStepManually(ctx context.Context, workflowID, stepName
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback(ctx)
+		defer tx.Rollback(ctx) //nolint:errcheck
 		qtx := db.New(e.pool).WithTx(tx)
 
 		st, err := qtx.LockLatestStep(ctx, db.LockLatestStepParams{WorkflowID: workflowID, Name: stepName})

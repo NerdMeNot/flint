@@ -217,7 +217,7 @@ func TestGenerateMasterKey_Uniqueness(t *testing.T) {
 
 func BenchmarkEncrypt(b *testing.B) {
 	key := make([]byte, 32)
-	rand.Read(key)
+	_, _ = rand.Read(key)
 	plaintext := []byte("a]typical-secret-value-maybe-64-chars-long-1234567890abcdefghijklmn")
 
 	b.ResetTimer()
@@ -228,7 +228,7 @@ func BenchmarkEncrypt(b *testing.B) {
 
 func BenchmarkDecrypt(b *testing.B) {
 	key := make([]byte, 32)
-	rand.Read(key)
+	_, _ = rand.Read(key)
 	plaintext := []byte("a-typical-secret-value-maybe-64-chars-long-1234567890abcdefghijklmn")
 	blob, _ := secret.Encrypt(plaintext, key, 1)
 
