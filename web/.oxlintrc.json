@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "unicorn", "oxc"],
+  "env": { "browser": true, "es2024": true },
+  "ignorePatterns": [
+    "dist/**",
+    ".tanstack/**",
+    "src/routeTree.gen.ts"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "react/exhaustive-deps": "error",
+    "react/rules-of-hooks": "error",
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "eqeqeq": ["error", "smart"],
+    "no-debugger": "error",
+
+    "typescript/no-explicit-any": "off",
+    "unicorn/prefer-query-selector": "off",
+    "unicorn/no-null": "off",
+
+    // tsconfig sets "jsx": "react-jsx" (the automatic runtime), so React is
+    // injected by the compiler and importing it by hand is not required.
+    "react/react-in-jsx-scope": "off"
+  }
+}

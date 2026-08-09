@@ -23,6 +23,13 @@ function EnvironmentDetailPage() {
   const projects = projectsData.items
   const { data: rolesData } = useSuspenseQuery(orpc.roles.list.queryOptions({ input: {} }))
   const roles = rolesData.items
+  // Must be fetched with the other queries, ABOVE the not-found early return:
+  // a hook called after a conditional return runs on some renders and not
+  // others, and React fails the whole tree with "rendered fewer hooks than
+  // expected" the moment someone opens an environment id that doesn't exist.
+  const { data: allRuns } = useSuspenseQuery(
+    orpc.runs.list.queryOptions({ input: { limit: 50 } }),
+  )
 
   const env = environments.find((e) => e.id === id)
   if (!env) {
@@ -47,9 +54,6 @@ function EnvironmentDetailPage() {
 
   // Projects that reference this environment (match by env name/slug in pipeline config)
   // In the mock, projects have a workspace field. We match on environment field from runs.
-  const { data: allRuns } = useSuspenseQuery(
-    orpc.runs.list.queryOptions({ input: { limit: 50 } }),
-  )
   const projectIdsInEnv = new Set(
     allRuns.items.filter((r) => r.environment === env.name).map((r) => r.projectId),
   )

@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -51,6 +52,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.2",
     "jsdom": "^30",
+    "oxlint": "^1.77.0",
     "typescript": "^7",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
