@@ -3,8 +3,9 @@ package engine
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // ─────────────────────────────────────────────────────────────

@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/NerdMeNot/flint/internal/cliauth"
 	"github.com/NerdMeNot/flint/internal/tui"
-	"github.com/spf13/cobra"
 )
 
 // user_commands.go — the developer-facing CLI verbs: login, logout, init,

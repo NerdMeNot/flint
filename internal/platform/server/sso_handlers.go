@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // handleListAuthProviders returns configured SSO providers (without secrets).

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/testutil"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/NerdMeNot/flint/internal/testutil"
 )
 
 // ── GET /health/live ────────────────────────────────────────

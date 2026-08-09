@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/products/ci"
-	"github.com/NerdMeNot/flint/internal/testutil"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/products/ci"
+	"github.com/NerdMeNot/flint/internal/testutil"
 )
 
 func testServer(t *testing.T) (*Server, *testutil.Mocks) {

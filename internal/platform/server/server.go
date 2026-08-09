@@ -8,9 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -18,6 +15,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/route"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // Server wraps the Hertz HTTP server with Flint's routes and middleware.

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/cloudwego/hertz/pkg/app"
+
+	"github.com/NerdMeNot/flint/internal/core/engine"
 )
 
 // handleStreamRunState streams a run's state (status + steps + dagWaves) to the

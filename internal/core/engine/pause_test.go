@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // TestPauseResume verifies that a paused workflow queues no new work — claiming

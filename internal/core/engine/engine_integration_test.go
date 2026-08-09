@@ -5,15 +5,16 @@ import (
 	"os"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/dbkit"
-	"github.com/NerdMeNot/flint/internal/core/engine"
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/dbkit"
+	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // testDSN returns the Postgres connection string for integration tests.

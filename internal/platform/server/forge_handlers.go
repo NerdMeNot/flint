@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/pkg/secret"
 )
 
 // forgeConnectionRequest is the create/update payload for a forge connection.

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 var _ StepExecutor = (*httpExecutor)(nil)

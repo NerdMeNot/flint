@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 func listEnvs(srv *Server, query string) *ut.ResponseRecorder {

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
-	"github.com/rs/zerolog/log"
 )
 
 // maxAdvanceDepth prevents infinite recursion in invoke chains.

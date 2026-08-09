@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/NerdMeNot/flint/internal/core/flinterr"
 )
 
 // flintClaims is the JWT claims structure for Flint sessions.

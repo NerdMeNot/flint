@@ -4,14 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func TestTriggerRun_StartsWorkflow(t *testing.T) {

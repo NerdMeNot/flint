@@ -5,12 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
-	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 )
 
 func TestNextCron(t *testing.T) {

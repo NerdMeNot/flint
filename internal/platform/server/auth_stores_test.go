@@ -4,13 +4,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/jackc/pgx/v5"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 func ptr[T any](v T) *T { return &v }

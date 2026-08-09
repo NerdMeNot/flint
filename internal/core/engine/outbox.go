@@ -13,9 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/rs/zerolog/log"
 )
 
 // outboxDeliveryConcurrency bounds how many webhook deliveries run at once within

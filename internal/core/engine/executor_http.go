@@ -10,8 +10,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // httpExecutor runs an HTTP-request step in-process — no Pod, no container, no

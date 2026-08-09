@@ -3,9 +3,10 @@ package ci
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
-	"github.com/stretchr/testify/assert"
 )
 
 // diamond: a → {b, c} → d

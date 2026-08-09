@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // ── Personal Token Types ─────────────────────────────────────

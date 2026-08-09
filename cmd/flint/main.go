@@ -8,14 +8,15 @@ import (
 	"sort"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
 	"github.com/NerdMeNot/flint/internal/cliauth"
 	"github.com/NerdMeNot/flint/internal/products/ci"
 	"github.com/NerdMeNot/flint/internal/tui"
 	"github.com/NerdMeNot/flint/internal/version"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 var (

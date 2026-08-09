@@ -5,14 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
-	"github.com/NerdMeNot/flint/internal/testutil"
 	"github.com/casbin/casbin/v2"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
+	"github.com/NerdMeNot/flint/internal/testutil"
 )
 
 // enforcerServer builds a test server wired with a real (in-memory) Casbin

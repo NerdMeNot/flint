@@ -5,13 +5,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/testutil/mocks"
-	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/testutil/mocks"
+	"github.com/NerdMeNot/flint/pkg/secret"
 )
 
 var testMasterKey = bytes.Repeat([]byte{0x2a}, 32)

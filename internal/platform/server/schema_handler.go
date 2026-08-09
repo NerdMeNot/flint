@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 
-	"github.com/NerdMeNot/flint/schemas"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/schemas"
 )
 
 // handlePipelineSchema serves the pipeline JSON Schema for editor tooling

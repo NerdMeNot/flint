@@ -6,13 +6,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/dbkit"
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/dbkit"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // erroringExecutor always fails Dispatch — simulates a step that cannot be

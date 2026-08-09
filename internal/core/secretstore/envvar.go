@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/flinterr"
 	"github.com/NerdMeNot/flint/pkg/secret"
-	"github.com/jackc/pgx/v5"
 )
 
 // EnvVarStore is a read adapter over Flint-managed secret env-variables. It

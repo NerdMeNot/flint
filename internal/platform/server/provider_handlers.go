@@ -15,6 +15,7 @@ import (
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/compute"
+
 	// Provider types must be registered for validation and the test endpoint.
 	_ "github.com/NerdMeNot/flint/pkg/compute/awsec2"
 	_ "github.com/NerdMeNot/flint/pkg/compute/localdev"

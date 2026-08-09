@@ -3,10 +3,11 @@ package ci
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // mustDecode decodes YAML into a Pipeline without running validation, so the

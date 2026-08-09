@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/casbin/casbin/v2"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // SyncUserOnLogin upserts a user, syncs team membership from IdP groups,

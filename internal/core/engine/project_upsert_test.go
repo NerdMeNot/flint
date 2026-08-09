@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // TestUpsertProject_WorkspacePlacement exercises workspace placement: a declared

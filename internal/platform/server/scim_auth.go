@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // scimCtxKey is the context key under which the authenticated SCIM org id is stored.

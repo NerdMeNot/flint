@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // transition.go is the single chokepoint for state changes. Every step/workflow

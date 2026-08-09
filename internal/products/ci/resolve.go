@@ -7,8 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 var inputExpr = regexp.MustCompile(`\$\{\{\s*inputs\.(\w+)\s*\}\}`)

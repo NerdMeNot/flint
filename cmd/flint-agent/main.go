@@ -6,12 +6,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+
 	"github.com/NerdMeNot/flint/internal/agentd"
 	"github.com/NerdMeNot/flint/internal/core/agent"
 	"github.com/NerdMeNot/flint/internal/version"
 	"github.com/NerdMeNot/flint/pkg/checkout"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
 )
 
 func main() {

@@ -6,11 +6,12 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // SCIM 2.0 provisioning handlers. SCIM User id == Flint user UUID; SCIM Group id

@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/pkg/logsink"
 )
 
 // simExecutor runs container-type steps (run/use/steps) WITHOUT a Pod, container,

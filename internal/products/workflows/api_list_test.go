@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/observe"
-	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/observe"
+	"github.com/NerdMeNot/flint/internal/testutil/mocks"
 )
 
 // TestTriggerRun_AcceptsJSONEnvelope proves the trigger accepts the web client's

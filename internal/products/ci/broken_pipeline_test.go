@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/testutil/mocks"
-	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/testutil/mocks"
+	"github.com/NerdMeNot/flint/pkg/forge"
 )
 
 // statusRecorder captures PostCommitStatus calls (posted async by the service).

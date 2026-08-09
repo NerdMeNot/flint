@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // tagKeyResponse is a curated tag key in the registry (governs a `key:value`

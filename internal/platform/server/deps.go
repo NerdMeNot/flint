@@ -5,6 +5,9 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/casbin/casbin/v2"
+	"github.com/cloudwego/hertz/pkg/route"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -12,8 +15,6 @@ import (
 	"github.com/NerdMeNot/flint/pkg/forge"
 	"github.com/NerdMeNot/flint/pkg/logsink"
 	"github.com/NerdMeNot/flint/pkg/secret"
-	"github.com/casbin/casbin/v2"
-	"github.com/cloudwego/hertz/pkg/route"
 )
 
 // APIRouteRegistrar mounts additional routes under the authenticated /api/v1

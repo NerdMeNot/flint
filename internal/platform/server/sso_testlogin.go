@@ -6,10 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // Decoded "test sign-in": a real login round-trip against the IdP that captures

@@ -15,8 +15,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // Pipeline is the top-level representation of a .flint/*.yaml file: a DAG of jobs.

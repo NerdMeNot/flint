@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // TestSmoke_SimStack is the headless equivalent of `task dev-sim`'s worker: the

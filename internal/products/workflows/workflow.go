@@ -13,8 +13,9 @@ package workflows
 import (
 	"fmt"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // Definition is a workflow: a name and a DAG of steps. Unlike a CI pipeline it

@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/core/engine"
 )
 
 // Scheduler fires cron-scheduled workflow runs. It runs in the worker process

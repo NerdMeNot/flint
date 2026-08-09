@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/pkg/secret"
-	"github.com/jackc/pgx/v5"
 )
 
 // ProviderConfig is the JSON shape persisted (envelope-encrypted) in

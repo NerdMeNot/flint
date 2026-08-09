@@ -3,9 +3,10 @@ package ci
 import (
 	"testing"
 
-	"github.com/NerdMeNot/flint/pkg/pipeline"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // waveOf returns the index of the wave containing the named group-step, or -1.

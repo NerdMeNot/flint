@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/casbin/casbin/v2"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/pkg/secret"
 )
 
 // IdPSyncConfig configures the IdP sync loop.

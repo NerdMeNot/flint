@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/common/ut"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/NerdMeNot/flint/internal/testutil"
-	"github.com/cloudwego/hertz/pkg/common/ut"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 // authHeaders returns headers for an authenticated API request.

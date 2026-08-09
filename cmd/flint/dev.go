@@ -6,14 +6,15 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/pressly/goose/v3"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/dbkit"
 	"github.com/NerdMeNot/flint/internal/core/fleet"
 	"github.com/NerdMeNot/flint/internal/devseed"
 	"github.com/NerdMeNot/flint/internal/platform/config"
-	"github.com/pressly/goose/v3"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
 )
 
 // quietGoose silences goose's per-migration chatter ("OK …", "no migrations to

@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/testutil"
-	"github.com/NerdMeNot/flint/pkg/secret"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/testutil"
+	"github.com/NerdMeNot/flint/pkg/secret"
 )
 
 // TestSetEnvVariableValue_SecretIsEncrypted proves a secret value is encrypted
