@@ -35,7 +35,13 @@ Also: `task generate` (proto + sqlc), `task migrate-up/down/status`.
 - `internal/` for Flint implementation details, `pkg/` for public extension points
 - Interfaces only where implementations genuinely vary (forge, logsink, wsfs, auth providers, StepExecutor, compute providers)
 - Tests use `testify/assert` + `testify/require`, table-driven where appropriate
-- Error handling via `internal/core/flinterr` — typed errors with `ErrorKind` classification
+- Error handling: plain `fmt.Errorf("%w")` wrapping is the norm and is fine.
+  `internal/core/flinterr` (typed errors with `ErrorKind`) is **not** used
+  repo-wide — it is confined to `runner`, `secretstore`, `pkg/secret`, and
+  `auth/session`, where a caller has to branch on the error's *kind*. Reach for
+  it when the classification changes behaviour (retry vs fail, which HTTP status
+  to map to); don't convert existing `fmt.Errorf` sites just for consistency.
+  HTTP handlers pick their status explicitly via `internal/core/httpx`
 - No hexagonal architecture — direct implementations, no ports/adapters pattern
 - Web frontend uses bun (never npm/npx)
 - Local container runtime is Podman, not Docker

@@ -52,6 +52,24 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # `task check` has run golangci-lint for a long time; CI never did, so the
+      # only thing enforcing it was remembering to. Pinned rather than @latest so
+      # a linter release can't turn an unrelated branch red.
+      - name: Lint
+        run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
+
+      # Generated code is committed, so a stale checkout is a real failure mode:
+      # someone edits a .sql query or an interface, forgets `task generate`, and
+      # the committed Go no longer matches its source. Regenerate and diff.
+      - name: Generated code is up to date
+        run: |
+          go tool sqlc generate
+          go tool mockery >/dev/null
+          if ! git diff --exit-code; then
+            echo "::error::Generated code is stale — run 'task generate' and commit the result."
+            exit 1
+          fi
+
       - name: Build
         run: go build ./...
 
@@ -63,6 +81,48 @@ jobs:
       # race failure is distinguishable from a plain test failure.
       - name: Test (race detector)
         run: go test -race ./...
+
+      # Known vulnerabilities in dependencies. govulncheck is call-graph aware,
+      # so it reports what this code actually reaches rather than every advisory
+      # touching the module graph.
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # The frontend is half the product, and `vite build` does NOT typecheck — so
+  # for a long time a type error could ship clean through build + tests. That is
+  # exactly how a broken auth retry reached main. tsc, the unit tests, and a real
+  # production build all gate here now.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      # oxlint catches what tsc structurally cannot — chiefly the React hook
+      # rules. Adding it surfaced a conditional useSuspenseQuery that crashed
+      # the page for any unknown environment id. Errors gate; the remaining
+      # style warnings are visible work, not a build failure.
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
 
   # The production path, end to end: control plane on a throwaway Postgres, a
   # REAL flint-agent in a privileged docker container supervising its bundled
