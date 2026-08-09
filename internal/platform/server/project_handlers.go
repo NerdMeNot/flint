@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/core/projectcfg"
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/common/utils"
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
 
 // pipelineSourceReq is the optional pipeline-source location in create/update.
@@ -225,4 +228,224 @@ func parsePipelineSource(raw []byte) *projectcfg.PipelineSource {
 		return nil
 	}
 	return &projectcfg.PipelineSource{Type: ps.Type, Path: ps.Path, Repo: ps.Repo, Ref: ps.Ref}
+}
+
+func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
+	// Admin "archived" view (?archived=true) — a flat list for the settings page,
+	// kept on this route to avoid a /projects/:id wildcard conflict.
+	if string(c.Query("archived")) == "true" {
+		s.listArchivedProjects(ctx, c)
+		return
+	}
+
+	// Optional server-side filters (repeated query params): ?workspace=slug&tags=key:value
+	// Empty slice = no filter for that dimension.
+	workspaces := queryStrings(c, "workspace")
+	tags := queryStrings(c, "tags")
+	needsGrouping := string(c.Query("needsGrouping")) == "true"
+
+	rows, err := s.deps.Q.ListProjectsWithLastRun(ctx, db.ListProjectsWithLastRunParams{
+		Workspaces:    workspaces,
+		Tags:          tags,
+		NeedsGrouping: needsGrouping,
+	})
+	if err != nil {
+		apiInternal(ctx, c, "failed to list projects")
+		return
+	}
+
+	// Per-project health (recent run outcomes), keyed by project id.
+	health := map[string]*projectHealth{}
+	if org, oerr := s.deps.Q.GetOrg(ctx); oerr == nil {
+		if hrows, herr := s.deps.Q.ProjectHealthByOrg(ctx, org.ID); herr == nil {
+			for _, h := range hrows {
+				health[h.ProjectID] = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
+			}
+		}
+	}
+
+	result := make([]projectResponse, 0, len(rows))
+	for _, row := range rows {
+		p := projectResponse{
+			ID:        row.ID,
+			Name:      row.Name,
+			Repo:      row.RepoPath,
+			Workspace: row.Workspace,
+			Colour:    row.Colour,
+			Tags:      row.Tags,
+			Health:    health[row.ID],
+			CreatedAt: row.CreatedAt.Format(time.RFC3339),
+			Inferred:  row.Inferred,
+		}
+		if p.Tags == nil {
+			p.Tags = []string{}
+		}
+
+		if row.LastRunID != "" {
+			duration := "0s"
+			if row.LastRunDurationMs.Valid {
+				duration = formatDuration(row.LastRunDurationMs.Int32)
+			}
+			startedAt := ""
+			if !row.LastRunStartedAt.IsZero() {
+				startedAt = row.LastRunStartedAt.Format(time.RFC3339)
+			}
+			p.LastRun = &lastRunResponse{
+				ID:          row.LastRunID,
+				Status:      row.LastRunStatus,
+				Branch:      derefString(row.LastRunBranch),
+				Duration:    duration,
+				TriggeredBy: derefString(row.LastRunTriggeredBy),
+				StartedAt:   startedAt,
+			}
+		}
+
+		result = append(result, p)
+	}
+
+	c.JSON(consts.StatusOK, utils.H{"items": result})
+}
+
+// handleSetProjectTags replaces a project's tags. Tags are constrained to the
+// curated registry: only declared key:value pairs are accepted; anything else
+// (free tags, undeclared values) is dropped, so projects can only carry
+// predeclared tags and legacy free tags normalize away on the next edit.
+func (s *Server) handleSetProjectTags(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+
+	// Build the set of allowed "key:value" tags from the registry.
+	allowed := map[string]bool{}
+	if org, err := s.deps.Q.GetOrg(ctx); err == nil {
+		if keys, err := s.deps.Q.ListTagKeys(ctx, org.ID); err == nil {
+			for _, k := range keys {
+				for _, v := range k.AllowedValues {
+					allowed[k.Key+":"+v] = true
+				}
+			}
+		}
+	}
+	tags := make([]string, 0, len(req.Tags))
+	seen := map[string]bool{}
+	for _, t := range req.Tags {
+		if allowed[t] && !seen[t] {
+			tags = append(tags, t)
+			seen[t] = true
+		}
+	}
+
+	if err := s.deps.Q.UpdateProjectTags(ctx, db.UpdateProjectTagsParams{ID: id, Tags: tags}); err != nil {
+		apiInternal(ctx, c, "failed to update tags")
+		return
+	}
+	c.JSON(consts.StatusOK, utils.H{"success": true, "tags": tags})
+}
+
+func (s *Server) getProject(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+
+	row, err := s.deps.Q.GetProjectBasic(ctx, id)
+	if err != nil {
+		apiNotFound(ctx, c, "project not found")
+		return
+	}
+
+	p := projectResponse{
+		ID:        row.ID,
+		Name:      row.Name,
+		Repo:      row.RepoPath,
+		Workspace: row.Workspace,
+		Colour:    row.Colour,
+		Tags:      row.Tags,
+		CreatedAt: row.CreatedAt.Format(time.RFC3339),
+	}
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
+
+	// Most recent run for the project (separate query keeps nullability clean).
+	if runs, _ := s.deps.Q.ListRunsByProject(ctx, db.ListRunsByProjectParams{ProjectID: &id, Limit: 1}); len(runs) > 0 {
+		lr := runs[0]
+		p.LastRun = &lastRunResponse{
+			ID:          lr.ID,
+			Status:      lr.Status,
+			Branch:      derefString(lr.TriggerRef),
+			Duration:    durationFromInt4(lr.DurationMs),
+			TriggeredBy: derefString(lr.TriggeredBy),
+			StartedAt:   lr.StartedAt.Format(time.RFC3339),
+		}
+	}
+
+	if h, herr := s.deps.Q.ProjectHealthByID(ctx, &id); herr == nil {
+		p.Health = buildProjectHealth(h.RecentStatuses, h.TotalRuns, h.SucceededRuns)
+	}
+
+	c.JSON(consts.StatusOK, p)
+}
+
+func (s *Server) handleListProjectPipelines(ctx context.Context, c *app.RequestContext) {
+	projectID := c.Param("id")
+
+	info, err := s.deps.Q.GetProjectRepoInfo(ctx, projectID)
+	if err != nil {
+		apiNotFound(ctx, c, "project not found")
+		return
+	}
+
+	// Fetch pipeline files from the forge.
+	files, err := s.deps.Forge.GetDirectory(ctx, info.RepoPath, "HEAD", info.PipelinePath)
+	if err != nil {
+		// Forge unavailable or no pipeline dir — return empty.
+		c.JSON(consts.StatusOK, utils.H{"items": []any{}})
+		return
+	}
+
+	type pipelineItem struct {
+		Filename string   `json:"filename"`
+		Yaml     string   `json:"yaml"`
+		Status   string   `json:"status"`
+		Errors   []string `json:"errors,omitempty"`
+		Steps    []any    `json:"steps"`
+	}
+
+	var items []pipelineItem
+	for name, content := range files {
+		if !isYAMLFile(name) {
+			continue
+		}
+
+		item := pipelineItem{
+			Filename: name,
+			Yaml:     string(content), // raw source for the YAML tab
+			Status:   "valid",
+			Steps:    []any{},
+		}
+
+		p, parseErr := pipeline.Parse(content)
+		if parseErr != nil {
+			item.Status = "invalid"
+			item.Errors = []string{parseErr.Error()}
+		} else {
+			for _, step := range p.Steps {
+				item.Steps = append(item.Steps, map[string]any{
+					"name":     step.Name,
+					"execType": step.ExecType(),
+					"wave":     0,
+				})
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	if items == nil {
+		items = []pipelineItem{}
+	}
+	c.JSON(consts.StatusOK, utils.H{"items": items})
 }

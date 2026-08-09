@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/common/utils"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/fleet"
 	"github.com/NerdMeNot/flint/internal/core/runner"
 	"github.com/NerdMeNot/flint/pkg/units"
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/common/utils"
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // runnerPoolReq is the create/update body for a machine pool.
@@ -329,3 +331,58 @@ func (s *Server) handleGetPoolInsights(ctx context.Context, c *app.RequestContex
 	}
 	c.JSON(consts.StatusOK, resp)
 }
+
+func (s *Server) listRunners(ctx context.Context, c *app.RequestContext) {
+	lim := parsePagination(c).Limit
+	off := listOffset(c)
+	rows, err := s.deps.Q.ListMachinePoolsPaged(ctx, db.ListMachinePoolsPagedParams{
+		Limit:  int32(lim),
+		Offset: int32(off),
+	})
+	if err != nil {
+		apiInternal(ctx, c, "failed to list runners")
+		return
+	}
+
+	result := make([]runnerResponse, 0, len(rows))
+	for _, r := range rows {
+		rr := runnerResponse{
+			ID:             r.ID,
+			Name:           r.Name,
+			Description:    r.Description,
+			Provider:       r.Provider,
+			CPU:            r.Cpu,
+			Memory:         r.Memory,
+			Disk:           r.Disk,
+			Arch:           r.Arch,
+			GPUVendor:      r.GpuVendor,
+			GPUModel:       r.GpuModel,
+			InstanceTypes:  r.InstanceTypes,
+			Regions:        r.Regions,
+			CapacityType:   r.CapacityType,
+			Objective:      r.Objective,
+			MinWarm:        r.MinWarm,
+			MaxMachines:    r.MaxMachines,
+			IdleTTLSeconds: r.IdleTtlSeconds,
+			IsDefault:      r.IsDefault,
+			Ready:          r.Ready,
+			CreatedAt:      r.CreatedAt.Format(time.RFC3339),
+		}
+		if r.GpuCount.Valid {
+			v := r.GpuCount.Int32
+			rr.GPUCount = &v
+		}
+		if len(r.Overrides) > 0 && string(r.Overrides) != "null" {
+			rr.Overrides = json.RawMessage(r.Overrides)
+		}
+		if f, err := r.HourlyCost.Float64Value(); err == nil && f.Valid {
+			v := f.Float64
+			rr.HourlyCost = &v
+		}
+		result = append(result, rr)
+	}
+
+	paginatedResponse(c, result, PaginationResponse{NextCursor: nextOffsetCursor(off, lim, len(result))})
+}
+
+// ── Org (sqlc) ──────────────────────────────────────────────

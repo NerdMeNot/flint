@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // runEventDTO is the API shape of one engine_events row for the run timeline.
@@ -366,3 +368,152 @@ func (s *Server) handleSendSignal(ctx context.Context, c *app.RequestContext) {
 func isReservedSignalName(name string) bool {
 	return name == "step-result" || strings.HasPrefix(name, "gate-")
 }
+
+func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
+	projectID := string(c.Query("projectId"))
+	status := string(c.Query("status"))
+	p := parsePagination(c)
+
+	// Keyset cursor: (started_at, id) tuple from the previous page's last row.
+	var cursorTs, cursorID string
+	if p.Cursor != "" {
+		if id, ts, err := decodeCursor(p.Cursor); err == nil {
+			cursorID, cursorTs = id, ts
+		}
+	}
+
+	rows, err := s.deps.Q.ListRunsFiltered(ctx, db.ListRunsFilteredParams{
+		ProjectID: projectID,
+		Status:    status,
+		CursorTs:  cursorTs,
+		CursorID:  cursorID,
+		Lim:       int32(p.Limit + 1),
+	})
+	if err != nil {
+		apiInternal(ctx, c, "failed to list runs")
+		return
+	}
+
+	result := make([]runResponse, 0, len(rows))
+	for _, row := range rows {
+		r := runResponse{
+			ID:            row.ID,
+			ProjectID:     row.ProjectID,
+			ProjectName:   derefString(row.ProjectName),
+			ProjectColour: row.ProjectColour,
+			Repo:          row.RepoPath,
+			Status:        row.Status,
+			TriggerType:   row.TriggerType,
+			Branch:        derefString(row.Branch),
+			CommitSha:     derefString(row.CommitSha),
+			CommitMessage: derefString(row.CommitMessage),
+			TriggeredBy:   derefString(row.TriggeredBy),
+			WorkflowFile:  derefString(row.WorkflowFile),
+			Duration:      durationFromInt4(row.DurationMs),
+			StartedAt:     row.StartedAt.Format(time.RFC3339),
+			StartedAtTs:   row.StartedAt.UnixMilli(),
+			FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+			Environment:   row.Environment,
+			ErrorMessage:  row.ErrorMessage,
+			Steps:         decodeStepSummaries(row.Steps),
+		}
+		if row.FinishedAt != nil {
+			ts := row.FinishedAt.UnixMilli()
+			r.FinishedAtTs = &ts
+		}
+		result = append(result, r)
+	}
+
+	if result == nil {
+		result = []runResponse{}
+	}
+
+	// Handle cursor pagination. The cursor timestamp must be full precision: the
+	// display StartedAt is RFC3339 (second-granularity), which would skip rows
+	// sharing a second on the next page. Encode from the original row time.
+	var nextCursor string
+	if len(result) > p.Limit {
+		result = result[:p.Limit]
+		if len(result) > 0 {
+			last := result[len(result)-1]
+			nextCursor = encodeCursor(last.ID, rows[p.Limit-1].StartedAt.Format(time.RFC3339Nano))
+		}
+	}
+
+	resp := utils.H{"items": result}
+	if nextCursor != "" {
+		resp["nextCursor"] = nextCursor
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
+func (s *Server) getRun(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+
+	row, err := s.deps.Q.GetRunDetail(ctx, id)
+	if err != nil {
+		apiNotFound(ctx, c, "run not found")
+		return
+	}
+
+	r := runResponse{
+		ID:            row.ID,
+		ProjectID:     row.ProjectID,
+		ProjectName:   derefString(row.ProjectName),
+		ProjectColour: row.ProjectColour,
+		Repo:          row.RepoPath,
+		Status:        row.Status,
+		TriggerType:   row.TriggerType,
+		Branch:        derefString(row.Branch),
+		CommitSha:     derefString(row.CommitSha),
+		CommitMessage: derefString(row.CommitMessage),
+		TriggeredBy:   derefString(row.TriggeredBy),
+		WorkflowFile:  derefString(row.WorkflowFile),
+		Duration:      durationFromInt4(row.DurationMs),
+		StartedAt:     row.StartedAt.Format(time.RFC3339),
+		StartedAtTs:   row.StartedAt.UnixMilli(),
+		FinishedAt:    formatTimePtrOpt(row.FinishedAt),
+		Environment:   row.Environment,
+		ErrorMessage:  row.ErrorMessage,
+		Steps:         decodeStepSummaries(row.Steps),
+	}
+	if row.FinishedAt != nil {
+		ts := row.FinishedAt.UnixMilli()
+		r.FinishedAtTs = &ts
+	}
+
+	c.JSON(consts.StatusOK, r)
+}
+
+func (s *Server) triggerRun(ctx context.Context, c *app.RequestContext) {
+	var req struct {
+		ProjectID    string `json:"projectId"`
+		Branch       string `json:"branch"`
+		WorkflowFile string `json:"workflowFile"`
+		Environment  string `json:"environment"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+	if req.ProjectID == "" {
+		apiBadRequest(ctx, c, "projectId is required")
+		return
+	}
+	if s.deps.Runs == nil {
+		apiInternal(ctx, c, "run creation unavailable")
+		return
+	}
+	runID, workflowID, err := s.deps.Runs.TriggerManual(ctx, req.ProjectID, req.Branch, req.WorkflowFile, req.Environment)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apiNotFound(ctx, c, err.Error())
+		} else {
+			apiInternal(ctx, c, err.Error())
+		}
+		return
+	}
+	c.JSON(consts.StatusAccepted, utils.H{"id": runID, "workflowId": workflowID, "status": "pending"})
+}
+
+// ── Runners ──────────────────────────────────────────────────

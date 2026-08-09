@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
-	"github.com/NerdMeNot/flint/internal/platform/auth"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // ── Response types ────────────────────────────────────────────
@@ -436,3 +437,87 @@ func (s *Server) getEnvironmentScopesForRole(ctx context.Context, roleID string)
 	}
 	return names
 }
+
+func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("id")
+	var req struct {
+		Name         *string           `json:"name,omitempty"`
+		Description  *string           `json:"description,omitempty"`
+		Permissions  []auth.Permission `json:"permissions,omitempty"`
+		Workspaces   []string          `json:"workspaces,omitempty"`
+		Environments []string          `json:"environments,omitempty"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		apiBadRequest(ctx, c, "invalid request body")
+		return
+	}
+
+	role, err := s.deps.Q.GetRoleByID(ctx, id)
+	if err != nil {
+		apiNotFound(ctx, c, "role not found")
+		return
+	}
+	if role.IsSystem {
+		apiBadRequest(ctx, c, "system roles cannot be modified")
+		return
+	}
+
+	// Name / description.
+	if req.Name != nil || req.Description != nil {
+		if _, err := s.deps.Q.UpdateRole(ctx, db.UpdateRoleParams{
+			ID:          id,
+			Name:        req.Name,
+			Description: req.Description,
+		}); err != nil {
+			apiInternal(ctx, c, "failed to update role")
+			return
+		}
+	}
+
+	// Replace permissions / scope when provided. role_permissions and the scope
+	// tables are the source of truth; RegenerateForRole rebuilds Casbin from them.
+	if req.Permissions != nil {
+		if err := s.deps.Q.DeleteRolePermissions(ctx, id); err != nil {
+			apiInternal(ctx, c, "failed to update permissions")
+			return
+		}
+		for _, perm := range req.Permissions {
+			if err := s.deps.Q.InsertRolePermission(ctx, db.InsertRolePermissionParams{
+				RoleID: id, Object: perm.Object, Action: perm.Action,
+			}); err != nil {
+				apiInternal(ctx, c, "failed to update permissions")
+				return
+			}
+		}
+	}
+	if req.Workspaces != nil {
+		if err := s.deps.Q.DeleteRoleWorkspaceScopes(ctx, id); err != nil {
+			apiInternal(ctx, c, "failed to update workspace scope")
+			return
+		}
+		for _, slug := range req.Workspaces {
+			_ = s.deps.Q.InsertRoleWorkspaceScope(ctx, db.InsertRoleWorkspaceScopeParams{RoleID: id, Slug: slug})
+		}
+	}
+	if req.Environments != nil {
+		if err := s.deps.Q.DeleteRoleEnvironmentScopes(ctx, id); err != nil {
+			apiInternal(ctx, c, "failed to update environment scope")
+			return
+		}
+		for _, slug := range req.Environments {
+			_ = s.deps.Q.InsertRoleEnvironmentScope(ctx, db.InsertRoleEnvironmentScopeParams{RoleID: id, Slug: slug})
+		}
+	}
+
+	// Apply immediately for every subject holding this role.
+	if s.deps.Enforcer != nil {
+		if err := auth.RegenerateForRole(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, id); err != nil {
+			apiInternal(ctx, c, "failed to apply role update")
+			return
+		}
+	}
+
+	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// ── Helpers ──────────────────────────────────────────────────
