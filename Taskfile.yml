@@ -80,9 +80,18 @@ tasks:
   # --- Code quality ---
 
   fmt:
-    desc: Format code
+    desc: Format code (gofmt + import grouping)
     cmds:
       - go fmt ./...
+      # gofmt alone does NOT enforce the goimports local-prefix grouping that
+      # .golangci.yml requires, so `task fmt` used to leave code that `task lint`
+      # then rejected. Vendored via go.mod's `tool` directive so every
+      # contributor groups imports identically.
+      #
+      # Driven off `git ls-files` rather than `-w .` on purpose: `.` would also
+      # rewrite _reference/ (vendored external repos that must never be edited)
+      # and protogen/ (generated).
+      - go tool goimports -local github.com/NerdMeNot/flint -w $(git ls-files '*.go' | grep -v '^protogen/')
 
   vet:
     desc: Run go vet
@@ -92,7 +101,9 @@ tasks:
   lint:
     desc: Run golangci-lint
     cmds:
-      - go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run
+      # Pinned, not @latest: a floating linter turns an unrelated release into a
+      # red build on a branch that changed nothing.
+      - go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
 
   check:
     desc: Run all checks (fmt, vet, lint, test, web typecheck)
@@ -105,15 +116,35 @@ tasks:
       # without this a type error ships clean through build + tests. That is
       # exactly how a broken auth-retry reached main: it compiled, the tests were
       # green, and tsc was the only thing that would have caught it.
+      #
+      # tsc is necessary but not sufficient — it cannot see React's hook rules.
+      # web-lint exists because a conditionally-called useSuspenseQuery crashed
+      # a page for months and typechecked perfectly the whole time.
       - task: web-typecheck
+      - task: web-lint
+      - task: web-test
 
   # --- Code generation ---
 
   generate:
-    desc: Run all code generation (proto, sqlc)
+    desc: Run all code generation (proto, sqlc, mocks)
     cmds:
       - task: proto-gen
       - task: sqlc-gen
+      - task: mocks
+
+  mocks:
+    desc: Regenerate testify mocks in internal/testutil/mocks
+    cmds:
+      # Vendored via go.mod's `tool` directive and pinned in .mockery.yaml.
+      # Adding a query to db.Querier changes an interface every product package
+      # mocks, so this has to be a one-command regeneration, not a hand-edit.
+      - go tool mockery
+    sources:
+      - .mockery.yaml
+      - internal/core/db/querier.go
+    generates:
+      - internal/testutil/mocks/*.go
 
   proto-gen:
     desc: Generate Go code from protobuf definitions
@@ -141,7 +172,11 @@ tasks:
   sqlc-gen:
     desc: Generate type-safe Go from SQL queries
     cmds:
-      - sqlc generate
+      # Vendored via go.mod's `tool` directive (like task itself), so every
+      # contributor generates with the SAME sqlc version. A PATH-installed
+      # binary drifts between machines and silently reformats every generated
+      # file on the next unrelated change.
+      - go tool sqlc generate
 
   # --- Frontend ---
 
@@ -162,6 +197,18 @@ tasks:
     dir: web
     cmds:
       - bunx tsc --noEmit
+
+  web-lint:
+    desc: Lint the frontend (oxlint — React hook rules tsc can't check)
+    dir: web
+    cmds:
+      - bun run lint
+
+  web-test:
+    desc: Run frontend unit tests
+    dir: web
+    cmds:
+      - bun run test
 
   # --- Database ---
 

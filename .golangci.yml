@@ -21,3 +21,11 @@ issues:
   exclude-dirs:
     - vendor
     - web
+
+  # Report EVERYTHING. golangci-lint defaults to max-same-issues: 3 and
+  # max-issues-per-linter: 50, which silently truncates the report: this repo
+  # showed "22 issues" for a long time while actually carrying ~100, because
+  # each run only ever revealed the next three of the same kind. A linter that
+  # hides most of what it found trains you to believe you are close to clean.
+  max-same-issues: 0
+  max-issues-per-linter: 0

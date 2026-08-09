@@ -2638,6 +2638,36 @@ func (_m *Querier) FinishWorkflow(ctx context.Context, arg db.FinishWorkflowPara
 	return r0
 }
 
+// FleetInventory provides a mock function with given fields: ctx
+func (_m *Querier) FleetInventory(ctx context.Context) ([]db.FleetInventoryRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FleetInventory")
+	}
+
+	var r0 []db.FleetInventoryRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.FleetInventoryRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.FleetInventoryRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.FleetInventoryRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetActiveWebhooksForEvent provides a mock function with given fields: ctx, arg
 func (_m *Querier) GetActiveWebhooksForEvent(ctx context.Context, arg db.GetActiveWebhooksForEventParams) ([]db.GetActiveWebhooksForEventRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -8782,6 +8812,36 @@ func (_m *Querier) RotateSessionToken(ctx context.Context, arg db.RotateSessionT
 	}
 
 	return r0
+}
+
+// RunAffinityHolders provides a mock function with given fields: ctx, arg
+func (_m *Querier) RunAffinityHolders(ctx context.Context, arg db.RunAffinityHoldersParams) ([]db.RunAffinityHoldersRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunAffinityHolders")
+	}
+
+	var r0 []db.RunAffinityHoldersRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.RunAffinityHoldersParams) ([]db.RunAffinityHoldersRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.RunAffinityHoldersParams) []db.RunAffinityHoldersRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.RunAffinityHoldersRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.RunAffinityHoldersParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // RunExists provides a mock function with given fields: ctx, id
