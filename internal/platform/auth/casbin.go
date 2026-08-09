@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // flintRBACModel is the Casbin model for Flint's RBAC v2.
@@ -100,7 +101,11 @@ func (a *PgxAdapter) LoadPolicy(m model.Model) error {
 
 		rule := filterEmpty([]string{v0, v1, v2, v3, v4, v5})
 		line := ptype + ", " + strings.Join(rule, ", ")
-		persist.LoadPolicyLine(line, m)
+		// A rule that fails to parse would otherwise vanish from the policy set
+		// with no trace — an access-control rule silently not enforced.
+		if err := persist.LoadPolicyLine(line, m); err != nil {
+			return fmt.Errorf("loading casbin rule %q: %w", line, err)
+		}
 	}
 
 	return rows.Err()
@@ -115,7 +120,7 @@ func (a *PgxAdapter) SavePolicy(m model.Model) error {
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	if _, err := tx.Exec(ctx, "DELETE FROM casbin_rules"); err != nil {
 		return fmt.Errorf("clearing casbin_rules: %w", err)

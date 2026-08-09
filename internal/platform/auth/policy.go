@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/casbin/casbin/v2"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // ────────────────────────────────────────────────────────────
@@ -69,14 +70,18 @@ func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforce
 		if !ok {
 			continue
 		}
-		addSubjectPolicies(enforcer, a.Subject, role)
+		if err := addSubjectPolicies(enforcer, a.Subject, role); err != nil {
+			return fmt.Errorf("adding policies for %s: %w", a.Subject, err)
+		}
 	}
 
 	// Generate team grouping rules.
 	for teamSlug, members := range teamMembers {
 		teamSubject := "team:" + teamSlug
 		for _, userEmail := range members {
-			enforcer.AddGroupingPolicy(userEmail, teamSubject)
+			if _, err := enforcer.AddGroupingPolicy(userEmail, teamSubject); err != nil {
+				return fmt.Errorf("adding %s to %s: %w", userEmail, teamSubject, err)
+			}
 		}
 	}
 
@@ -86,7 +91,9 @@ func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforce
 		if !ok {
 			continue
 		}
-		addAPIKeyPolicies(enforcer, ak, role)
+		if err := addAPIKeyPolicies(enforcer, ak, role); err != nil {
+			return fmt.Errorf("adding policies for api key %s: %w", ak.ID, err)
+		}
 	}
 
 	// Persist to database.
@@ -100,8 +107,12 @@ func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforce
 // RegenerateForSubject rebuilds Casbin policies for a single subject.
 // Called when an assignment is created or deleted.
 func RegenerateForSubject(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer, subject string) error {
-	// Remove existing policies for this subject.
-	enforcer.RemoveFilteredPolicy(0, subject)
+	// Remove existing policies for this subject. A failure here must abort:
+	// continuing would ADD the new rules on top of the stale ones the removal
+	// was meant to clear, leaving the subject with revoked permissions intact.
+	if _, err := enforcer.RemoveFilteredPolicy(0, subject); err != nil {
+		return fmt.Errorf("clearing policies for %s: %w", subject, err)
+	}
 
 	// Load this subject's assignments.
 	assignments, err := loadAssignmentsForSubject(ctx, q, subject)
@@ -114,7 +125,9 @@ func RegenerateForSubject(ctx context.Context, q db.Querier, pool db.Pool, enfor
 		if err != nil {
 			return fmt.Errorf("loading role %s: %w", a.RoleID, err)
 		}
-		addSubjectPolicies(enforcer, subject, role)
+		if err := addSubjectPolicies(enforcer, subject, role); err != nil {
+			return fmt.Errorf("adding policies for %s: %w", subject, err)
+		}
 	}
 
 	return enforcer.SavePolicy()
@@ -142,19 +155,26 @@ func RegenerateForRole(ctx context.Context, q db.Querier, pool db.Pool, enforcer
 // ────────────────────────────────────────────────────────────
 
 // addSubjectPolicies generates and adds Casbin p rules for a subject's role.
-func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWithScope) {
+//
+// Every AddPolicy is checked. A dropped rule here is a permission the user
+// silently does not have (or, on the removal path, one they silently keep) —
+// an authorization outcome decided by an ignored error, which is exactly the
+// kind of failure that must be loud.
+func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWithScope) error {
 	expanded := ExpandImplications(role.Permissions)
 
 	if IsWildcard(role.Permissions) {
 		// Wildcard role: full access everywhere.
-		enforcer.AddPolicy(subject, "*", "*", "*", "*")
-		return
+		_, err := enforcer.AddPolicy(subject, "*", "*", "*", "*")
+		return err
 	}
 
 	for _, perm := range expanded {
 		if IsAdminObject(perm.Object) {
 			// Admin permissions: always platform-wide.
-			enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action)
+			if _, err := enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action); err != nil {
+				return err
+			}
 		} else if IsCIObject(perm.Object) {
 			// CI permissions: scope-aware.
 			workspaces := role.Workspaces
@@ -168,11 +188,14 @@ func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWit
 
 			for _, ws := range workspaces {
 				for _, env := range environments {
-					enforcer.AddPolicy(subject, ws, env, perm.Object, perm.Action)
+					if _, err := enforcer.AddPolicy(subject, ws, env, perm.Object, perm.Action); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }
 
 // APIKeyWithScope holds an API key's role and optional scope restriction.
@@ -185,7 +208,7 @@ type APIKeyWithScope struct {
 
 // addAPIKeyPolicies generates Casbin p rules for an API key.
 // The effective scope is the intersection of the role's scope and the key's restriction.
-func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *RoleWithScope) {
+func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *RoleWithScope) error {
 	subject := "apikey:" + key.ID
 	expanded := ExpandImplications(role.Permissions)
 
@@ -201,15 +224,19 @@ func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *Rol
 		}
 		for _, w := range ws {
 			for _, e := range env {
-				enforcer.AddPolicy(subject, w, e, "*", "*")
+				if _, err := enforcer.AddPolicy(subject, w, e, "*", "*"); err != nil {
+					return err
+				}
 			}
 		}
-		return
+		return nil
 	}
 
 	for _, perm := range expanded {
 		if IsAdminObject(perm.Object) {
-			enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action)
+			if _, err := enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action); err != nil {
+				return err
+			}
 		} else if IsCIObject(perm.Object) {
 			// Effective scope = intersection of role scope and key restriction.
 			ws := intersectScope(role.Workspaces, key.Workspaces)
@@ -224,11 +251,14 @@ func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *Rol
 
 			for _, w := range ws {
 				for _, e := range env {
-					enforcer.AddPolicy(subject, w, e, perm.Object, perm.Action)
+					if _, err := enforcer.AddPolicy(subject, w, e, perm.Object, perm.Action); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }
 
 // intersectScope computes the intersection of role scope and key restriction.

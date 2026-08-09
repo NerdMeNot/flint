@@ -47,8 +47,17 @@ func (b *BitbucketAdapter) ListPullRequestFiles(ctx context.Context, repo string
 // ParseWebhook parses and verifies a Bitbucket webhook.
 // Bitbucket Cloud supports HMAC-SHA256 signatures via X-Hub-Signature header.
 func (b *BitbucketAdapter) ParseWebhook(headers http.Header, body []byte, secret string) (*WebhookEvent, error) {
-	// Verify signature if present and secret is configured.
-	if sig := headers.Get("X-Hub-Signature"); sig != "" && secret != "" {
+	// When a secret is configured the signature is REQUIRED, not merely checked
+	// when offered. The previous condition (`sig != "" && secret != ""`) skipped
+	// verification entirely whenever the header was absent — so anyone who could
+	// reach the webhook endpoint could forge any event on any repo simply by
+	// omitting X-Hub-Signature. GitHub and GitLab both reject a missing
+	// credential; Bitbucket now does too.
+	if secret != "" {
+		sig := headers.Get("X-Hub-Signature")
+		if sig == "" {
+			return nil, fmt.Errorf("%w: missing X-Hub-Signature header", ErrWebhookInvalid)
+		}
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write(body)
 		expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
