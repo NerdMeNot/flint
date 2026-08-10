@@ -180,6 +180,28 @@ FROM latest WHERE steps.id = latest.id;
 UPDATE steps SET status = sqlc.arg(new_status), result = sqlc.arg(result), finished_at = now()
 WHERE workflow_id = sqlc.arg(workflow_id) AND name = sqlc.arg(step_name) AND status = 'running';
 
+-- name: RequeueOrphanedRetrySteps :execrows
+-- Backstop for the one state with no other recovery path. A parked retry leaves
+-- retry_wait only when its retry_backoff timer fires, so a step whose timer is
+-- gone waits forever and its workflow never finishes — no deadline applies to
+-- retry_wait, and no other sweep looks at it.
+--
+-- This is not reachable through the normal path: the retry row and its timer are
+-- written in one transaction, and UpsertTimer re-arms with fired = false on
+-- conflict. It exists so that a lost timer degrades to a late retry instead of a
+-- hung run. The grace window keeps it clear of a timer that is merely due and
+-- about to be handled.
+UPDATE steps SET status = 'queued', queued_at = now()
+WHERE status = 'retry_wait'
+  AND created_at < now() - make_interval(secs := sqlc.arg(grace_seconds)::float)
+  AND NOT EXISTS (
+    SELECT 1 FROM timers t
+    WHERE t.workflow_id = steps.workflow_id
+      AND t.step_name = steps.name
+      AND t.timer_type = 'retry_backoff'
+      AND t.fired = false
+  );
+
 -- name: RecentlyFailedWorkflowIDs :many
 SELECT DISTINCT workflow_id FROM steps
 WHERE status = 'failed' AND finished_at >= now() - interval '10 seconds';

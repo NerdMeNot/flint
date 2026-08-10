@@ -8568,6 +8568,34 @@ func (_m *Querier) RequestAssignmentCancel(ctx context.Context, runID string) (i
 	return r0, r1
 }
 
+// RequeueOrphanedRetrySteps provides a mock function with given fields: ctx, graceSeconds
+func (_m *Querier) RequeueOrphanedRetrySteps(ctx context.Context, graceSeconds float64) (int64, error) {
+	ret := _m.Called(ctx, graceSeconds)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequeueOrphanedRetrySteps")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, float64) (int64, error)); ok {
+		return rf(ctx, graceSeconds)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, float64) int64); ok {
+		r0 = rf(ctx, graceSeconds)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, float64) error); ok {
+		r1 = rf(ctx, graceSeconds)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // RequeueRetryStep provides a mock function with given fields: ctx, arg
 func (_m *Querier) RequeueRetryStep(ctx context.Context, arg db.RequeueRetryStepParams) error {
 	ret := _m.Called(ctx, arg)

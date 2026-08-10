@@ -56,8 +56,16 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 	_ = json.Unmarshal(wf.Input, &input)
 
 	// 5. Consume pending step-result signals (informer safety net).
+	//
+	// A failure here aborts the pass rather than being logged past. Signals are
+	// marked consumed in this same transaction, so continuing would commit the
+	// consumption without the effect — a machine-death report destroyed, and the
+	// step left waiting for the deadline sweep hours later. Rolling back leaves
+	// the signal unconsumed for the next tick. Payloads that will never parse are
+	// still skipped inside consumeStepSignals; retrying those forever would be
+	// pointless.
 	if err := consumeStepSignals(ctx, qtx, workflowID, stepByName); err != nil {
-		log.Warn().Err(err).Str("workflow", workflowID).Msg("engine: signal consumption error")
+		return fmt.Errorf("engine: consume step-result signals: %w", err)
 	}
 
 	// 7. Per-edge DAG gating. Walk steps in topological order (dag_waves provides a
@@ -130,8 +138,12 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 				continue
 			}
 			if !stepShouldRun(step.when, upstreamFailed) {
-				stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
+				marked, err := markStep(ctx, qtx, workflowID, step, stepSkipped,
 					withReason("when condition not met"))
+				if err != nil {
+					return err
+				}
+				stepByName[stepName] = marked
 				continue
 			}
 
@@ -145,18 +157,30 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 				if evalErr != nil {
 					reason := fmt.Sprintf("if condition %q failed to evaluate: %v", step.ifCondition, evalErr)
 					result := StepResult{StepName: stepName, Success: false, Error: reason}
-					stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepFailed,
+					marked, err := markStep(ctx, qtx, workflowID, step, stepFailed,
 						withReason(reason), withResult(result))
+					if err != nil {
+						return err
+					}
+					stepByName[stepName] = marked
 					continue
 				}
 				if !shouldRun {
-					stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
+					marked, err := markStep(ctx, qtx, workflowID, step, stepSkipped,
 						withReason("if condition evaluated false"))
+					if err != nil {
+						return err
+					}
+					stepByName[stepName] = marked
 					continue
 				}
 			}
 
-			stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepQueued)
+			marked, err := markStep(ctx, qtx, workflowID, step, stepQueued)
+			if err != nil {
+				return err
+			}
+			stepByName[stepName] = marked
 		}
 	}
 
@@ -325,7 +349,14 @@ func decodeDependsOn(raw interface{}) []string {
 // validates, updates the row, and records a history event) and returns the
 // updated stepRow with all other fields preserved, ready to store back into the
 // in-memory stepByName map.
-func markStep(ctx context.Context, qtx *db.Queries, workflowID string, s stepRow, to string, opts ...func(*stepTransition)) stepRow {
+//
+// The error is returned rather than logged and discarded. Swallowing it left the
+// pass running on state that disagreed with the database — the step looked
+// unchanged in stepByName while the caller believed it had moved — and hid a
+// real gap in the transition table for as long as it took someone to read the
+// logs. An illegal transition here is a programming error; surfacing it rolls
+// the pass back and the loop retries, which is noisy but honest.
+func markStep(ctx context.Context, qtx *db.Queries, workflowID string, s stepRow, to string, opts ...func(*stepTransition)) (stepRow, error) {
 	t := stepTransition{
 		stepID:     s.id,
 		workflowID: workflowID,
@@ -339,12 +370,10 @@ func markStep(ctx context.Context, qtx *db.Queries, workflowID string, s stepRow
 		o(&t)
 	}
 	if err := transitionStep(ctx, qtx, t); err != nil {
-		log.Error().Err(err).Str("step", s.name).Str("to", to).
-			Msg("engine: step transition failed")
-		return s
+		return s, err
 	}
 	s.status = to
-	return s
+	return s, nil
 }
 
 // markStep option helpers.
@@ -374,6 +403,10 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 			StepName string `json:"stepName"`
 			Success  bool   `json:"success"`
 			Reason   string `json:"reason"`
+			// Attempt identifies the execution this signal is about. A pointer so
+			// a signal written before the field existed still applies to the
+			// current attempt rather than being discarded.
+			Attempt *int `json:"attempt"`
 		}
 		if err := json.Unmarshal(payloadJSON, &signal); err != nil {
 			// Never drop silently — a malformed signal here means a crashed
@@ -388,14 +421,27 @@ func consumeStepSignals(ctx context.Context, qtx *db.Queries, workflowID string,
 		if !exists || isTerminal(step.status) {
 			continue
 		}
+		// A signal for an attempt that is no longer the live one is stale: that
+		// execution has already been resolved and possibly superseded by a parked
+		// retry. Applying it anyway would fail whatever attempt happens to be
+		// current — including one that never ran.
+		if signal.Attempt != nil && *signal.Attempt != step.attempt {
+			log.Debug().Str("workflow", workflowID).Str("step", signal.StepName).
+				Int("signalAttempt", *signal.Attempt).Int("liveAttempt", step.attempt).
+				Msg("engine: ignoring step-result signal for a superseded attempt")
+			continue
+		}
 
 		newStatus := stepSucceeded
 		if !signal.Success {
 			newStatus = stepFailed
 		}
 		result := StepResult{StepName: signal.StepName, Success: signal.Success, Error: signal.Reason}
-		updated := markStep(ctx, qtx, workflowID, step, newStatus,
+		updated, err := markStep(ctx, qtx, workflowID, step, newStatus,
 			withResult(result), withActor(actorInformer), withReason(signal.Reason))
+		if err != nil {
+			return err
+		}
 		stepByName[signal.StepName] = updated
 
 		// A machine-lost / infra failure must honour the step's retry policy the

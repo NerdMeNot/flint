@@ -638,6 +638,17 @@ type Querier interface {
 	RemoveUserFromAllTeams(ctx context.Context, userID string) (int64, error)
 	// Running work: flag for delivery via the ExecuteStep stream or next heartbeat.
 	RequestAssignmentCancel(ctx context.Context, runID string) (int64, error)
+	// Backstop for the one state with no other recovery path. A parked retry leaves
+	// retry_wait only when its retry_backoff timer fires, so a step whose timer is
+	// gone waits forever and its workflow never finishes — no deadline applies to
+	// retry_wait, and no other sweep looks at it.
+	//
+	// This is not reachable through the normal path: the retry row and its timer are
+	// written in one transaction, and UpsertTimer re-arms with fired = false on
+	// conflict. It exists so that a lost timer degrades to a late retry instead of a
+	// hung run. The grace window keeps it clear of a timer that is merely due and
+	// about to be handled.
+	RequeueOrphanedRetrySteps(ctx context.Context, graceSeconds float64) (int64, error)
 	// Promotes the parked retry attempt (retry_wait) to queued once its backoff timer
 	// fires. This is the ONLY path out of retry_wait.
 	RequeueRetryStep(ctx context.Context, arg RequeueRetryStepParams) error

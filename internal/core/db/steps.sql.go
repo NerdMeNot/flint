@@ -919,6 +919,37 @@ func (q *Queries) RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, erro
 	return items, nil
 }
 
+const requeueOrphanedRetrySteps = `-- name: RequeueOrphanedRetrySteps :execrows
+UPDATE steps SET status = 'queued', queued_at = now()
+WHERE status = 'retry_wait'
+  AND created_at < now() - make_interval(secs := $1::float)
+  AND NOT EXISTS (
+    SELECT 1 FROM timers t
+    WHERE t.workflow_id = steps.workflow_id
+      AND t.step_name = steps.name
+      AND t.timer_type = 'retry_backoff'
+      AND t.fired = false
+  )
+`
+
+// Backstop for the one state with no other recovery path. A parked retry leaves
+// retry_wait only when its retry_backoff timer fires, so a step whose timer is
+// gone waits forever and its workflow never finishes — no deadline applies to
+// retry_wait, and no other sweep looks at it.
+//
+// This is not reachable through the normal path: the retry row and its timer are
+// written in one transaction, and UpsertTimer re-arms with fired = false on
+// conflict. It exists so that a lost timer degrades to a late retry instead of a
+// hung run. The grace window keeps it clear of a timer that is merely due and
+// about to be handled.
+func (q *Queries) RequeueOrphanedRetrySteps(ctx context.Context, graceSeconds float64) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueOrphanedRetrySteps, graceSeconds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const requeueRetryStep = `-- name: RequeueRetryStep :exec
 WITH latest AS (
     SELECT s.id FROM steps s

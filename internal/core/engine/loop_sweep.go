@@ -85,6 +85,12 @@ func (l *Loop) finishStaleWorkflows(ctx context.Context) {
 // across sweeps.
 const staleStepBatch = 200
 
+// orphanedRetryGrace is how long a parked retry may sit with no unfired backoff
+// timer before the sweep re-queues it. Generous, because the normal path commits
+// the retry row and its timer together: anything caught here is a genuine
+// anomaly, and being slow to react to one costs nothing.
+const orphanedRetryGrace = 15 * time.Minute
+
 // failStaleRunningSteps fails running steps past their execution deadline and
 // schedules a retry for each whose policy allows one. Claim and fail share a
 // transaction, so the SKIP LOCKED locks taken by the claim protect the failure:
@@ -149,6 +155,15 @@ func (l *Loop) sweep(ctx context.Context) {
 	} else if count > 0 {
 		log.Warn().Int64("count", count).Msg("engine: sweep failed orphaned waiting steps")
 		failed = true
+	}
+
+	// 1b-ii. Backstop: parked retries whose backoff timer is gone. Nothing else
+	//        looks at retry_wait, so without this a lost timer hangs the run.
+	if count, err := q.RequeueOrphanedRetrySteps(ctx, orphanedRetryGrace.Seconds()); err != nil {
+		log.Warn().Err(err).Msg("engine: sweep requeue orphaned retry steps failed")
+	} else if count > 0 {
+		log.Warn().Int64("count", count).
+			Msg("engine: sweep re-queued retry steps whose backoff timer was missing")
 	}
 
 	if failed {

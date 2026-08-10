@@ -126,9 +126,15 @@ func (f *Fleet) ExpireHeartbeatLeases(ctx context.Context) (int, error) {
 // apply unchanged.
 func (f *Fleet) failStepsViaSignals(ctx context.Context, failed []db.FailMachineAssignmentsRow) {
 	for _, a := range failed {
+		// attempt is what lets the engine apply this to the exact execution that
+		// died. Without it the engine could only address the step by name and
+		// would land on whatever its latest attempt happened to be — including a
+		// retry that had already been parked, or an attempt that had already
+		// moved on.
 		payload := map[string]any{
 			"stepName": a.StepName,
 			"runID":    a.RunID,
+			"attempt":  a.Attempt,
 			"success":  false,
 			"reason":   "machine lost",
 		}

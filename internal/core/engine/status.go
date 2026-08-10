@@ -69,9 +69,15 @@ var allowedStepTransitions = map[string][]string{
 	// pipeline-authoring bug).
 	stepPending:   {stepQueued, stepSkipped, stepFailed, stepCancelled},
 	stepRetryWait: {stepQueued, stepCancelled},
-	stepQueued:    {stepRunning, stepWaiting, stepPending, stepSkipped, stepCancelled},
-	stepRunning:   {stepSucceeded, stepFailed, stepCancelled},
-	stepWaiting:   {stepSucceeded, stepFailed, stepCancelled},
+	// queued→failed: the machine holding this step's assignment died before the
+	// agent started it. The step never ran, but it is not going to — the fleet's
+	// machine-lost signal has to be able to fail it. Without this edge the signal
+	// hit an illegal transition, was swallowed, and the step sat queued until the
+	// deadline sweep hours later, which is precisely the wait the signal exists
+	// to avoid.
+	stepQueued:  {stepRunning, stepWaiting, stepPending, stepSkipped, stepFailed, stepCancelled},
+	stepRunning: {stepSucceeded, stepFailed, stepCancelled},
+	stepWaiting: {stepSucceeded, stepFailed, stepCancelled},
 }
 
 // allowedWorkflowTransitions is the workflow-status transition table.
