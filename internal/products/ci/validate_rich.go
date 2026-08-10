@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
+
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/pkg/pipeline"
 )
@@ -234,6 +236,16 @@ func (v *richValidator) checkJob(name string, job Job, pipelineEnvs, jobNames ma
 			if strings.TrimSpace(f) == "" {
 				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.files[%d]", field, i),
 					"job %q has an empty input file glob", name)
+				continue
+			}
+			// A malformed glob never matches, and "no match" means the job is not
+			// affected — so a typo here silently drops the job from the run and
+			// the pipeline still goes green. Caught at validation, where the author
+			// sees it, rather than at runtime where it looks like correct
+			// behaviour.
+			if !doublestar.ValidatePattern(f) {
+				v.errorf(pipeline.CodeInvalidValue, fmt.Sprintf("%s.inputs.files[%d]", field, i),
+					"job %q input file glob %q is not a valid pattern", name, f)
 			}
 		}
 		for i, e := range job.Inputs.Env {

@@ -1,6 +1,9 @@
 package ci
 
-import "github.com/bmatcuk/doublestar/v4"
+import (
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/rs/zerolog/log"
+)
 
 // AffectedJobs computes which jobs a change touches: every job whose declared
 // input files match a changed path, plus every transitive dependent of those
@@ -61,7 +64,17 @@ func AffectedJobs(jobs map[string]Job, changedFiles []string) map[string]bool {
 // **/*.go spans directories).
 func matchesAnyGlob(globs []string, path string) bool {
 	for _, g := range globs {
-		if ok, err := doublestar.Match(g, path); err == nil && ok {
+		ok, err := doublestar.Match(g, path)
+		if err != nil {
+			// A malformed glob never matches, and "no match" here means the job is
+			// not affected — so a bad pattern silently drops the job and the run
+			// still goes green. Validation rejects these before a run starts; this
+			// is the backstop for a pipeline that reached execution anyway.
+			log.Warn().Str("glob", g).Err(err).
+				Msg("ci: invalid input file glob — treated as no match")
+			continue
+		}
+		if ok {
 			return true
 		}
 	}

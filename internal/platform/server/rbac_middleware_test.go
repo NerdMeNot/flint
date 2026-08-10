@@ -108,3 +108,20 @@ func TestRequirePermission_EnvironmentScope(t *testing.T) {
 	require.Equal(t, 200, getSteps(srv, "run-prod", "bob-token"), "production run should be allowed")
 	require.Equal(t, 403, getSteps(srv, "run-stg", "bob-token"), "staging run should be forbidden")
 }
+
+// A server with no enforcer must deny, not call through.
+//
+// requirePermission used to return c.Next(ctx) when Enforcer was nil, under a
+// comment about falling back to a legacy role check. There is no such fallback:
+// every permission check on every route passed. Boot fails hard if the enforcer
+// cannot be built, so this was not reachable in a real server — but it was
+// reachable in the test suite, which is why every handler test ran with
+// authorization silently disabled.
+func TestRequirePermission_DeniesWithoutAnEnforcer(t *testing.T) {
+	srv, m := enforcerServer(t, nil)
+	sessionFor(m, "tok", "anyone@example.com")
+
+	code := getSteps(srv, "run-1", "tok")
+
+	require.Equal(t, 403, code, "no enforcer means no authorization, so the request is denied")
+}

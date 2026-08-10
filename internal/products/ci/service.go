@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/core/engine"
 	"github.com/NerdMeNot/flint/internal/core/observe"
@@ -375,7 +377,17 @@ func (s *Service) resolvePipeline(ctx context.Context, p *Pipeline, repo, sha st
 
 func (s *Service) discoverPipelineFiles(ctx context.Context, repo, ref, pipelinePath string) []string {
 	dir, err := s.forge.GetDirectory(ctx, repo, ref, pipelinePath)
-	if err != nil || len(dir) == 0 {
+	if err != nil {
+		// Distinguished from an empty directory, which is a legitimate "use the
+		// default". A forge that is briefly unreachable silently narrowed the run
+		// to a single hardcoded ci.yaml — so a repo whose pipelines live elsewhere
+		// would quietly run the wrong set, or nothing, and look like a config
+		// problem rather than a transient one.
+		log.Warn().Err(err).Str("repo", repo).Str("ref", ref).Str("path", pipelinePath).
+			Msg("ci: could not list pipeline directory; falling back to ci.yaml")
+		return []string{"ci.yaml"}
+	}
+	if len(dir) == 0 {
 		return []string{"ci.yaml"}
 	}
 	var files []string
@@ -455,7 +467,15 @@ func (s *Service) reportBroken(repo, sha, file string, cause error) {
 
 func (s *Service) failRun(ctx context.Context, runID string, cause error) {
 	msg := cause.Error()
-	_ = s.q.FailRunWithError(ctx, db.FailRunWithErrorParams{ID: runID, ErrorMessage: &msg})
+	if err := s.q.FailRunWithError(ctx, db.FailRunWithErrorParams{
+		ID: runID, ErrorMessage: &msg,
+	}); err != nil {
+		// This is the call that makes a doomed run terminal. Discarding its error
+		// left the run sitting non-terminal with nothing recording why — the user
+		// sees a run that never finishes and no reason anywhere.
+		log.Error().Err(err).Str("run", runID).Str("cause", msg).
+			Msg("ci: could not record run failure; run may appear stuck")
+	}
 }
 
 // ReportRunFinished posts the run's outcome to the forge as a commit status —

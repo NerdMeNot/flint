@@ -181,8 +181,20 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 		}
 
 		if s.deps.Enforcer == nil {
-			// Casbin not initialized — fall back to legacy role check.
-			c.Next(ctx)
+			// No enforcer means no authorization, so this denies. It used to call
+			// through with a comment about falling back to a legacy role check —
+			// there is no such fallback, and the comment is what would stop anyone
+			// reading this from worrying: without an enforcer, every permission
+			// check on every route passed.
+			//
+			// Not reachable from a real server (boot fails hard if NewEnforcer
+			// errors), but "unreachable" is a property of today's wiring, and the
+			// failure mode if it ever changes is a fully open API.
+			logger := observe.Logger(ctx)
+			logger.Error().Str("obj", obj).Str("act", act).
+				Msg("authorization unavailable: no enforcer configured")
+			apiForbidden(ctx, c, "authorization unavailable")
+			c.Abort()
 			return
 		}
 
