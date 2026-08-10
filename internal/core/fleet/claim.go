@@ -55,8 +55,18 @@ func (f *Fleet) CompleteAssignment(ctx context.Context, assignmentID, machineID,
 		return err
 	}
 	if len(active) == 0 {
+		// Returned, not skipped on error. This is the ONLY path from busy → idle,
+		// and a machine that misses it stays busy forever — scale-down only
+		// considers idle machines, and a healthy agent keeps the lease renewed so
+		// the heartbeat sweep never sees it either. Losing the transition to a
+		// discarded read error meant a machine billing indefinitely. (The fleet
+		// loop's busy-drift sweep is the backstop; this keeps the common path
+		// honest so the backstop stays a backstop.)
 		m, err := qtx.GetMachine(ctx, machineID)
-		if err == nil && m.Status == machineBusy {
+		if err != nil {
+			return err
+		}
+		if m.Status == machineBusy {
 			if err := transitionMachine(ctx, qtx, machineTransition{
 				machineID: machineID, from: machineBusy, to: machineIdle,
 				eventType: "idle", actor: actorAgent,

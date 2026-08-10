@@ -316,6 +316,36 @@ func (_m *Querier) ClaimAssignmentForAgent(ctx context.Context, machineID *strin
 	return r0, r1
 }
 
+// ClaimBusyMachinesWithoutWork provides a mock function with given fields: ctx, graceSeconds
+func (_m *Querier) ClaimBusyMachinesWithoutWork(ctx context.Context, graceSeconds float64) ([]db.ClaimBusyMachinesWithoutWorkRow, error) {
+	ret := _m.Called(ctx, graceSeconds)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimBusyMachinesWithoutWork")
+	}
+
+	var r0 []db.ClaimBusyMachinesWithoutWorkRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, float64) ([]db.ClaimBusyMachinesWithoutWorkRow, error)); ok {
+		return rf(ctx, graceSeconds)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, float64) []db.ClaimBusyMachinesWithoutWorkRow); ok {
+		r0 = rf(ctx, graceSeconds)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ClaimBusyMachinesWithoutWorkRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, float64) error); ok {
+		r1 = rf(ctx, graceSeconds)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ClaimCompletedDeviceCode provides a mock function with given fields: ctx, deviceCode
 func (_m *Querier) ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (db.ClaimCompletedDeviceCodeRow, error) {
 	ret := _m.Called(ctx, deviceCode)

@@ -12,6 +12,54 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimBusyMachinesWithoutWork = `-- name: ClaimBusyMachinesWithoutWork :many
+SELECT id, pool_id FROM machines
+WHERE status = 'busy'
+  AND updated_at < now() - make_interval(secs := $1::float)
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = machines.id AND a.status IN ('assigned', 'running')
+  )
+FOR UPDATE SKIP LOCKED
+`
+
+type ClaimBusyMachinesWithoutWorkRow struct {
+	ID     string `json:"id"`
+	PoolID string `json:"pool_id"`
+}
+
+// The symmetric counterpart to ClaimIdleMachinesPastTTL's NOT EXISTS guard.
+// That one defends against a machine marked idle while still holding work; this
+// defends the other direction — marked busy while holding none.
+//
+// busy → idle happens in exactly one place (CompleteAssignment, on the last
+// assignment finishing), and nothing swept the result. A machine that missed
+// that transition stayed busy forever: scale-down only considers idle machines,
+// and a healthy agent keeps renewing the lease, so the heartbeat sweep never
+// touches it either. It just billed.
+//
+// The grace window keeps this clear of the ordinary window between an
+// assignment finishing and the next being bound.
+func (q *Queries) ClaimBusyMachinesWithoutWork(ctx context.Context, graceSeconds float64) ([]ClaimBusyMachinesWithoutWorkRow, error) {
+	rows, err := q.db.Query(ctx, claimBusyMachinesWithoutWork, graceSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClaimBusyMachinesWithoutWorkRow{}
+	for rows.Next() {
+		var i ClaimBusyMachinesWithoutWorkRow
+		if err := rows.Scan(&i.ID, &i.PoolID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimDrainedMachines = `-- name: ClaimDrainedMachines :many
 SELECT m.id, m.pool_id FROM machines m
 WHERE m.status = 'draining'

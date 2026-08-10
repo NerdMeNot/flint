@@ -38,6 +38,28 @@ SELECT * FROM machines WHERE id = $1;
 -- stale snapshot silently dropped the transition.
 SELECT * FROM machines WHERE id = $1 FOR UPDATE;
 
+-- name: ClaimBusyMachinesWithoutWork :many
+-- The symmetric counterpart to ClaimIdleMachinesPastTTL's NOT EXISTS guard.
+-- That one defends against a machine marked idle while still holding work; this
+-- defends the other direction — marked busy while holding none.
+--
+-- busy → idle happens in exactly one place (CompleteAssignment, on the last
+-- assignment finishing), and nothing swept the result. A machine that missed
+-- that transition stayed busy forever: scale-down only considers idle machines,
+-- and a healthy agent keeps renewing the lease, so the heartbeat sweep never
+-- touches it either. It just billed.
+--
+-- The grace window keeps this clear of the ordinary window between an
+-- assignment finishing and the next being bound.
+SELECT id, pool_id FROM machines
+WHERE status = 'busy'
+  AND updated_at < now() - make_interval(secs := sqlc.arg(grace_seconds)::float)
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = machines.id AND a.status IN ('assigned', 'running')
+  )
+FOR UPDATE SKIP LOCKED;
+
 -- name: ClaimDrainedMachines :many
 -- Drained machines with no work left. Draining means "finish what you have and
 -- stop"; once nothing is left, the machine has done what was asked and should be

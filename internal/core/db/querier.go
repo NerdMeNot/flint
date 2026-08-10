@@ -36,6 +36,19 @@ type Querier interface {
 	CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error)
 	// Agent ClaimStep: atomically take the oldest assigned work for this machine.
 	ClaimAssignmentForAgent(ctx context.Context, machineID *string) (ClaimAssignmentForAgentRow, error)
+	// The symmetric counterpart to ClaimIdleMachinesPastTTL's NOT EXISTS guard.
+	// That one defends against a machine marked idle while still holding work; this
+	// defends the other direction — marked busy while holding none.
+	//
+	// busy → idle happens in exactly one place (CompleteAssignment, on the last
+	// assignment finishing), and nothing swept the result. A machine that missed
+	// that transition stayed busy forever: scale-down only considers idle machines,
+	// and a healthy agent keeps renewing the lease, so the heartbeat sweep never
+	// touches it either. It just billed.
+	//
+	// The grace window keeps this clear of the ordinary window between an
+	// assignment finishing and the next being bound.
+	ClaimBusyMachinesWithoutWork(ctx context.Context, graceSeconds float64) ([]ClaimBusyMachinesWithoutWorkRow, error)
 	// Atomic claim: return the tokens and delete the row in one statement, only if
 	// completed. This is the TOCTOU fix — no read-then-mutate window.
 	ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (ClaimCompletedDeviceCodeRow, error)

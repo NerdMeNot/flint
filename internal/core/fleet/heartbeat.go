@@ -111,7 +111,13 @@ func (f *Fleet) Heartbeat(ctx context.Context, machine db.Machine, in HeartbeatI
 	// Cancellations for running assignments (redundant with the stream, so a
 	// broken stream delays cancellation by at most one beat).
 	cancels, err := q.ListCancelRequestedForMachine(ctx, &machine.ID)
-	if err == nil {
+	if err != nil {
+		// Not fatal — the ExecuteStep stream is the primary delivery path and the
+		// next beat retries — but a persistent failure here means cancellations
+		// only ever arrive over the stream, which is worth seeing.
+		log.Warn().Err(err).Str("machine", machine.ID).
+			Msg("fleet: could not list cancellations for this heartbeat")
+	} else {
 		for _, c := range cancels {
 			res.Cancellations = append(res.Cancellations, Cancellation{
 				AssignmentID: c.ID, RunID: c.RunID, StepName: c.StepName,
@@ -144,13 +150,23 @@ func (f *Fleet) reconcileActiveAssignments(ctx context.Context, machineID string
 	stale, err := q.StaleRunningAssignmentsForMachine(ctx, db.StaleRunningAssignmentsForMachineParams{
 		MachineID: &machineID, GraceSecs: restartReconcileGrace.Seconds(), ActiveIds: activeIDs,
 	})
-	if err != nil || len(stale) == 0 {
+	if err != nil {
+		// Conflating this with "nothing stale" hid the failure of the path that
+		// recovers steps after an agent restart; they would then wait out the
+		// step timeout instead.
+		log.Warn().Err(err).Str("machine", machineID).
+			Msg("fleet: could not check for assignments abandoned by an agent restart")
+		return
+	}
+	if len(stale) == 0 {
 		return
 	}
 	for _, a := range stale {
 		errMsg := fmt.Sprintf("agent on machine %s no longer reports this step (agent restart)", machineID)
 		failed, err := q.FailAssignment(ctx, db.FailAssignmentParams{ID: a.ID, Error: &errMsg})
 		if err != nil {
+			log.Error().Err(err).Str("machine", machineID).Str("step", a.StepName).
+				Msg("fleet: failing an abandoned assignment failed")
 			continue
 		}
 		f.failStepsViaSignals(ctx, []db.FailMachineAssignmentsRow{{
@@ -160,6 +176,21 @@ func (f *Fleet) reconcileActiveAssignments(ctx context.Context, machineID string
 		log.Warn().Str("machine", machineID).Str("step", a.StepName).Str("run", a.RunID).
 			Msg("fleet: assignment failed — agent restarted without it")
 	}
+}
+
+// transitionInTx runs one transition in its own transaction, validating against
+// the `from` the caller supplies. Use transitionFromCurrent instead where the
+// caller's view of the status may be stale.
+func (f *Fleet) transitionInTx(ctx context.Context, t machineTransition) error {
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := transitionMachine(ctx, db.New(f.pool).WithTx(tx), t); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // transitionFromCurrent applies t in its own transaction, resolving `from` by

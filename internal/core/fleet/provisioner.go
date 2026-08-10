@@ -476,6 +476,47 @@ func (f *Fleet) scaleDownPool(ctx context.Context, poolID string, machineIDs []s
 	return terminated
 }
 
+// busyDriftGrace is how long a machine may read 'busy' with no live assignment
+// before the drift sweep corrects it. Generous: the normal path commits the
+// binding and the busy transition together, so anything caught here is a genuine
+// accounting drift, and correcting one slowly costs nothing.
+const busyDriftGrace = 2 * time.Minute
+
+// ReconcileBusyDrift returns machines marked busy that hold no work to idle.
+//
+// busy → idle happens in exactly one place — CompleteAssignment, when the last
+// assignment finishes — and nothing checked the result. A machine that missed it
+// was stranded: scale-down only considers idle machines, and a healthy agent
+// keeps renewing its lease so the heartbeat sweep never sees it either. It stayed
+// busy, and it kept billing. ClaimIdleMachinesPastTTL already guards the opposite
+// drift (idle while still holding work); this is the other half.
+func (f *Fleet) ReconcileBusyDrift(ctx context.Context) (int, error) {
+	stuck, err := db.New(f.pool).ClaimBusyMachinesWithoutWork(ctx, busyDriftGrace.Seconds())
+	if err != nil || len(stuck) == 0 {
+		return 0, err
+	}
+	fixed := 0
+	for _, m := range stuck {
+		if err := f.transitionInTx(ctx, machineTransition{
+			machineID: m.ID, from: machineBusy, to: machineIdle,
+			eventType: "idle", actor: actorSweep,
+			reason: "machine held no live assignments",
+		}); err != nil {
+			if !errors.Is(err, ErrMachineTransitionRaceLost) {
+				log.Error().Err(err).Str("machine", m.ID).
+					Msg("fleet: correcting busy drift failed")
+			}
+			continue
+		}
+		fixed++
+	}
+	if fixed > 0 {
+		log.Warn().Int("machines", fixed).
+			Msg("fleet: returned machines marked busy with no work to idle")
+	}
+	return fixed, nil
+}
+
 // TerminateDrained finishes the job a drain started: a machine asked to drain
 // that has no work left has done what was asked, so it is terminated.
 //
@@ -510,18 +551,30 @@ func (f *Fleet) TerminateDrained(ctx context.Context) (int, error) {
 // terminateMachine drives idle → terminating → Destroy → terminated with the
 // terminate decision ledgered.
 func (f *Fleet) terminateMachine(ctx context.Context, machineID, poolID, reason string) error {
-	q := db.New(f.pool)
-	m, err := q.GetMachine(ctx, machineID)
-	if err != nil {
-		return err
-	}
-
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	qtx := db.New(f.pool).WithTx(tx)
+
+	// Read under lock, inside the transaction that transitions. Reading first and
+	// transitioning after left a window where the status used as `from` was
+	// already stale — the same shape as the heartbeat drain that silently dropped
+	// spot-interruption notices. The optimistic guard caught it there, so this was
+	// safe rather than wrong, but the guard should be the backstop, not the plan.
+	m, err := qtx.LockMachine(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	// Only capacity that is idle, drained, or already on its way out may be
+	// terminated. A busy machine must be drained first — that is a deliberate
+	// property of the transition table, and stating it here turns a future
+	// "terminate now" caller into a clear error rather than a puzzling
+	// illegal-transition one.
+	if m.Status != machineIdle && m.Status != machineDraining && m.Status != machineProvisioning {
+		return fmt.Errorf("fleet: machine %s is %s — drain it before terminating", machineID, m.Status)
+	}
 	if err := transitionMachine(ctx, qtx, machineTransition{
 		machineID: machineID, from: m.Status, to: machineTerminating,
 		eventType: "terminate", actor: actorFleet, reason: reason,

@@ -123,10 +123,16 @@ func (f *Fleet) reconcileProvider(ctx context.Context, providerName string) erro
 			// Retry the destroy, then finish the lifecycle.
 			ref := compute.MachineRef{Provider: providerName, ID: deref(m.ProviderRef)}
 			if err := provider.Destroy(ctx, ref); err != nil {
+				// Retried next pass. Logged because an instance that can never be
+				// destroyed bills forever, and silence is what lets that run.
+				log.Warn().Err(err).Str("machine", m.ID).Str("ref", ref.ID).
+					Msg("fleet: destroy retry failed; machine still costs money")
 				continue
 			}
 			tx, err := f.pool.Begin(ctx)
 			if err != nil {
+				log.Error().Err(err).Str("machine", m.ID).
+					Msg("fleet: begin tx to finalize a destroyed machine failed")
 				continue
 			}
 			from := m.Status

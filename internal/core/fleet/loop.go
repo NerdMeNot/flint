@@ -137,6 +137,11 @@ func (l *Loop) fastPass(ctx context.Context) {
 	if _, err := l.fleet.ReleaseUnclaimed(ctx); err != nil {
 		log.Error().Err(err).Msg("fleet: unclaimed release failed")
 	}
+	// Corrects busy/idle accounting drift. Pure DB, and it belongs before
+	// scheduling so a machine wrongly held busy becomes schedulable this tick.
+	if _, err := l.fleet.ReconcileBusyDrift(ctx); err != nil {
+		log.Error().Err(err).Msg("fleet: busy-drift reconciliation failed")
+	}
 	if _, err := l.fleet.SchedulePending(ctx); err != nil {
 		log.Error().Err(err).Msg("fleet: scheduling failed")
 	}
