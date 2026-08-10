@@ -104,6 +104,10 @@ type Querier interface {
 	// one workflow at a time under a FOR UPDATE lock); a workflow a live advance is
 	// about to finish is simply skipped this tick.
 	ClaimStaleWorkflows(ctx context.Context) ([]ClaimStaleWorkflowsRow, error)
+	// Terminally-failed events are kept for a window so an operator can see what
+	// stopped delivering, then pruned. Without this they are the one outbox status
+	// that accumulates forever — CleanResolvedOutbox only prunes successes.
+	CleanFailedOutbox(ctx context.Context) error
 	CleanResolvedOutbox(ctx context.Context) error
 	CleanupFiredTimers(ctx context.Context) error
 	// Prune transition history older than 30 days so the table stays bounded.
@@ -657,8 +661,14 @@ type Querier interface {
 	// was already used (replay) and must be rejected.
 	RecordTOTPUse(ctx context.Context, arg RecordTOTPUseParams) (string, error)
 	// Returns events stranded in 'processing' (worker crashed between claim and
-	// resolve/fail) back to 'pending' for redelivery. attempts was already incremented
-	// at claim, so a poison event still terminates at 'failed' after max_attempts.
+	// resolve/fail) back to 'pending' for redelivery.
+	//
+	// The attempt budget is enforced HERE as well as in FailOutboxEvent. attempts is
+	// incremented at claim, but only FailOutboxEvent converts an exhausted budget
+	// into 'failed' — and an event whose delivery reliably strands the worker never
+	// reaches it. Returning such an event to 'pending' unconditionally retried it
+	// every five minutes forever: the one delivery that can hang a worker, retried
+	// indefinitely, which is precisely the case the budget exists to stop.
 	RecoverStaleOutboxEvents(ctx context.Context) (int64, error)
 	// Sweep: assigned but never claimed before the deadline → back to pending. The
 	// machine gets a strike (tracked by the fleet loop, not here).

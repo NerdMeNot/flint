@@ -27,7 +27,17 @@ type Daemon struct {
 	mu       sync.Mutex
 	active   map[string]*execution // assignment id → running execution
 	draining bool
+
+	// running tracks in-flight executions so shutdown can wait for them to
+	// report before the gRPC connection and runtime are torn down.
+	running sync.WaitGroup
 }
+
+// shutdownGrace bounds how long shutdown waits for in-flight steps to finish
+// reporting. A step's result is work already done and paid for; abandoning it
+// means the engine hears nothing, sweeps the step at its deadline, and — since
+// a timeout now honours the retry policy — runs the whole thing again.
+const shutdownGrace = 30 * time.Second
 
 // Run boots the daemon and blocks until ctx is done or the server orders
 // shutdown.
@@ -68,6 +78,9 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := d.registerOrResume(ctx); err != nil {
 		return err
 	}
+	// Registered AFTER the client/runtime defers so it runs BEFORE them (LIFO):
+	// an execution still reporting needs both alive.
+	defer d.awaitExecutions()
 
 	log.Info().Str("machine", d.id.MachineID).Str("pool", d.id.PoolName).
 		Str("runtime", cfg.Runtime).Int("capacity", cfg.Capacity).
@@ -123,7 +136,9 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 
 		assignment := resp.GetAssignment()
+		d.running.Add(1)
 		go func() {
+			defer d.running.Done()
 			defer func() { <-slots }()
 			d.execute(ctx, assignment)
 		}()
@@ -227,6 +242,25 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, done chan<- string) {
 			done <- "shutdown"
 			return
 		}
+	}
+}
+
+// awaitExecutions blocks until in-flight steps have finished reporting, or the
+// grace period expires. Without it, Run returned the moment its context was
+// cancelled and the deferred client/runtime teardown ran while steps were still
+// executing — so a step that had just succeeded lost its completion report and
+// was re-run after the engine swept it.
+func (d *Daemon) awaitExecutions() {
+	done := make(chan struct{})
+	go func() {
+		d.running.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownGrace):
+		log.Warn().Strs("assignments", d.activeIDs()).Dur("grace", shutdownGrace).
+			Msg("agentd: shutting down with steps still running; their results may be lost")
 	}
 }
 

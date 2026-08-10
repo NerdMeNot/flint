@@ -28,6 +28,11 @@ type execution struct {
 
 func (e *execution) cancel(context.Context) { e.stop() }
 
+// reportTimeout bounds the whole completion-report retry loop. Generous enough
+// to ride out a brief server blip, bounded so a shutdown cannot hang on an
+// unreachable control plane.
+const reportTimeout = 25 * time.Second
+
 // execute runs one assignment end to end: prepare dirs, run the step through
 // the runtime while streaming logs, then report the outcome. Errors never
 // escape — every path ends in a completion report (or the server's lease
@@ -68,8 +73,17 @@ func (d *Daemon) execute(ctx context.Context, a *agentv1.Assignment) {
 
 	// Completion is unary + retried: the engine must hear the outcome even if
 	// the log stream died.
+	//
+	// Reported on a context detached from the caller's. The result is work that
+	// has already been done — cancelling its delivery does not undo the step, it
+	// only hides it, and the engine then sweeps the step at its deadline and (now
+	// that a timeout honours the retry policy) runs it all over again. Shutdown
+	// waits for this via the daemon's execution WaitGroup.
+	reportCtx, cancelReport := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
+	defer cancelReport()
+
 	for attempt := range 3 {
-		_, err := d.client.svc.ReportStepComplete(ctx, &agentv1.ReportStepCompleteRequest{
+		_, err := d.client.svc.ReportStepComplete(reportCtx, &agentv1.ReportStepCompleteRequest{
 			AssignmentId: ex.assignmentID,
 			MachineId:    d.id.MachineID,
 			TaskToken:    payload.GetTaskToken(),
@@ -82,7 +96,7 @@ func (d *Daemon) execute(ctx context.Context, a *agentv1.Assignment) {
 		}
 		logger.Warn().Err(err).Int("attempt", attempt+1).Msg("agentd: completion report failed")
 		select {
-		case <-ctx.Done():
+		case <-reportCtx.Done():
 			return
 		case <-time.After(time.Duration(1<<attempt) * time.Second):
 		}

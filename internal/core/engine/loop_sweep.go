@@ -200,6 +200,9 @@ func (l *Loop) sweep(ctx context.Context) {
 	if err := q.CleanResolvedOutbox(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup resolved outbox failed")
 	}
+	if err := q.CleanFailedOutbox(ctx); err != nil {
+		log.Warn().Err(err).Msg("engine: cleanup failed outbox failed")
+	}
 	if err := q.DeleteConsumedSignals(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: cleanup consumed signals failed")
 	}

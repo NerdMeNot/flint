@@ -155,7 +155,13 @@ func enqueueWebhooksInTx(ctx context.Context, q *db.Queries, runID, status strin
 		Column2: eventName,
 	})
 	if err != nil {
-		// No webhooks configured — common case, not an error.
+		// NOT "no webhooks configured" — a :many query returns an empty slice and
+		// a nil error for that. This is a real query failure, and treating it as
+		// "nothing to send" meant the run completed with no webhook enqueued, no
+		// log line and no retry: an integration that silently stops firing, which
+		// is the hardest kind of outage for a user to notice.
+		log.Error().Err(err).Str("runID", runID).Str("event", eventName).
+			Msg("outbox: could not look up webhooks; none enqueued for this run")
 		return
 	}
 	if len(hooks) == 0 {
