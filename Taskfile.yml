@@ -89,9 +89,14 @@ tasks:
       # contributor groups imports identically.
       #
       # Driven off `git ls-files` rather than `-w .` on purpose: `.` would also
-      # rewrite _reference/ (vendored external repos that must never be edited)
-      # and protogen/ (generated).
-      - go tool goimports -local github.com/NerdMeNot/flint -w $(git ls-files '*.go' | grep -v '^protogen/')
+      # rewrite _reference/ (vendored external repos that must never be edited).
+      #
+      # Generated files are skipped by their "Code generated" header, not by
+      # path: sqlc and mockery own their output byte-for-byte, and reformatting
+      # it here would fight `task generate` — each would undo the other, and the
+      # CI drift gate would fail on whichever ran last. golangci-lint already
+      # exempts generated files, so this keeps the two in agreement.
+      - go tool goimports -local github.com/NerdMeNot/flint -w $(git ls-files '*.go' | grep -v '^protogen/' | xargs grep -L '^// Code generated')
 
   vet:
     desc: Run go vet

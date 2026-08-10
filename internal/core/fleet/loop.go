@@ -161,6 +161,11 @@ func (l *Loop) capacityPass(ctx context.Context) {
 	if _, err := l.fleet.ScaleDown(ctx); err != nil {
 		log.Error().Err(err).Msg("fleet: scale-down failed")
 	}
+	// Completes drains. Runs beside scale-down because it is the same kind of
+	// decision — capacity leaving the fleet — and shares its provider I/O.
+	if _, err := l.fleet.TerminateDrained(ctx); err != nil {
+		log.Error().Err(err).Msg("fleet: terminating drained machines failed")
+	}
 }
 
 func (l *Loop) reconcilePass(ctx context.Context) {

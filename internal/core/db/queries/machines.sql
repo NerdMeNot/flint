@@ -30,6 +30,33 @@ INSERT INTO machines (
 -- name: GetMachine :one
 SELECT * FROM machines WHERE id = $1;
 
+-- name: LockMachine :one
+-- The machine row, locked for the caller's transaction. Used where a transition
+-- must be validated against the CURRENT status rather than one read earlier: an
+-- agent RPC carries the row captured when it authenticated, and the fleet may
+-- have moved the machine (idle → busy) in the meantime. Validating against that
+-- stale snapshot silently dropped the transition.
+SELECT * FROM machines WHERE id = $1 FOR UPDATE;
+
+-- name: ClaimDrainedMachines :many
+-- Drained machines with no work left. Draining means "finish what you have and
+-- stop"; once nothing is left, the machine has done what was asked and should be
+-- terminated. Without this nothing completed a drain: the machine sat in
+-- 'draining' billing until its agent stopped heartbeating, was then marked
+-- 'lost' — an error state, for a graceful operation — and reaped by reconcile.
+--
+-- Static machines are excluded for the same reason scale-down excludes them:
+-- Flint doesn't own their power button, so 'draining' is their resting state
+-- until an operator acts.
+SELECT m.id, m.pool_id FROM machines m
+WHERE m.status = 'draining'
+  AND m.provider <> 'static'
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
+  )
+FOR UPDATE OF m SKIP LOCKED;
+
 -- name: GetMachineByBootstrapTokenHash :one
 -- Elastic registration: single-use — the caller clears the hash in the same tx.
 -- 'requested' is included because provider.Create returns before the

@@ -12,6 +12,51 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimDrainedMachines = `-- name: ClaimDrainedMachines :many
+SELECT m.id, m.pool_id FROM machines m
+WHERE m.status = 'draining'
+  AND m.provider <> 'static'
+  AND NOT EXISTS (
+    SELECT 1 FROM step_assignments a
+    WHERE a.machine_id = m.id AND a.status IN ('assigned', 'running')
+  )
+FOR UPDATE OF m SKIP LOCKED
+`
+
+type ClaimDrainedMachinesRow struct {
+	ID     string `json:"id"`
+	PoolID string `json:"pool_id"`
+}
+
+// Drained machines with no work left. Draining means "finish what you have and
+// stop"; once nothing is left, the machine has done what was asked and should be
+// terminated. Without this nothing completed a drain: the machine sat in
+// 'draining' billing until its agent stopped heartbeating, was then marked
+// 'lost' — an error state, for a graceful operation — and reaped by reconcile.
+//
+// Static machines are excluded for the same reason scale-down excludes them:
+// Flint doesn't own their power button, so 'draining' is their resting state
+// until an operator acts.
+func (q *Queries) ClaimDrainedMachines(ctx context.Context) ([]ClaimDrainedMachinesRow, error) {
+	rows, err := q.db.Query(ctx, claimDrainedMachines)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClaimDrainedMachinesRow{}
+	for rows.Next() {
+		var i ClaimDrainedMachinesRow
+		if err := rows.Scan(&i.ID, &i.PoolID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimExpiredBootDeadlines = `-- name: ClaimExpiredBootDeadlines :many
 SELECT id, pool_id, provider, provider_ref, status FROM machines
 WHERE boot_deadline_at < now() AND status IN ('requested', 'provisioning')
@@ -784,6 +829,56 @@ func (q *Queries) ListProviderMachines(ctx context.Context, provider string) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockMachine = `-- name: LockMachine :one
+SELECT id, pool_id, status, provider, provider_ref, instance_type, region, zone, capacity_type, price_per_hour_usd, accepted_offer, cpu_millis, memory_mb, disk_gb, arch, os, labels, hostname, agent_version, bootstrap_token_hash, agent_token_hash, boot_deadline_at, heartbeat_interval_seconds, last_heartbeat_at, heartbeat_expires_at, steps_completed, idle_since, drain_reason, requested_at, provisioned_at, registered_at, terminated_at, updated_at FROM machines WHERE id = $1 FOR UPDATE
+`
+
+// The machine row, locked for the caller's transaction. Used where a transition
+// must be validated against the CURRENT status rather than one read earlier: an
+// agent RPC carries the row captured when it authenticated, and the fleet may
+// have moved the machine (idle → busy) in the meantime. Validating against that
+// stale snapshot silently dropped the transition.
+func (q *Queries) LockMachine(ctx context.Context, id string) (Machine, error) {
+	row := q.db.QueryRow(ctx, lockMachine, id)
+	var i Machine
+	err := row.Scan(
+		&i.ID,
+		&i.PoolID,
+		&i.Status,
+		&i.Provider,
+		&i.ProviderRef,
+		&i.InstanceType,
+		&i.Region,
+		&i.Zone,
+		&i.CapacityType,
+		&i.PricePerHourUsd,
+		&i.AcceptedOffer,
+		&i.CpuMillis,
+		&i.MemoryMb,
+		&i.DiskGb,
+		&i.Arch,
+		&i.Os,
+		&i.Labels,
+		&i.Hostname,
+		&i.AgentVersion,
+		&i.BootstrapTokenHash,
+		&i.AgentTokenHash,
+		&i.BootDeadlineAt,
+		&i.HeartbeatIntervalSeconds,
+		&i.LastHeartbeatAt,
+		&i.HeartbeatExpiresAt,
+		&i.StepsCompleted,
+		&i.IdleSince,
+		&i.DrainReason,
+		&i.RequestedAt,
+		&i.ProvisionedAt,
+		&i.RegisteredAt,
+		&i.TerminatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setMachineProviderRef = `-- name: SetMachineProviderRef :exec

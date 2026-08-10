@@ -112,9 +112,28 @@ func (s *Server) handleDrainMachine(ctx context.Context, c *app.RequestContext) 
 		operator = "operator:" + claims.Email
 	}
 	reason := "operator drain"
+	drainInputs, _ := json.Marshal(map[string]any{
+		"operator": operator, "reason": reason, "fromStatus": m.Status,
+	})
+
+	// Status change, history event and ledger entry go in ONE transaction. They
+	// were three independent statements, so a crash between them left a machine
+	// whose recorded state and recorded history disagreed — the exact invariant
+	// the fleet's transition chokepoint exists to hold. This handler cannot use
+	// that chokepoint directly (the server has no Fleet, only a pool), so it has
+	// to reproduce the guarantee: the status guard above mirrors
+	// allowedMachineTransitions' idle/busy → draining edges.
+	tx, err := s.deps.DB.Begin(ctx)
+	if err != nil {
+		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := db.New(s.deps.DB).WithTx(tx)
+
 	// Optimistic: the machine must still be in the status we read (the fleet may
 	// have moved it to draining/terminating/lost concurrently). 0 rows = raced.
-	n, err := s.deps.Q.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
+	n, err := qtx.UpdateMachineStatus(ctx, db.UpdateMachineStatusParams{
 		ID: id, FromStatus: m.Status, Status: "draining", DrainReason: &reason,
 	})
 	if err != nil {
@@ -125,21 +144,28 @@ func (s *Server) handleDrainMachine(ctx context.Context, c *app.RequestContext) 
 		apiBadRequest(ctx, c, "machine state changed while draining; refresh and retry")
 		return
 	}
-	_ = s.deps.Q.InsertMachineEvent(ctx, db.InsertMachineEventParams{
+	if err := qtx.InsertMachineEvent(ctx, db.InsertMachineEventParams{
 		MachineID: id, EventType: "drain", FromStatus: &m.Status,
 		ToStatus: strPointer("draining"), Actor: operator, Reason: &reason,
-	})
+	}); err != nil {
+		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
 	// Ledger the drain alongside provision/terminate so the fleet_decisions
 	// ledger is a complete record of every lifecycle decision, not just the
 	// economic ones — an operator-initiated drain is still a capacity decision
 	// someone may need to explain later.
-	drainInputs, _ := json.Marshal(map[string]any{
-		"operator": operator, "reason": reason, "fromStatus": m.Status,
-	})
-	_, _ = s.deps.Q.InsertFleetDecision(ctx, db.InsertFleetDecisionParams{
+	if _, err := qtx.InsertFleetDecision(ctx, db.InsertFleetDecisionParams{
 		PoolID: &m.PoolID, MachineID: &id, DecisionType: "drain",
 		Inputs: drainInputs, Chosen: []byte("{}"), Alternatives: []byte("[]"),
-	})
+	}); err != nil {
+		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		apiInternal(ctx, c, "failed to drain machine")
+		return
+	}
 	s.recordAudit(ctx, "machine.drain", "machine")
 	c.JSON(consts.StatusOK, utils.H{"id": id, "status": "draining"})
 }

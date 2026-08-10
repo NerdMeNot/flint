@@ -344,6 +344,36 @@ func (_m *Querier) ClaimCompletedDeviceCode(ctx context.Context, deviceCode stri
 	return r0, r1
 }
 
+// ClaimDrainedMachines provides a mock function with given fields: ctx
+func (_m *Querier) ClaimDrainedMachines(ctx context.Context) ([]db.ClaimDrainedMachinesRow, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimDrainedMachines")
+	}
+
+	var r0 []db.ClaimDrainedMachinesRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]db.ClaimDrainedMachinesRow, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []db.ClaimDrainedMachinesRow); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ClaimDrainedMachinesRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ClaimExpiredBootDeadlines provides a mock function with given fields: ctx
 func (_m *Querier) ClaimExpiredBootDeadlines(ctx context.Context) ([]db.ClaimExpiredBootDeadlinesRow, error) {
 	ret := _m.Called(ctx)
@@ -7681,6 +7711,34 @@ func (_m *Querier) LockLatestStep(ctx context.Context, arg db.LockLatestStepPara
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.LockLatestStepParams) error); ok {
 		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LockMachine provides a mock function with given fields: ctx, id
+func (_m *Querier) LockMachine(ctx context.Context, id string) (db.Machine, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockMachine")
+	}
+
+	var r0 db.Machine
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (db.Machine, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) db.Machine); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(db.Machine)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}

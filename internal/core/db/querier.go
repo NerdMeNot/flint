@@ -39,6 +39,16 @@ type Querier interface {
 	// Atomic claim: return the tokens and delete the row in one statement, only if
 	// completed. This is the TOCTOU fix — no read-then-mutate window.
 	ClaimCompletedDeviceCode(ctx context.Context, deviceCode string) (ClaimCompletedDeviceCodeRow, error)
+	// Drained machines with no work left. Draining means "finish what you have and
+	// stop"; once nothing is left, the machine has done what was asked and should be
+	// terminated. Without this nothing completed a drain: the machine sat in
+	// 'draining' billing until its agent stopped heartbeating, was then marked
+	// 'lost' — an error state, for a graceful operation — and reaped by reconcile.
+	//
+	// Static machines are excluded for the same reason scale-down excludes them:
+	// Flint doesn't own their power button, so 'draining' is their resting state
+	// until an operator acts.
+	ClaimDrainedMachines(ctx context.Context) ([]ClaimDrainedMachinesRow, error)
 	// Sweep: machines that never registered before their boot deadline.
 	ClaimExpiredBootDeadlines(ctx context.Context) ([]ClaimExpiredBootDeadlinesRow, error)
 	// Sweep: machines whose heartbeat lease lapsed → lost.
@@ -516,6 +526,12 @@ type Querier interface {
 	ListWorkspacesWithCounts(ctx context.Context, arg ListWorkspacesWithCountsParams) ([]ListWorkspacesWithCountsRow, error)
 	// Row-locks the latest attempt of a step for an operator override (manual resolve).
 	LockLatestStep(ctx context.Context, arg LockLatestStepParams) (LockLatestStepRow, error)
+	// The machine row, locked for the caller's transaction. Used where a transition
+	// must be validated against the CURRENT status rather than one read earlier: an
+	// agent RPC carries the row captured when it authenticated, and the fleet may
+	// have moved the machine (idle → busy) in the meantime. Validating against that
+	// stale snapshot silently dropped the transition.
+	LockMachine(ctx context.Context, id string) (Machine, error)
 	// Claims one waiting gate that has an unconsumed approval signal, locking the step
 	// row (FOR UPDATE OF s SKIP LOCKED) so concurrent workers never process the same
 	// gate. The caller consumes the signal, transitions the step, and advances — all

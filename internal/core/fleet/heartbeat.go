@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -55,26 +56,45 @@ func (f *Fleet) Heartbeat(ctx context.Context, machine db.Machine, in HeartbeatI
 	// A lost machine that heartbeats again has reappeared (network partition,
 	// static box rebooting slower than the lease): bring it back.
 	if status == machineLost {
-		if err := f.transitionInTx(ctx, machineTransition{
-			machineID: machine.ID, from: machineLost, to: machineIdle,
+		newStatus, err := f.transitionFromCurrent(ctx, machine.ID, machineTransition{
+			machineID: machine.ID, to: machineIdle,
 			eventType: "reappeared", actor: actorAgent,
 			reason: "heartbeat resumed after lease expiry",
-		}); err == nil {
-			status = machineIdle
+		}, machineLost)
+		if err != nil {
+			log.Error().Err(err).Str("machine", machine.ID).
+				Msg("fleet: failed to revive a reappeared machine")
+		} else {
+			status = newStatus
 		}
 	}
 
 	// Agent-initiated drain (spot interruption notice, operator signal).
-	if in.DrainRequested && (status == machineIdle || status == machineBusy) {
+	//
+	// Resolved against the machine's CURRENT status, not the row this RPC
+	// authenticated with. The scheduler moves machines idle → busy every tick,
+	// so a heartbeat that started a moment earlier carries a status that is
+	// routinely stale — and validating the transition against it silently
+	// dropped the drain. The drain that matters most is the spot-interruption
+	// notice, where losing it means the agent keeps taking work until the
+	// instance is reclaimed mid-step.
+	if in.DrainRequested {
 		reason := orDefault(in.DrainReason, "agent_request")
-		if err := f.transitionInTx(ctx, machineTransition{
-			machineID: machine.ID, from: status, to: machineDraining,
+		newStatus, err := f.transitionFromCurrent(ctx, machine.ID, machineTransition{
+			machineID: machine.ID, to: machineDraining,
 			eventType: "drain", actor: actorAgent, reason: reason,
 			drainReason: &reason,
-		}); err == nil {
-			status = machineDraining
-			log.Warn().Str("machine", machine.ID).Str("reason", reason).
-				Msg("fleet: machine self-draining")
+		}, machineIdle, machineBusy)
+		switch {
+		case err != nil:
+			log.Error().Err(err).Str("machine", machine.ID).Str("reason", reason).
+				Msg("fleet: failed to apply requested drain")
+		default:
+			if newStatus == machineDraining && status != machineDraining {
+				log.Warn().Str("machine", machine.ID).Str("reason", reason).
+					Msg("fleet: machine self-draining")
+			}
+			status = newStatus
 		}
 	}
 
@@ -142,17 +162,35 @@ func (f *Fleet) reconcileActiveAssignments(ctx context.Context, machineID string
 	}
 }
 
-// transitionInTx runs one transition in its own transaction, re-reading the
-// current status under lock is skipped deliberately: heartbeat transitions are
-// low-contention and validated against the status the caller just read.
-func (f *Fleet) transitionInTx(ctx context.Context, t machineTransition) error {
+// transitionFromCurrent applies t in its own transaction, resolving `from` by
+// re-reading the machine under lock. It returns the machine's status afterwards.
+//
+// applicableFrom lists the statuses the transition makes sense from. If the
+// machine is in none of them the call is a no-op and the current status is
+// returned — the caller asked for something that no longer applies, which is not
+// an error. Anything else (an illegal edge, a DB failure) IS returned, because
+// the alternative is a request the agent believes was honoured and wasn't.
+func (f *Fleet) transitionFromCurrent(ctx context.Context, machineID string, t machineTransition, applicableFrom ...string) (string, error) {
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := transitionMachine(ctx, db.New(f.pool).WithTx(tx), t); err != nil {
-		return err
+	qtx := db.New(f.pool).WithTx(tx)
+
+	m, err := qtx.LockMachine(ctx, machineID)
+	if err != nil {
+		return "", err
 	}
-	return tx.Commit(ctx)
+	if !slices.Contains(applicableFrom, m.Status) {
+		return m.Status, nil
+	}
+	t.from = m.Status
+	if err := transitionMachine(ctx, qtx, t); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return t.to, nil
 }

@@ -476,6 +476,37 @@ func (f *Fleet) scaleDownPool(ctx context.Context, poolID string, machineIDs []s
 	return terminated
 }
 
+// TerminateDrained finishes the job a drain started: a machine asked to drain
+// that has no work left has done what was asked, so it is terminated.
+//
+// Nothing used to complete a drain. Scale-down only ever considers idle
+// machines, so a drained machine sat in 'draining' — still billing — until its
+// agent stopped heartbeating; the lease sweep then marked it 'lost' and
+// reconciliation destroyed it. A graceful, operator-initiated action reached its
+// end state through the failure path, minutes later, having paid for the wait.
+//
+// Static machines are excluded by the query: Flint doesn't own their power
+// button, so 'draining' is where they rest until an operator acts.
+func (f *Fleet) TerminateDrained(ctx context.Context) (int, error) {
+	drained, err := db.New(f.pool).ClaimDrainedMachines(ctx)
+	if err != nil || len(drained) == 0 {
+		return 0, err
+	}
+	terminated := 0
+	for _, m := range drained {
+		if err := f.terminateMachine(ctx, m.ID, m.PoolID, "drained"); err != nil {
+			log.Error().Err(err).Str("machine", m.ID).Msg("fleet: terminating drained machine failed")
+			continue
+		}
+		recordMachineTerminated(ctx, m.PoolID, "drained")
+		terminated++
+	}
+	if terminated > 0 {
+		log.Info().Int("machines", terminated).Msg("fleet: drained machines terminated")
+	}
+	return terminated, nil
+}
+
 // terminateMachine drives idle → terminating → Destroy → terminated with the
 // terminate decision ledgered.
 func (f *Fleet) terminateMachine(ctx context.Context, machineID, poolID, reason string) error {
