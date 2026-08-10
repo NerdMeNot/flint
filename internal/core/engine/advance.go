@@ -73,10 +73,55 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 	// leaves this step alone. This matches GitHub Actions success()/failure() and
 	// Argo's depends. The global pipeline-failure verdict still drives the final
 	// workflow status (step 8), not per-step gating.
+	// failedAncestor[name] answers "did anything in this step's transitive
+	// upstream fail unrecoverably". It is folded forward as we walk rather than
+	// recomputed per step: dag_waves is a topological order, so by the time a
+	// step is reached every one of its dependencies has already been assigned a
+	// verdict, and the step's own verdict is its direct dependencies' verdicts
+	// OR'd with their statuses. That makes the whole pass O(V+E); the previous
+	// per-step DFS over the full ancestor closure made it O(V·(V+E)), which is
+	// the term that bites once matrix expansion makes V large.
+	//
+	// Folding forward (rather than precomputing) is what keeps it correct while
+	// the pass mutates state: a step marked skipped or failed here is already
+	// written back into stepByName before any downstream step reads it.
+	failedAncestor := make(map[string]bool, len(stepByName))
+	folded := make(map[string]bool, len(stepByName))
+
 	for _, wave := range dagWaves {
 		for _, stepName := range wave {
 			step, exists := stepByName[stepName]
-			if !exists || step.status != stepPending {
+			if !exists {
+				continue
+			}
+
+			// Computed for EVERY step, not just pending ones — a terminal step is
+			// still an ancestor of later steps and has to carry a verdict.
+			upstreamFailed := false
+			for _, dep := range step.dependsOn {
+				d, ok := stepByName[dep]
+				if !ok {
+					continue // pruned by env filtering; cannot gate progress
+				}
+				if !folded[dep] {
+					// This edge points at a step dag_waves has not placed earlier,
+					// so the fold has no verdict for it yet. Rather than silently
+					// under-report a failure, fall back to the full walk for this
+					// step. Unreachable while waves are topological; here so the
+					// optimisation cannot become a correctness regression if that
+					// ever stops holding.
+					upstreamFailed = ancestorFailed(stepName, stepByName)
+					break
+				}
+				if failedAncestor[dep] || (d.status == stepFailed && d.onFailure != "continue") {
+					upstreamFailed = true
+					break
+				}
+			}
+			failedAncestor[stepName] = upstreamFailed
+			folded[stepName] = true
+
+			if step.status != stepPending {
 				continue
 			}
 
@@ -84,9 +129,6 @@ func advanceWorkflow(ctx context.Context, qtx *db.Queries, workflowID string, de
 			if !dependenciesTerminal(step.dependsOn, stepByName) {
 				continue
 			}
-
-			// Dependency-scoped `when:` — did any of THIS step's ancestors fail?
-			upstreamFailed := ancestorFailed(stepName, stepByName)
 			if !stepShouldRun(step.when, upstreamFailed) {
 				stepByName[stepName] = markStep(ctx, qtx, workflowID, step, stepSkipped,
 					withReason("when condition not met"))

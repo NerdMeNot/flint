@@ -61,7 +61,14 @@ WHERE id IN (
     SELECT steps.id FROM steps
     JOIN workflows w ON w.id = steps.workflow_id AND w.status = 'running'
     WHERE steps.status = 'queued'
-    ORDER BY steps.wave, steps.queued_at
+    -- Ordered by when the step became ELIGIBLE, not by wave. Wave is a
+    -- per-workflow depth with no meaning across workflows, so leading with it
+    -- meant every newly-started run's wave-0 steps outranked an hour-old run's
+    -- wave-5 step however long it had waited. Under sustained load that starves
+    -- deep pipelines outright; below saturation it still hands the worst queue
+    -- times to the longest runs. wave stays as a tiebreak so steps that became
+    -- eligible in the same instant still go shallowest-first.
+    ORDER BY steps.queued_at, steps.wave
     LIMIT $1
     FOR UPDATE OF steps SKIP LOCKED
 )
@@ -101,6 +108,58 @@ func (q *Queries) ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQue
 			&i.Attempt,
 			&i.StepDef,
 			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const claimStaleRunningSteps = `-- name: ClaimStaleRunningSteps :many
+SELECT id, workflow_id, name, attempt, max_attempts, retry_backoff, retry_interval_seconds
+FROM steps
+WHERE status = 'running' AND deadline_at < now()
+ORDER BY deadline_at
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+type ClaimStaleRunningStepsRow struct {
+	ID                   string `json:"id"`
+	WorkflowID           string `json:"workflow_id"`
+	Name                 string `json:"name"`
+	Attempt              int32  `json:"attempt"`
+	MaxAttempts          int32  `json:"max_attempts"`
+	RetryBackoff         string `json:"retry_backoff"`
+	RetryIntervalSeconds int32  `json:"retry_interval_seconds"`
+}
+
+// Sweep: running steps past their execution deadline, claimed in batches so the
+// caller can fail each one through the transition chokepoint AND schedule its
+// retry. This replaces a set-based UPDATE that failed every stale step in one
+// statement — correct, but with no seam to apply the step's retry policy, so a
+// swept step never retried however many attempts it had left.
+func (q *Queries) ClaimStaleRunningSteps(ctx context.Context, limit int32) ([]ClaimStaleRunningStepsRow, error) {
+	rows, err := q.db.Query(ctx, claimStaleRunningSteps, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClaimStaleRunningStepsRow{}
+	for rows.Next() {
+		var i ClaimStaleRunningStepsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkflowID,
+			&i.Name,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.RetryBackoff,
+			&i.RetryIntervalSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -196,22 +255,6 @@ func (q *Queries) FailOrphanedWaitingSteps(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const failStepByTimeout = `-- name: FailStepByTimeout :exec
-UPDATE steps SET status = 'failed', result = $1::jsonb, finished_at = now()
-WHERE workflow_id = $2 AND name = $3 AND status = 'running'
-`
-
-type FailStepByTimeoutParams struct {
-	Result     []byte `json:"result"`
-	WorkflowID string `json:"workflow_id"`
-	StepName   string `json:"step_name"`
-}
-
-func (q *Queries) FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error {
-	_, err := q.db.Exec(ctx, failStepByTimeout, arg.Result, arg.WorkflowID, arg.StepName)
-	return err
 }
 
 const getStepByWorkflowAndName = `-- name: GetStepByWorkflowAndName :one
@@ -726,6 +769,48 @@ func (q *Queries) LockNextSignaledWaitStep(ctx context.Context) (LockNextSignale
 	return i, err
 }
 
+const lockRunningStepByName = `-- name: LockRunningStepByName :one
+SELECT id, status, attempt, max_attempts, retry_backoff, retry_interval_seconds
+FROM steps
+WHERE workflow_id = $1 AND name = $2 AND status = 'running'
+ORDER BY attempt DESC
+LIMIT 1
+FOR UPDATE
+`
+
+type LockRunningStepByNameParams struct {
+	WorkflowID string `json:"workflow_id"`
+	Name       string `json:"name"`
+}
+
+type LockRunningStepByNameRow struct {
+	ID                   string `json:"id"`
+	Status               string `json:"status"`
+	Attempt              int32  `json:"attempt"`
+	MaxAttempts          int32  `json:"max_attempts"`
+	RetryBackoff         string `json:"retry_backoff"`
+	RetryIntervalSeconds int32  `json:"retry_interval_seconds"`
+}
+
+// The live attempt of a running step, with its retry policy, locked for update.
+// Timers carry (workflow, step) but no attempt, so the attempt is resolved here.
+// Returning the policy is what lets a timeout honour `retry:` the same way an
+// agent-reported failure does — previously the timeout path updated the row
+// directly and the policy was never consulted.
+func (q *Queries) LockRunningStepByName(ctx context.Context, arg LockRunningStepByNameParams) (LockRunningStepByNameRow, error) {
+	row := q.db.QueryRow(ctx, lockRunningStepByName, arg.WorkflowID, arg.Name)
+	var i LockRunningStepByNameRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.RetryBackoff,
+		&i.RetryIntervalSeconds,
+	)
+	return i, err
+}
+
 const lockStep = `-- name: LockStep :one
 SELECT id, status, max_attempts, retry_backoff, retry_interval_seconds
 FROM steps
@@ -999,21 +1084,6 @@ type SetStepTaskTokensParams struct {
 func (q *Queries) SetStepTaskTokens(ctx context.Context, arg SetStepTaskTokensParams) error {
 	_, err := q.db.Exec(ctx, setStepTaskTokens, arg.Ids, arg.Tokens)
 	return err
-}
-
-const sweepStaleRunningSteps = `-- name: SweepStaleRunningSteps :execrows
-UPDATE steps SET status = 'failed',
-    result = ('{"stepName":"' || name || '","success":false,"error":"step timed out (sweep)"}')::jsonb,
-    finished_at = now()
-WHERE status = 'running' AND deadline_at < now()
-`
-
-func (q *Queries) SweepStaleRunningSteps(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, sweepStaleRunningSteps)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const updateStepResult = `-- name: UpdateStepResult :exec

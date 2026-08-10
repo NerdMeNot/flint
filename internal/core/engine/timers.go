@@ -71,19 +71,29 @@ func fireOneTimer(ctx context.Context, pool db.Pool) (done bool, err error) {
 func handleTimer(ctx context.Context, qtx *db.Queries, t db.LockNextDueTimerRow) error {
 	switch t.TimerType {
 	case timerTimeout:
-		// Step execution timed out.
-		if err := qtx.FailStepByTimeout(ctx, db.FailStepByTimeoutParams{
-			Result:     mustJSON(StepResult{StepName: t.StepName, Success: false, Error: "step timed out"}),
-			WorkflowID: t.WorkflowID,
-			StepName:   t.StepName,
-		}); err != nil {
+		// Step execution timed out. A timeout is a step failure like any other, so
+		// it goes through the same fail-then-maybe-retry path as an agent-reported
+		// failure: a hung step with attempts left must get them. Doing this any
+		// other way is how `retry:` came to mean "unless it times out", which is
+		// the opposite of why people set it.
+		step, err := qtx.LockRunningStepByName(ctx, db.LockRunningStepByNameParams{
+			WorkflowID: t.WorkflowID, Name: t.StepName,
+		})
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				// Already resolved (completed or swept) between the timer becoming
+				// due and this handler; nothing to fail.
+				return nil
+			}
 			return err
 		}
-		emitStepEvent(ctx, qtx, stepTransition{
-			workflowID: t.WorkflowID, stepName: t.StepName, attempt: -1,
-			from: stepRunning, to: stepFailed, eventType: "timed_out", actor: actorEngine,
-			reason: "step execution timed out",
-		})
+		if err := failStepWithRetry(ctx, qtx, staleStep{
+			id: step.ID, workflowID: t.WorkflowID, name: t.StepName,
+			attempt: int(step.Attempt), maxAttempts: int(step.MaxAttempts),
+			retryBackoff: step.RetryBackoff, retryIntervalSec: int(step.RetryIntervalSeconds),
+		}, stepRunning, "step timed out", "timed_out"); err != nil {
+			return err
+		}
 		log.Warn().Str("step", t.StepName).Msg("engine: step timed out")
 		return advanceWorkflow(ctx, qtx, t.WorkflowID, 0)
 

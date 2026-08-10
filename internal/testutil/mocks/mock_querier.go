@@ -524,6 +524,36 @@ func (_m *Querier) ClaimQueuedSteps(ctx context.Context, limit int32) ([]db.Clai
 	return r0, r1
 }
 
+// ClaimStaleRunningSteps provides a mock function with given fields: ctx, limit
+func (_m *Querier) ClaimStaleRunningSteps(ctx context.Context, limit int32) ([]db.ClaimStaleRunningStepsRow, error) {
+	ret := _m.Called(ctx, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimStaleRunningSteps")
+	}
+
+	var r0 []db.ClaimStaleRunningStepsRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int32) ([]db.ClaimStaleRunningStepsRow, error)); ok {
+		return rf(ctx, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, int32) []db.ClaimStaleRunningStepsRow); ok {
+		r0 = rf(ctx, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]db.ClaimStaleRunningStepsRow)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, int32) error); ok {
+		r1 = rf(ctx, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ClaimStaleWorkflows provides a mock function with given fields: ctx
 func (_m *Querier) ClaimStaleWorkflows(ctx context.Context) ([]db.ClaimStaleWorkflowsRow, error) {
 	ret := _m.Called(ctx)
@@ -2492,24 +2522,6 @@ func (_m *Querier) FailRunWithError(ctx context.Context, arg db.FailRunWithError
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, db.FailRunWithErrorParams) error); ok {
-		r0 = rf(ctx, arg)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// FailStepByTimeout provides a mock function with given fields: ctx, arg
-func (_m *Querier) FailStepByTimeout(ctx context.Context, arg db.FailStepByTimeoutParams) error {
-	ret := _m.Called(ctx, arg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FailStepByTimeout")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, db.FailStepByTimeoutParams) error); ok {
 		r0 = rf(ctx, arg)
 	} else {
 		r0 = ret.Error(0)
@@ -7806,6 +7818,34 @@ func (_m *Querier) LockOrgConcurrency(ctx context.Context, orgID string) error {
 	return r0
 }
 
+// LockRunningStepByName provides a mock function with given fields: ctx, arg
+func (_m *Querier) LockRunningStepByName(ctx context.Context, arg db.LockRunningStepByNameParams) (db.LockRunningStepByNameRow, error) {
+	ret := _m.Called(ctx, arg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockRunningStepByName")
+	}
+
+	var r0 db.LockRunningStepByNameRow
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, db.LockRunningStepByNameParams) (db.LockRunningStepByNameRow, error)); ok {
+		return rf(ctx, arg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, db.LockRunningStepByNameParams) db.LockRunningStepByNameRow); ok {
+		r0 = rf(ctx, arg)
+	} else {
+		r0 = ret.Get(0).(db.LockRunningStepByNameRow)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, db.LockRunningStepByNameParams) error); ok {
+		r1 = rf(ctx, arg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LockStep provides a mock function with given fields: ctx, arg
 func (_m *Querier) LockStep(ctx context.Context, arg db.LockStepParams) (db.LockStepRow, error) {
 	ret := _m.Called(ctx, arg)
@@ -9489,34 +9529,6 @@ func (_m *Querier) StaleRunningAssignmentsForMachine(ctx context.Context, arg db
 
 	if rf, ok := ret.Get(1).(func(context.Context, db.StaleRunningAssignmentsForMachineParams) error); ok {
 		r1 = rf(ctx, arg)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// SweepStaleRunningSteps provides a mock function with given fields: ctx
-func (_m *Querier) SweepStaleRunningSteps(ctx context.Context) (int64, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SweepStaleRunningSteps")
-	}
-
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}

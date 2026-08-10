@@ -98,7 +98,14 @@ WHERE id IN (
     SELECT steps.id FROM steps
     JOIN workflows w ON w.id = steps.workflow_id AND w.status = 'running'
     WHERE steps.status = 'queued'
-    ORDER BY steps.wave, steps.queued_at
+    -- Ordered by when the step became ELIGIBLE, not by wave. Wave is a
+    -- per-workflow depth with no meaning across workflows, so leading with it
+    -- meant every newly-started run's wave-0 steps outranked an hour-old run's
+    -- wave-5 step however long it had waited. Under sustained load that starves
+    -- deep pipelines outright; below saturation it still hands the worst queue
+    -- times to the longest runs. wave stays as a tiebreak so steps that became
+    -- eligible in the same instant still go shallowest-first.
+    ORDER BY steps.queued_at, steps.wave
     LIMIT $1
     FOR UPDATE OF steps SKIP LOCKED
 )
@@ -128,9 +135,31 @@ SELECT s.workflow_id, s.name, s.exec_type, 'retry_wait', s.wave, sqlc.arg(new_at
     s.max_attempts, s.step_def, s.timeout_seconds, s.retry_backoff, s.retry_interval_seconds, s.on_failure
 FROM steps s WHERE s.id = sqlc.arg(source_step_id);
 
--- name: FailStepByTimeout :exec
-UPDATE steps SET status = 'failed', result = sqlc.arg(result)::jsonb, finished_at = now()
-WHERE workflow_id = sqlc.arg(workflow_id) AND name = sqlc.arg(step_name) AND status = 'running';
+-- name: LockRunningStepByName :one
+-- The live attempt of a running step, with its retry policy, locked for update.
+-- Timers carry (workflow, step) but no attempt, so the attempt is resolved here.
+-- Returning the policy is what lets a timeout honour `retry:` the same way an
+-- agent-reported failure does — previously the timeout path updated the row
+-- directly and the policy was never consulted.
+SELECT id, status, attempt, max_attempts, retry_backoff, retry_interval_seconds
+FROM steps
+WHERE workflow_id = $1 AND name = $2 AND status = 'running'
+ORDER BY attempt DESC
+LIMIT 1
+FOR UPDATE;
+
+-- name: ClaimStaleRunningSteps :many
+-- Sweep: running steps past their execution deadline, claimed in batches so the
+-- caller can fail each one through the transition chokepoint AND schedule its
+-- retry. This replaces a set-based UPDATE that failed every stale step in one
+-- statement — correct, but with no seam to apply the step's retry policy, so a
+-- swept step never retried however many attempts it had left.
+SELECT id, workflow_id, name, attempt, max_attempts, retry_backoff, retry_interval_seconds
+FROM steps
+WHERE status = 'running' AND deadline_at < now()
+ORDER BY deadline_at
+LIMIT $1
+FOR UPDATE SKIP LOCKED;
 
 -- name: FailGateByTimeout :exec
 UPDATE steps SET status = 'failed', result = sqlc.arg(result)::jsonb, finished_at = now()
@@ -150,12 +179,6 @@ FROM latest WHERE steps.id = latest.id;
 -- name: CompleteParentInvokeStep :exec
 UPDATE steps SET status = sqlc.arg(new_status), result = sqlc.arg(result), finished_at = now()
 WHERE workflow_id = sqlc.arg(workflow_id) AND name = sqlc.arg(step_name) AND status = 'running';
-
--- name: SweepStaleRunningSteps :execrows
-UPDATE steps SET status = 'failed',
-    result = ('{"stepName":"' || name || '","success":false,"error":"step timed out (sweep)"}')::jsonb,
-    finished_at = now()
-WHERE status = 'running' AND deadline_at < now();
 
 -- name: RecentlyFailedWorkflowIDs :many
 SELECT DISTINCT workflow_id FROM steps

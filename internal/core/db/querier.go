@@ -63,6 +63,12 @@ type Querier interface {
 	// read is best-effort: a pause committing after this read may let one already-
 	// queued step dispatch, which is acceptable (pause halts new work, not in-flight).
 	ClaimQueuedSteps(ctx context.Context, limit int32) ([]ClaimQueuedStepsRow, error)
+	// Sweep: running steps past their execution deadline, claimed in batches so the
+	// caller can fail each one through the transition chokepoint AND schedule its
+	// retry. This replaces a set-based UPDATE that failed every stale step in one
+	// statement — correct, but with no seam to apply the step's retry policy, so a
+	// swept step never retried however many attempts it had left.
+	ClaimStaleRunningSteps(ctx context.Context, limit int32) ([]ClaimStaleRunningStepsRow, error)
 	// Backstop recovery: workflows still 'running' although every step has already
 	// reached a terminal state — the advance that should have finished them was lost
 	// to a worker crash between marking the last step terminal and committing the
@@ -206,7 +212,6 @@ type Querier interface {
 	// step-retry jitter in backoffDuration.
 	FailOutboxEvent(ctx context.Context, arg FailOutboxEventParams) error
 	FailRunWithError(ctx context.Context, arg FailRunWithErrorParams) error
-	FailStepByTimeout(ctx context.Context, arg FailStepByTimeoutParams) error
 	FindDeviceCodeByOAuthState(ctx context.Context, oauthState *string) (string, error)
 	FindDeviceCodeByUserCode(ctx context.Context, userCode string) (string, error)
 	// :execrows so CompleteAssignment can detect a duplicate completion (0 rows =
@@ -537,6 +542,12 @@ type Querier interface {
 	// org's concurrency limit. Auto-released at transaction end; per-org, so different
 	// orgs never block each other.
 	LockOrgConcurrency(ctx context.Context, orgID string) error
+	// The live attempt of a running step, with its retry policy, locked for update.
+	// Timers carry (workflow, step) but no attempt, so the attempt is resolved here.
+	// Returning the policy is what lets a timeout honour `retry:` the same way an
+	// agent-reported failure does — previously the timeout path updated the row
+	// directly and the policy was never consulted.
+	LockRunningStepByName(ctx context.Context, arg LockRunningStepByNameParams) (LockRunningStepByNameRow, error)
 	LockStep(ctx context.Context, arg LockStepParams) (LockStepRow, error)
 	LockWorkflow(ctx context.Context, id string) (LockWorkflowRow, error)
 	// Scheduler input: candidate machines for a pool with their committed capacity.
@@ -727,7 +738,6 @@ type Querier interface {
 	// Agent-restart recovery: 'running' assignments the machine's heartbeat no
 	// longer claims, past a grace period since they started.
 	StaleRunningAssignmentsForMachine(ctx context.Context, arg StaleRunningAssignmentsForMachineParams) ([]StaleRunningAssignmentsForMachineRow, error)
-	SweepStaleRunningSteps(ctx context.Context) (int64, error)
 	// Heartbeat GC input: of the run ids resident on a machine's disk, which have
 	// reached a terminal state (their workspace dirs are safe to delete).
 	TerminalRunIDs(ctx context.Context, runIds []string) ([]string, error)

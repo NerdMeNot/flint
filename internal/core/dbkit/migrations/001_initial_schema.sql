@@ -1651,7 +1651,7 @@ CREATE INDEX idx_steps_queued ON public.steps USING btree (status, queued_at) WH
 -- is claimed via index scan, not a per-tick sort of the whole backlog.
 --
 
-CREATE INDEX idx_steps_claim_order ON public.steps USING btree (wave, queued_at) WHERE (status = 'queued'::text);
+CREATE INDEX idx_steps_claim_order ON public.steps USING btree (queued_at, wave) WHERE (status = 'queued'::text);
 
 
 --

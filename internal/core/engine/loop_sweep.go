@@ -80,6 +80,49 @@ func (l *Loop) finishStaleWorkflows(ctx context.Context) {
 	}
 }
 
+// staleStepBatch bounds how many timed-out steps one sweep fails, so a large
+// backlog can't hold a transaction open across the whole table. A backlog drains
+// across sweeps.
+const staleStepBatch = 200
+
+// failStaleRunningSteps fails running steps past their execution deadline and
+// schedules a retry for each whose policy allows one. Claim and fail share a
+// transaction, so the SKIP LOCKED locks taken by the claim protect the failure:
+// a step another worker is already resolving is simply skipped this pass.
+//
+// This used to be a single set-based UPDATE. That was atomic and cheap, but it
+// had nowhere to apply a step's retry policy, so a step killed by the deadline
+// sweep never retried no matter how many attempts it had left.
+func (l *Loop) failStaleRunningSteps(ctx context.Context) (int, error) {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := db.New(l.pool).WithTx(tx)
+
+	stale, err := qtx.ClaimStaleRunningSteps(ctx, staleStepBatch)
+	if err != nil {
+		return 0, err
+	}
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	for _, s := range stale {
+		if err := failStepWithRetry(ctx, qtx, staleStep{
+			id: s.ID, workflowID: s.WorkflowID, name: s.Name,
+			attempt: int(s.Attempt), maxAttempts: int(s.MaxAttempts),
+			retryBackoff: s.RetryBackoff, retryIntervalSec: int(s.RetryIntervalSeconds),
+		}, stepRunning, "step timed out (sweep)", "timed_out"); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(stale), nil
+}
+
 // sweep detects and recovers from stale state.
 func (l *Loop) sweep(ctx context.Context) {
 	log.Debug().Msg("engine: sweep started")
@@ -92,10 +135,10 @@ func (l *Loop) sweep(ctx context.Context) {
 	failed := false
 
 	// 1a. Running steps past their execution deadline.
-	if count, err := q.SweepStaleRunningSteps(ctx); err != nil {
+	if count, err := l.failStaleRunningSteps(ctx); err != nil {
 		log.Warn().Err(err).Msg("engine: sweep stale running steps failed")
 	} else if count > 0 {
-		log.Warn().Int64("count", count).Msg("engine: sweep recovered stale steps")
+		log.Warn().Int("count", count).Msg("engine: sweep recovered stale steps")
 		failed = true
 	}
 
