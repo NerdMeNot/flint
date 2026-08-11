@@ -12,10 +12,50 @@ linters:
     - typecheck
     - gofmt
     - goimports
+    - depguard
 
 linters-settings:
   goimports:
     local-prefixes: github.com/NerdMeNot/flint
+
+  # Wrong-twin imports.
+  #
+  # `task fmt` runs goimports over the tree, and goimports resolves a bare
+  # identifier by searching the module graph — which includes every transitive
+  # dependency. It has already picked github.com/pingcap/log (a dependency of
+  # sqlc's tree) for a bare `log`, in two files, in one sitting. That compiles:
+  # it is a different logger with a different API, so it fails at build. A twin
+  # with a compatible API would not fail at all.
+  #
+  # Everything listed here has a first-party twin the project actually uses and
+  # zero legitimate first-party imports of its own, so denying is unambiguous.
+  #
+  # math/rand is deliberately NOT listed: it is the same shape of trap (a bare
+  # `rand` can resolve to it instead of crypto/rand) but it has a correct use
+  # here — retry-backoff jitter in the engine. Token minting is centralised on
+  # crypto/rand, which is the control that matters.
+  depguard:
+    rules:
+      wrong-twins:
+        deny:
+          - pkg: "log"
+            desc: "use github.com/rs/zerolog/log — stdlib log is unstructured and bypasses the configured logger"
+          - pkg: "github.com/pingcap/log"
+            desc: "wrong twin (transitive via sqlc) — use github.com/rs/zerolog/log"
+          - pkg: "github.com/sirupsen/logrus"
+            desc: "wrong twin (transitive via containerd) — use github.com/rs/zerolog/log"
+          - pkg: "go.uber.org/zap"
+            desc: "wrong twin (transitive) — use github.com/rs/zerolog/log"
+          - pkg: "github.com/golang-jwt/jwt/v4"
+            desc: "wrong major version — this project is on github.com/golang-jwt/jwt/v5"
+          - pkg: "charm.land/bubbletea/v2"
+            desc: "wrong twin (transitive via task) — the TUI is on github.com/charmbracelet/bubbletea"
+          - pkg: "charm.land/bubbles/v2"
+            desc: "wrong twin (transitive via task) — the TUI is on the charmbracelet v1 line"
+          - pkg: "charm.land/lipgloss/v2"
+            desc: "wrong twin (transitive via task) — the TUI is on github.com/charmbracelet/lipgloss"
+          - pkg: "github.com/mitchellh/mapstructure"
+            desc: "wrong twin (transitive) — use github.com/go-viper/mapstructure/v2"
 
 issues:
   exclude-dirs:

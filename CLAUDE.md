@@ -43,6 +43,14 @@ Also: `task generate` (proto + sqlc), `task migrate-up/down/status`.
   to map to); don't convert existing `fmt.Errorf` sites just for consistency.
   HTTP handlers pick their status explicitly via `internal/core/httpx`
 - No hexagonal architecture — direct implementations, no ports/adapters pattern
+- Third-party imports must be **direct** requirements in go.mod. `task fmt` runs
+  goimports, which resolves a bare identifier by searching the entire module
+  graph — it has silently picked `github.com/pingcap/log` (transitive via sqlc)
+  for a bare `log`. If a new import is genuinely wanted, `go get` it so it
+  becomes direct; if the import test fails, first check whether it is a
+  wrong-twin of a package already in use. Enforced by
+  `internal/testutil/import_policy_test.go` (module twins) and depguard in
+  `.golangci.yml` (stdlib twins like `log`)
 - Web frontend uses bun (never npm/npx)
 - Local container runtime is Podman, not Docker
 - Pre-live: fold schema changes into the baseline migration 001 (no ALTER migrations)
