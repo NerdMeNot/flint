@@ -108,7 +108,7 @@ tasks:
     cmds:
       # Pinned, not @latest: a floating linter turns an unrelated release into a
       # red build on a branch that changed nothing.
-      - go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
 
   check:
     desc: Run all checks (fmt, vet, lint, test, web typecheck)

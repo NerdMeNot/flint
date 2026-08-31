@@ -31,7 +31,7 @@ Also: `task generate` (proto + sqlc), `task migrate-up/down/status`.
 
 ## Conventions
 
-- Go 1.26, module path: `github.com/NerdMeNot/flint`
+- Go 1.27, module path: `github.com/NerdMeNot/flint`
 - `internal/` for Flint implementation details, `pkg/` for public extension points
 - Interfaces only where implementations genuinely vary (forge, logsink, wsfs, auth providers, StepExecutor, compute providers)
 - Tests use `testify/assert` + `testify/require`, table-driven where appropriate

@@ -144,9 +144,10 @@ func failEvent(ctx context.Context, q *db.Queries, id, errMsg string) {
 // so that if the transaction rolls back, no spurious webhooks are sent.
 func enqueueWebhooksInTx(ctx context.Context, q *db.Queries, runID, status string) {
 	eventName := "run.completed"
-	if status == "failed" {
+	switch status {
+	case "failed":
 		eventName = "run.failed"
-	} else if status == "cancelled" {
+	case "cancelled":
 		eventName = "run.cancelled"
 	}
 

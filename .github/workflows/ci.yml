@@ -56,7 +56,7 @@ jobs:
       # only thing enforcing it was remembering to. Pinned rather than @latest so
       # a linter release can't turn an unrelated branch red.
       - name: Lint
-        run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
 
       # Generated code is committed, so a stale checkout is a real failure mode:
       # someone edits a .sql query or an interface, forgets `task generate`, and

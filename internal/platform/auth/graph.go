@@ -249,7 +249,7 @@ func isGUID(s string) bool {
 				return false
 			}
 		default:
-			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			if !isHexDigit(r) {
 				return false
 			}
 		}
@@ -278,4 +278,14 @@ func chunkStrings(s []string, size int) [][]string {
 		out = append(out, s[i:end])
 	}
 	return out
+}
+
+// isHexDigit reports whether r is a hexadecimal digit in either case.
+//
+// Named rather than inlined as a negated disjunction: staticcheck is right that
+// `!(a || b || c)` wants De Morgan's law, but the mechanical rewrite —
+// `r < '0' || r > '9' && …` over three ranges — is correct and unreadable. A
+// name says what the check is for.
+func isHexDigit(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }

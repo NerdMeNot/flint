@@ -83,7 +83,7 @@ func (p *timeoutProvider) call(ctx context.Context, op string, d time.Duration, 
 	defer cancel()
 	start := time.Now()
 	err := fn(ctx)
-	recordProviderCall(ctx, p.Provider.Name(), op, time.Since(start), err)
+	recordProviderCall(ctx, p.Name(), op, time.Since(start), err)
 	return err
 }
 
