@@ -268,6 +268,9 @@ export const RoleSchema = z.object({
   slug: z.string(),
   description: z.optional(z.string()),
   isSystem: z.boolean(),
+  // Applies to local (password) sign-in only. SSO sessions are established by
+  // the IdP, which owns the second factor there.
+  requireMfa: z.optional(z.boolean()),
   permissions: z.array(PermissionSchema),
   workspaces: z.array(z.string()),
   environments: z.array(z.string()),

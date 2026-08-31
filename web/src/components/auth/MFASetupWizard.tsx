@@ -2,15 +2,22 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Shield, Copy, Download, Check, ArrowRight, Loader2 } from 'lucide-react'
 import { orpc, client } from '#/lib/orpc'
+import { enrolmentSetup, enrolmentVerifySetup } from '#/lib/mfa-enrolment'
 
 type MFASetupStep = 'qr' | 'verify' | 'recovery'
 
 interface MFASetupWizardProps {
   onComplete: () => void
   onCancel?: () => void
+  // enrolmentToken switches the wizard to the pre-session flow. A user whose
+  // role requires MFA has no session yet — that is the whole reason the token
+  // exists — so the oRPC client, which authenticates with a session, cannot be
+  // used. The Go endpoints are called directly instead, exactly as the login
+  // page already calls /auth/login and /auth/mfa/verify.
+  enrolmentToken?: string
 }
 
-export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
+export function MFASetupWizard({ onComplete, onCancel, enrolmentToken }: MFASetupWizardProps) {
   const [step, setStep] = useState<MFASetupStep>('qr')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -30,7 +37,9 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
     setLoading(true)
     setError('')
     try {
-      const data = await client.auth.mfa.setup()
+      const data = enrolmentToken
+        ? await enrolmentSetup(enrolmentToken)
+        : await client.auth.mfa.setup()
       setSecret(data.secret)
       setQrCodeURL(data.qrCodeURL)
       setRecoveryCodes(data.recoveryCodes || [])
@@ -45,9 +54,15 @@ export function MFASetupWizard({ onComplete, onCancel }: MFASetupWizardProps) {
     setLoading(true)
     setError('')
     try {
-      await client.auth.mfa.verifySetup({ code })
-      // MFA is now enabled — refresh /auth/me so the parent reflects it.
-      await queryClient.invalidateQueries({ queryKey: orpc.auth.me.key() })
+      if (enrolmentToken) {
+        await enrolmentVerifySetup(enrolmentToken, code)
+      } else {
+        await client.auth.mfa.verifySetup({ code })
+        // MFA is now enabled — refresh /auth/me so the parent reflects it.
+        // Only meaningful with a session; there is nothing cached to refresh
+        // during pre-session enrolment.
+        await queryClient.invalidateQueries({ queryKey: orpc.auth.me.key() })
+      }
       setStep('recovery')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed')

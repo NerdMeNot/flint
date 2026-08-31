@@ -79,6 +79,9 @@ export const roles = {
         name: z.string(),
         slug: z.string(),
         description: z.optional(z.string()),
+        // Local (password) sign-in only — an SSO session is established by the
+        // IdP, which owns the second factor there.
+        requireMfa: z.optional(z.boolean()),
         permissions: z.array(z.object({ object: z.string(), action: z.string() })),
         workspaces: z.array(z.string()),
         environments: z.array(z.string()),
@@ -94,6 +97,7 @@ export const roles = {
         id: z.string(),
         name: z.optional(z.string()),
         description: z.optional(z.string()),
+        requireMfa: z.optional(z.boolean()),
         permissions: z.optional(z.array(z.object({ object: z.string(), action: z.string() }))),
         workspaces: z.optional(z.array(z.string())),
         environments: z.optional(z.array(z.string())),

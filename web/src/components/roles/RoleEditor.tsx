@@ -32,6 +32,7 @@ export function RoleEditor({ role }: { role?: Role }) {
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set(role?.workspaces ?? []))
   const [envSpecific, setEnvSpecific] = useState(!!role && role.environments.length > 0)
   const [selectedEnv, setSelectedEnv] = useState<Set<string>>(new Set(role?.environments ?? []))
+  const [requireMfa, setRequireMfa] = useState(role?.requireMfa ?? false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [startFrom, setStartFrom] = useState('')
 
@@ -40,7 +41,7 @@ export function RoleEditor({ role }: { role?: Role }) {
   const showScope = permissions.some((p) => p.object in CI_CATALOG)
 
   const save = useAction(
-    (data: { name: string; slug: string; description?: string; permissions: Permission[]; workspaces: string[]; environments: string[] }) =>
+    (data: { name: string; slug: string; description?: string; requireMfa: boolean; permissions: Permission[]; workspaces: string[]; environments: string[] }) =>
       role ? client.roles.update({ id: role.id, ...data }) : client.roles.create(data),
     { invalidate: [orpc.roles.list.key()], onSuccess: () => navigate({ to: '/settings/roles' }) },
   )
@@ -67,6 +68,7 @@ export function RoleEditor({ role }: { role?: Role }) {
     save.mutate({
       name: name.trim(), slug,
       description: description.trim() || undefined,
+      requireMfa,
       permissions,
       workspaces: wsSpecific ? [...selectedWs] : [],
       environments: envSpecific ? [...selectedEnv] : [],
@@ -163,6 +165,22 @@ export function RoleEditor({ role }: { role?: Role }) {
                 className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 resize-none disabled:opacity-60"
               />
             </div>
+            <label className="flex items-start gap-2.5 pt-1 cursor-pointer">
+              <input
+                type="checkbox" checked={requireMfa} disabled={readOnly}
+                onChange={(e) => setRequireMfa(e.target.checked)}
+                className="mt-0.5 accent-[var(--primary)] disabled:opacity-60"
+              />
+              <span>
+                <span className="block text-xs font-medium text-foreground">Require two-factor authentication</span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                  Holders must enrol a second factor to sign in with a password. They
+                  are prompted to set one up at sign-in rather than being locked out.
+                  Applies to password sign-in only — for SSO users, require MFA on
+                  your identity provider.
+                </span>
+              </span>
+            </label>
           </section>
 
           {/* Capabilities */}
