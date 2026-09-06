@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v3"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 

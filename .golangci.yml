@@ -42,6 +42,8 @@ linters:
               desc: "wrong twin (transitive) — use github.com/rs/zerolog/log"
             - pkg: "github.com/golang-jwt/jwt/v4"
               desc: "wrong major version — this project is on github.com/golang-jwt/jwt/v5"
+            - pkg: "github.com/casbin/casbin/v2"
+              desc: "wrong major version — this project is on github.com/casbin/casbin/v3"
             - pkg: "charm.land/bubbletea/v2"
               desc: "wrong twin (transitive via task) — the TUI is on github.com/charmbracelet/bubbletea"
             - pkg: "charm.land/bubbles/v2"

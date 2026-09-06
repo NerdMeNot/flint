@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v3"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

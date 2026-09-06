@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v3"
 	"github.com/cloudwego/hertz/pkg/route"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
