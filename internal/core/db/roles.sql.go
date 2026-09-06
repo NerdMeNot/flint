@@ -8,11 +8,13 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createRole = `-- name: CreateRole :one
-INSERT INTO roles (org_id, name, slug, description, is_system)
-VALUES ($1, $2, $3, $4, $5) RETURNING id
+INSERT INTO roles (org_id, name, slug, description, is_system, require_mfa)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
 `
 
 type CreateRoleParams struct {
@@ -21,6 +23,7 @@ type CreateRoleParams struct {
 	Slug        string  `json:"slug"`
 	Description *string `json:"description"`
 	IsSystem    bool    `json:"is_system"`
+	RequireMfa  bool    `json:"require_mfa"`
 }
 
 func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (string, error) {
@@ -30,6 +33,7 @@ func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (string,
 		arg.Slug,
 		arg.Description,
 		arg.IsSystem,
+		arg.RequireMfa,
 	)
 	var id string
 	err := row.Scan(&id)
@@ -49,7 +53,7 @@ func (q *Queries) DeleteRole(ctx context.Context, id string) (int64, error) {
 }
 
 const getRoleByID = `-- name: GetRoleByID :one
-SELECT id, name, slug, description, is_system, created_at
+SELECT id, name, slug, description, is_system, require_mfa, created_at
 FROM roles WHERE id = $1
 `
 
@@ -59,6 +63,7 @@ type GetRoleByIDRow struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	IsSystem    bool      `json:"is_system"`
+	RequireMfa  bool      `json:"require_mfa"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -71,6 +76,7 @@ func (q *Queries) GetRoleByID(ctx context.Context, id string) (GetRoleByIDRow, e
 		&i.Slug,
 		&i.Description,
 		&i.IsSystem,
+		&i.RequireMfa,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -110,7 +116,7 @@ func (q *Queries) GetRoleBySlug(ctx context.Context, arg GetRoleBySlugParams) (G
 }
 
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, slug, description, is_system, created_at
+SELECT id, name, slug, description, is_system, require_mfa, created_at
 FROM roles WHERE org_id = $1 ORDER BY is_system DESC, name
 LIMIT $2 OFFSET $3
 `
@@ -127,6 +133,7 @@ type ListRolesRow struct {
 	Slug        string    `json:"slug"`
 	Description *string   `json:"description"`
 	IsSystem    bool      `json:"is_system"`
+	RequireMfa  bool      `json:"require_mfa"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -145,6 +152,7 @@ func (q *Queries) ListRoles(ctx context.Context, arg ListRolesParams) ([]ListRol
 			&i.Slug,
 			&i.Description,
 			&i.IsSystem,
+			&i.RequireMfa,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -176,18 +184,25 @@ func (q *Queries) RoleExists(ctx context.Context, arg RoleExistsParams) (bool, e
 const updateRole = `-- name: UpdateRole :execrows
 UPDATE roles
 SET name = COALESCE($1, name),
-    description = COALESCE($2, description)
-WHERE id = $3 AND is_system = false
+    description = COALESCE($2, description),
+    require_mfa = COALESCE($3, require_mfa)
+WHERE id = $4 AND is_system = false
 `
 
 type UpdateRoleParams struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	ID          string  `json:"id"`
+	Name        *string     `json:"name"`
+	Description *string     `json:"description"`
+	RequireMfa  pgtype.Bool `json:"require_mfa"`
+	ID          string      `json:"id"`
 }
 
 func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateRole, arg.Name, arg.Description, arg.ID)
+	result, err := q.db.Exec(ctx, updateRole,
+		arg.Name,
+		arg.Description,
+		arg.RequireMfa,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

@@ -33,6 +33,12 @@ type Querier interface {
 	CancelRunAssignments(ctx context.Context, runID string) (int64, error)
 	CancelTimer(ctx context.Context, arg CancelTimerParams) error
 	CancelWorkflow(ctx context.Context, id string) error
+	// Does any role this subject holds demand a second factor?
+	//
+	// Local (password) sign-in only. An SSO session is established by the IdP,
+	// which owns the second factor there; Flint never sees whether one was
+	// presented, so it does not pretend to enforce it. Requiring MFA for SSO users
+	// is a setting on the IdP, not here.
 	CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error)
 	// Agent ClaimStep: atomically take the oldest assigned work for this machine.
 	ClaimAssignmentForAgent(ctx context.Context, machineID *string) (ClaimAssignmentForAgentRow, error)
@@ -669,6 +675,10 @@ type Querier interface {
 	RecentlyFailedWorkflowIDs(ctx context.Context) ([]string, error)
 	RecentlyFinishedRunIDs(ctx context.Context) ([]string, error)
 	RecordLoginAttempt(ctx context.Context, arg RecordLoginAttemptParams) error
+	// Count a failed second-factor guess and report the running total, so the
+	// caller can retire the token once guessing has clearly started. Atomic, so
+	// concurrent guesses cannot each read a stale count.
+	RecordMFAAttemptFailure(ctx context.Context, token string) (int32, error)
 	// TOTP replay protection.
 	// Advance the user's last-used TOTP period atomically. Returns a row only when
 	// the new period is strictly greater than the stored one; no row means the code

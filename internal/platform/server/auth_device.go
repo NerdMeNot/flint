@@ -20,8 +20,16 @@ const deviceCodeTTL = 15 * time.Minute
 // handleDeviceCode initiates the device authorization flow for TUI/CLI.
 // Returns a device code and user code that the user enters in a browser.
 func (s *Server) handleDeviceCode(ctx context.Context, c *app.RequestContext) {
-	deviceCode := generateSecureCode(32)
-	userCode := generateUserCode()
+	deviceCode, err := generateSecureCode(32)
+	if err != nil {
+		apiInternal(ctx, c, "failed to create device code")
+		return
+	}
+	userCode, err := generateUserCode()
+	if err != nil {
+		apiInternal(ctx, c, "failed to create device code")
+		return
+	}
 
 	if err := s.deps.Q.InsertDeviceCode(ctx, db.InsertDeviceCodeParams{
 		DeviceCode:   deviceCode,
@@ -144,15 +152,26 @@ func (s *Server) CompleteDeviceAuth(ctx context.Context, deviceCode string, clai
 	return nil
 }
 
-func generateSecureCode(bytes int) string {
+// generateSecureCode returns a random hex string used for OAuth state, PKCE
+// nonces, device codes and MFA tokens.
+//
+// A rand failure is fatal rather than silently yielding an all-zero value. Each
+// of those uses is a security boundary — a predictable state parameter defeats
+// the CSRF check, a predictable MFA token is a login — so a degraded CSPRNG
+// must stop the flow, not quietly produce a constant.
+func generateSecureCode(bytes int) (string, error) {
 	b := make([]byte, bytes)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating secure code: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
-func generateUserCode() string {
+func generateUserCode() (string, error) {
 	b := make([]byte, 4)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating user code: %w", err)
+	}
 	code := hex.EncodeToString(b)
-	return fmt.Sprintf("FLNT-%s", code[:8])
+	return fmt.Sprintf("FLNT-%s", code[:8]), nil
 }

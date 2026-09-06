@@ -30,8 +30,12 @@ func (s *Server) handleLogin(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Generate CSRF state, OIDC nonce, and a PKCE (S256) verifier.
-	state := generateSecureCode(32)
-	nonce := generateSecureCode(32)
+	state, sErr := generateSecureCode(32)
+	nonce, nErr := generateSecureCode(32)
+	if sErr != nil || nErr != nil {
+		c.Data(consts.StatusInternalServerError, "text/html", []byte(authErrorHTML("Login failed")))
+		return
+	}
 	codeVerifier := auth.GeneratePKCEVerifier()
 
 	if err := s.deps.Q.SetDeviceCodeOAuthState(ctx, db.SetDeviceCodeOAuthStateParams{

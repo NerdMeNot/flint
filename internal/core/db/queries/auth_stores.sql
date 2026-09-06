@@ -68,12 +68,20 @@ DELETE FROM device_codes WHERE expires_at < now();
 -- MFA pending tokens (DB-backed; replaces the in-memory map).
 
 -- name: InsertMFAPendingToken :exec
-INSERT INTO mfa_pending_tokens (token, user_id, email, org_id, expires_at)
-VALUES ($1, $2, $3, $4, $5);
+INSERT INTO mfa_pending_tokens (token, user_id, email, org_id, expires_at, purpose)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: GetMFAPendingToken :one
-SELECT user_id, email, org_id FROM mfa_pending_tokens
+SELECT user_id, email, org_id, attempts, purpose FROM mfa_pending_tokens
 WHERE token = $1 AND expires_at > now();
+
+-- name: RecordMFAAttemptFailure :one
+-- Count a failed second-factor guess and report the running total, so the
+-- caller can retire the token once guessing has clearly started. Atomic, so
+-- concurrent guesses cannot each read a stale count.
+UPDATE mfa_pending_tokens SET attempts = attempts + 1
+WHERE token = $1
+RETURNING attempts;
 
 -- name: DeleteMFAPendingToken :exec
 DELETE FROM mfa_pending_tokens WHERE token = $1;

@@ -51,7 +51,10 @@ func GenerateRecoveryCodes(count int) (raw []string, hashed []string, err error)
 	hashed = make([]string, count)
 
 	for i := 0; i < count; i++ {
-		code := generateRecoveryCode()
+		code, err := generateRecoveryCode()
+		if err != nil {
+			return nil, nil, err
+		}
 		raw[i] = code
 
 		hash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
@@ -80,10 +83,18 @@ func ValidateRecoveryCode(code string, hashed []string) (remaining []string, val
 	return hashed, false
 }
 
-// generateRecoveryCode creates a human-readable recovery code (e.g., "a3f8-c21b").
-func generateRecoveryCode() string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	code := hex.EncodeToString(b)
-	return strings.ToUpper(code[:4] + "-" + code[4:])
+// generateRecoveryCode creates a human-readable recovery code
+// (e.g. "A3F8-C21B-9E4D-7F02").
+//
+// 8 bytes, not 4. The previous 32-bit code was the weakest way into an account
+// with MFA on — weaker than the 10^6 TOTP space it backs up — and it was
+// submitted through the same endpoint. A rand failure is fatal rather than
+// silently yielding an all-zero code: this is the credential of last resort.
+func generateRecoveryCode() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate recovery code: %w", err)
+	}
+	h := strings.ToUpper(hex.EncodeToString(b))
+	return h[0:4] + "-" + h[4:8] + "-" + h[8:12] + "-" + h[12:16], nil
 }

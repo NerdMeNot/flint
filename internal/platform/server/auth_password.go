@@ -14,6 +14,14 @@ import (
 	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
+// Failure budgets over the last 15 minutes, counted in login_attempts.
+// The IP budget is the larger of the two: several people can legitimately sign
+// in from one office NAT, but one account should not fail five times.
+const (
+	maxFailuresPerEmail = 5
+	maxFailuresPerIP    = 25
+)
+
 // handlePasswordLogin authenticates a user with email + password.
 // If MFA is required, returns a temporary mfaToken for the second phase.
 func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext) {
@@ -28,9 +36,16 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 
 	ipAddr := extractClientIP(c)
 
-	// Rate limit check.
+	// Rate limit: per email and per source IP.
+	//
+	// The email counter alone is the wrong shape in both directions. It does not
+	// see password spraying — one guess each against a hundred accounts trips
+	// nothing — and it lets anyone lock a known user out of their own account
+	// with five deliberate failures. The IP counter covers the first; the
+	// per-IP token bucket on the route covers bursts.
 	failCount, _ := s.deps.Q.CountRecentFailuresByEmail(ctx, req.Email)
-	if failCount >= 5 {
+	ipFailCount, _ := s.deps.Q.CountRecentFailuresByIP(ctx, ipAddr)
+	if failCount >= maxFailuresPerEmail || ipFailCount >= maxFailuresPerIP {
 		apiError(ctx, c, consts.StatusTooManyRequests, "RATE_LIMITED", "too many failed attempts, try again later")
 		return
 	}
@@ -55,7 +70,10 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		OrgID: org.ID, Email: req.Email,
 	})
 	if err != nil || user.PasswordHash == nil {
-		// Record failure (timing-safe: always do the same work).
+		// Pay the same Argon2id cost a real verification would. This path used to
+		// return immediately under a comment claiming it was timing-safe, which
+		// made response time a reliable answer to "does this account exist?".
+		auth.VerifyAgainstDummyHash(req.Password)
 		_ = s.deps.Q.RecordLoginAttempt(ctx, db.RecordLoginAttemptParams{
 			Email: req.Email, IpAddress: ipAddr, Success: false,
 		})
@@ -95,36 +113,40 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 		Email: req.Email, IpAddress: ipAddr, Success: true,
 	})
 
-	// Check if MFA is required.
+	// Check if MFA is required: either the user has enrolled, or a role they
+	// hold demands it (local auth only — see CheckMFARequiredForUser).
 	mfaRequired := user.TotpVerified
+	roleRequires := false
 	if !mfaRequired {
-		// Check if any assigned role requires MFA.
-		roleRequires, _ := s.deps.Q.CheckMFARequiredForUser(ctx, req.Email)
-		if roleRequires {
-			if !user.TotpVerified {
-				// MFA required by role but not set up — block with clear message.
-				apiError(ctx, c, consts.StatusForbidden, "MFA_SETUP_REQUIRED",
-					"your role requires MFA — please set up MFA before logging in")
-				return
-			}
-			mfaRequired = true
+		roleRequires, _ = s.deps.Q.CheckMFARequiredForUser(ctx, req.Email)
+		mfaRequired = roleRequires
+	}
+
+	// Role demands MFA but the user has not enrolled. Hand out a token that can
+	// do exactly one thing — enrol a second factor — rather than refusing
+	// outright. Refusing was a dead end: enrolling requires a session, and this
+	// is the only place a session is issued, so turning the flag on locked the
+	// user out permanently.
+	if roleRequires && !user.TotpVerified {
+		token, err := s.startMFAChallenge(ctx, user.ID, user.Email, org.ID, mfaPurposeEnrol)
+		if err != nil {
+			apiInternal(ctx, c, "failed to start MFA enrolment")
+			return
 		}
+		c.JSON(consts.StatusOK, utils.H{
+			"mfaSetupRequired": true,
+			"enrolmentToken":   token,
+			"message":          "your role requires MFA — enrol a second factor to continue",
+		})
+		return
 	}
 
 	if mfaRequired {
-		// Issue temporary MFA token (5 min).
-		token := generateSecureCode(32)
-		if err := s.deps.Q.InsertMFAPendingToken(ctx, db.InsertMFAPendingTokenParams{
-			Token:     token,
-			UserID:    user.ID,
-			Email:     user.Email,
-			OrgID:     org.ID,
-			ExpiresAt: time.Now().Add(5 * time.Minute),
-		}); err != nil {
+		token, err := s.startMFAChallenge(ctx, user.ID, user.Email, org.ID, mfaPurposeVerify)
+		if err != nil {
 			apiInternal(ctx, c, "failed to start MFA challenge")
 			return
 		}
-
 		c.JSON(consts.StatusOK, utils.H{
 			"mfaRequired": true,
 			"mfaToken":    token,
@@ -134,6 +156,25 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 
 	// No MFA — issue tokens directly.
 	s.issueLocalAuthTokens(ctx, c, user.ID, user.Email, org.ID, user.ForcePasswordChange)
+}
+
+// startMFAChallenge mints a short-lived pending-MFA token for the given purpose.
+func (s *Server) startMFAChallenge(ctx context.Context, userID, email, orgID, purpose string) (string, error) {
+	token, err := generateSecureCode(32)
+	if err != nil {
+		return "", err
+	}
+	if err := s.deps.Q.InsertMFAPendingToken(ctx, db.InsertMFAPendingTokenParams{
+		Token:     token,
+		UserID:    userID,
+		Email:     email,
+		OrgID:     orgID,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+		Purpose:   purpose,
+	}); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // issueLocalAuthTokens creates a session and returns access + refresh tokens.

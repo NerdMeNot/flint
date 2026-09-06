@@ -20,6 +20,12 @@ SELECT EXISTS(
 ) AS required
 `
 
+// Does any role this subject holds demand a second factor?
+//
+// Local (password) sign-in only. An SSO session is established by the IdP,
+// which owns the second factor there; Flint never sees whether one was
+// presented, so it does not pretend to enforce it. Requiring MFA for SSO users
+// is a setting on the IdP, not here.
 func (q *Queries) CheckMFARequiredForUser(ctx context.Context, subject string) (bool, error) {
 	row := q.db.QueryRow(ctx, checkMFARequiredForUser, subject)
 	var required bool

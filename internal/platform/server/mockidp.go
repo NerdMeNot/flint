@@ -108,10 +108,19 @@ func (m *mockIdP) login(_ context.Context, c *app.RequestContext) {
 		claims["groups"] = groups
 	}
 	if email == "" {
-		claims["sub"] = "mock|" + generateSecureCode(8)
+		sub, err := generateSecureCode(8)
+		if err != nil {
+			c.JSON(consts.StatusInternalServerError, map[string]any{"error": "server_error"})
+			return
+		}
+		claims["sub"] = "mock|" + sub
 	}
 
-	code := generateSecureCode(24)
+	code, err := generateSecureCode(24)
+	if err != nil {
+		c.JSON(consts.StatusInternalServerError, map[string]any{"error": "server_error"})
+		return
+	}
 	m.mu.Lock()
 	m.codes[code] = mockGrant{claims: claims, nonce: nonce, clientID: clientID}
 	m.mu.Unlock()
@@ -165,7 +174,12 @@ func (m *mockIdP) token(_ context.Context, c *app.RequestContext) {
 		return
 	}
 
-	accessToken := "mock-at-" + generateSecureCode(16)
+	atSuffix, err := generateSecureCode(16)
+	if err != nil {
+		c.JSON(consts.StatusInternalServerError, map[string]any{"error": "server_error"})
+		return
+	}
+	accessToken := "mock-at-" + atSuffix
 	m.mu.Lock()
 	m.accessClaims[accessToken] = grant.claims
 	m.mu.Unlock()

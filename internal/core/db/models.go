@@ -263,6 +263,8 @@ type MfaPendingToken struct {
 	UserID    string    `json:"user_id"`
 	Email     string    `json:"email"`
 	OrgID     string    `json:"org_id"`
+	Attempts  int32     `json:"attempts"`
+	Purpose   string    `json:"purpose"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }

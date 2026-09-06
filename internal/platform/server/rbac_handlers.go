@@ -7,6 +7,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -15,11 +16,15 @@ import (
 // ── Response types ────────────────────────────────────────────
 
 type roleResponse struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Slug         string            `json:"slug"`
-	Description  *string           `json:"description,omitempty"`
-	IsSystem     bool              `json:"isSystem"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Description *string `json:"description,omitempty"`
+	IsSystem    bool    `json:"isSystem"`
+	// RequireMfa applies to local (password) sign-in only. SSO sessions are
+	// established by the IdP, which owns the second factor there; Flint cannot
+	// verify one it never saw, so it does not claim to.
+	RequireMfa   bool              `json:"requireMfa"`
 	Permissions  []auth.Permission `json:"permissions"`
 	Workspaces   []string          `json:"workspaces"`
 	Environments []string          `json:"environments"`
@@ -75,6 +80,7 @@ func (s *Server) handleListRoles(ctx context.Context, c *app.RequestContext) {
 			Slug:         r.Slug,
 			Description:  r.Description,
 			IsSystem:     r.IsSystem,
+			RequireMfa:   r.RequireMfa,
 			Permissions:  perms,
 			Workspaces:   workspaces,
 			Environments: environments,
@@ -89,6 +95,7 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 		Name         string            `json:"name"`
 		Slug         string            `json:"slug"`
 		Description  string            `json:"description"`
+		RequireMfa   bool              `json:"requireMfa"`
 		Permissions  []auth.Permission `json:"permissions"`
 		Workspaces   []string          `json:"workspaces"`
 		Environments []string          `json:"environments"`
@@ -122,6 +129,7 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 		Slug:        req.Slug,
 		Description: &req.Description,
 		IsSystem:    false,
+		RequireMfa:  req.RequireMfa,
 	})
 	if err != nil {
 		apiError(ctx, c, consts.StatusConflict, "CONFLICT", "role slug already exists")
@@ -450,6 +458,7 @@ func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 	var req struct {
 		Name         *string           `json:"name,omitempty"`
 		Description  *string           `json:"description,omitempty"`
+		RequireMfa   *bool             `json:"requireMfa,omitempty"`
 		Permissions  []auth.Permission `json:"permissions,omitempty"`
 		Workspaces   []string          `json:"workspaces,omitempty"`
 		Environments []string          `json:"environments,omitempty"`
@@ -483,11 +492,12 @@ func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Name / description.
-	if req.Name != nil || req.Description != nil {
+	if req.Name != nil || req.Description != nil || req.RequireMfa != nil {
 		if _, err := s.deps.Q.UpdateRole(ctx, db.UpdateRoleParams{
 			ID:          id,
 			Name:        req.Name,
 			Description: req.Description,
+			RequireMfa:  optionalBool(req.RequireMfa),
 		}); err != nil {
 			apiInternal(ctx, c, "failed to update role")
 			return
@@ -538,6 +548,15 @@ func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// optionalBool converts a tri-state JSON field into the nullable form sqlc
+// expects: absent leaves the stored value alone.
+func optionalBool(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
 }
 
 // effectiveRoleScope resolves what a role's permissions and scope will be after

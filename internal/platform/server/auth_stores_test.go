@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/testutil"
+	"github.com/NerdMeNot/flint/pkg/secret"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -96,11 +98,21 @@ func TestHandleMFAVerify_TOTPReplayRejected(t *testing.T) {
 	m.Querier.On("GetMFAPendingToken", mock.Anything, "mfa-tok").Return(db.GetMFAPendingTokenRow{
 		UserID: "u1", Email: "u@x.io", OrgID: "org-1",
 	}, nil)
+	// The secret is stored envelope-encrypted, as the column name has always
+	// claimed; a plaintext value no longer decrypts and would fail the check for
+	// the wrong reason.
+	masterKey, err := testutil.TestConfig().Encryption.DecodeMasterKey()
+	require.NoError(t, err)
+	encSecret, err := secret.Encrypt([]byte(key.Secret()), masterKey, 1)
+	require.NoError(t, err)
+
 	m.Querier.On("GetUserForAuth", mock.Anything, mock.Anything).Return(db.GetUserForAuthRow{
-		ID: "u1", Email: "u@x.io", OrgID: "org-1", TotpSecretEnc: []byte(key.Secret()),
+		ID: "u1", Email: "u@x.io", OrgID: "org-1", TotpSecretEnc: encSecret,
 	}, nil)
 	// RecordTOTPUse returns no row → this period was already used → replay.
 	m.Querier.On("RecordTOTPUse", mock.Anything, mock.Anything).Return("", pgx.ErrNoRows)
+	// A rejected code is a failed attempt and is counted.
+	m.Querier.On("RecordMFAAttemptFailure", mock.Anything, "mfa-tok").Return(int32(1), nil)
 
 	w := ut.PerformRequest(srv.Engine(), "POST", "/auth/mfa/verify",
 		jsonBody(t, map[string]any{"mfaToken": "mfa-tok", "code": code}),

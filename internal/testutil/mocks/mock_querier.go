@@ -8528,6 +8528,34 @@ func (_m *Querier) RecordLoginAttempt(ctx context.Context, arg db.RecordLoginAtt
 	return r0
 }
 
+// RecordMFAAttemptFailure provides a mock function with given fields: ctx, token
+func (_m *Querier) RecordMFAAttemptFailure(ctx context.Context, token string) (int32, error) {
+	ret := _m.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordMFAAttemptFailure")
+	}
+
+	var r0 int32
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int32, error)); ok {
+		return rf(ctx, token)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int32); ok {
+		r0 = rf(ctx, token)
+	} else {
+		r0 = ret.Get(0).(int32)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, token)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // RecordTOTPUse provides a mock function with given fields: ctx, arg
 func (_m *Querier) RecordTOTPUse(ctx context.Context, arg db.RecordTOTPUseParams) (string, error) {
 	ret := _m.Called(ctx, arg)

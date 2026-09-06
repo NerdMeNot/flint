@@ -194,20 +194,28 @@ func (q *Queries) GetDeviceCodeSAMLRequestID(ctx context.Context, deviceCode str
 }
 
 const getMFAPendingToken = `-- name: GetMFAPendingToken :one
-SELECT user_id, email, org_id FROM mfa_pending_tokens
+SELECT user_id, email, org_id, attempts, purpose FROM mfa_pending_tokens
 WHERE token = $1 AND expires_at > now()
 `
 
 type GetMFAPendingTokenRow struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	OrgID  string `json:"org_id"`
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	OrgID    string `json:"org_id"`
+	Attempts int32  `json:"attempts"`
+	Purpose  string `json:"purpose"`
 }
 
 func (q *Queries) GetMFAPendingToken(ctx context.Context, token string) (GetMFAPendingTokenRow, error) {
 	row := q.db.QueryRow(ctx, getMFAPendingToken, token)
 	var i GetMFAPendingTokenRow
-	err := row.Scan(&i.UserID, &i.Email, &i.OrgID)
+	err := row.Scan(
+		&i.UserID,
+		&i.Email,
+		&i.OrgID,
+		&i.Attempts,
+		&i.Purpose,
+	)
 	return i, err
 }
 
@@ -237,8 +245,8 @@ func (q *Queries) InsertDeviceCode(ctx context.Context, arg InsertDeviceCodePara
 
 const insertMFAPendingToken = `-- name: InsertMFAPendingToken :exec
 
-INSERT INTO mfa_pending_tokens (token, user_id, email, org_id, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO mfa_pending_tokens (token, user_id, email, org_id, expires_at, purpose)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertMFAPendingTokenParams struct {
@@ -247,6 +255,7 @@ type InsertMFAPendingTokenParams struct {
 	Email     string    `json:"email"`
 	OrgID     string    `json:"org_id"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Purpose   string    `json:"purpose"`
 }
 
 // MFA pending tokens (DB-backed; replaces the in-memory map).
@@ -257,6 +266,7 @@ func (q *Queries) InsertMFAPendingToken(ctx context.Context, arg InsertMFAPendin
 		arg.Email,
 		arg.OrgID,
 		arg.ExpiresAt,
+		arg.Purpose,
 	)
 	return err
 }
@@ -279,6 +289,22 @@ func (q *Queries) MarkSAMLAssertionUsed(ctx context.Context, arg MarkSAMLAsserti
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const recordMFAAttemptFailure = `-- name: RecordMFAAttemptFailure :one
+UPDATE mfa_pending_tokens SET attempts = attempts + 1
+WHERE token = $1
+RETURNING attempts
+`
+
+// Count a failed second-factor guess and report the running total, so the
+// caller can retire the token once guessing has clearly started. Atomic, so
+// concurrent guesses cannot each read a stale count.
+func (q *Queries) RecordMFAAttemptFailure(ctx context.Context, token string) (int32, error) {
+	row := q.db.QueryRow(ctx, recordMFAAttemptFailure, token)
+	var attempts int32
+	err := row.Scan(&attempts)
+	return attempts, err
 }
 
 const recordTOTPUse = `-- name: RecordTOTPUse :one

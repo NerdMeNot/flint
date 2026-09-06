@@ -311,7 +311,13 @@ func bootstrapAdmin(ctx context.Context, cfg *config.Config, q *db.Queries, pool
 	bootstrapEmail := cfg.Bootstrap.EmailOrDefault()
 	bootstrapPassword := cfg.Bootstrap.Password
 	if bootstrapPassword == "" {
-		bootstrapPassword = auth.GenerateRandomPassword()
+		pw, err := auth.GenerateRandomPassword()
+		if err != nil {
+			// Refusing to bootstrap beats bootstrapping with a predictable
+			// password: this account is a platform admin.
+			return fmt.Errorf("generating bootstrap password: %w", err)
+		}
+		bootstrapPassword = pw
 	}
 	hash, hashErr := auth.HashPassword(bootstrapPassword)
 	if hashErr != nil {

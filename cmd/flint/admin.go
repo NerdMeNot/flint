@@ -71,7 +71,11 @@ func createUserCmd() *cobra.Command {
 
 			// Generate password if not provided.
 			if password == "" {
-				password = auth.GenerateRandomPassword()
+				pw, err := auth.GenerateRandomPassword()
+				if err != nil {
+					return fmt.Errorf("generating password: %w", err)
+				}
+				password = pw
 			}
 
 			hash, err := auth.HashPassword(password)
@@ -186,7 +190,10 @@ func resetPasswordCmd() *cobra.Command {
 				return fmt.Errorf("user not found: %w", err)
 			}
 
-			newPassword := auth.GenerateRandomPassword()
+			newPassword, err := auth.GenerateRandomPassword()
+			if err != nil {
+				return fmt.Errorf("generating password: %w", err)
+			}
 			hash, err := auth.HashPassword(newPassword)
 			if err != nil {
 				return fmt.Errorf("hashing password: %w", err)

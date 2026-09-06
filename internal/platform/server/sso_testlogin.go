@@ -78,8 +78,12 @@ func (s *Server) handleStartTestLogin(ctx context.Context, c *app.RequestContext
 		return
 	}
 
-	state := generateSecureCode(32)
-	nonce := generateSecureCode(32)
+	state, sErr := generateSecureCode(32)
+	nonce, nErr := generateSecureCode(32)
+	if sErr != nil || nErr != nil {
+		apiInternal(ctx, c, "failed to start test login")
+		return
+	}
 	baseURL := s.deps.Config.Server.BaseURL
 	tl := &testLogin{protocol: req.ProviderType, nonce: nonce, status: "pending", created: time.Now()}
 

@@ -67,6 +67,12 @@ UPDATE users SET recovery_codes = $2 WHERE id = $1;
 SELECT recovery_codes FROM users WHERE id = $1;
 
 -- name: CheckMFARequiredForUser :one
+-- Does any role this subject holds demand a second factor?
+--
+-- Local (password) sign-in only. An SSO session is established by the IdP,
+-- which owns the second factor there; Flint never sees whether one was
+-- presented, so it does not pretend to enforce it. Requiring MFA for SSO users
+-- is a setting on the IdP, not here.
 SELECT EXISTS(
     SELECT 1 FROM role_assignments ra
     JOIN roles r ON r.id = ra.role_id

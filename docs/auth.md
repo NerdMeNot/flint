@@ -132,7 +132,21 @@ POST /auth/login
 
 **Password hashing:** Argon2id (64MB memory, 3 iterations, 4 threads, 32-byte key). PHC format: `$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`.
 
-**Rate limiting:** Max 5 failed attempts per email per 15 minutes. Tracked in `login_attempts` table (works across replicas).
+**Rate limiting:** three layers, because one is the wrong shape on its own.
+
+| Layer | Budget | Catches |
+|---|---|---|
+| Per-email failures (DB, 15 min) | 5 | Guessing one account's password |
+| Per-IP failures (DB, 15 min) | 25 | Spraying one guess across many accounts |
+| Per-IP token bucket (in-process) | 5/s, burst 10 | Bursts against any local-auth endpoint |
+
+The email counter alone missed spraying entirely and let anyone lock a known
+user out with five deliberate failures. The IP budget is the looser of the two
+because an office NAT legitimately carries many sign-ins.
+
+**Account enumeration:** an unknown email is verified against a dummy Argon2id
+hash, so a miss costs the same ~100ms as a hit. Returning early on the miss path
+made response time a reliable answer to "does this account exist?".
 
 ### OIDC SSO
 
@@ -252,6 +266,18 @@ until it expired.
 
 Time-based one-time passwords compatible with Google Authenticator, Authy, 1Password, etc.
 
+The secret is envelope-encrypted with the server master key before storage, so
+MFA cannot be enabled unless `encryption.masterKey` is configured — refusing is
+better than storing the credential that defends a compromised password in a form
+any database reader can lift. If a secret can no longer be decrypted (rotated or
+lost master key) TOTP stops working for that user by design; recovery codes are
+hashed separately and remain the way back in.
+
+Verification is bounded: five wrong codes against a single pending token destroy
+it, and the user must start again from the password — which is itself rate
+limited per email and per IP. A 6-digit code is only a second factor if guessing
+is bounded.
+
 **Setup:**
 ```
 POST /auth/mfa/setup     → {secret, qrCodeURL, recoveryCodes}
@@ -331,6 +357,36 @@ than it reads as — see `auth.ValidateRoleScope`.
 | `developer` | Build + deploy | project read/write, run trigger/cancel |
 | `viewer` | Read-only | project read, run read |
 | `platform-manager` | Admin without CI writes | workspace/team/env manage, audit read |
+
+No system role requires MFA out of the box. Any role can be marked
+`"requireMfa": true` via the roles API; it applies to **local (password) sign-in
+only**. An SSO session is established by the IdP, which owns the second factor
+there — Flint never sees whether one was presented, so it does not claim to
+enforce it. Require MFA for SSO users on the IdP.
+
+A user who holds an MFA-requiring role but has not enrolled gets an *enrolment
+token* from `/auth/login` (`mfaSetupRequired: true`) rather than a refusal. The
+token is passed as `X-MFA-Enrolment-Token` to `/auth/mfa/setup` and
+`/auth/mfa/setup/verify`, is good for five minutes, and cannot be redeemed for a
+session. Without it the requirement was a dead end: enrolling needs a session,
+and login is the only place one is issued.
+
+The sign-in page runs the enrolment wizard inline when it sees
+`mfaSetupRequired`. Enrolment deliberately does not end in a session — the token
+proved a password, not a second factor — so the user signs in again afterwards
+and is challenged for the code they just set up.
+
+```
+POST /auth/login            → { mfaSetupRequired: true, enrolmentToken }
+POST /auth/mfa/setup        (X-MFA-Enrolment-Token) → { secret, qrCodeURL, recoveryCodes }
+POST /auth/mfa/setup/verify (X-MFA-Enrolment-Token) → token consumed, MFA enabled
+POST /auth/login            → { mfaRequired: true, mfaToken }   ← normal challenge
+```
+
+One wrinkle worth knowing: TOTP replay protection advances the accepted period on
+enrolment, so the *same* code cannot immediately be reused to sign in. In
+practice the wizard's recovery-code step covers the wait; if a user is quick,
+they see "invalid code" until the next 30-second window.
 
 ### Custom Roles
 
@@ -413,9 +469,12 @@ Team sync is **additive**, not clean-slate:
 | Password storage | Argon2id (64MB memory-hard) |
 | Token storage | SHA-256 hash in DB (never stored raw) |
 | JWT signing | HMAC-SHA256 (configurable key, min 32 chars) |
-| Rate limiting | DB-backed (5/email/15min, works across replicas) |
+| Rate limiting | 5/email + 25/IP per 15min (DB, cross-replica) + per-IP token bucket |
 | TOTP | SHA-1, 6 digits, 30s period, 1-step window |
-| Recovery codes | Bcrypt-hashed, single-use |
+| Recovery codes | 64-bit, bcrypt-hashed, single-use |
+| TOTP secrets | Envelope-encrypted with the server master key |
+| MFA attempts | 5 per pending token, then the token is destroyed |
+| API keys / personal tokens | SHA-256 digest + unique index (high-entropy tokens, so no KDF) |
 | Session revocation | Immediate — the `sid` claim is checked against `sessions` per request |
 | IdP token refresh | Automatic rotation via oauth2.TokenSource |
 | SAML validation | XML signature verification via crewjam/saml |

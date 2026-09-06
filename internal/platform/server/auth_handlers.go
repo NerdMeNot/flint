@@ -54,14 +54,23 @@ func (s *Server) registerAuthRoutes() {
 	s.hertz.GET("/auth/sessions", s.authMiddleware(), s.handleListSessions)
 	s.hertz.DELETE("/auth/sessions/:id", s.authMiddleware(), s.handleRevokeSession)
 
-	// Local auth — no JWT required.
-	s.hertz.POST("/auth/login", s.handlePasswordLogin)
-	s.hertz.POST("/auth/mfa/verify", s.handleMFAVerify)
+	localAuthLimit := s.ipRateLimit(newIPRateLimiter(5, 10))
+
+	// Local auth — no JWT required, and therefore the surface most worth
+	// throttling. The per-IP limiter used to cover only the SSO callbacks, which
+	// left the password endpoint bounded solely by a per-email failure counter
+	// (so spraying across accounts was free) and left MFA verification bounded
+	// by nothing at all.
+	s.hertz.POST("/auth/login", localAuthLimit, s.handlePasswordLogin)
+	s.hertz.POST("/auth/mfa/verify", localAuthLimit, s.handleMFAVerify)
 
 	// Password + MFA management — JWT required.
 	s.hertz.POST("/auth/change-password", s.authMiddleware(), s.handleChangePassword)
-	s.hertz.POST("/auth/mfa/setup", s.authMiddleware(), s.handleMFASetup)
-	s.hertz.POST("/auth/mfa/setup/verify", s.authMiddleware(), s.handleMFASetupVerify)
+	// Enrolment accepts either a session or a login-issued enrolment token, so
+	// a user whose role requires MFA can actually satisfy it. Rate limited,
+	// because the token path is reachable without a session.
+	s.hertz.POST("/auth/mfa/setup", localAuthLimit, s.optionalAuth(), s.handleMFASetup)
+	s.hertz.POST("/auth/mfa/setup/verify", localAuthLimit, s.optionalAuth(), s.handleMFASetupVerify)
 	s.hertz.POST("/auth/mfa/recovery-codes", s.authMiddleware(), s.handleRegenerateRecoveryCodes)
 	s.hertz.DELETE("/auth/mfa", s.authMiddleware(), s.handleMFADisable)
 

@@ -30,6 +30,17 @@ CREATE TABLE public.mfa_pending_tokens (
     user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     email      text NOT NULL,
     org_id     uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+    -- Failed second-factor attempts against this token. A 6-digit code is a
+    -- 10^6 space, which is only a second factor if guessing is bounded; the
+    -- endpoint had no limit of any kind, and a fresh token cost nothing but a
+    -- successful password login (which does not count as a failure).
+    attempts   int NOT NULL DEFAULT 0,
+    -- 'verify'  — password accepted, awaiting the second factor.
+    -- 'enrol'   — password accepted but the user's role requires MFA they have
+    --             not set up yet. Grants nothing except TOTP enrolment; without
+    --             it, requiring MFA locked the user out, because enrolling
+    --             needs a session and login refuses to issue one.
+    purpose    text NOT NULL DEFAULT 'verify',
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );

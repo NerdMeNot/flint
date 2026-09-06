@@ -254,7 +254,12 @@ func (s *Server) handleCreateUser(ctx context.Context, c *app.RequestContext) {
 	password := req.Password
 	generated := false
 	if password == "" {
-		password = auth.GenerateRandomPassword()
+		pw, err := auth.GenerateRandomPassword()
+		if err != nil {
+			apiInternal(ctx, c, "failed to generate a password")
+			return
+		}
+		password = pw
 		generated = true
 	}
 	hash, err := auth.HashPassword(password)
@@ -378,7 +383,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, c *app.RequestContext) 
 		return
 	}
 
-	rawKey := "flint_k_" + generateSecureCode(24)
+	suffix, err := generateSecureCode(24)
+	if err != nil {
+		apiInternal(ctx, c, "failed to generate API key")
+		return
+	}
+	rawKey := "flint_k_" + suffix
 	// SHA-256, not bcrypt — see handleCreatePersonalToken. The digest is also
 	// what the auth path looks the key up by.
 	hash := auth.HashToken(rawKey)
