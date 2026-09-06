@@ -102,6 +102,13 @@ func (s *Server) handleCreateRole(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// Refuse a scope the enforcement model cannot honour, rather than accepting
+	// it and quietly granting more than the definition reads as.
+	if err := auth.ValidateRoleScope(req.Permissions, req.Workspaces, req.Environments); err != nil {
+		apiBadRequest(ctx, c, err.Error())
+		return
+	}
+
 	org, err := s.deps.Q.GetOrg(ctx)
 	if err != nil {
 		apiInternal(ctx, c, "failed to get org")
@@ -462,6 +469,19 @@ func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	// This is a partial update, so validate the state the role will be left in,
+	// not just the fields that were sent: adding a workspace scope to a role
+	// that already carries admin permissions is the same mistake as creating one.
+	effPerms, effWS, effEnv, err := s.effectiveRoleScope(ctx, id, req.Permissions, req.Workspaces, req.Environments)
+	if err != nil {
+		apiInternal(ctx, c, "failed to read current role definition")
+		return
+	}
+	if err := auth.ValidateRoleScope(effPerms, effWS, effEnv); err != nil {
+		apiBadRequest(ctx, c, err.Error())
+		return
+	}
+
 	// Name / description.
 	if req.Name != nil || req.Description != nil {
 		if _, err := s.deps.Q.UpdateRole(ctx, db.UpdateRoleParams{
@@ -518,6 +538,34 @@ func (s *Server) handleUpdateRole(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// effectiveRoleScope resolves what a role's permissions and scope will be after
+// a partial update: each nil field keeps its stored value, each non-nil field
+// replaces it. Validating the merged result is the only way to catch an update
+// that introduces a conflict between two fields, only one of which was sent.
+func (s *Server) effectiveRoleScope(ctx context.Context, roleID string,
+	perms []auth.Permission, workspaces, environments []string,
+) ([]auth.Permission, []string, []string, error) {
+
+	if perms == nil {
+		perms = s.getPermissionsForRole(ctx, roleID)
+	}
+	if workspaces == nil {
+		slugs, err := s.deps.Q.ListRoleWorkspaceSlugs(ctx, roleID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		workspaces = slugs
+	}
+	if environments == nil {
+		names, err := s.deps.Q.ListRoleEnvironmentNames(ctx, roleID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		environments = names
+	}
+	return perms, workspaces, environments, nil
 }
 
 // ── Helpers ──────────────────────────────────────────────────

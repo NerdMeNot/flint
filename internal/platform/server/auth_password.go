@@ -140,27 +140,16 @@ func (s *Server) handlePasswordLogin(ctx context.Context, c *app.RequestContext)
 func (s *Server) issueLocalAuthTokens(ctx context.Context, c *app.RequestContext,
 	userID, email, orgID string, forcePasswordChange bool) {
 
-	claims := &auth.Claims{
-		Subject:    email,
-		Email:      email,
-		OrgID:      orgID,
-		Provider:   "local",
-		ExternalID: email,
-	}
-
-	accessToken, err := s.deps.Sessions.CreateSession(claims)
-	if err != nil {
-		apiInternal(ctx, c, "failed to create access token")
-		return
-	}
-
 	refreshRaw, refreshHash, err := auth.GenerateRefreshToken()
 	if err != nil {
 		apiInternal(ctx, c, "failed to generate refresh token")
 		return
 	}
 
-	_, err = s.deps.Q.CreateSession(ctx, db.CreateSessionParams{
+	// The session row comes first so its id can be embedded in the access token
+	// as `sid` — that binding is what lets a later revocation actually take the
+	// token away.
+	sessionID, err := s.deps.Q.CreateSession(ctx, db.CreateSessionParams{
 		UserID:           userID,
 		TokenHash:        refreshHash,
 		AbsLifetimeSecs:  30 * 24 * 3600,
@@ -168,6 +157,22 @@ func (s *Server) issueLocalAuthTokens(ctx context.Context, c *app.RequestContext
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to create session")
+		return
+	}
+
+	claims := &auth.Claims{
+		Subject:    email,
+		Email:      email,
+		OrgID:      orgID,
+		Provider:   "local",
+		ExternalID: email,
+		Principal:  email,
+		SessionID:  sessionID,
+	}
+
+	accessToken, err := s.deps.Sessions.CreateSession(claims)
+	if err != nil {
+		apiInternal(ctx, c, "failed to create access token")
 		return
 	}
 

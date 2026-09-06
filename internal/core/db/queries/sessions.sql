@@ -12,6 +12,15 @@ SELECT id, user_id, token_hash, idp_token_enc, logout_state_enc, ip_address, use
 FROM sessions
 WHERE token_hash = $1;
 
+-- name: GetSessionForAuth :one
+-- Per-request liveness check for the session a JWT's `sid` names. A JWT is
+-- self-validating and therefore unrevokable on its own: without this, logout,
+-- OIDC back-channel logout and IdP deprovisioning all set revoked_at while the
+-- access token kept working until it expired.
+SELECT s.id, s.user_id, s.revoked_at, s.expires_at, s.idle_expires_at, u.is_active
+FROM sessions s JOIN users u ON u.id = s.user_id
+WHERE s.id = $1;
+
 -- name: RotateSessionToken :exec
 UPDATE sessions
 SET token_hash = sqlc.arg(new_hash),

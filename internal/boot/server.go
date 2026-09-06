@@ -97,7 +97,7 @@ func RunServer(ctx context.Context, cfg *config.Config, mode string) error {
 	log.Info().Str("orgID", orgID).Msg("default org ready")
 
 	// Casbin RBAC enforcer.
-	enforcer, err := auth.NewEnforcer(pool)
+	enforcer, err := auth.NewEnforcer(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("creating casbin enforcer: %w", err)
 	}

@@ -98,6 +98,39 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 	return i, err
 }
 
+const getSessionForAuth = `-- name: GetSessionForAuth :one
+SELECT s.id, s.user_id, s.revoked_at, s.expires_at, s.idle_expires_at, u.is_active
+FROM sessions s JOIN users u ON u.id = s.user_id
+WHERE s.id = $1
+`
+
+type GetSessionForAuthRow struct {
+	ID            string     `json:"id"`
+	UserID        string     `json:"user_id"`
+	RevokedAt     *time.Time `json:"revoked_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	IdleExpiresAt time.Time  `json:"idle_expires_at"`
+	IsActive      bool       `json:"is_active"`
+}
+
+// Per-request liveness check for the session a JWT's `sid` names. A JWT is
+// self-validating and therefore unrevokable on its own: without this, logout,
+// OIDC back-channel logout and IdP deprovisioning all set revoked_at while the
+// access token kept working until it expired.
+func (q *Queries) GetSessionForAuth(ctx context.Context, id string) (GetSessionForAuthRow, error) {
+	row := q.db.QueryRow(ctx, getSessionForAuth, id)
+	var i GetSessionForAuthRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RevokedAt,
+		&i.ExpiresAt,
+		&i.IdleExpiresAt,
+		&i.IsActive,
+	)
+	return i, err
+}
+
 const listSessionsForSync = `-- name: ListSessionsForSync :many
 SELECT s.id, s.user_id, s.idp_token_enc, s.last_synced_at,
        u.email, u.org_id

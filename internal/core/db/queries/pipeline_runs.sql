@@ -39,8 +39,13 @@ SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
        ), '[]')::jsonb AS steps
 FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE (sqlc.arg('project_id')::text = '' OR pr.project_id::text = sqlc.arg('project_id'))
   AND (sqlc.arg('status')::text = '' OR pr.status = sqlc.arg('status'))
+  -- Workspace restriction from RBAC: empty slice = unrestricted. A scope-limited
+  -- caller is authorized for "any workspace they hold" and the row set is then
+  -- narrowed here, so the list matches what they may actually read.
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
   AND (
     sqlc.arg('cursor_ts')::text = ''
     -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
@@ -168,8 +173,11 @@ SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
        p.colour AS project_colour
 FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE pr.org_id = sqlc.arg('org_id')
   AND (pr.trigger_ref ILIKE sqlc.arg('pattern') OR pr.commit_sha ILIKE sqlc.arg('pattern'))
+  -- RBAC workspace restriction; empty slice = unrestricted.
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
 ORDER BY pr.started_at DESC
 LIMIT 10;
 

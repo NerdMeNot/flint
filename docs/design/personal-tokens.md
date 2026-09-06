@@ -11,7 +11,7 @@ Personal tokens allow users to authenticate the Flint CLI/TUI and API without a 
 | Who creates | Platform admins | Any authenticated user |
 | Where in UI | Admin > API Keys | User profile page |
 | Permissions | Assigned a specific role + optional scope restriction | Inherits all of the user's roles (direct + team) |
-| Casbin subject | `apikey:<id>` (separate policies) | User's email (same as session) |
+| Casbin principal | `apikey:<id>` (separate policies) | User's email (same as session) |
 | Managed by | Admins only | The user themselves (admins can also revoke) |
 
 ## Model

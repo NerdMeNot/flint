@@ -308,6 +308,13 @@ m = g(r.sub, p.sub) && \
     (p.act == "*" || p.act == r.act)
 ```
 
+### MFA requirement
+
+A role may set `requireMfa`. It gates **local password sign-in only** — SSO
+sessions are established by the IdP, which owns the second factor there. Users
+holding such a role who have not enrolled receive a scoped enrolment token at
+login rather than being refused; see `docs/auth.md`.
+
 ### Policy Generation
 
 When a role is assigned to a subject, Flint generates Casbin policies by expanding the role definition:
@@ -320,10 +327,10 @@ Role "prod-release-manager":
 
 Assignment: alice@acme.dev → prod-release-manager
 
-Generated Casbin policies:
-  p, alice@acme.dev, production, production, run, trigger
-  p, alice@acme.dev, production, production, gate, approve
-  p, alice@acme.dev, production, production, gate, reject
+Generated Casbin policies (org id elided as <org>):
+  p, alice@acme.dev, <org>, production, production, run, trigger
+  p, alice@acme.dev, <org>, production, production, gate, approve
+  p, alice@acme.dev, <org>, production, production, gate, reject
 ```
 
 For unscoped dimensions, use wildcard `*`:
@@ -337,11 +344,11 @@ Role "developer":
 Assignment: bob@acme.dev → developer
 
 Generated Casbin policies:
-  p, bob@acme.dev, *, *, project, read
-  p, bob@acme.dev, *, *, run, read
-  p, bob@acme.dev, *, *, run, trigger
-  p, bob@acme.dev, *, *, run, cancel
-  p, bob@acme.dev, *, *, secret, read
+  p, bob@acme.dev, <org>, *, *, project, read
+  p, bob@acme.dev, <org>, *, *, run, read
+  p, bob@acme.dev, <org>, *, *, run, trigger
+  p, bob@acme.dev, <org>, *, *, run, cancel
+  p, bob@acme.dev, <org>, *, *, secret, read
 ```
 
 ### Team Resolution
@@ -357,12 +364,17 @@ For each member of backend-devs (alice, bob, eve, frank, hiro):
   ...
 
 Then the team's role policies:
-  p, team:backend-devs, *, *, project, read
-  p, team:backend-devs, *, *, run, read
+  p, team:backend-devs, <org>, *, *, project, read
+  p, team:backend-devs, <org>, *, *, run, read
   ...
 ```
 
 Casbin's matcher with `g(r.sub, p.sub)` handles the group membership transitively.
+
+Grouping rules are reconciled whenever membership changes — the teams API, SCIM
+group pushes, and IdP group sync all call `auth.RegenerateGroupingForUser`.
+They were previously written only at boot, so a user added to a privileged team
+gained nothing until the next restart, and one removed from it kept everything.
 
 ---
 

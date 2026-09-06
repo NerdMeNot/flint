@@ -33,7 +33,7 @@ func testServer(t *testing.T) (*Server, *testutil.Mocks) {
 	m := testutil.NewMocks(t)
 	enforcer, err := auth.NewMemoryEnforcer()
 	require.NoError(t, err)
-	if _, err := enforcer.AddPolicy(testUserEmail, "*", "*", "*", "*"); err != nil {
+	if _, err := enforcer.AddPolicy(testUserEmail, testOrgID, "*", "*", "*", "*"); err != nil {
 		require.NoError(t, err)
 	}
 	// Scope resolution now actually runs for run/gate routes — with the enforcer

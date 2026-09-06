@@ -157,8 +157,16 @@ func (s *Server) handleArchiveProject(ctx context.Context, c *app.RequestContext
 }
 
 // listArchivedProjects returns archived projects (flat) for the admin page.
-func (s *Server) listArchivedProjects(ctx context.Context, c *app.RequestContext) {
-	rows, err := s.deps.Q.ListArchivedProjects(ctx)
+func (s *Server) listArchivedProjects(ctx context.Context, c *app.RequestContext, scope WorkspaceScope) {
+	// Same RBAC narrowing as the live list — this shares its route and therefore
+	// its authorization, which only established that the caller holds
+	// project:read *somewhere*.
+	if scope.Empty(nil) {
+		c.JSON(consts.StatusOK, utils.H{"items": []utils.H{}})
+		return
+	}
+
+	rows, err := s.deps.Q.ListArchivedProjects(ctx, scope.Filter(nil))
 	if err != nil {
 		apiInternal(ctx, c, "failed to list archived projects")
 		return
@@ -230,11 +238,12 @@ func parsePipelineSource(raw []byte) *projectcfg.PipelineSource {
 	return &projectcfg.PipelineSource{Type: ps.Type, Path: ps.Path, Repo: ps.Repo, Ref: ps.Ref}
 }
 
-func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
+func (s *Server) listProjects(ctx context.Context, c *app.RequestContext, scope WorkspaceScope) {
 	// Admin "archived" view (?archived=true) — a flat list for the settings page,
-	// kept on this route to avoid a /projects/:id wildcard conflict.
+	// kept on this route to avoid a /projects/:id wildcard conflict. It shares
+	// this route's authorization, so it gets the same restriction.
 	if string(c.Query("archived")) == "true" {
-		s.listArchivedProjects(ctx, c)
+		s.listArchivedProjects(ctx, c, scope)
 		return
 	}
 
@@ -243,6 +252,15 @@ func (s *Server) listProjects(ctx context.Context, c *app.RequestContext) {
 	workspaces := queryStrings(c, "workspace")
 	tags := queryStrings(c, "tags")
 	needsGrouping := string(c.Query("needsGrouping")) == "true"
+
+	// RBAC scope: a caller restricted to certain workspaces sees only those,
+	// intersected with whatever they explicitly filtered on. The permitted set
+	// is the floor — a ?workspace= value outside it cannot widen the result.
+	if scope.Empty(workspaces) {
+		paginatedResponse(c, []projectResponse{}, PaginationResponse{})
+		return
+	}
+	workspaces = scope.Filter(workspaces)
 
 	rows, err := s.deps.Q.ListProjectsWithLastRun(ctx, db.ListProjectsWithLastRunParams{
 		Workspaces:    workspaces,

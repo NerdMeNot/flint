@@ -20,6 +20,24 @@ type Claims struct {
 	IssuedAt     time.Time
 	ExpiresAt    time.Time
 	Raw          map[string]any // all claims/attributes for custom mapping
+
+	// Principal is the RBAC subject: the identity policies are keyed on. For
+	// humans (browser sessions, personal tokens) it is the user's email; for an
+	// API key it is "apikey:<id>", matching what addAPIKeyPolicies generates.
+	//
+	// Enforcement must use this and never Email. An API key has no email, so
+	// enforcing on Email checked the empty string against every policy and
+	// denied every API-key request — authentication succeeded and authorization
+	// could not possibly match. Anything that authenticates a request has to set
+	// it; the middleware denies (loudly) when it is empty.
+	Principal string
+
+	// SessionID is the sessions.id row backing this token, carried in the JWT's
+	// `sid` claim. The request path checks it so revocation (logout,
+	// back-channel logout, IdP deprovisioning) takes effect immediately instead
+	// of at token expiry. Empty for API keys and personal tokens, which carry
+	// their own revocation checks.
+	SessionID string
 }
 
 // ────────────────────────────────────────────────────────────

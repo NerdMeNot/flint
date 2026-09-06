@@ -113,7 +113,7 @@ func createUserCmd() *cobra.Command {
 			}
 
 			// Regenerate Casbin policies.
-			enforcer, err := auth.NewEnforcer(pool)
+			enforcer, err := auth.NewEnforcer(ctx, pool)
 			if err == nil {
 				_ = auth.RegenerateForSubject(ctx, q, pool, enforcer, email)
 			}

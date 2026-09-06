@@ -458,8 +458,15 @@ JOIN pipeline_runs pr ON wf.run_id = pr.id
 JOIN projects p ON pr.project_id = p.id
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE s.exec_type = 'gate' AND s.status = $1
+  -- RBAC workspace restriction; empty slice = unrestricted.
+  AND (cardinality($2::text[]) = 0 OR w.slug = ANY($2::text[]))
 ORDER BY s.created_at ASC LIMIT 50
 `
+
+type ListGatesByStatusParams struct {
+	Status     string   `json:"status"`
+	Workspaces []string `json:"workspaces"`
+}
 
 type ListGatesByStatusRow struct {
 	StepName      string      `json:"step_name"`
@@ -480,8 +487,8 @@ type ListGatesByStatusRow struct {
 // Gate steps enriched with run/project/workspace context, filtered by step status
 // (the handler maps UI status names: pending→waiting, approved→succeeded,
 // rejected→failed). Powers GET /api/v1/gates.
-func (q *Queries) ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error) {
-	rows, err := q.db.Query(ctx, listGatesByStatus, status)
+func (q *Queries) ListGatesByStatus(ctx context.Context, arg ListGatesByStatusParams) ([]ListGatesByStatusRow, error) {
+	rows, err := q.db.Query(ctx, listGatesByStatus, arg.Status, arg.Workspaces)
 	if err != nil {
 		return nil, err
 	}

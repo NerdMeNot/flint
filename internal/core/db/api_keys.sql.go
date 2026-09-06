@@ -48,6 +48,37 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const getAPIKeyByHash = `-- name: GetAPIKeyByHash :one
+SELECT id, org_id, user_id, name, scopes
+FROM api_keys
+WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > now())
+`
+
+type GetAPIKeyByHashRow struct {
+	ID     string   `json:"id"`
+	OrgID  string   `json:"org_id"`
+	UserID *string  `json:"user_id"`
+	Name   string   `json:"name"`
+	Scopes []string `json:"scopes"`
+}
+
+// Authenticate a presented API key by the SHA-256 digest of its raw value.
+// API keys are high-entropy random strings, so a digest plus the unique index
+// is the right primitive: one indexed lookup instead of bcrypt-comparing every
+// key in the table on every request.
+func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (GetAPIKeyByHashRow, error) {
+	row := q.db.QueryRow(ctx, getAPIKeyByHash, keyHash)
+	var i GetAPIKeyByHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.UserID,
+		&i.Name,
+		&i.Scopes,
+	)
+	return i, err
+}
+
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT id, name, scopes, expires_at, last_used_at, created_at
 FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC
@@ -140,47 +171,6 @@ func (q *Queries) ListAPIKeysDetailed(ctx context.Context, arg ListAPIKeysDetail
 			&i.ExpiresAt,
 			&i.LastUsedAt,
 			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listValidAPIKeys = `-- name: ListValidAPIKeys :many
-SELECT id, org_id, user_id, name, key_hash, scopes
-FROM api_keys WHERE (expires_at IS NULL OR expires_at > now())
-`
-
-type ListValidAPIKeysRow struct {
-	ID      string   `json:"id"`
-	OrgID   string   `json:"org_id"`
-	UserID  *string  `json:"user_id"`
-	Name    string   `json:"name"`
-	KeyHash string   `json:"key_hash"`
-	Scopes  []string `json:"scopes"`
-}
-
-func (q *Queries) ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error) {
-	rows, err := q.db.Query(ctx, listValidAPIKeys)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListValidAPIKeysRow{}
-	for rows.Next() {
-		var i ListValidAPIKeysRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.UserID,
-			&i.Name,
-			&i.KeyHash,
-			&i.Scopes,
 		); err != nil {
 			return nil, err
 		}

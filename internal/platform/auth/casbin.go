@@ -8,27 +8,52 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
+	"github.com/rs/zerolog/log"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
+// ScopeAny is the request-side sentinel meaning "in any scope the subject
+// holds" — used by list routes, which act on no single workspace or
+// environment and instead filter their results down to what the subject can
+// see.
+//
+// It is deliberately distinct from "*". On the request side "*" means the
+// request is genuinely global (an admin object), and only a platform-wide
+// policy satisfies it; a workspace-scoped grant must not. That is correct for
+// admin routes but wrong for lists, where it made every scope-restricted user
+// 403 on GET /projects unless they hand-passed ?workspace= — which is exactly
+// the pressure that produced the query-param override this package used to
+// honour. ScopeAny asks the right question instead: does this subject hold the
+// permission somewhere?
+//
+// It is not a valid policy value; PermittedWorkspaces panics on nothing and
+// simply never matches if one is ever written.
+const ScopeAny = "~any"
+
 // flintRBACModel is the Casbin model for Flint's RBAC v2.
 //
-// 5-field model:
+// 6-field model:
 //   - sub: user email, "team:<slug>", or "apikey:<id>"
+//   - org: org id the grant belongs to ("*" = all orgs; system grants only)
 //   - ws:  workspace slug ("*" = all workspaces)
 //   - env: environment name ("*" = all environments)
 //   - obj: resource type (admin: workspace,team,... / CI: project,run,gate)
 //   - act: action (admin: read,manage / CI: read,write,trigger,cancel,approve,reject)
 //
+// org is a real dimension rather than a prefix on sub because roles are
+// per-org rows while subjects are bare emails: without it a grant made in one
+// org authorized the same email in every other one. Single-org installs never
+// notice; the day org creation ships, they would.
+//
 // Grouping is 2-field (no domain): g = user, group.
-// Team membership creates g rules; workspace/env scope is on policies, not groups.
+// Team membership creates g rules; org/workspace/env scope is on policies, not groups.
 const flintRBACModel = `
 [request_definition]
-r = sub, ws, env, obj, act
+r = sub, org, ws, env, obj, act
 
 [policy_definition]
-p = sub, ws, env, obj, act
+p = sub, org, ws, env, obj, act
 
 [role_definition]
 g = _, _
@@ -37,7 +62,7 @@ g = _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub) && (p.ws == "*" || p.ws == r.ws) && (p.env == "*" || p.env == r.env) && (p.obj == "*" || p.obj == r.obj) && (p.act == "*" || p.act == r.act)
+m = g(r.sub, p.sub) && (p.org == "*" || p.org == r.org) && (r.ws == "~any" || p.ws == "*" || p.ws == r.ws) && (r.env == "~any" || p.env == "*" || p.env == r.env) && (p.obj == "*" || p.obj == r.obj) && (p.act == "*" || p.act == r.act)
 `
 
 // NewMemoryEnforcer creates a Casbin enforcer with the Flint RBAC model and no
@@ -52,7 +77,15 @@ func NewMemoryEnforcer() (*casbin.Enforcer, error) {
 }
 
 // NewEnforcer creates a Casbin enforcer with the Flint RBAC model and pgx adapter.
-func NewEnforcer(pool db.Pool) (*casbin.Enforcer, error) {
+//
+// Autosave is on, so every AddPolicy/RemoveFilteredPolicy writes through to
+// casbin_rules incrementally. Callers must NOT then call SavePolicy(): that
+// method is a DELETE-everything-and-reinsert-from-memory full sync, and with
+// more than one replica the replica doing the save has no idea what its peers
+// have written since boot. A login on replica A would silently delete a grant
+// replica B had just made. Incremental writes plus the watcher below keep the
+// replicas converged instead.
+func NewEnforcer(ctx context.Context, pool db.Pool) (*casbin.Enforcer, error) {
 	m, err := model.NewModelFromString(flintRBACModel)
 	if err != nil {
 		return nil, fmt.Errorf("loading casbin model: %w", err)
@@ -66,6 +99,23 @@ func NewEnforcer(pool db.Pool) (*casbin.Enforcer, error) {
 	}
 
 	e.EnableAutoSave(true)
+
+	w, err := NewPgWatcher(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("creating casbin watcher: %w", err)
+	}
+	if err := e.SetWatcher(w); err != nil {
+		return nil, fmt.Errorf("attaching casbin watcher: %w", err)
+	}
+	// SetWatcher installs a default callback that calls LoadPolicy; be explicit
+	// about it so a future casbin change can't quietly turn propagation off.
+	if err := w.SetUpdateCallback(func(string) {
+		if err := e.LoadPolicy(); err != nil {
+			log.Error().Err(err).Msg("casbin: reloading policy after peer update failed")
+		}
+	}); err != nil {
+		return nil, fmt.Errorf("setting casbin watcher callback: %w", err)
+	}
 
 	return e, nil
 }

@@ -49,17 +49,23 @@ If the key has no scope restriction (empty arrays), it inherits the role's scope
 API keys are subjects in Casbin, prefixed with `apikey:`:
 
 ```
-p, apikey:ci-bot, production, production, project, read
-p, apikey:ci-bot, production, production, run, trigger
+p, apikey:ci-bot, <org>, production, production, project, read
+p, apikey:ci-bot, <org>, production, production, run, trigger
 ...
 ```
 
 On API request:
-1. Extract key from `Authorization: Bearer flint_...`
-2. Look up key → get subject `apikey:{key-id}`
-3. `enforcer.Enforce("apikey:ci-bot", workspace, environment, object, action)`
+1. Extract key from `X-API-Key` (or `Authorization: Bearer flint_...`)
+2. Look it up by the SHA-256 digest of its raw value — one indexed lookup. The
+   key is 32 bytes of CSPRNG output, so it needs a fast digest and a unique
+   index, not a password KDF. This used to bcrypt-compare every live key on
+   every request.
+3. Set `Claims.Principal = "apikey:{key-id}"`
+4. `enforcer.Enforce(principal, orgID, workspace, environment, object, action)`
 
-No changes to the Casbin model. Same matcher as users/teams.
+Same matcher as users/teams. The principal is the part that has to be right:
+enforcement once ran against `Claims.Email`, which an API key does not have, so
+every key request was denied however privileged the key was.
 
 ## Lifecycle
 

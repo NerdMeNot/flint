@@ -71,6 +71,10 @@ func (s *Server) handleRefresh(ctx context.Context, c *app.RequestContext) {
 		OrgID:      org.ID,
 		Provider:   "session",
 		ExternalID: user.ExternalID,
+		Principal:  user.Email,
+		// Refresh keeps the same session row, so the new access token stays
+		// bound to it and remains revokable.
+		SessionID: session.ID,
 	}
 
 	// Create new access JWT.
@@ -190,12 +194,12 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 	var permissions []string
 	role := ""
 	if s.deps.Enforcer != nil {
-		policies, _ := s.deps.Enforcer.GetImplicitPermissionsForUser(claims.Email)
+		policies, _ := s.deps.Enforcer.GetImplicitPermissionsForUser(claims.Principal)
 		seen := make(map[string]bool, len(policies))
 		for _, p := range policies {
-			// p = [sub, ws, env, obj, act]
-			if len(p) >= 5 {
-				key := p[3] + ":" + p[4]
+			// p = [sub, org, ws, env, obj, act]
+			if len(p) >= 6 {
+				key := p[4] + ":" + p[5]
 				if !seen[key] {
 					seen[key] = true
 					permissions = append(permissions, key)
@@ -203,7 +207,7 @@ func (s *Server) handleAuthMe(ctx context.Context, c *app.RequestContext) {
 			}
 		}
 		// Derive role from Casbin grouping policies.
-		if roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Email); len(roles) > 0 {
+		if roles, _ := s.deps.Enforcer.GetRolesForUser(claims.Principal); len(roles) > 0 {
 			role = roles[0]
 		}
 	}

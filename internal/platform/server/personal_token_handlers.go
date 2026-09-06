@@ -7,9 +7,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
+	"github.com/NerdMeNot/flint/internal/platform/auth"
 )
 
 // ── Personal Token Types ─────────────────────────────────────
@@ -82,12 +82,10 @@ func (s *Server) handleCreatePersonalToken(ctx context.Context, c *app.RequestCo
 		return
 	}
 
-	// Hash for storage.
-	hash, err := bcrypt.GenerateFromPassword([]byte(rawToken), bcrypt.DefaultCost)
-	if err != nil {
-		apiInternal(ctx, c, "failed to hash token")
-		return
-	}
+	// Hash for storage. A SHA-256 digest, not a password KDF: the token is 32
+	// bytes of CSPRNG output, so there is nothing to brute-force, and the digest
+	// is what makes authentication a single indexed lookup instead of a scan.
+	hash := auth.HashToken(rawToken)
 
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
@@ -99,7 +97,7 @@ func (s *Server) handleCreatePersonalToken(ctx context.Context, c *app.RequestCo
 	id, err := s.deps.Q.CreatePersonalToken(ctx, db.CreatePersonalTokenParams{
 		UserID:    user.ID,
 		Name:      req.Name,
-		TokenHash: string(hash),
+		TokenHash: hash,
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {

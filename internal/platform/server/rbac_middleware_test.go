@@ -38,10 +38,17 @@ func enforcerServer(t *testing.T, e casbin.IEnforcer) (*Server, *testutil.Mocks)
 
 // sessionFor makes the mock sessions resolve a bearer token to the given email.
 func sessionFor(m *testutil.Mocks, token, email string) {
+	sid := "sess-" + email
 	m.Sessions.On("ValidateSession", token).Return(&auth.Claims{
-		Subject: email, Email: email, OrgID: "org-1", Provider: "oidc",
+		Subject: email, Email: email, OrgID: testOrgID, Provider: "oidc",
+		Principal: email, SessionID: sid,
 	}, nil)
+	liveSession(m, sid)
 }
+
+// testOrgID is the org every test subject belongs to. Policies carry an org
+// dimension, so a test grant and the request checking it have to agree on one.
+const testOrgID = "org-1"
 
 // runScope makes GetRunScope resolve a run to a (workspace, environment) pair.
 func runScope(m *testutil.Mocks, runID, ws, env string) {
@@ -76,7 +83,7 @@ func TestRequirePermission_WorkspaceScope(t *testing.T) {
 	e, err := auth.NewMemoryEnforcer()
 	require.NoError(t, err)
 	// alice may read runs only in workspace "team-a" (any environment).
-	_, err = e.AddPolicy("alice@x.dev", "team-a", "*", auth.ObjRun, auth.ActRead)
+	_, err = e.AddPolicy("alice@x.dev", testOrgID, "team-a", "*", auth.ObjRun, auth.ActRead)
 	require.NoError(t, err)
 
 	srv, m := enforcerServer(t, e)
@@ -96,7 +103,7 @@ func TestRequirePermission_EnvironmentScope(t *testing.T) {
 	e, err := auth.NewMemoryEnforcer()
 	require.NoError(t, err)
 	// bob may read runs only in the "production" environment (any workspace).
-	_, err = e.AddPolicy("bob@x.dev", "*", "production", auth.ObjRun, auth.ActRead)
+	_, err = e.AddPolicy("bob@x.dev", testOrgID, "*", "production", auth.ObjRun, auth.ActRead)
 	require.NoError(t, err)
 
 	srv, m := enforcerServer(t, e)

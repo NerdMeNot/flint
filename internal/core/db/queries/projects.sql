@@ -57,11 +57,16 @@ UPDATE projects SET is_archived = false, updated_at = now() WHERE id = $1;
 
 -- name: ListArchivedProjects :many
 -- Archived projects for the admin Projects page (so they can be restored).
+-- Takes the same RBAC workspace restriction as the live list: this is reached
+-- through GET /projects?archived=true, so a scope-limited caller authorized for
+-- that route must not see rows from workspaces they cannot read. Empty slice =
+-- unrestricted.
 SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
        COALESCE(w.slug, '')::text AS workspace, p.colour, p.created_at
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE p.is_archived = true
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
 ORDER BY COALESCE(p.display_name, p.repo_path);
 
 -- name: GetProjectConfig :one
@@ -146,11 +151,16 @@ FROM projects WHERE id = $1;
 
 -- name: SearchProjects :many
 -- Project search by name / repo for the global ⌘K search.
-SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
-FROM projects
-WHERE org_id = sqlc.arg('org_id') AND is_archived = false
-  AND (display_name ILIKE sqlc.arg('pattern') OR repo_path ILIKE sqlc.arg('pattern'))
-ORDER BY display_name
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path, p.colour
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.org_id = sqlc.arg('org_id') AND p.is_archived = false
+  AND (p.display_name ILIKE sqlc.arg('pattern') OR p.repo_path ILIKE sqlc.arg('pattern'))
+  -- RBAC workspace restriction; empty slice = unrestricted. Search is a
+  -- collection route like any other: it must not surface rows the caller
+  -- cannot open.
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
+ORDER BY p.display_name
 LIMIT 10;
 
 -- name: GetProjectBasic :one

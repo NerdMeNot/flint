@@ -193,6 +193,7 @@ SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path,
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE p.is_archived = true
+  AND (cardinality($1::text[]) = 0 OR w.slug = ANY($1::text[]))
 ORDER BY COALESCE(p.display_name, p.repo_path)
 `
 
@@ -206,8 +207,12 @@ type ListArchivedProjectsRow struct {
 }
 
 // Archived projects for the admin Projects page (so they can be restored).
-func (q *Queries) ListArchivedProjects(ctx context.Context) ([]ListArchivedProjectsRow, error) {
-	rows, err := q.db.Query(ctx, listArchivedProjects)
+// Takes the same RBAC workspace restriction as the live list: this is reached
+// through GET /projects?archived=true, so a scope-limited caller authorized for
+// that route must not see rows from workspaces they cannot read. Empty slice =
+// unrestricted.
+func (q *Queries) ListArchivedProjects(ctx context.Context, workspaces []string) ([]ListArchivedProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listArchivedProjects, workspaces)
 	if err != nil {
 		return nil, err
 	}
@@ -448,17 +453,23 @@ func (q *Queries) RestoreProject(ctx context.Context, id string) error {
 }
 
 const searchProjects = `-- name: SearchProjects :many
-SELECT id, COALESCE(display_name, repo_path)::text AS name, repo_path, colour
-FROM projects
-WHERE org_id = $1 AND is_archived = false
-  AND (display_name ILIKE $2 OR repo_path ILIKE $2)
-ORDER BY display_name
+SELECT p.id, COALESCE(p.display_name, p.repo_path)::text AS name, p.repo_path, p.colour
+FROM projects p
+LEFT JOIN workspaces w ON w.id = p.workspace_id
+WHERE p.org_id = $1 AND p.is_archived = false
+  AND (p.display_name ILIKE $2 OR p.repo_path ILIKE $2)
+  -- RBAC workspace restriction; empty slice = unrestricted. Search is a
+  -- collection route like any other: it must not surface rows the caller
+  -- cannot open.
+  AND (cardinality($3::text[]) = 0 OR w.slug = ANY($3::text[]))
+ORDER BY p.display_name
 LIMIT 10
 `
 
 type SearchProjectsParams struct {
-	OrgID   string  `json:"org_id"`
-	Pattern *string `json:"pattern"`
+	OrgID      string   `json:"org_id"`
+	Pattern    *string  `json:"pattern"`
+	Workspaces []string `json:"workspaces"`
 }
 
 type SearchProjectsRow struct {
@@ -470,7 +481,7 @@ type SearchProjectsRow struct {
 
 // Project search by name / repo for the global ⌘K search.
 func (q *Queries) SearchProjects(ctx context.Context, arg SearchProjectsParams) ([]SearchProjectsRow, error) {
-	rows, err := q.db.Query(ctx, searchProjects, arg.OrgID, arg.Pattern)
+	rows, err := q.db.Query(ctx, searchProjects, arg.OrgID, arg.Pattern, arg.Workspaces)
 	if err != nil {
 		return nil, err
 	}

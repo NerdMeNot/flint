@@ -465,4 +465,10 @@ func (s *Server) regenSubject(ctx context.Context, email string) {
 	if err := auth.RegenerateForSubject(ctx, s.deps.Q, s.deps.DB, s.deps.Enforcer, email); err != nil {
 		logErr(ctx, err, "scim: policy regen")
 	}
+	// Group membership drives grouping rules, and SCIM's whole job is to push
+	// group changes. Regenerating only the subject's own policies left every
+	// role granted to a "team:<slug>" subject stale.
+	if err := auth.RegenerateGroupingForUser(ctx, s.deps.DB, s.deps.Enforcer, email); err != nil {
+		logErr(ctx, err, "scim: grouping regen")
+	}
 }

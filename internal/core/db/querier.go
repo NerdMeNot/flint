@@ -255,6 +255,11 @@ type Querier interface {
 	// accumulated in-process, where it would drift across restarts and replicas.
 	// Terminal machines are excluded: they cost nothing and would grow forever.
 	FleetInventory(ctx context.Context) ([]FleetInventoryRow, error)
+	// Authenticate a presented API key by the SHA-256 digest of its raw value.
+	// API keys are high-entropy random strings, so a digest plus the unique index
+	// is the right primitive: one indexed lookup instead of bcrypt-comparing every
+	// key in the table on every request.
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (GetAPIKeyByHashRow, error)
 	GetActiveWebhooksForEvent(ctx context.Context, arg GetActiveWebhooksForEventParams) ([]GetActiveWebhooksForEventRow, error)
 	GetAssignment(ctx context.Context, id string) (StepAssignment, error)
 	GetAuthProviderConfig(ctx context.Context, providerType string) (AuthProviderConfig, error)
@@ -297,6 +302,10 @@ type Querier interface {
 	GetOrg(ctx context.Context) (GetOrgRow, error)
 	GetOrgConcurrencyLimit(ctx context.Context, id string) (int32, error)
 	GetOriginalRunParams(ctx context.Context, id string) (GetOriginalRunParamsRow, error)
+	// Authenticate a presented personal access token by the SHA-256 digest of its
+	// raw value — one indexed lookup, not a bcrypt scan of every live token.
+	// Deactivated owners are filtered here so a PAT dies with its user.
+	GetPersonalTokenByHash(ctx context.Context, tokenHash string) (GetPersonalTokenByHashRow, error)
 	// Registration path for static-pool agents presenting a join token.
 	GetPoolByJoinTokenHash(ctx context.Context, joinTokenHash *string) (GetPoolByJoinTokenHashRow, error)
 	GetProject(ctx context.Context, id string) (GetProjectRow, error)
@@ -336,6 +345,11 @@ type Querier interface {
 	// agent secret-injection path; decrypted server-side before being returned.
 	GetSecretEnvVarValue(ctx context.Context, arg GetSecretEnvVarValueParams) ([]byte, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
+	// Per-request liveness check for the session a JWT's `sid` names. A JWT is
+	// self-validating and therefore unrevokable on its own: without this, logout,
+	// OIDC back-channel logout and IdP deprovisioning all set revoked_at while the
+	// access token kept working until it expired.
+	GetSessionForAuth(ctx context.Context, id string) (GetSessionForAuthRow, error)
 	GetStepByWorkflowAndName(ctx context.Context, arg GetStepByWorkflowAndNameParams) (GetStepByWorkflowAndNameRow, error)
 	GetStepStatus(ctx context.Context, arg GetStepStatusParams) (string, error)
 	GetTeam(ctx context.Context, id string) (GetTeamRow, error)
@@ -441,7 +455,11 @@ type Querier interface {
 	ListAllRoleAssignmentsWithRole(ctx context.Context) ([]ListAllRoleAssignmentsWithRoleRow, error)
 	ListAllSecrets(ctx context.Context) ([]ListAllSecretsRow, error)
 	// Archived projects for the admin Projects page (so they can be restored).
-	ListArchivedProjects(ctx context.Context) ([]ListArchivedProjectsRow, error)
+	// Takes the same RBAC workspace restriction as the live list: this is reached
+	// through GET /projects?archived=true, so a scope-limited caller authorized for
+	// that route must not see rows from workspaces they cannot read. Empty slice =
+	// unrestricted.
+	ListArchivedProjects(ctx context.Context, workspaces []string) ([]ListArchivedProjectsRow, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListAuthProviderConfigNames(ctx context.Context) ([]ListAuthProviderConfigNamesRow, error)
 	ListCancelRequestedForMachine(ctx context.Context, machineID *string) ([]ListCancelRequestedForMachineRow, error)
@@ -461,7 +479,7 @@ type Querier interface {
 	// Gate steps enriched with run/project/workspace context, filtered by step status
 	// (the handler maps UI status names: pending→waiting, approved→succeeded,
 	// rejected→failed). Powers GET /api/v1/gates.
-	ListGatesByStatus(ctx context.Context, status string) ([]ListGatesByStatusRow, error)
+	ListGatesByStatus(ctx context.Context, arg ListGatesByStatusParams) ([]ListGatesByStatusRow, error)
 	ListIdpRoleAssignmentRoleIDs(ctx context.Context, subject string) ([]string, error)
 	ListMachineEvents(ctx context.Context, arg ListMachineEventsParams) ([]MachineEvent, error)
 	ListMachinePoolNames(ctx context.Context) ([]string, error)
@@ -529,10 +547,6 @@ type Querier interface {
 	ListUserTeamIDs(ctx context.Context, userID string) ([]string, error)
 	ListUserTeams(ctx context.Context, userID string) ([]ListUserTeamsRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
-	ListValidAPIKeys(ctx context.Context) ([]ListValidAPIKeysRow, error)
-	// All non-expired personal tokens with their owner, for bearer-token auth
-	// (the caller bcrypt-compares each hash).
-	ListValidPersonalTokensWithUser(ctx context.Context) ([]ListValidPersonalTokensWithUserRow, error)
 	// Lists an org's workflow runs (kind = 'workflow'), newest first, with keyset
 	// pagination. The cursor is (started_at, id); an empty cursor returns the first
 	// page. Project-joining run queries can't serve these — workflow runs have no

@@ -43,7 +43,7 @@ func RunIdPSync(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// Casbin enforcer for policy regeneration after group sync.
-	enforcer, err := auth.NewEnforcer(pool)
+	enforcer, err := auth.NewEnforcer(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("creating casbin enforcer: %w", err)
 	}

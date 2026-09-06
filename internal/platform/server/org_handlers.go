@@ -85,7 +85,7 @@ func (s *Server) handleStats(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
+func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext, scope WorkspaceScope) {
 	q := string(c.Query("q"))
 	if q == "" {
 		c.JSON(consts.StatusOK, utils.H{"projects": []any{}, "runs": []any{}})
@@ -95,15 +95,28 @@ func (s *Server) handleSearch(ctx context.Context, c *app.RequestContext) {
 	claims := claimsFromCtx(ctx)
 	pattern := "%" + q + "%"
 
+	// Search spans the same rows the list routes serve, so it takes the same
+	// restriction: a scope-limited caller must not be able to discover projects
+	// and runs through search that the lists would hide.
+	if scope.Empty(nil) {
+		c.JSON(consts.StatusOK, utils.H{"projects": []any{}, "runs": []any{}})
+		return
+	}
+	permitted := scope.Filter(nil)
+
 	projects := []utils.H{}
-	if rows, err := s.deps.Q.SearchProjects(ctx, db.SearchProjectsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+	if rows, err := s.deps.Q.SearchProjects(ctx, db.SearchProjectsParams{
+		OrgID: claims.OrgID, Pattern: &pattern, Workspaces: permitted,
+	}); err == nil {
 		for _, p := range rows {
 			projects = append(projects, utils.H{"id": p.ID, "name": p.Name, "repo": p.RepoPath, "colour": p.Colour})
 		}
 	}
 
 	runs := []utils.H{}
-	if rows, err := s.deps.Q.SearchRuns(ctx, db.SearchRunsParams{OrgID: claims.OrgID, Pattern: &pattern}); err == nil {
+	if rows, err := s.deps.Q.SearchRuns(ctx, db.SearchRunsParams{
+		OrgID: claims.OrgID, Pattern: &pattern, Workspaces: permitted,
+	}); err == nil {
 		for _, r := range rows {
 			h := utils.H{"id": r.ID, "status": r.Status, "projectName": r.ProjectName, "projectColour": r.ProjectColour}
 			if r.Branch != nil {

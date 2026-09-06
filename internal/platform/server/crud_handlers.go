@@ -2,12 +2,12 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/NerdMeNot/flint/internal/core/db"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -142,20 +142,47 @@ func (s *Server) handleAddTeamMembers(ctx context.Context, c *app.RequestContext
 			apiInternal(ctx, c, "failed to add team member")
 			return
 		}
+		if err := s.syncUserGrouping(ctx, uid); err != nil {
+			apiInternal(ctx, c, "failed to apply team permissions")
+			return
+		}
 	}
 	c.JSON(consts.StatusOK, utils.H{"success": true, "added": len(req.UserIDs)})
 }
 
 // handleRemoveTeamMember removes a single user from a team.
 func (s *Server) handleRemoveTeamMember(ctx context.Context, c *app.RequestContext) {
+	userID := c.Param("userId")
 	n, err := s.deps.Q.RemoveTeamMember(ctx, db.RemoveTeamMemberParams{
-		TeamID: c.Param("id"), UserID: c.Param("userId"),
+		TeamID: c.Param("id"), UserID: userID,
 	})
 	if err != nil || n == 0 {
 		apiNotFound(ctx, c, "team member not found")
 		return
 	}
+	// A failed regeneration here leaves the user holding the team's permissions
+	// after being removed from it, so it is reported rather than logged: the
+	// caller asked for access to be taken away and it has not been.
+	if err := s.syncUserGrouping(ctx, userID); err != nil {
+		apiInternal(ctx, c, "removed from team, but revoking its permissions failed")
+		return
+	}
 	c.JSON(consts.StatusOK, utils.H{"success": true})
+}
+
+// syncUserGrouping rewrites the Casbin grouping rules for a user after their
+// team membership changed. Roles can be granted to a "team:<slug>" subject, so
+// without this a membership change had no effect on authorization until the
+// next process restart.
+func (s *Server) syncUserGrouping(ctx context.Context, userID string) error {
+	if s.deps.Enforcer == nil || s.deps.Q == nil {
+		return nil
+	}
+	user, err := s.deps.Q.GetUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("looking up user %s: %w", userID, err)
+	}
+	return auth.RegenerateGroupingForUser(ctx, s.deps.DB, s.deps.Enforcer, user.Email)
 }
 
 // ── Users ─────────────────────────────────────────────────
@@ -352,11 +379,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, c *app.RequestContext) 
 	}
 
 	rawKey := "flint_k_" + generateSecureCode(24)
-	hash, err := bcrypt.GenerateFromPassword([]byte(rawKey), bcrypt.DefaultCost)
-	if err != nil {
-		apiInternal(ctx, c, "failed to hash key")
-		return
-	}
+	// SHA-256, not bcrypt — see handleCreatePersonalToken. The digest is also
+	// what the auth path looks the key up by.
+	hash := auth.HashToken(rawKey)
 
 	claims := claimsFromCtx(ctx)
 
@@ -365,7 +390,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, c *app.RequestContext) 
 		OrgID:   claims.OrgID,
 		UserID:  &claims.Subject,
 		Name:    req.Name,
-		KeyHash: string(hash),
+		KeyHash: hash,
 		Scopes:  []string{},
 	})
 	if err != nil {

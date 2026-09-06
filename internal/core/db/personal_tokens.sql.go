@@ -44,6 +44,41 @@ func (q *Queries) DeletePersonalToken(ctx context.Context, id string) error {
 	return err
 }
 
+const getPersonalTokenByHash = `-- name: GetPersonalTokenByHash :one
+SELECT pt.id, pt.user_id, pt.expires_at,
+       u.email, u.org_id, COALESCE(u.name, '')::text AS name
+FROM personal_tokens pt JOIN users u ON u.id = pt.user_id
+WHERE pt.token_hash = $1
+  AND (pt.expires_at IS NULL OR pt.expires_at > now())
+  AND u.is_active
+`
+
+type GetPersonalTokenByHashRow struct {
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	Email     string     `json:"email"`
+	OrgID     string     `json:"org_id"`
+	Name      string     `json:"name"`
+}
+
+// Authenticate a presented personal access token by the SHA-256 digest of its
+// raw value — one indexed lookup, not a bcrypt scan of every live token.
+// Deactivated owners are filtered here so a PAT dies with its user.
+func (q *Queries) GetPersonalTokenByHash(ctx context.Context, tokenHash string) (GetPersonalTokenByHashRow, error) {
+	row := q.db.QueryRow(ctx, getPersonalTokenByHash, tokenHash)
+	var i GetPersonalTokenByHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.Email,
+		&i.OrgID,
+		&i.Name,
+	)
+	return i, err
+}
+
 const listPersonalTokensByUser = `-- name: ListPersonalTokensByUser :many
 SELECT id, name, expires_at, last_used_at, created_at
 FROM personal_tokens WHERE user_id = $1
@@ -73,53 +108,6 @@ func (q *Queries) ListPersonalTokensByUser(ctx context.Context, userID string) (
 			&i.ExpiresAt,
 			&i.LastUsedAt,
 			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listValidPersonalTokensWithUser = `-- name: ListValidPersonalTokensWithUser :many
-SELECT pt.id, pt.user_id, pt.token_hash, pt.expires_at,
-       u.email, u.org_id, COALESCE(u.name, '')::text AS name
-FROM personal_tokens pt JOIN users u ON u.id = pt.user_id
-WHERE pt.expires_at IS NULL OR pt.expires_at > now()
-`
-
-type ListValidPersonalTokensWithUserRow struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"user_id"`
-	TokenHash string     `json:"token_hash"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	Email     string     `json:"email"`
-	OrgID     string     `json:"org_id"`
-	Name      string     `json:"name"`
-}
-
-// All non-expired personal tokens with their owner, for bearer-token auth
-// (the caller bcrypt-compares each hash).
-func (q *Queries) ListValidPersonalTokensWithUser(ctx context.Context) ([]ListValidPersonalTokensWithUserRow, error) {
-	rows, err := q.db.Query(ctx, listValidPersonalTokensWithUser)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListValidPersonalTokensWithUserRow{}
-	for rows.Next() {
-		var i ListValidPersonalTokensWithUserRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.TokenHash,
-			&i.ExpiresAt,
-			&i.Email,
-			&i.OrgID,
-			&i.Name,
 		); err != nil {
 			return nil, err
 		}

@@ -7,6 +7,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"github.com/NerdMeNot/flint/internal/core/db"
 )
 
 // ── Response types ────────────────────────────────────────────
@@ -29,7 +31,7 @@ type gateResponse struct {
 
 // ── Handlers ──────────────────────────────────────────────────
 
-func (s *Server) handleListGates(ctx context.Context, c *app.RequestContext) {
+func (s *Server) handleListGates(ctx context.Context, c *app.RequestContext, scope WorkspaceScope) {
 	// Map the UI status filter to the DB step status; default to waiting (pending).
 	var dbStatus string
 	switch queryString(c, "status") {
@@ -43,7 +45,17 @@ func (s *Server) handleListGates(ctx context.Context, c *app.RequestContext) {
 		dbStatus = queryString(c, "status")
 	}
 
-	rows, err := s.deps.Q.ListGatesByStatus(ctx, dbStatus)
+	// A gate is an action on a run, so the list is narrowed to the workspaces
+	// the caller can read runs in.
+	if scope.Empty(nil) {
+		c.JSON(consts.StatusOK, utils.H{"items": []gateResponse{}})
+		return
+	}
+
+	rows, err := s.deps.Q.ListGatesByStatus(ctx, db.ListGatesByStatusParams{
+		Status:     dbStatus,
+		Workspaces: scope.Filter(nil),
+	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list gates")
 		return

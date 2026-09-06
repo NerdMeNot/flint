@@ -213,7 +213,7 @@ func ensureAdmin(ctx context.Context, q *db.Queries, pool db.Pool, orgID string)
 	}); err != nil {
 		return err
 	}
-	enforcer, err := auth.NewEnforcer(pool)
+	enforcer, err := auth.NewEnforcer(ctx, pool)
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func seedAccessControl(ctx context.Context, q *db.Queries, pool db.Pool, orgID s
 	}
 
 	// Rebuild Casbin policy from the new assignments.
-	if enforcer, err := auth.NewEnforcer(pool); err == nil {
+	if enforcer, err := auth.NewEnforcer(ctx, pool); err == nil {
 		_ = auth.RegeneratePolicies(ctx, q, pool, enforcer)
 	}
 	return nil

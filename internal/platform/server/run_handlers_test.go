@@ -28,18 +28,36 @@ func authHeaders() []ut.Header {
 // testClaims returns standard test claims for an authenticated user.
 func testClaims() *auth.Claims {
 	return &auth.Claims{
-		Subject:  "user-1",
-		Email:    "test@example.com",
-		Name:     "Test User",
-		OrgID:    "org-1",
-		Provider: "oidc",
+		Subject:   "user-1",
+		Email:     "test@example.com",
+		Name:      "Test User",
+		OrgID:     "org-1",
+		Provider:  "oidc",
+		Principal: "test@example.com",
+		SessionID: "sess-1",
 	}
 }
 
-// setupAuth configures the mock sessions to accept "test-jwt-token".
+// setupAuth configures the mock sessions to accept "test-jwt-token" and makes
+// the session it names look live.
 func setupAuth(m *testutil.Mocks) {
 	m.Sessions.On("ValidateSession", "test-jwt-token").
 		Return(testClaims(), nil)
+	liveSession(m, "sess-1")
+}
+
+// liveSession makes the per-request revocation check pass for a session id.
+// Requests are now bound to a sessions row, so a test that authenticates has to
+// have one — that binding is what makes revocation work at all.
+func liveSession(m *testutil.Mocks, sessionID string) {
+	m.Querier.On("GetSessionForAuth", mock.Anything, sessionID).
+		Return(db.GetSessionForAuthRow{
+			ID:            sessionID,
+			UserID:        "user-1",
+			ExpiresAt:     time.Now().Add(24 * time.Hour),
+			IdleExpiresAt: time.Now().Add(time.Hour),
+			IsActive:      true,
+		}, nil).Maybe()
 }
 
 // ── GET /api/v1/runs/:id/steps ──────────────────────────────

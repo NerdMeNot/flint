@@ -186,6 +186,13 @@ func syncSession(ctx context.Context, q *db.Queries, pool db.Pool,
 		if err := RegenerateForSubject(ctx, q, pool, enforcer, sess.Email); err != nil {
 			log.Warn().Err(err).Str("user", sess.Email).Msg("idpsync: policy regen failed")
 		}
+
+		// syncTeams above may have added or removed IdP-sourced memberships;
+		// grouping rules have to follow or a role granted to a team subject
+		// stays applied to someone who just left that group.
+		if err := RegenerateGroupingForUser(ctx, pool, enforcer, sess.Email); err != nil {
+			log.Warn().Err(err).Str("user", sess.Email).Msg("idpsync: grouping regen failed")
+		}
 	}
 
 	return nil

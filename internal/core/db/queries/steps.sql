@@ -321,6 +321,8 @@ JOIN pipeline_runs pr ON wf.run_id = pr.id
 JOIN projects p ON pr.project_id = p.id
 LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE s.exec_type = 'gate' AND s.status = sqlc.arg('status')
+  -- RBAC workspace restriction; empty slice = unrestricted.
+  AND (cardinality(@workspaces::text[]) = 0 OR w.slug = ANY(@workspaces::text[]))
 ORDER BY s.created_at ASC LIMIT 50;
 
 -- name: QueueStats :one

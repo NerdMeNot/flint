@@ -369,7 +369,7 @@ func isReservedSignalName(name string) bool {
 	return name == "step-result" || strings.HasPrefix(name, "gate-")
 }
 
-func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
+func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext, scope WorkspaceScope) {
 	projectID := string(c.Query("projectId"))
 	status := string(c.Query("status"))
 	p := parsePagination(c)
@@ -382,12 +382,20 @@ func (s *Server) handleListRuns(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	// RBAC scope: when the caller only holds run:read in some workspaces, the
+	// query is narrowed to that set.
+	if scope.Empty(nil) {
+		paginatedResponse(c, []runResponse{}, PaginationResponse{})
+		return
+	}
+
 	rows, err := s.deps.Q.ListRunsFiltered(ctx, db.ListRunsFilteredParams{
-		ProjectID: projectID,
-		Status:    status,
-		CursorTs:  cursorTs,
-		CursorID:  cursorID,
-		Lim:       int32(p.Limit + 1),
+		ProjectID:  projectID,
+		Status:     status,
+		Workspaces: scope.Filter(nil),
+		CursorTs:   cursorTs,
+		CursorID:   cursorID,
+		Lim:        int32(p.Limit + 1),
 	})
 	if err != nil {
 		apiInternal(ctx, c, "failed to list runs")

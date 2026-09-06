@@ -10,9 +10,14 @@ VALUES ($1, $2, $3, $4, $5) RETURNING id;
 -- name: DeleteAPIKey :execrows
 DELETE FROM api_keys WHERE id = $1;
 
--- name: ListValidAPIKeys :many
-SELECT id, org_id, user_id, name, key_hash, scopes
-FROM api_keys WHERE (expires_at IS NULL OR expires_at > now());
+-- name: GetAPIKeyByHash :one
+-- Authenticate a presented API key by the SHA-256 digest of its raw value.
+-- API keys are high-entropy random strings, so a digest plus the unique index
+-- is the right primitive: one indexed lookup instead of bcrypt-comparing every
+-- key in the table on every request.
+SELECT id, org_id, user_id, name, scopes
+FROM api_keys
+WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > now());
 
 -- name: TouchAPIKey :exec
 UPDATE api_keys SET last_used_at = now() WHERE id = $1;

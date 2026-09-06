@@ -17,6 +17,7 @@ import (
 // including its permissions and scope.
 type RoleWithScope struct {
 	ID           string
+	OrgID        string
 	Slug         string
 	IsSystem     bool
 	Permissions  []Permission
@@ -61,7 +62,10 @@ func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforce
 		return fmt.Errorf("loading api keys: %w", err)
 	}
 
-	// Clear all existing policies.
+	// Clear all existing policies. This is the one place a full rewrite is
+	// correct: it runs at boot, from the same DB tables every replica derives
+	// from, so the result is deterministic rather than one replica's private
+	// view. SavePolicy below is what makes the DELETE durable.
 	enforcer.ClearPolicy()
 
 	// Generate policies for each assignment.
@@ -104,6 +108,89 @@ func RegeneratePolicies(ctx context.Context, q db.Querier, pool db.Pool, enforce
 	return nil
 }
 
+// RegenerateGroupingForUser makes the Casbin grouping rules for one user match
+// their current team membership.
+//
+// Grouping rules used to be written only by RegeneratePolicies at boot, so
+// every runtime membership change — the teams API, SCIM group updates, IdP
+// group sync — left them stale. Roles can be assigned to a "team:<slug>"
+// subject, so that meant a user added to a privileged team gained nothing until
+// the next restart and, worse, a user removed from one kept everything.
+func RegenerateGroupingForUser(ctx context.Context, pool db.Pool, enforcer casbin.IEnforcer, userEmail string) error {
+	if userEmail == "" {
+		return nil
+	}
+
+	desired, err := loadTeamSubjectsForUser(ctx, pool, userEmail)
+	if err != nil {
+		return fmt.Errorf("loading teams for %s: %w", userEmail, err)
+	}
+	return applyGroupingForUser(enforcer, userEmail, desired)
+}
+
+// applyGroupingForUser reconciles a user's grouping rules against the team
+// subjects they should now hold. Split out from the DB read so the diff — the
+// part that can actually be wrong — is testable without a live Postgres.
+func applyGroupingForUser(enforcer casbin.IEnforcer, userEmail string, desired []string) error {
+	current, err := enforcer.GetRolesForUser(userEmail)
+	if err != nil {
+		return fmt.Errorf("listing current groups for %s: %w", userEmail, err)
+	}
+
+	desiredSet := make(map[string]bool, len(desired))
+	for _, t := range desired {
+		desiredSet[t] = true
+	}
+	currentSet := make(map[string]bool, len(current))
+	for _, t := range current {
+		currentSet[t] = true
+	}
+
+	for _, t := range desired {
+		if currentSet[t] {
+			continue
+		}
+		if _, err := enforcer.AddGroupingPolicy(userEmail, t); err != nil {
+			return fmt.Errorf("adding %s to %s: %w", userEmail, t, err)
+		}
+	}
+	// A dropped removal is a permission the user silently keeps, so this error
+	// is not swallowed either.
+	for _, t := range current {
+		if desiredSet[t] {
+			continue
+		}
+		if _, err := enforcer.RemoveGroupingPolicy(userEmail, t); err != nil {
+			return fmt.Errorf("removing %s from %s: %w", userEmail, t, err)
+		}
+	}
+
+	return nil
+}
+
+func loadTeamSubjectsForUser(ctx context.Context, pool db.Pool, userEmail string) ([]string, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT 'team:' || t.slug
+		 FROM team_members tm
+		 JOIN teams t ON t.id = tm.team_id
+		 JOIN users u ON u.id = tm.user_id
+		 WHERE lower(u.email) = lower($1)`, userEmail)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var teams []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		teams = append(teams, s)
+	}
+	return teams, rows.Err()
+}
+
 // RegenerateForSubject rebuilds Casbin policies for a single subject.
 // Called when an assignment is created or deleted.
 func RegenerateForSubject(ctx context.Context, q db.Querier, pool db.Pool, enforcer casbin.IEnforcer, subject string) error {
@@ -130,7 +217,13 @@ func RegenerateForSubject(ctx context.Context, q db.Querier, pool db.Pool, enfor
 		}
 	}
 
-	return enforcer.SavePolicy()
+	// No SavePolicy here. Autosave has already written each rule through
+	// individually; SavePolicy would additionally DELETE every row in
+	// casbin_rules and reinsert this replica's in-memory snapshot, discarding
+	// anything a peer wrote since this process booted. Since this runs on every
+	// SSO login, that turned a routine login on one replica into silent
+	// revocation for users granted access on another.
+	return nil
 }
 
 // RegenerateForRole rebuilds Casbin policies for all subjects
@@ -162,17 +255,25 @@ func RegenerateForRole(ctx context.Context, q db.Querier, pool db.Pool, enforcer
 // kind of failure that must be loud.
 func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWithScope) error {
 	expanded := ExpandImplications(role.Permissions)
+	org, err := policyOrg(role.OrgID)
+	if err != nil {
+		return fmt.Errorf("subject %s, role %s: %w", subject, role.Slug, err)
+	}
 
 	if IsWildcard(role.Permissions) {
-		// Wildcard role: full access everywhere.
-		_, err := enforcer.AddPolicy(subject, "*", "*", "*", "*")
+		// Wildcard role: full access everywhere in its org.
+		_, err := enforcer.AddPolicy(subject, org, "*", "*", "*", "*")
 		return err
 	}
 
 	for _, perm := range expanded {
 		if IsAdminObject(perm.Object) {
-			// Admin permissions: always platform-wide.
-			if _, err := enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action); err != nil {
+			// Admin permissions: platform-wide within the org. The resources
+			// behind them (runners, connections, secrets, roles) carry no
+			// workspace column, so there is nothing to scope against — see
+			// ValidateRoleScope, which refuses to create a role that implies
+			// otherwise.
+			if _, err := enforcer.AddPolicy(subject, org, "*", "*", perm.Object, perm.Action); err != nil {
 				return err
 			}
 		} else if IsCIObject(perm.Object) {
@@ -188,7 +289,7 @@ func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWit
 
 			for _, ws := range workspaces {
 				for _, env := range environments {
-					if _, err := enforcer.AddPolicy(subject, ws, env, perm.Object, perm.Action); err != nil {
+					if _, err := enforcer.AddPolicy(subject, org, ws, env, perm.Object, perm.Action); err != nil {
 						return err
 					}
 				}
@@ -196,6 +297,20 @@ func addSubjectPolicies(enforcer casbin.IEnforcer, subject string, role *RoleWit
 		}
 	}
 	return nil
+}
+
+// policyOrg maps a role's org to the policy's org field.
+//
+// An empty org id is a programming error — roles.org_id is NOT NULL — so it is
+// reported rather than substituted. This used to return "*", which turned a
+// malformed grant into a grant valid in *every* org: the one place in the authz
+// path that failed open, and the failure would have been invisible precisely
+// because the resulting policy matches more than intended, not less.
+func policyOrg(orgID string) (string, error) {
+	if orgID == "" {
+		return "", fmt.Errorf("role has no org id: refusing to generate a policy that would match every org")
+	}
+	return orgID, nil
 }
 
 // APIKeyWithScope holds an API key's role and optional scope restriction.
@@ -209,8 +324,12 @@ type APIKeyWithScope struct {
 // addAPIKeyPolicies generates Casbin p rules for an API key.
 // The effective scope is the intersection of the role's scope and the key's restriction.
 func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *RoleWithScope) error {
-	subject := "apikey:" + key.ID
+	subject := APIKeyPrincipal(key.ID)
 	expanded := ExpandImplications(role.Permissions)
+	org, err := policyOrg(role.OrgID)
+	if err != nil {
+		return fmt.Errorf("api key %s, role %s: %w", key.ID, role.Slug, err)
+	}
 
 	if IsWildcard(role.Permissions) {
 		// Even wildcard roles can be restricted by the key.
@@ -224,7 +343,7 @@ func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *Rol
 		}
 		for _, w := range ws {
 			for _, e := range env {
-				if _, err := enforcer.AddPolicy(subject, w, e, "*", "*"); err != nil {
+				if _, err := enforcer.AddPolicy(subject, org, w, e, "*", "*"); err != nil {
 					return err
 				}
 			}
@@ -234,7 +353,7 @@ func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *Rol
 
 	for _, perm := range expanded {
 		if IsAdminObject(perm.Object) {
-			if _, err := enforcer.AddPolicy(subject, "*", "*", perm.Object, perm.Action); err != nil {
+			if _, err := enforcer.AddPolicy(subject, org, "*", "*", perm.Object, perm.Action); err != nil {
 				return err
 			}
 		} else if IsCIObject(perm.Object) {
@@ -251,7 +370,7 @@ func addAPIKeyPolicies(enforcer casbin.IEnforcer, key APIKeyWithScope, role *Rol
 
 			for _, w := range ws {
 				for _, e := range env {
-					if _, err := enforcer.AddPolicy(subject, w, e, perm.Object, perm.Action); err != nil {
+					if _, err := enforcer.AddPolicy(subject, org, w, e, perm.Object, perm.Action); err != nil {
 						return err
 					}
 				}
@@ -293,7 +412,7 @@ func intersectScope(roleScope, keyRestriction []string) []string {
 func loadAllRolesWithScope(ctx context.Context, q db.Querier, pool db.Pool) ([]RoleWithScope, error) {
 	// The roles table itself is not covered by scope queries; use raw pgx.
 	rows, err := pool.Query(ctx, `
-		SELECT r.id, r.slug, r.is_system
+		SELECT r.id, r.org_id, r.slug, r.is_system
 		FROM roles r
 		ORDER BY r.slug`)
 	if err != nil {
@@ -304,7 +423,7 @@ func loadAllRolesWithScope(ctx context.Context, q db.Querier, pool db.Pool) ([]R
 	var roles []RoleWithScope
 	for rows.Next() {
 		var r RoleWithScope
-		if err := rows.Scan(&r.ID, &r.Slug, &r.IsSystem); err != nil {
+		if err := rows.Scan(&r.ID, &r.OrgID, &r.Slug, &r.IsSystem); err != nil {
 			return nil, err
 		}
 		roles = append(roles, r)
@@ -335,8 +454,8 @@ func loadRoleWithScope(ctx context.Context, q db.Querier, pool db.Pool, roleID s
 	// The roles table itself is not covered by scope queries; use raw pgx.
 	var r RoleWithScope
 	err := pool.QueryRow(ctx,
-		`SELECT id, slug, is_system FROM roles WHERE id = $1`, roleID,
-	).Scan(&r.ID, &r.Slug, &r.IsSystem)
+		`SELECT id, org_id, slug, is_system FROM roles WHERE id = $1`, roleID,
+	).Scan(&r.ID, &r.OrgID, &r.Slug, &r.IsSystem)
 	if err != nil {
 		return nil, err
 	}

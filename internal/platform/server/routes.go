@@ -22,7 +22,7 @@ func (s *Server) registerAPIRoutes() {
 	// Stats (replaces dashboard).
 	v1.GET("/stats", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleStats)
 	v1.GET("/queue", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.handleQueueStats)
-	v1.GET("/search", s.requirePermission(auth.ObjProject, auth.ActRead), s.handleSearch)
+	v1.GET("/search", s.requireAnyScope(auth.ObjProject, auth.ActRead, s.handleSearch))
 
 	// Org.
 	v1.GET("/org", s.requirePermission(auth.ObjWorkspace, auth.ActRead), s.getOrg)
@@ -31,7 +31,7 @@ func (s *Server) registerAPIRoutes() {
 	// CI product routes — gated by products.ci.enabled (default on).
 	if s.deps.Config.Products.CIEnabled() {
 		// Projects.
-		v1.GET("/projects", s.requirePermission(auth.ObjProject, auth.ActRead), s.listProjects)
+		v1.GET("/projects", s.requireAnyScope(auth.ObjProject, auth.ActRead, s.listProjects))
 		v1.POST("/projects", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleCreateProject)
 		v1.GET("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActRead), s.getProject)
 		v1.PATCH("/projects/:id", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleUpdateProject)
@@ -44,7 +44,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.DELETE("/projects/:id/webhooks/:webhook", s.requirePermission(auth.ObjProject, auth.ActWrite), s.handleDeleteWebhook)
 
 		// Runs (global list + per-run operations).
-		v1.GET("/runs", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListRuns)
+		v1.GET("/runs", s.requireAnyScope(auth.ObjRun, auth.ActRead, s.handleListRuns))
 		v1.GET("/runs/:id", s.requirePermission(auth.ObjRun, auth.ActRead), s.getRun)
 		v1.POST("/runs", s.requirePermission(auth.ObjRun, auth.ActTrigger), s.triggerRun)
 		v1.GET("/runs/:id/steps", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleGetRunSteps)
@@ -64,7 +64,7 @@ func (s *Server) registerAPIRoutes() {
 		v1.POST("/runs/:id/steps/:step/resolve", s.requirePermission(auth.ObjRun, auth.ActCancel), s.handleResolveStep)
 
 		// Gates.
-		v1.GET("/gates", s.requirePermission(auth.ObjRun, auth.ActRead), s.handleListGates)
+		v1.GET("/gates", s.requireAnyScope(auth.ObjRun, auth.ActRead, s.handleListGates))
 		v1.POST("/runs/:id/gates/:step/approve", s.requirePermission(auth.ObjGate, auth.ActApprove), s.handleApproveGate)
 		v1.POST("/runs/:id/gates/:step/reject", s.requirePermission(auth.ObjGate, auth.ActReject), s.handleRejectGate)
 

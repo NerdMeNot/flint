@@ -50,6 +50,12 @@ func SyncUserOnLogin(ctx context.Context, q db.Querier, pool db.Pool, enforcer c
 		return "", fmt.Errorf("regenerating policies: %w", err)
 	}
 
+	// 6. Regenerate grouping rules — step 2 may have changed which teams the
+	// user belongs to, and roles can be granted to a team subject.
+	if err := RegenerateGroupingForUser(ctx, pool, enforcer, claims.Email); err != nil {
+		return "", fmt.Errorf("regenerating grouping: %w", err)
+	}
+
 	return userID, nil
 }
 

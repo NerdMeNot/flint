@@ -24,6 +24,10 @@ type flintClaims struct {
 	Groups     []string `json:"groups,omitempty"`
 	ExternalID string   `json:"external_id"`
 	Provider   string   `json:"provider"`
+
+	// SID binds the token to a sessions row so revocation can be enforced on
+	// every request. A JWT is otherwise unrevokable until it expires.
+	SID string `json:"sid,omitempty"`
 }
 
 // Sessions is the interface for JWT session management. *SessionManager
@@ -64,6 +68,7 @@ func (s *SessionManager) CreateSession(claims *Claims) (string, error) {
 		Groups:     claims.Groups,
 		ExternalID: claims.ExternalID,
 		Provider:   claims.Provider,
+		SID:        claims.SessionID,
 	})
 
 	signed, err := token.SignedString(s.config.SigningKey)
@@ -100,6 +105,9 @@ func (s *SessionManager) ValidateSession(tokenString string) (*Claims, error) {
 		OrgID:      fc.OrgID,
 		ExternalID: fc.ExternalID,
 		Provider:   fc.Provider,
+		SessionID:  fc.SID,
+		// A browser session authorizes as the human it belongs to.
+		Principal: fc.Email,
 	}
 	if fc.IssuedAt != nil {
 		claims.IssuedAt = fc.IssuedAt.Time

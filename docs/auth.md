@@ -232,9 +232,17 @@ DELETE /auth/sessions/:id — Revoke a specific session
 
 ### Revocation
 
-- **Logout** revokes the session immediately
-- **Short JWT lifetime** (15 min) means revoked sessions expire quickly
+Every access JWT carries a `sid` claim naming its `sessions` row, and the auth
+middleware checks that row on each request. Without that binding a JWT is
+self-validating and therefore unrevokable: logout, OIDC back-channel logout and
+the IdP sync daemon all set `revoked_at`, and the token kept working regardless
+until it expired.
+
+- **Logout** revokes the session; the next request with that token is rejected
+- **Deactivating a user** takes effect on their next request, not at expiry
 - **IdP sync daemon** revokes sessions for deprovisioned users
+- A token issued before `sid` existed is rejected rather than trusted — "no sid"
+  is not evidence of liveness, so such sessions have to sign in once more
 
 ---
 
@@ -274,17 +282,52 @@ When MFA is required by a user's role but not set up:
 
 ### Model
 
-5-field Casbin model: `(subject, workspace, environment, object, action)`
+6-field Casbin model: `(subject, org, workspace, environment, object, action)`
 
-- **Subject:** user email, `team:<slug>`, or `apikey:<id>`
+- **Subject:** the request's *principal* — user email, `team:<slug>`, or
+  `apikey:<id>`. Enforcement uses `Claims.Principal`, never `Claims.Email`: an
+  API key has no email, and checking one against key policies matches nothing.
+- **Org:** the org id the grant belongs to, or `*`. Roles are per-org rows while
+  subjects are bare emails, so without this dimension a grant made in one org
+  authorized the same address in every other one.
 - **Workspace:** specific slug or `*` (all)
 - **Environment:** specific name or `*` (all)
+
+On the request side two values are special:
+
+- `*` means the request is genuinely global (an admin object). Only a
+  platform-wide policy satisfies it — a workspace-scoped grant must not.
+- `~any` (`auth.ScopeAny`) asks "does this subject hold the permission
+  *anywhere*?" It is used by collection routes, which act on no single resource
+  and then filter their rows to `auth.PermittedWorkspaces`. Checking a list
+  against `*` instead made every scope-restricted user 403 on `GET /projects`.
+
+Collection routes (`/projects`, `/runs`, `/gates`, `/search`) are registered
+with `requireAnyScope`, which hands the handler a `WorkspaceScope` **as an
+argument**. That is deliberate: a collection route's authorization is weak by
+design — it establishes only that the caller holds the permission somewhere —
+and the narrowing that makes it safe happens inside the handler. When the
+restriction was an ambient context value it was easy to omit, and omitting it is
+silent: `GET /projects?archived=true` shared the route, skipped the filter, and
+served every workspace's rows. As a parameter it appears in the signature of
+every handler that needs one. Use `scope.Filter(requested)` for the query and
+`scope.Empty(requested)` to short-circuit.
+
+An explicit `?workspace=` intersects with the permitted set — it can narrow,
+never widen. Asking only for a workspace you do not hold returns an empty page
+rather than 403, the same answer any filter gives when it excludes everything.
+
+Admin objects (secret, runner, connection, role, …) are always emitted
+platform-wide within their org, because the resources behind them carry no
+workspace column. A role that combines them with a workspace or environment
+scope is therefore refused at definition time rather than silently granting more
+than it reads as — see `auth.ValidateRoleScope`.
 
 ### System Roles
 
 | Role | Description | Key Permissions |
 |------|-------------|-----------------|
-| `admin` | Full platform access | `*:*` (wildcard), MFA required |
+| `admin` | Full platform access | `*:*` (wildcard) |
 | `developer` | Build + deploy | project read/write, run trigger/cancel |
 | `viewer` | Read-only | project read, run read |
 | `platform-manager` | Admin without CI writes | workspace/team/env manage, audit read |
@@ -373,7 +416,7 @@ Team sync is **additive**, not clean-slate:
 | Rate limiting | DB-backed (5/email/15min, works across replicas) |
 | TOTP | SHA-1, 6 digits, 30s period, 1-step window |
 | Recovery codes | Bcrypt-hashed, single-use |
-| Session revocation | Immediate via DB (next refresh fails within 15 min) |
+| Session revocation | Immediate — the `sid` claim is checked against `sessions` per request |
 | IdP token refresh | Automatic rotation via oauth2.TokenSource |
 | SAML validation | XML signature verification via crewjam/saml |
 | OIDC validation | ID token verification + nonce check via go-oidc |

@@ -590,24 +590,30 @@ SELECT pr.id, pr.status, pr.started_at, pr.finished_at, pr.duration_ms,
        ), '[]')::jsonb AS steps
 FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE ($1::text = '' OR pr.project_id::text = $1)
   AND ($2::text = '' OR pr.status = $2)
+  -- Workspace restriction from RBAC: empty slice = unrestricted. A scope-limited
+  -- caller is authorized for "any workspace they hold" and the row set is then
+  -- narrowed here, so the list matches what they may actually read.
+  AND (cardinality($3::text[]) = 0 OR w.slug = ANY($3::text[]))
   AND (
-    $3::text = ''
+    $4::text = ''
     -- NULLIF(...::text,'') keeps the param TEXT so pgx binds an empty first-page
     -- cursor without trying (and failing) to encode '' as a uuid.
-    OR (pr.started_at, pr.id) < ($3::timestamptz, NULLIF($4::text, '')::uuid)
+    OR (pr.started_at, pr.id) < ($4::timestamptz, NULLIF($5::text, '')::uuid)
   )
 ORDER BY pr.started_at DESC, pr.id DESC
-LIMIT $5
+LIMIT $6
 `
 
 type ListRunsFilteredParams struct {
-	ProjectID string `json:"project_id"`
-	Status    string `json:"status"`
-	CursorTs  string `json:"cursor_ts"`
-	CursorID  string `json:"cursor_id"`
-	Lim       int32  `json:"lim"`
+	ProjectID  string   `json:"project_id"`
+	Status     string   `json:"status"`
+	Workspaces []string `json:"workspaces"`
+	CursorTs   string   `json:"cursor_ts"`
+	CursorID   string   `json:"cursor_id"`
+	Lim        int32    `json:"lim"`
 }
 
 type ListRunsFilteredRow struct {
@@ -638,6 +644,7 @@ func (q *Queries) ListRunsFiltered(ctx context.Context, arg ListRunsFilteredPara
 	rows, err := q.db.Query(ctx, listRunsFiltered,
 		arg.ProjectID,
 		arg.Status,
+		arg.Workspaces,
 		arg.CursorTs,
 		arg.CursorID,
 		arg.Lim,
@@ -804,15 +811,19 @@ SELECT pr.id, pr.status, pr.trigger_ref AS branch, pr.commit_sha,
        p.colour AS project_colour
 FROM pipeline_runs pr
 JOIN projects p ON p.id = pr.project_id
+LEFT JOIN workspaces w ON w.id = p.workspace_id
 WHERE pr.org_id = $1
   AND (pr.trigger_ref ILIKE $2 OR pr.commit_sha ILIKE $2)
+  -- RBAC workspace restriction; empty slice = unrestricted.
+  AND (cardinality($3::text[]) = 0 OR w.slug = ANY($3::text[]))
 ORDER BY pr.started_at DESC
 LIMIT 10
 `
 
 type SearchRunsParams struct {
-	OrgID   string  `json:"org_id"`
-	Pattern *string `json:"pattern"`
+	OrgID      string   `json:"org_id"`
+	Pattern    *string  `json:"pattern"`
+	Workspaces []string `json:"workspaces"`
 }
 
 type SearchRunsRow struct {
@@ -826,7 +837,7 @@ type SearchRunsRow struct {
 
 // Run search by branch / commit SHA for the global ⌘K search.
 func (q *Queries) SearchRuns(ctx context.Context, arg SearchRunsParams) ([]SearchRunsRow, error) {
-	rows, err := q.db.Query(ctx, searchRuns, arg.OrgID, arg.Pattern)
+	rows, err := q.db.Query(ctx, searchRuns, arg.OrgID, arg.Pattern, arg.Workspaces)
 	if err != nil {
 		return nil, err
 	}

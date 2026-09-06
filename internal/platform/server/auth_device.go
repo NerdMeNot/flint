@@ -107,18 +107,14 @@ func (s *Server) CompleteDeviceAuth(ctx context.Context, deviceCode string, clai
 		return fmt.Errorf("sessions not configured")
 	}
 
-	accessToken, err := s.deps.Sessions.CreateSession(claims)
-	if err != nil {
-		return err
-	}
-
-	// Create server-side session with refresh token.
+	// Create server-side session with refresh token first: the access token
+	// embeds the session id as `sid`, which is what makes it revokable.
 	refreshRaw, refreshHash, err := auth.GenerateRefreshToken()
 	if err != nil {
 		return err
 	}
 
-	_, err = s.deps.Q.CreateSession(ctx, db.CreateSessionParams{
+	sessionID, err := s.deps.Q.CreateSession(ctx, db.CreateSessionParams{
 		UserID:           userID,
 		TokenHash:        refreshHash,
 		AbsLifetimeSecs:  30 * 24 * 3600, // 30 days
@@ -126,6 +122,14 @@ func (s *Server) CompleteDeviceAuth(ctx context.Context, deviceCode string, clai
 	})
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
+	}
+
+	claims.SessionID = sessionID
+	claims.Principal = claims.Email
+
+	accessToken, err := s.deps.Sessions.CreateSession(claims)
+	if err != nil {
+		return err
 	}
 
 	uid := userID

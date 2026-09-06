@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/NerdMeNot/flint/internal/core/observe"
 	"github.com/NerdMeNot/flint/internal/platform/auth"
@@ -82,6 +82,16 @@ func (s *Server) authMiddleware() app.HandlerFunc {
 			return
 		}
 
+		// A JWT validates itself, which means it also outlives any attempt to
+		// take it away: logout, OIDC back-channel logout and the IdP sync
+		// daemon all set sessions.revoked_at, and none of it had any effect on
+		// a token already issued. Bind the request to the session row.
+		if err := s.checkSessionLive(ctx, claims); err != nil {
+			apiUnauthorized(ctx, c, err.Error())
+			c.Abort()
+			return
+		}
+
 		ctx = context.WithValue(ctx, authClaimsKey, claims)
 		ctx = observe.WithUserID(ctx, claims.Subject)
 		ctx = observe.WithOrgID(ctx, claims.OrgID)
@@ -90,82 +100,104 @@ func (s *Server) authMiddleware() app.HandlerFunc {
 	}
 }
 
-// validateAPIKey looks up an API key, validates it, and returns claims.
-func (s *Server) validateAPIKey(ctx context.Context, key string) (*auth.Claims, error) {
-	if s.deps.DB == nil {
-		return nil, nil
+// checkSessionLive rejects a token whose session has been revoked or has run
+// past its absolute/idle expiry, or whose owner has been deactivated.
+//
+// Tokens minted before `sid` existed carry no session to check. They are
+// rejected rather than waved through: the whole point of the check is that a
+// token cannot vouch for its own liveness, and "no sid" is not evidence of
+// anything. The cost is that sessions issued before this deploy have to log in
+// again once.
+func (s *Server) checkSessionLive(ctx context.Context, claims *auth.Claims) error {
+	if s.deps.Q == nil {
+		return nil // no store wired (tests, degraded boot) — nothing to check against
+	}
+	if claims.SessionID == "" {
+		return fmt.Errorf("session token predates revocation checking, please sign in again")
 	}
 
-	// Hash the key and look up in api_keys table.
-	keys, err := s.deps.Q.ListValidAPIKeys(ctx)
+	sess, err := s.deps.Q.GetSessionForAuth(ctx, claims.SessionID)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("session no longer exists")
+	}
+	if sess.RevokedAt != nil {
+		return fmt.Errorf("session revoked")
+	}
+	if !sess.IsActive {
+		return fmt.Errorf("account is deactivated")
+	}
+	now := time.Now()
+	if now.After(sess.ExpiresAt) {
+		return fmt.Errorf("session expired")
+	}
+	if now.After(sess.IdleExpiresAt) {
+		return fmt.Errorf("session idle timeout")
+	}
+	return nil
+}
+
+// validateAPIKey looks up an API key, validates it, and returns claims.
+//
+// The key is located by the SHA-256 digest of its raw value. This used to load
+// every live key and bcrypt-compare them one at a time — deliberately-slow
+// hashing repeated per candidate per request, which is both a latency cliff as
+// key count grows and an easy way to burn a server's CPU from unauthenticated
+// requests. API keys are 32 bytes of entropy we generated ourselves, so they
+// need a fast digest and a unique index, not a password KDF.
+func (s *Server) validateAPIKey(ctx context.Context, key string) (*auth.Claims, error) {
+	if s.deps.DB == nil || s.deps.Q == nil {
+		return nil, fmt.Errorf("database not configured")
 	}
 
-	var found bool
-	var keyID, orgID, name string
-	var userID *string
-	for _, k := range keys {
-		if bcrypt.CompareHashAndPassword([]byte(k.KeyHash), []byte(key)) == nil {
-			found = true
-			keyID = k.ID
-			orgID = k.OrgID
-			userID = k.UserID
-			name = k.Name
-			break
-		}
-	}
-
-	if !found {
+	k, err := s.deps.Q.GetAPIKeyByHash(ctx, auth.HashToken(key))
+	if err != nil {
 		return nil, fmt.Errorf("API key not found")
 	}
 
 	// Update last_used_at.
-	_ = s.deps.Q.TouchAPIKey(ctx, keyID)
+	_ = s.deps.Q.TouchAPIKey(ctx, k.ID)
 
 	claims := &auth.Claims{
-		Subject:    name,
-		OrgID:      orgID,
+		Subject:    k.Name,
+		OrgID:      k.OrgID,
 		Provider:   "api_key",
-		ExternalID: keyID,
+		ExternalID: k.ID,
+		// Policies for a key are written against "apikey:<id>"; enforcing on
+		// anything else (Email, which a key does not have) matches nothing and
+		// denies every request the key makes.
+		Principal: auth.APIKeyPrincipal(k.ID),
 	}
-	if userID != nil {
-		claims.Subject = *userID
+	if k.UserID != nil {
+		claims.Subject = *k.UserID
 	}
 
-	// API key authorization is handled by Casbin — policies are generated
-	// from the api_keys table during RegeneratePolicies.
 	return claims, nil
 }
 
 // validatePersonalToken looks up a personal access token, validates the hash,
-// and returns claims as the token's owner. The user's email becomes the Casbin
-// subject — same as a browser session.
+// and returns claims as the token's owner. The user's email becomes the RBAC
+// principal — same as a browser session.
 func (s *Server) validatePersonalToken(ctx context.Context, token string) (*auth.Claims, error) {
-	if s.deps.DB == nil {
+	if s.deps.DB == nil || s.deps.Q == nil {
 		return nil, fmt.Errorf("database not configured")
 	}
 
-	tokens, err := s.deps.Q.ListValidPersonalTokensWithUser(ctx)
+	t, err := s.deps.Q.GetPersonalTokenByHash(ctx, auth.HashToken(token))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("personal token not found or expired")
 	}
 
-	for _, t := range tokens {
-		if bcrypt.CompareHashAndPassword([]byte(t.TokenHash), []byte(token)) == nil {
-			_ = s.deps.Q.TouchPersonalToken(ctx, t.ID) // best-effort last_used_at
-			return &auth.Claims{
-				Subject:    t.UserID,
-				Email:      t.Email,
-				Name:       t.Name,
-				OrgID:      t.OrgID,
-				Provider:   "personal_token",
-				ExternalID: t.ID,
-			}, nil
-		}
-	}
+	_ = s.deps.Q.TouchPersonalToken(ctx, t.ID) // best-effort last_used_at
 
-	return nil, fmt.Errorf("personal token not found or expired")
+	return &auth.Claims{
+		Subject:    t.UserID,
+		Email:      t.Email,
+		Name:       t.Name,
+		OrgID:      t.OrgID,
+		Provider:   "personal_token",
+		ExternalID: t.ID,
+		Principal:  t.Email,
+	}, nil
 }
 
 // requirePermission returns Casbin-backed middleware that checks whether the
@@ -198,13 +230,27 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 			return
 		}
 
+		// Every authenticated path has to name the subject policies are keyed
+		// on. Failing closed and loudly here is what turns "a new auth method
+		// forgot to set Principal" into an obvious error in the logs instead of
+		// a puzzling 403 that looks like a misconfigured role.
+		if claims.Principal == "" {
+			logger := observe.Logger(ctx)
+			logger.Error().Str("provider", claims.Provider).Str("obj", obj).Str("act", act).
+				Msg("authorization: authenticated request has no principal")
+			apiForbidden(ctx, c, "authorization unavailable")
+			c.Abort()
+			return
+		}
+
 		workspace, environment := s.resolveScope(ctx, c, obj)
 
-		allowed, err := s.deps.Enforcer.Enforce(claims.Email, workspace, environment, obj, act)
+		allowed, err := s.deps.Enforcer.Enforce(claims.Principal, claims.OrgID, workspace, environment, obj, act)
 		if err != nil {
 			logger := observe.Logger(ctx)
 			logger.Error().Err(err).
-				Str("user", claims.Email).
+				Str("principal", claims.Principal).
+				Str("org", claims.OrgID).
 				Str("workspace", workspace).
 				Str("environment", environment).
 				Str("obj", obj).
@@ -225,6 +271,141 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 	}
 }
 
+// WorkspaceScope is the RBAC workspace restriction a collection route must
+// apply to its results.
+//
+// It is passed to the handler as an argument rather than left on the context
+// because a collection route's authorization is deliberately weak: it
+// establishes only that the caller holds the permission *somewhere*, and the
+// narrowing that makes it safe happens inside the handler. An ambient context
+// value made that narrowing easy to omit, and omitting it is silent — a
+// forgotten filter looks exactly like an unrestricted user. That is not
+// hypothetical: GET /projects?archived=true shared the /projects route, did not
+// read the context value, and served every workspace's rows to scope-limited
+// callers. As a parameter, the restriction is in the signature of every handler
+// that needs one and cannot be missed by omission.
+type WorkspaceScope struct {
+	// Restricted reports whether any narrowing applies. False means the subject
+	// holds the permission platform-wide and the result set is not filtered.
+	Restricted bool
+	// Slugs is the permitted set; meaningful only when Restricted.
+	Slugs []string
+}
+
+// Filter returns the workspace slugs to pass to a query, given whatever the
+// caller explicitly asked for. The permitted set is a floor: an explicit
+// ?workspace= can narrow it, never reach outside it. An empty result means the
+// caller asked for nothing they are allowed to see.
+func (w WorkspaceScope) Filter(requested []string) []string {
+	if !w.Restricted {
+		return requested
+	}
+	if len(requested) == 0 {
+		return w.Slugs
+	}
+	return intersectSlugs(w.Slugs, requested)
+}
+
+// Empty reports whether the effective filter selects nothing, so the handler
+// can return an empty page instead of running a query that matches everything.
+func (w WorkspaceScope) Empty(requested []string) bool {
+	return w.Restricted && len(w.Filter(requested)) == 0
+}
+
+// scopedListHandler is the signature of a collection route behind
+// requireAnyScope.
+type scopedListHandler func(ctx context.Context, c *app.RequestContext, scope WorkspaceScope)
+
+// requireAnyScope authorizes a collection route and hands the resulting
+// workspace restriction to the handler: it passes when the subject holds
+// (obj, act) in *any* workspace, and the handler narrows its rows to the
+// permitted set.
+//
+// Collection routes act on no single resource, so there is no scope to derive
+// and nothing honest to check them against. Checking them against "*" meant a
+// workspace-scoped user got a 403 from GET /projects; the previous escape hatch
+// was to let them pass ?workspace=, which is attacker-controlled input standing
+// in for an access decision. Authorizing the question that can actually be
+// answered — "anywhere?" — and then filtering is the version that holds.
+func (s *Server) requireAnyScope(obj, act string, handler scopedListHandler) app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		claims := claimsFromCtx(ctx)
+		if claims == nil {
+			apiUnauthorized(ctx, c, "not authenticated")
+			c.Abort()
+			return
+		}
+		if s.deps.Enforcer == nil {
+			logger := observe.Logger(ctx)
+			logger.Error().Str("obj", obj).Str("act", act).
+				Msg("authorization unavailable: no enforcer configured")
+			apiForbidden(ctx, c, "authorization unavailable")
+			c.Abort()
+			return
+		}
+		if claims.Principal == "" {
+			logger := observe.Logger(ctx)
+			logger.Error().Str("provider", claims.Provider).
+				Msg("authorization: authenticated request has no principal")
+			apiForbidden(ctx, c, "authorization unavailable")
+			c.Abort()
+			return
+		}
+
+		allowed, err := s.deps.Enforcer.Enforce(
+			claims.Principal, claims.OrgID, auth.ScopeAny, auth.ScopeAny, obj, act)
+		if err != nil {
+			logger := observe.Logger(ctx)
+			logger.Error().Err(err).
+				Str("principal", claims.Principal).Str("obj", obj).Str("act", act).
+				Msg("casbin enforcement error")
+			apiForbidden(ctx, c, "authorization check failed")
+			c.Abort()
+			return
+		}
+		if !allowed {
+			apiForbidden(ctx, c, "insufficient permissions")
+			c.Abort()
+			return
+		}
+
+		slugs, all, err := auth.PermittedWorkspaces(s.deps.Enforcer, claims.Principal, claims.OrgID, obj, act)
+		if err != nil {
+			logger := observe.Logger(ctx)
+			logger.Error().Err(err).Str("principal", claims.Principal).
+				Msg("resolving permitted workspaces")
+			apiForbidden(ctx, c, "authorization check failed")
+			c.Abort()
+			return
+		}
+
+		scope := WorkspaceScope{Restricted: !all, Slugs: slugs}
+		if !all && len(slugs) == 0 {
+			// Enforce said yes but no workspace carries the grant. Treat that as
+			// a denial rather than an unfiltered list.
+			apiForbidden(ctx, c, "insufficient permissions")
+			c.Abort()
+			return
+		}
+
+		handler(ctx, c, scope)
+	}
+}
+
+func intersectSlugs(a, b []string) []string {
+	set := make(map[string]bool, len(a))
+	for _, s := range a {
+		set[s] = true
+	}
+	var out []string
+	for _, s := range b {
+		if set[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // resolveScope determines the (workspace, environment) the request acts in. These
 // become the ws/env dimensions of the Casbin check, so scope-restricted roles are
 // enforced against the resource the request actually touches. Resolution depends
@@ -235,37 +416,47 @@ func (s *Server) requirePermission(obj, act string) app.HandlerFunc {
 //   - admin objects (team, role, workspace, …): always global — their policies are
 //     platform-wide ("*","*"), which match any ws/env.
 //
-// An explicit ?workspace / ?environment query param overrides — used by list and
-// trigger routes that carry no resource id in the path. "*" means "all" and
+// A ?workspace / ?environment query param is only consulted for a dimension
+// nothing could be derived for — routes that carry no resource id in the path.
+// It must never replace a derived value: the derived value describes the
+// resource the handler is about to act on, while the query param is whatever
+// the caller typed. Letting the caller's value win meant a user scoped to
+// team-a could read a team-b run by appending ?workspace=team-a — the check
+// passed against a workspace the request was not touching. "*" means "all" and
 // matches platform-wide policies.
 func (s *Server) resolveScope(ctx context.Context, c *app.RequestContext, obj string) (workspace, environment string) {
 	workspace, environment = "*", "*"
+	derivedWS, derivedEnv := false, false
 
 	switch obj {
 	case auth.ObjRun, auth.ObjGate:
 		if runID := c.Param("id"); runID != "" && s.deps.Q != nil {
 			if sc, err := s.deps.Q.GetRunScope(ctx, runID); err == nil {
 				if sc.WorkspaceSlug != "" {
-					workspace = sc.WorkspaceSlug
+					workspace, derivedWS = sc.WorkspaceSlug, true
 				}
 				if sc.Environment != "" {
-					environment = sc.Environment
+					environment, derivedEnv = sc.Environment, true
 				}
 			}
 		}
 	case auth.ObjProject:
 		if projectID := c.Param("id"); projectID != "" && s.deps.Q != nil {
 			if slug, err := s.deps.Q.GetProjectWorkspaceSlug(ctx, projectID); err == nil && slug != "" {
-				workspace = slug
+				workspace, derivedWS = slug, true
 			}
 		}
 	}
 
-	if ws := string(c.Query("workspace")); ws != "" {
-		workspace = ws
+	if !derivedWS {
+		if ws := string(c.Query("workspace")); ws != "" {
+			workspace = ws
+		}
 	}
-	if env := string(c.Query("environment")); env != "" {
-		environment = env
+	if !derivedEnv {
+		if env := string(c.Query("environment")); env != "" {
+			environment = env
+		}
 	}
 	return workspace, environment
 }
@@ -299,4 +490,24 @@ const (
 func claimsFromCtx(ctx context.Context) *auth.Claims {
 	claims, _ := ctx.Value(authClaimsKey).(*auth.Claims)
 	return claims
+}
+
+// optionalAuth runs the normal authentication chain when the request carries
+// credentials, and calls through with no claims when it does not.
+//
+// It exists for the MFA enrolment endpoints, which have two legitimate callers:
+// a signed-in user adding a second factor, and a user who cannot sign in *until*
+// they add one. Making auth mandatory there is what created the lockout;
+// dropping it entirely would let anyone reset a stranger's second factor.
+// Neither caller gets in without proving something first — a session, or a
+// short-lived enrolment token minted against a correct password.
+func (s *Server) optionalAuth() app.HandlerFunc {
+	authenticate := s.authMiddleware()
+	return func(ctx context.Context, c *app.RequestContext) {
+		if len(c.GetHeader("Authorization")) == 0 && len(c.GetHeader("X-API-Key")) == 0 {
+			c.Next(ctx)
+			return
+		}
+		authenticate(ctx, c)
+	}
 }
